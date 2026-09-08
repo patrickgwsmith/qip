@@ -1,4 +1,4 @@
-//! Instruction-step debugger for scalar, integer QIP Content components.
+//! Instruction-step debugger for integer and selected SIMD QIP Content components.
 //!
 //! Input is `multipart/form-data`: a required `component` file part contains the
 //! target `application/wasm` module and an optional `input` part contains exact
@@ -864,7 +864,13 @@ fn instructionStyle(op: u8) []const u8 {
 
 fn instructionStyleAt(index: u32) []const u8 {
     if (branchTargetsLoop(index)) return SGR_LOOP_CALL;
-    return instructionStyle(machine.instructions[index].op);
+    const instruction = machine.instructions[index];
+    if (instruction.op == 0xfd) return switch (interpreter.simdSubopcode(instruction)) {
+        0, 93 => SGR_READ,
+        11 => SGR_WRITE,
+        else => SGR_INSTRUCTION,
+    };
+    return instructionStyle(instruction.op);
 }
 
 fn renderOpcodeName(out: *Writer, instruction: interpreter.Instruction, style: []const u8) void {
@@ -915,6 +921,20 @@ fn renderOpcodeName(out: *Writer, instruction: interpreter.Instruction, style: [
             out.text(name[separator..]);
             out.raw(SGR_RESET);
         },
+        0xfd => {
+            const name = interpreter.instructionName(instruction);
+            const separator = std.mem.indexOfScalar(u8, name, '.');
+            if (separator) |at| {
+                out.raw(SGR_INSTRUCTION);
+                out.text(name[0..at]);
+                out.raw(style);
+                out.text(name[at..]);
+                out.raw(SGR_RESET);
+            } else {
+                out.raw(style);
+                out.text(name);
+            }
+        },
         else => {
             out.raw(style);
             out.text(interpreter.opcodeName(instruction.op));
@@ -958,6 +978,13 @@ fn currentStoreTarget() ?interpreter.MemoryEvent {
     if (atHostInputStop()) return null;
     if (machine.current_instruction >= machine.instruction_count) return null;
     const instruction = machine.instructions[machine.current_instruction];
+    if (instruction.op == 0xfd and interpreter.simdSubopcode(instruction) == 11) {
+        if (machine.stack_count < 2 or machine.stack_types[machine.stack_count - 2] != .i32) return null;
+        const address: u32 = @truncate(machine.stack[machine.stack_count - 2]);
+        const effective = @as(u64, address) + interpreter.simdImmediate(instruction);
+        if (effective + 16 > machine.memory_size) return null;
+        return .{ .valid = true, .address = @intCast(effective), .width = 16 };
+    }
     if (instruction.op == 0xfc and (instruction.immediate == 10 or instruction.immediate == 11)) {
         if (machine.stack_count < 3) return null;
         const address_index = machine.stack_count - 3;
@@ -1627,6 +1654,10 @@ fn renderInstructionLine(out: *Writer, index: u32, current: u32, targets: interp
         0x0c, 0x0d, 0x20...0x24, 0x28...0x3e, 0x41, 0x42 => out.print(" {d}", .{instruction.immediate}),
         else => {},
     }
+    if (instruction.op == 0xfd) switch (interpreter.simdSubopcode(instruction)) {
+        0, 11, 93 => out.print(" {d}", .{interpreter.simdImmediate(instruction)}),
+        else => {},
+    };
     if (instruction.op == 0x03) out.print(" iterations={d}", .{machine.loop_counts[index]});
     out.raw(SGR_RESET);
     if (is_current) out.raw(SGR_UNDERLINE);
@@ -1755,7 +1786,7 @@ fn renderIndentedLines(out: *Writer, indent: usize, extra_indent: usize, value: 
 }
 
 const StackPreview = struct {
-    value: u64,
+    value: interpreter.Value,
     value_type: interpreter.ValType,
 };
 
@@ -1765,7 +1796,7 @@ const LocalTransfer = struct {
     kind: TransferKind,
     slot_index: usize,
     stack_index: usize,
-    value: u64,
+    value: interpreter.Value,
     value_type: interpreter.ValType,
 };
 
@@ -1773,7 +1804,7 @@ const GlobalTransfer = struct {
     kind: TransferKind,
     global_index: usize,
     stack_index: usize,
-    value: u64,
+    value: interpreter.Value,
     value_type: interpreter.ValType,
 };
 
@@ -1781,6 +1812,58 @@ const TransferConnector = enum { none, line, source, destination };
 const StackDataflowConnector = enum { first_input, input, instruction, output };
 
 fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
+    if (instruction.op == 0xfd) {
+        const subopcode = interpreter.simdSubopcode(instruction);
+        if (subopcode == 12) {
+            const offset: usize = interpreter.simdImmediate(instruction);
+            if (offset + 16 > machine.module.len) return null;
+            return .{
+                .value = std.mem.readInt(u128, machine.module[offset..][0..16], .little),
+                .value_type = .v128,
+            };
+        }
+        if (subopcode == 0 or subopcode == 93) {
+            if (machine.stack_count < 1 or machine.stack_types[machine.stack_count - 1] != .i32) return null;
+            const address: u32 = @truncate(machine.stack[machine.stack_count - 1]);
+            const effective = @as(u64, address) + interpreter.simdImmediate(instruction);
+            const width: usize = if (subopcode == 0) 16 else 8;
+            if (effective + width > machine.memory_size) return null;
+            const start: usize = @intCast(effective);
+            const value = if (subopcode == 0)
+                std.mem.readInt(u128, machine.memory[start..][0..16], .little)
+            else
+                @as(u128, std.mem.readInt(u64, machine.memory[start..][0..8], .little));
+            return .{ .value = value, .value_type = .v128 };
+        }
+        if (subopcode == 13) {
+            if (machine.stack_count < 2 or
+                machine.stack_types[machine.stack_count - 2] != .v128 or
+                machine.stack_types[machine.stack_count - 1] != .v128)
+                return null;
+            const offset: usize = interpreter.simdImmediate(instruction);
+            if (offset + 16 > machine.module.len) return null;
+            const value = interpreter.i8x16Shuffle(
+                machine.stack[machine.stack_count - 2],
+                machine.stack[machine.stack_count - 1],
+                machine.module[offset..][0..16],
+            ) catch return null;
+            return .{ .value = value, .value_type = .v128 };
+        }
+        if (subopcode == 110) {
+            if (machine.stack_count < 2 or
+                machine.stack_types[machine.stack_count - 2] != .v128 or
+                machine.stack_types[machine.stack_count - 1] != .v128)
+                return null;
+            return .{
+                .value = interpreter.i8x16Add(
+                    machine.stack[machine.stack_count - 2],
+                    machine.stack[machine.stack_count - 1],
+                ),
+                .value_type = .v128,
+            };
+        }
+        return null;
+    }
     if (instruction.op >= 0x41 and instruction.op <= 0x44) {
         return .{
             .value = instruction.immediate,
@@ -1805,7 +1888,7 @@ fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
     if (instruction.op == 0x45 or instruction.op == 0x50) {
         if (machine.stack_count < 1) return null;
         const value = machine.stack[machine.stack_count - 1];
-        const result: u64 = switch (instruction.op) {
+        const result: interpreter.Value = switch (instruction.op) {
             0x45 => @intFromBool(@as(u32, @truncate(value)) == 0),
             0x50 => @intFromBool(value == 0),
             else => unreachable,
@@ -1832,7 +1915,7 @@ fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
     if (machine.stack_count < 2) return null;
     const left = machine.stack[machine.stack_count - 2];
     const right = machine.stack[machine.stack_count - 1];
-    const result: u64 = switch (instruction.op) {
+    const result: interpreter.Value = switch (instruction.op) {
         0x46 => @intFromBool(@as(u32, @truncate(left)) == @as(u32, @truncate(right))),
         0x47 => @intFromBool(@as(u32, @truncate(left)) != @as(u32, @truncate(right))),
         0x48 => @intFromBool(@as(i32, @bitCast(@as(u32, @truncate(left)))) < @as(i32, @bitCast(@as(u32, @truncate(right))))),
@@ -1843,16 +1926,16 @@ fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
         0x4d => @intFromBool(@as(u32, @truncate(left)) <= @as(u32, @truncate(right))),
         0x4e => @intFromBool(@as(i32, @bitCast(@as(u32, @truncate(left)))) >= @as(i32, @bitCast(@as(u32, @truncate(right))))),
         0x4f => @intFromBool(@as(u32, @truncate(left)) >= @as(u32, @truncate(right))),
-        0x51 => @intFromBool(left == right),
-        0x52 => @intFromBool(left != right),
-        0x53 => @intFromBool(@as(i64, @bitCast(left)) < @as(i64, @bitCast(right))),
-        0x54 => @intFromBool(left < right),
-        0x55 => @intFromBool(@as(i64, @bitCast(left)) > @as(i64, @bitCast(right))),
-        0x56 => @intFromBool(left > right),
-        0x57 => @intFromBool(@as(i64, @bitCast(left)) <= @as(i64, @bitCast(right))),
-        0x58 => @intFromBool(left <= right),
-        0x59 => @intFromBool(@as(i64, @bitCast(left)) >= @as(i64, @bitCast(right))),
-        0x5a => @intFromBool(left >= right),
+        0x51 => @intFromBool(@as(u64, @truncate(left)) == @as(u64, @truncate(right))),
+        0x52 => @intFromBool(@as(u64, @truncate(left)) != @as(u64, @truncate(right))),
+        0x53 => @intFromBool(@as(i64, @bitCast(@as(u64, @truncate(left)))) < @as(i64, @bitCast(@as(u64, @truncate(right))))),
+        0x54 => @intFromBool(@as(u64, @truncate(left)) < @as(u64, @truncate(right))),
+        0x55 => @intFromBool(@as(i64, @bitCast(@as(u64, @truncate(left)))) > @as(i64, @bitCast(@as(u64, @truncate(right))))),
+        0x56 => @intFromBool(@as(u64, @truncate(left)) > @as(u64, @truncate(right))),
+        0x57 => @intFromBool(@as(i64, @bitCast(@as(u64, @truncate(left)))) <= @as(i64, @bitCast(@as(u64, @truncate(right))))),
+        0x58 => @intFromBool(@as(u64, @truncate(left)) <= @as(u64, @truncate(right))),
+        0x59 => @intFromBool(@as(i64, @bitCast(@as(u64, @truncate(left)))) >= @as(i64, @bitCast(@as(u64, @truncate(right))))),
+        0x5a => @intFromBool(@as(u64, @truncate(left)) >= @as(u64, @truncate(right))),
         0x6a => @as(u32, @truncate(left)) +% @as(u32, @truncate(right)),
         0x6b => @as(u32, @truncate(left)) -% @as(u32, @truncate(right)),
         0x6c => @as(u32, @truncate(left)) *% @as(u32, @truncate(right)),
@@ -1864,17 +1947,17 @@ fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
         0x76 => @as(u32, @truncate(left)) >> @intCast(right & 31),
         0x77 => std.math.rotl(u32, @truncate(left), @as(u32, @truncate(right))),
         0x78 => std.math.rotr(u32, @truncate(left), @as(u32, @truncate(right))),
-        0x7c => left +% right,
-        0x7d => left -% right,
-        0x7e => left *% right,
-        0x83 => left & right,
-        0x84 => left | right,
-        0x85 => left ^ right,
-        0x86 => left << @intCast(right & 63),
-        0x87 => @bitCast(@as(i64, @bitCast(left)) >> @intCast(right & 63)),
-        0x88 => left >> @intCast(right & 63),
-        0x89 => std.math.rotl(u64, left, right),
-        0x8a => std.math.rotr(u64, left, right),
+        0x7c => @as(u64, @truncate(left)) +% @as(u64, @truncate(right)),
+        0x7d => @as(u64, @truncate(left)) -% @as(u64, @truncate(right)),
+        0x7e => @as(u64, @truncate(left)) *% @as(u64, @truncate(right)),
+        0x83 => @as(u64, @truncate(left)) & @as(u64, @truncate(right)),
+        0x84 => @as(u64, @truncate(left)) | @as(u64, @truncate(right)),
+        0x85 => @as(u64, @truncate(left)) ^ @as(u64, @truncate(right)),
+        0x86 => @as(u64, @truncate(left)) << @intCast(right & 63),
+        0x87 => @as(u64, @bitCast(@as(i64, @bitCast(@as(u64, @truncate(left)))) >> @intCast(right & 63))),
+        0x88 => @as(u64, @truncate(left)) >> @intCast(right & 63),
+        0x89 => std.math.rotl(u64, @truncate(left), @as(u64, @truncate(right))),
+        0x8a => std.math.rotr(u64, @truncate(left), @as(u64, @truncate(right))),
         else => return null,
     };
     const value_type: interpreter.ValType = if (instruction.op <= 0x78) .i32 else .i64;
@@ -1939,7 +2022,7 @@ fn renderCurrentBulkMemoryPreview(out: *Writer, instruction: interpreter.Instruc
     }
 }
 
-fn renderTypedValue(out: *Writer, value_type: interpreter.ValType, value: u64) void {
+fn renderTypedValue(out: *Writer, value_type: interpreter.ValType, value: interpreter.Value) void {
     switch (value_type) {
         .i32, .f32 => {
             out.print("{s} ", .{@tagName(value_type)});
@@ -1947,7 +2030,17 @@ fn renderTypedValue(out: *Writer, value_type: interpreter.ValType, value: u64) v
         },
         .i64, .f64 => {
             out.print("{s} ", .{@tagName(value_type)});
-            renderHex64(out, value);
+            renderHex64(out, @truncate(value));
+        },
+        .v128 => {
+            out.text("v128 ");
+            out.raw(SGR_VALUE);
+            out.print("0x{x:0>16}", .{@as(u64, @truncate(value >> 64))});
+            out.raw(SGR_RESET);
+            out.text("\n      ");
+            out.raw(SGR_VALUE);
+            out.print("0x{x:0>16}", .{@as(u64, @truncate(value))});
+            out.raw(SGR_RESET);
         },
     }
 }
@@ -2145,7 +2238,11 @@ fn renderStacks(out: *Writer) void {
                 out.print("stack[{d}] {s} ", .{ i, @tagName(machine.stack_types[i]) });
                 switch (machine.stack_types[i]) {
                     .i32, .f32 => out.print("0x{x:0>8}", .{@as(u32, @truncate(machine.stack[i]))}),
-                    .i64, .f64 => out.print("0x{x:0>16}", .{machine.stack[i]}),
+                    .i64, .f64 => out.print("0x{x:0>16}", .{@as(u64, @truncate(machine.stack[i]))}),
+                    .v128 => out.print("0x{x:0>16}\n              0x{x:0>16}", .{
+                        @as(u64, @truncate(machine.stack[i] >> 64)),
+                        @as(u64, @truncate(machine.stack[i])),
+                    }),
                 }
                 out.raw(SGR_RESET);
             } else {
@@ -2232,10 +2329,19 @@ fn renderGlobals(out: *Writer) void {
         if (highlight_style) |style| out.raw(style);
         out.print("global[{d}] ", .{index});
         if (highlight_style != null) {
-            out.print("0x{x:0>16}", .{global.value});
+            if (global.value_type == .v128)
+                out.print("v128 0x{x:0>16}\n               0x{x:0>16}", .{
+                    @as(u64, @truncate(global.value >> 64)),
+                    @as(u64, @truncate(global.value)),
+                })
+            else
+                out.print("0x{x:0>16}", .{@as(u64, @truncate(global.value))});
             out.raw(SGR_RESET);
         } else {
-            renderHex64(out, global.value);
+            if (global.value_type == .v128)
+                renderTypedValue(out, global.value_type, global.value)
+            else
+                renderHex64(out, @truncate(global.value));
         }
         out.text("\n");
         if (transfer) |active_transfer| {
@@ -2371,7 +2477,7 @@ fn recentLocalWriteTarget(frame_index: usize) ?usize {
 fn renderValueSlots(
     out: *Writer,
     label: []const u8,
-    values: []const u64,
+    values: []const interpreter.Value,
     read_target: ?usize,
     write_target: ?usize,
     transfer: ?LocalTransfer,
@@ -2413,11 +2519,21 @@ fn renderValueSlots(
             out.text("    ");
         if (style) |active_style| out.raw(active_style);
         out.print("{s}[{d}] ", .{ label, index });
+        const value_type = machine.local_types[machine.frames[machine.frame_count - 1].locals_base + slot_offset + index];
         if (style != null) {
-            out.print("0x{x:0>16}", .{value});
+            if (value_type == .v128)
+                out.print("v128 0x{x:0>16}\n               0x{x:0>16}", .{
+                    @as(u64, @truncate(value >> 64)),
+                    @as(u64, @truncate(value)),
+                })
+            else
+                out.print("0x{x:0>16}", .{@as(u64, @truncate(value))});
             out.raw(SGR_RESET);
         } else {
-            renderHex64(out, value);
+            if (value_type == .v128)
+                renderTypedValue(out, value_type, value)
+            else
+                renderHex64(out, @truncate(value));
         }
         out.text("\n");
         if (transfer) |active_transfer| {
@@ -2439,7 +2555,7 @@ fn renderValueSlots(
     }
 }
 
-fn renderNextStorageValue(out: *Writer, label: []const u8, index: usize, value_type: interpreter.ValType, value: u64) void {
+fn renderNextStorageValue(out: *Writer, label: []const u8, index: usize, value_type: interpreter.ValType, value: interpreter.Value) void {
     out.raw(SGR_WRITE);
     out.print("next {s}[{d}] ", .{ label, index });
     renderTypedValue(out, value_type, value);
@@ -2912,18 +3028,18 @@ test "steps a render function and counts a loop" {
     const signature = machine.functionSignature(0).?;
     try std.testing.expectEqualSlices(interpreter.ValType, &.{.i32}, signature.parameters);
     try std.testing.expectEqual(interpreter.ValType.i64, signature.result.?);
-    try std.testing.expectEqualSlices(u64, &.{0}, machine.frameParameters(0));
-    try std.testing.expectEqualSlices(u64, &.{0}, machine.frameDefinedLocals(0));
+    try std.testing.expectEqualSlices(interpreter.Value, &.{0}, machine.frameParameters(0));
+    try std.testing.expectEqualSlices(interpreter.Value, &.{0}, machine.frameDefinedLocals(0));
     const initial_screen = output_buf[0..renderText()];
     try std.testing.expect(std.mem.indexOf(u8, initial_screen, "loop iterations=0") != null);
     try std.testing.expect(std.mem.indexOf(u8, initial_screen, "[LOOP]") == null);
     try std.testing.expect(std.mem.indexOf(u8, initial_screen, "loop   iterations=") == null);
     for (0..7) |_| _ = machine.step();
-    try std.testing.expectEqualSlices(u64, &.{1}, machine.frameDefinedLocals(0));
+    try std.testing.expectEqualSlices(interpreter.Value, &.{1}, machine.frameDefinedLocals(0));
     _ = machine.step();
     const comparison = currentStackPreview(machine.instructions[machine.current_instruction]).?;
     try std.testing.expectEqual(interpreter.ValType.i32, comparison.value_type);
-    try std.testing.expectEqual(@as(u64, 1), comparison.value);
+    try std.testing.expectEqual(@as(interpreter.Value, 1), comparison.value);
     const comparison_screen = output_buf[0..renderText()];
     try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "i32.lt_u") != null);
     try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "i32 \x1b[94m0x00000001\x1b[0m") != null);

@@ -15,6 +15,9 @@ const qrPath = fileURLToPath(new URL("../components/text/uri-list/url-to-qr-svg.
 const qipToZigPath = fileURLToPath(new URL("../components/application/wasm/qip-component-to-zig.wasm", import.meta.url));
 const bulkMemoryPath = fileURLToPath(new URL("./fixtures/wasm-debugger-bulk-memory.wasm", import.meta.url));
 const callIndirectPath = fileURLToPath(new URL("./fixtures/wasm-debugger-call-indirect.wasm", import.meta.url));
+const bmpDoubleSIMDPath = fileURLToPath(new URL("../components/image/bmp/bmp-double-simd.wasm", import.meta.url));
+const pngToBMPSIMDPath = fileURLToPath(new URL("../components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm", import.meta.url));
+const qipLogoPNGPath = fileURLToPath(new URL("../qip-logo.png", import.meta.url));
 const stripAnsiPath = fileURLToPath(new URL("../components/text/strip-ansi-sgr.wasm", import.meta.url));
 const ansiHTMLPath = fileURLToPath(new URL("../components/text/ansi-sgr-to-html.wasm", import.meta.url));
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -86,6 +89,21 @@ function executionRowCount(text) {
   return text.split("\n").filter((line) => (
     /^[=>rnf↑↓ ]{3}f\d+ 0x[0-9a-f]+/.test(line) || /^(?:=> | {3})host (?:wrote|passed)/.test(line)
   )).length;
+}
+
+function bmp32(width, height, pixels) {
+  const bytes = Buffer.alloc(54 + pixels.length);
+  bytes.write("BM", 0, "ascii");
+  bytes.writeUInt32LE(bytes.length, 2);
+  bytes.writeUInt32LE(54, 10);
+  bytes.writeUInt32LE(40, 14);
+  bytes.writeInt32LE(width, 18);
+  bytes.writeInt32LE(height, 22);
+  bytes.writeUInt16LE(1, 26);
+  bytes.writeUInt16LE(32, 28);
+  bytes.writeUInt32LE(pixels.length, 34);
+  Buffer.from(pixels).copy(bytes, 54);
+  return bytes;
 }
 
 test("interactive Wasm debugger fits its terminal viewport", async () => {
@@ -218,6 +236,76 @@ test("table-using repository components match native Wasm SHA-256 output", async
       assert.match(counters, /TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5/);
     }
   }
+});
+
+test("SIMD component matches native Wasm SHA-256 output", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(bmpDoubleSIMDPath),
+  ]);
+  const input = bmp32(2, 1, [0x10, 0x20, 0x30, 0xff, 0x40, 0x50, 0x60, 0xff]);
+  const nativeTarget = (await WebAssembly.instantiate(targetBytes, {})).instance;
+  new Uint8Array(nativeTarget.exports.memory.buffer, nativeTarget.exports.input_ptr(), input.length).set(input);
+  const nativeResult = BigInt.asUintN(64, nativeTarget.exports.render(input.length));
+  const nativeSize = Number(nativeResult & 0xffff_ffffn);
+  const nativePointer = Number((nativeResult >> 32n) & 0x7fff_ffffn);
+  const expectedDigest = createHash("sha256").update(new Uint8Array(
+    nativeTarget.exports.memory.buffer,
+    nativePointer,
+    nativeSize,
+  )).digest("hex");
+
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes], ["input", input]]);
+  const inputPointer = instance.exports.input_ptr();
+  new Uint8Array(instance.exports.memory.buffer, inputPointer, debuggerInput.length).set(debuggerInput);
+  assert.doesNotMatch(renderedText(instance, debuggerInput.length), /INPUT  rejected/);
+
+  let simdScreen = "";
+  let time = 2n;
+  for (; time < 5_000n; time++) {
+    simdScreen = renderedText(instance, 0);
+    if (/^=> .* v128\.load64_zero 0/m.test(simdScreen)) break;
+    sendKey(instance, time, 0x73); // s
+  }
+  assert.match(simdScreen, /^=> .* v128\.load64_zero 0/m);
+  assert.match(simdScreen, /next stack\[\d+\] v128 0x0000000000000000\n[^\n]*0xff605040ff302010/);
+
+  sendKeyWithBudget(instance, time + 1n, 0x63, 1_000_000);
+  const completed = renderedText(instance, 0);
+  assert.match(completed, /INSTRUCTIONS  r restart/);
+  assert.match(completed, /OUTPUT succeeded size=86/);
+  assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
+});
+
+test("SIMD PNG component matches native Wasm SHA-256 output", async () => {
+  const [debuggerBytes, targetBytes, input] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(pngToBMPSIMDPath),
+    readFile(qipLogoPNGPath),
+  ]);
+  const nativeTarget = (await WebAssembly.instantiate(targetBytes, {})).instance;
+  new Uint8Array(nativeTarget.exports.memory.buffer, nativeTarget.exports.input_ptr(), input.length).set(input);
+  const nativeResult = BigInt.asUintN(64, nativeTarget.exports.render(input.length));
+  const nativeSize = Number(nativeResult & 0xffff_ffffn);
+  const nativePointer = Number((nativeResult >> 32n) & 0x7fff_ffffn);
+  const expectedDigest = createHash("sha256").update(new Uint8Array(
+    nativeTarget.exports.memory.buffer,
+    nativePointer,
+    nativeSize,
+  )).digest("hex");
+
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes], ["input", input]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  let completed = renderedText(instance, debuggerInput.length);
+  assert.doesNotMatch(completed, /INPUT  rejected/);
+  for (let command = 0; command < 20 && !completed.includes("INSTRUCTIONS  r restart"); command++) {
+    sendKeyWithBudget(instance, BigInt(command + 2), 0x63, 1_000_000);
+    completed = renderedText(instance, 0);
+  }
+  assert.match(completed, /INSTRUCTIONS  r restart/);
+  assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
 });
 
 test("steps through a typed table dispatch and retains it across restart", async () => {

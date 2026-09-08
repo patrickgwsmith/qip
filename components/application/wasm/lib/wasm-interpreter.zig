@@ -1,10 +1,10 @@
 //! Deterministic, instruction-stepped interpreter for a small QIP Wasm profile.
 //!
-//! The first profile is deliberately scalar. It accepts one
-//! fixed wasm32 memory, no imports, direct calls, one fixed `funcref` table,
+//! The initial profile accepts one fixed wasm32 memory, no imports, direct
+//! calls, one fixed `funcref` table,
 //! active function-index element segments, `call_indirect`, structured control
 //! flow, active data segments, numeric locals and globals, scalar loads/stores,
-//! and `memory.copy`/`memory.fill`.
+//! `memory.copy`/`memory.fill`, and a deliberately small SIMD subset.
 //! Integer execution is substantially complete; unsupported floating-point
 //! operations trap after their operands and types have been decoded.
 //! A caller supplies the module bytes and asks the machine to enter the
@@ -14,7 +14,7 @@
 const std = @import("std");
 
 pub const MAX_MODULE_BYTES: usize = 1024 * 1024;
-pub const MAX_TARGET_MEMORY_BYTES: usize = 128 * 1024 * 1024;
+pub const MAX_TARGET_MEMORY_BYTES: usize = 192 * 1024 * 1024;
 pub const WASM_PAGE_BYTES: usize = 65536;
 pub const MAX_TARGET_MEMORY_PAGES: usize = MAX_TARGET_MEMORY_BYTES / WASM_PAGE_BYTES;
 const MEMORY_PAGE_WORD_BITS: usize = @bitSizeOf(u64);
@@ -109,7 +109,12 @@ pub const ValType = enum(u8) {
     i64 = 0x7e,
     f32 = 0x7d,
     f64 = 0x7c,
+    v128 = 0x7b,
 };
+
+/// Raw bits for every numeric WebAssembly value. Scalar values occupy the low
+/// 32 or 64 bits; v128 values use all 128 bits.
+pub const Value = u128;
 
 const FuncType = struct {
     params: u16,
@@ -137,8 +142,8 @@ const Function = struct {
 };
 
 const Global = struct {
-    initial: u64,
-    value: u64,
+    initial: Value,
+    value: Value,
     value_type: ValType,
     mutable: bool,
 };
@@ -161,6 +166,7 @@ pub const Instruction = struct {
     function_index: u32,
     byte_offset: u32,
     immediate: u64 = 0,
+    immediate2: u32 = 0,
     result_arity: u1 = 0,
     match: u32 = NO_INSTRUCTION,
     else_instruction: u32 = NO_INSTRUCTION,
@@ -300,10 +306,10 @@ pub const Machine = struct {
     memory_initialized: bool = false,
     memory_size: usize = 0,
     memory_pages: u32 = 0,
-    stack: [MAX_VALUES]u64 = undefined,
+    stack: [MAX_VALUES]Value = undefined,
     stack_types: [MAX_VALUES]ValType = undefined,
     stack_count: usize = 0,
-    locals: [MAX_LOCALS]u64 = undefined,
+    locals: [MAX_LOCALS]Value = undefined,
     local_types: [MAX_LOCALS]ValType = undefined,
     locals_count: usize = 0,
     function_local_types: [MAX_LOCAL_TYPES]ValType = undefined,
@@ -399,7 +405,7 @@ pub const Machine = struct {
         self.last_access_kind = .none;
         self.last_read_access = .{};
         self.last_write_access = .{};
-        try self.enterFunction(self.render_function, 0, &.{@as(u64, self.target_input.len)});
+        try self.enterFunction(self.render_function, 0, &.{@as(Value, self.target_input.len)});
     }
 
     fn resetMemory(self: *Machine) void {
@@ -519,6 +525,11 @@ pub const Machine = struct {
             0x1b => 3, // select: two choices and a condition
             0xfc => switch (instruction.immediate) {
                 10, 11 => 3, // memory.copy/fill
+                else => 0,
+            },
+            0xfd => switch (simdSubopcode(instruction)) {
+                0, 93 => 1, // v128.load, v128.load64_zero
+                11, 13, 110 => 2, // v128.store, i8x16.shuffle, i8x16.add
                 else => 0,
             },
             0x0b => if (self.control_count == 0) 0 else self.controls[self.control_count - 1].result_arity,
@@ -657,7 +668,7 @@ pub const Machine = struct {
         return self.staticCapacity("output_utf8_cap", "output_bytes_cap");
     }
 
-    pub fn frameParameters(self: *const Machine, frame_index: usize) []const u64 {
+    pub fn frameParameters(self: *const Machine, frame_index: usize) []const Value {
         if (frame_index >= self.frame_count) return &.{};
         const frame = self.frames[frame_index];
         const function = self.functions[frame.function_index];
@@ -666,7 +677,7 @@ pub const Machine = struct {
         return self.locals[start .. start + parameter_count];
     }
 
-    pub fn frameDefinedLocals(self: *const Machine, frame_index: usize) []const u64 {
+    pub fn frameDefinedLocals(self: *const Machine, frame_index: usize) []const Value {
         if (frame_index >= self.frame_count) return &.{};
         const frame = self.frames[frame_index];
         const function = self.functions[frame.function_index];
@@ -866,11 +877,15 @@ pub const Machine = struct {
                 else => return Error.InvalidType,
             };
             const op = try reader.byte();
-            const value: u64 = switch (op) {
+            const value: Value = switch (op) {
                 0x41 => @as(u32, @bitCast(try reader.s32())),
-                0x42 => @bitCast(try reader.s64()),
+                0x42 => @as(u64, @bitCast(try reader.s64())),
                 0x43 => try readFixedU32(reader),
                 0x44 => try readFixedU64(reader),
+                0xfd => blk: {
+                    if (try reader.varU32() != 12) return Error.UnsupportedFeature;
+                    break :blk try readFixedU128(reader);
+                },
                 else => return Error.UnsupportedFeature,
             };
             if (try reader.byte() != 0x0b) return Error.InvalidSection;
@@ -1026,6 +1041,31 @@ pub const Machine = struct {
                         else => return Error.UnsupportedFeature,
                     }
                 },
+                0xfd => {
+                    const subopcode = try reader.varU32();
+                    instruction.immediate = subopcode;
+                    switch (subopcode) {
+                        0...11, 92, 93 => {
+                            _ = try reader.varU32(); // alignment hint
+                            const offset = try reader.varU32();
+                            instruction.immediate |= @as(u64, offset) << 32;
+                        },
+                        12, 13 => {
+                            const bytes_offset = reader.absoluteOffset();
+                            _ = try reader.bytes(16);
+                            instruction.immediate |= @as(u64, bytes_offset) << 32;
+                        },
+                        21...34 => instruction.immediate2 = try reader.byte(),
+                        84...91 => {
+                            _ = try reader.varU32(); // alignment hint
+                            const offset = try reader.varU32();
+                            instruction.immediate |= @as(u64, offset) << 32;
+                            instruction.immediate2 = try reader.byte();
+                        },
+                        14...20, 35...83, 94...255 => {},
+                        else => return Error.UnsupportedFeature,
+                    }
+                },
                 else => return Error.UnsupportedFeature,
             }
         }
@@ -1111,7 +1151,7 @@ pub const Machine = struct {
         return utf8_capacity orelse bytes_capacity;
     }
 
-    fn enterFunction(self: *Machine, function_index: u32, return_instruction: u32, arguments: []const u64) Error!void {
+    fn enterFunction(self: *Machine, function_index: u32, return_instruction: u32, arguments: []const Value) Error!void {
         if (function_index >= self.function_count) return Error.InvalidIndex;
         if (self.frame_count >= MAX_FRAMES) return Error.CallDepthExceeded;
         const function = self.functions[function_index];
@@ -1172,7 +1212,7 @@ pub const Machine = struct {
         if (function_index >= self.function_count) return Error.InvalidIndex;
         const ft = self.types[self.functions[function_index].type_index];
         if (self.stack_count < ft.params) return Error.StackUnderflow;
-        var arguments: [MAX_FUNCTION_PARAMETERS]u64 = undefined;
+        var arguments: [MAX_FUNCTION_PARAMETERS]Value = undefined;
         const start = self.stack_count - ft.params;
         @memcpy(arguments[0..ft.params], self.stack[start..self.stack_count]);
         self.stack_count = start;
@@ -1180,20 +1220,24 @@ pub const Machine = struct {
         try self.enterFunction(function_index, return_instruction, arguments[0..ft.params]);
     }
 
-    fn push(self: *Machine, value: u64, value_type: ValType) Error!void {
+    fn push(self: *Machine, value: Value, value_type: ValType) Error!void {
         if (self.stack_count >= MAX_VALUES) return Error.StackOverflow;
         self.stack[self.stack_count] = value;
         self.stack_types[self.stack_count] = value_type;
         self.stack_count += 1;
     }
 
-    fn pop(self: *Machine) Error!u64 {
+    fn pop(self: *Machine) Error!Value {
         if (self.stack_count == 0) return Error.StackUnderflow;
         self.stack_count -= 1;
         return self.stack[self.stack_count];
     }
 
     fn pop32(self: *Machine) Error!u32 {
+        return @truncate(try self.pop());
+    }
+
+    fn pop64(self: *Machine) Error!u64 {
         return @truncate(try self.pop());
     }
 
@@ -1224,7 +1268,7 @@ pub const Machine = struct {
         self.frame_count -= 1;
         self.counters.returns += 1;
         if (self.frame_count == 0) {
-            self.result = value;
+            self.result = @truncate(value);
             self.current_instruction = NO_INSTRUCTION;
             self.status = .halted;
             return;
@@ -1277,6 +1321,18 @@ pub const Machine = struct {
         return value;
     }
 
+    fn readMemory128(self: *Machine, address: u32, offset: u32) Error!u128 {
+        const effective = @as(u64, address) + offset;
+        if (effective + 16 > self.memory_size) return self.trapWith(.out_of_bounds_memory);
+        self.counters.memory_reads += 1;
+        self.last_access = .{ .valid = true, .address = @intCast(effective), .width = 16 };
+        self.last_read_access = self.last_access;
+        self.last_access_kind = .read;
+        markMemoryPages(&self.memory_pages_read, @intCast(effective), 16);
+        const start: usize = @intCast(effective);
+        return std.mem.readInt(u128, self.memory[start..][0..16], .little);
+    }
+
     fn writeMemory(self: *Machine, address: u32, offset: u64, width: u8, value: u64) Error!void {
         const effective = @as(u64, address) + offset;
         if (effective + width > self.memory_size) return self.trapWith(.out_of_bounds_memory);
@@ -1290,6 +1346,18 @@ pub const Machine = struct {
             self.memory[byte_address] = @truncate(value >> @intCast(i * 8));
         }
         self.markMemoryWritten(@intCast(effective), width);
+    }
+
+    fn writeMemory128(self: *Machine, address: u32, offset: u32, value: u128) Error!void {
+        const effective = @as(u64, address) + offset;
+        if (effective + 16 > self.memory_size) return self.trapWith(.out_of_bounds_memory);
+        self.counters.memory_writes += 1;
+        self.last_access = .{ .valid = true, .address = @intCast(effective), .width = 16 };
+        self.last_write_access = self.last_access;
+        self.last_access_kind = .write;
+        const start: usize = @intCast(effective);
+        std.mem.writeInt(u128, self.memory[start..][0..16], value, .little);
+        self.markMemoryWritten(start, 16);
     }
 
     fn markMemoryPages(pages: *[MEMORY_PAGE_WORDS]u64, start: usize, length: usize) void {
@@ -1380,8 +1448,8 @@ pub const Machine = struct {
     }
 
     fn binary64(self: *Machine, result_type: ValType, comptime operation: anytype) Error!void {
-        const right = try self.pop();
-        const left = try self.pop();
+        const right = try self.pop64();
+        const left = try self.pop64();
         try self.push(operation(left, right), result_type);
     }
 
@@ -1552,7 +1620,7 @@ pub const Machine = struct {
                     return @intFromBool(a >= b);
                 }
             }.f),
-            0x50 => try self.push(@intFromBool((try self.pop()) == 0), .i32),
+            0x50 => try self.push(@intFromBool((try self.pop64()) == 0), .i32),
             0x51 => try self.binary64(.i32, struct {
                 fn f(a: u64, b: u64) u64 {
                     return @intFromBool(a == b);
@@ -1662,9 +1730,9 @@ pub const Machine = struct {
                     return std.math.rotr(u32, a, b);
                 }
             }.f),
-            0x79 => try self.push(@clz(try self.pop()), .i64),
-            0x7a => try self.push(@ctz(try self.pop()), .i64),
-            0x7b => try self.push(@popCount(try self.pop()), .i64),
+            0x79 => try self.push(@clz(try self.pop64()), .i64),
+            0x7a => try self.push(@ctz(try self.pop64()), .i64),
+            0x7b => try self.push(@popCount(try self.pop64()), .i64),
             0x7c => try self.binary64(.i64, struct {
                 fn f(a: u64, b: u64) u64 {
                     return a +% b;
@@ -1722,18 +1790,19 @@ pub const Machine = struct {
                 }
             }.f),
             0xa7 => try self.push(@as(u32, @truncate(try self.pop())), .i32),
-            0xac => try self.push(@bitCast(@as(i64, @as(i32, @bitCast(try self.pop32())))), .i64),
+            0xac => try self.push(@as(u64, @bitCast(@as(i64, @as(i32, @bitCast(try self.pop32()))))), .i64),
             0xad => try self.push(try self.pop32(), .i64),
             0xc0 => try self.push(signExtend8To32(try self.pop32()), .i32),
             0xc1 => try self.push(signExtend16To32(try self.pop32()), .i32),
-            0xc2 => try self.push(signExtend8To64(try self.pop()), .i64),
-            0xc3 => try self.push(signExtend16To64(try self.pop()), .i64),
-            0xc4 => try self.push(signExtend32To64(try self.pop()), .i64),
+            0xc2 => try self.push(signExtend8To64(try self.pop64()), .i64),
+            0xc3 => try self.push(signExtend16To64(try self.pop64()), .i64),
+            0xc4 => try self.push(signExtend32To64(try self.pop64()), .i64),
             0xfc => switch (instruction.immediate) {
                 10 => try self.executeMemoryCopy(),
                 11 => try self.executeMemoryFill(),
                 else => return self.trapWith(.unsupported_instruction),
             },
+            0xfd => try self.executeSIMD(instruction),
             else => return self.trapWith(.unsupported_instruction),
         }
         self.current_instruction = next;
@@ -1768,7 +1837,7 @@ pub const Machine = struct {
     }
 
     fn executeStore(self: *Machine, instruction: Instruction) Error!void {
-        const value = try self.pop();
+        const value: u64 = @truncate(try self.pop());
         const address = try self.pop32();
         const width: u8 = switch (instruction.op) {
             0x36, 0x38 => 4,
@@ -1779,6 +1848,43 @@ pub const Machine = struct {
             else => unreachable,
         };
         try self.writeMemory(address, instruction.immediate, width, value);
+    }
+
+    fn executeSIMD(self: *Machine, instruction: Instruction) Error!void {
+        const subopcode = simdSubopcode(instruction);
+        switch (subopcode) {
+            0 => { // v128.load
+                const address = try self.pop32();
+                try self.push(try self.readMemory128(address, simdImmediate(instruction)), .v128);
+            },
+            11 => { // v128.store
+                const value = try self.pop();
+                const address = try self.pop32();
+                try self.writeMemory128(address, simdImmediate(instruction), value);
+            },
+            12 => { // v128.const
+                const offset: usize = simdImmediate(instruction);
+                if (offset + 16 > self.module.len) return Error.InvalidSection;
+                try self.push(std.mem.readInt(u128, self.module[offset..][0..16], .little), .v128);
+            },
+            13 => { // i8x16.shuffle
+                const right = try self.pop();
+                const left = try self.pop();
+                const offset: usize = simdImmediate(instruction);
+                if (offset + 16 > self.module.len) return Error.InvalidSection;
+                try self.push(try i8x16Shuffle(left, right, self.module[offset..][0..16]), .v128);
+            },
+            93 => { // v128.load64_zero
+                const address = try self.pop32();
+                try self.push(try self.readMemory(address, simdImmediate(instruction), 8), .v128);
+            },
+            110 => { // i8x16.add
+                const right = try self.pop();
+                const left = try self.pop();
+                try self.push(i8x16Add(left, right), .v128);
+            },
+            else => return self.trapWith(.unsupported_instruction),
+        }
     }
 
     fn executeDivision32(self: *Machine, op: u8) Error!void {
@@ -1805,8 +1911,8 @@ pub const Machine = struct {
     }
 
     fn executeDivision64(self: *Machine, op: u8) Error!void {
-        const right = try self.pop();
-        const left = try self.pop();
+        const right = try self.pop64();
+        const left = try self.pop64();
         if (right == 0) return self.trapWith(.divide_by_zero);
         const value: u64 = switch (op) {
             0x7f => blk: {
@@ -1827,6 +1933,30 @@ pub const Machine = struct {
         try self.push(value, .i64);
     }
 };
+
+pub fn i8x16Shuffle(left: u128, right: u128, lanes: []const u8) Error!u128 {
+    if (lanes.len != 16) return Error.InvalidSection;
+    var result: u128 = 0;
+    for (lanes, 0..) |lane, destination| {
+        if (lane >= 32) return Error.InvalidSection;
+        const source = if (lane < 16) left else right;
+        const source_lane: u7 = @intCast(lane & 15);
+        const byte: u8 = @truncate(source >> @intCast(source_lane * 8));
+        result |= @as(u128, byte) << @intCast(destination * 8);
+    }
+    return result;
+}
+
+pub fn i8x16Add(left: u128, right: u128) u128 {
+    var result: u128 = 0;
+    for (0..16) |lane| {
+        const shift: u7 = @intCast(lane * 8);
+        const left_byte: u8 = @truncate(left >> shift);
+        const right_byte: u8 = @truncate(right >> shift);
+        result |= @as(u128, left_byte +% right_byte) << shift;
+    }
+    return result;
+}
 
 fn signExtend8To32(value: u32) u32 {
     const narrowed: i8 = @bitCast(@as(u8, @truncate(value)));
@@ -1859,8 +1989,17 @@ fn valueType(byte: u8) Error!ValType {
         0x7e => .i64,
         0x7d => .f32,
         0x7c => .f64,
+        0x7b => .v128,
         else => Error.UnsupportedFeature,
     };
+}
+
+pub fn simdSubopcode(instruction: Instruction) u32 {
+    return @truncate(instruction.immediate);
+}
+
+pub fn simdImmediate(instruction: Instruction) u32 {
+    return @truncate(instruction.immediate >> 32);
 }
 
 pub fn indirectTypeIndex(instruction: Instruction) u32 {
@@ -1878,7 +2017,7 @@ fn isCallInstruction(op: u8) bool {
 fn blockArity(reader: *Reader) Error!u1 {
     return switch (try reader.byte()) {
         0x40 => 0,
-        0x7f, 0x7e, 0x7d, 0x7c => 1,
+        0x7f, 0x7e, 0x7d, 0x7c, 0x7b => 1,
         else => Error.UnsupportedFeature,
     };
 }
@@ -1891,6 +2030,11 @@ fn readFixedU32(reader: *Reader) Error!u32 {
 fn readFixedU64(reader: *Reader) Error!u64 {
     const bytes = try reader.bytes(8);
     return std.mem.readInt(u64, bytes[0..8], .little);
+}
+
+fn readFixedU128(reader: *Reader) Error!u128 {
+    const bytes = try reader.bytes(16);
+    return std.mem.readInt(u128, bytes[0..16], .little);
 }
 
 pub fn opcodeName(op: u8) []const u8 {
@@ -2019,6 +2163,15 @@ pub fn instructionName(instruction: Instruction) []const u8 {
         11 => "memory.fill",
         else => "unsupported",
     };
+    if (instruction.op == 0xfd) return switch (simdSubopcode(instruction)) {
+        0 => "v128.load",
+        11 => "v128.store",
+        12 => "v128.const",
+        13 => "i8x16.shuffle",
+        93 => "v128.load64_zero",
+        110 => "i8x16.add",
+        else => "simd.unsupported",
+    };
     return opcodeName(instruction.op);
 }
 
@@ -2047,12 +2200,44 @@ test "operand stack retains every numeric value type" {
     try machine.push(2, .i64);
     try machine.push(3, .f32);
     try machine.push(4, .f64);
+    try machine.push(5, .v128);
 
     try std.testing.expectEqualSlices(
         ValType,
-        &.{ .i32, .i64, .f32, .f64 },
+        &.{ .i32, .i64, .f32, .f64, .v128 },
         machine.stack_types[0..machine.stack_count],
     );
+}
+
+test "i8x16 shuffle selects bytes from both vectors" {
+    const left = std.mem.readInt(u128, &[_]u8{
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    }, .little);
+    const right = std.mem.readInt(u128, &[_]u8{
+        16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
+    }, .little);
+    const result = try i8x16Shuffle(left, right, &[_]u8{
+        31, 0, 16, 15, 30, 1, 17, 14, 29, 2, 18, 13, 28, 3, 19, 12,
+    });
+    var bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &bytes, result, .little);
+    try std.testing.expectEqualSlices(u8, &.{
+        31, 0, 16, 15, 30, 1, 17, 14, 29, 2, 18, 13, 28, 3, 19, 12,
+    }, &bytes);
+}
+
+test "i8x16 add wraps each byte independently" {
+    const left = std.mem.readInt(u128, &[_]u8{
+        255, 1, 128, 64, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120,
+    }, .little);
+    const right = std.mem.readInt(u128, &[_]u8{
+        2, 3, 128, 192, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+    }, .little);
+    var bytes: [16]u8 = undefined;
+    std.mem.writeInt(u128, &bytes, i8x16Add(left, right), .little);
+    try std.testing.expectEqualSlices(u8, &.{
+        1, 4, 0, 0, 11, 22, 33, 44, 55, 66, 77, 88, 99, 110, 121, 132,
+    }, &bytes);
 }
 
 test "memory restart clears written pages and resets page activity" {
