@@ -1,483 +1,351 @@
-# Architecture And Boundaries
+# Architecture Boundaries
 
-QIP puts a narrow byte boundary inside a normal application.
+QIP puts a narrow WebAssembly boundary around selected computations inside a
+normal application. Use this page to decide where that boundary belongs and
+what data should cross it.
 
-The host stays responsible for routing, storage, auth, product workflow, and platform APIs. QIP components do small deterministic work behind a WebAssembly boundary: the host gives them bytes, they return bytes, and they do not get ambient access to the machine around them.
+QIP is not an application framework or a service boundary. The application
+remains responsible for users, permissions, storage, networking, and product
+workflow.
 
-This page compares that shape with traditional server rendering and Next.js-style rendering, then looks at each through a security boundary lens.
+## Keep Application Responsibilities In The Host
 
-## Legend
+The host should keep work that depends on application authority or platform
+integration:
 
-```text
-[trusted]       code that can use app privileges
-[sandboxed]     code behind a narrower runtime boundary
--->             bytes, events, or HTTP messages passed explicitly
-xxx             ambient access that code can use directly
-```
+- routing, authentication, authorization, and sessions;
+- database queries, transactions, and object models;
+- filesystem and network access;
+- logging, metrics, tracing, queues, and background jobs;
+- framework lifecycle, window management, and device APIs; and
+- decisions about where component output is stored, displayed, or sent.
 
-Ambient access means things like filesystem, network, environment variables, secrets, clocks, process globals, database clients, or installed packages.
-
-## Traditional Web Page
-
-A traditional server-rendered page usually has one main application trust boundary.
-
-```text
-Browser
-  |
-  | HTTP request
-  v
-+----------------------------------------------------------+
-| [trusted] Web app process                                |
-|                                                          |
-|  router -> controller -> template -> HTML response        |
-|                                                          |
-|  app code xxx database                                   |
-|  app code xxx filesystem                                 |
-|  app code xxx environment/secrets                        |
-|  app code xxx package graph                              |
-+----------------------------------------------------------+
-  |
-  | HTML/CSS/JS
-  v
-Browser sandbox
-```
-
-This model is direct and easy to deploy. The tradeoff is that templates, helpers, plugins, and dependencies often run with the same authority as the app process. If a library is compromised, or generated code is wrong, it may be able to do whatever the app process can do.
-
-The browser is still a real sandbox, but the server-side rendering work happens before the browser boundary.
-
-## Next.js-Style Rendering
-
-Next.js splits rendering across build time, server time, and browser time. The exact path depends on route mode, caching, server components, client components, actions, and API routes, but the broad shape looks like this:
+Normal application code can run before, after, or between QIP components. The
+host should fetch the required data and pass only the relevant bytes into the
+component.
 
 ```text
-Build time
-------------------------------------------------------------
-source + npm packages + config + env
-  |
-  v
-+----------------------------------------------------------+
-| [trusted] framework/build process                         |
-|                                                          |
-|  compile routes, bundles, assets, server code             |
-|  build code xxx filesystem                               |
-|  build code xxx package graph                            |
-|  build code xxx environment                              |
-+----------------------------------------------------------+
-
-Request time
-------------------------------------------------------------
-Browser
-  |
-  | HTTP request
-  v
-+----------------------------------------------------------+
-| [trusted] Next/server runtime                             |
-|                                                          |
-|  route -> server render/data/API/action -> response       |
-|                                                          |
-|  server code xxx database                                |
-|  server code xxx filesystem                              |
-|  server code xxx environment/secrets                     |
-|  server code xxx package graph                           |
-+----------------------------------------------------------+
-  |
-  | HTML + data + JS bundles
-  v
-+----------------------------------------------------------+
-| Browser sandbox                                           |
-|                                                          |
-|  [sandboxed by browser] client components + hydrated UI   |
-|  browser code xxx user page state                         |
-|  browser code xxx allowed web APIs                        |
-+----------------------------------------------------------+
+┌──────────────────────── trusted application ────────────────────────┐
+│ authorize request → query database → choose component              │
+│                                         │                           │
+│                                  explicit bytes                     │
+│                                         ▼                           │
+│                              ┌──────────────────┐                    │
+│                              │ QIP component    │                    │
+│                              └──────────────────┘                    │
+│                                         │                           │
+│                                  output bytes                       │
+│                                         ▼                           │
+│                         validate → store or respond                 │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
-This model is powerful because one framework coordinates routing, rendering, caching, data loading, and client hydration. It also means a lot of application behavior sits inside the framework and package graph. The server-side parts are trusted application code. They need access to secrets and databases, so they cannot be treated as isolated transforms.
+## Put Bounded Computation In Components
 
-The browser/client split is useful, but it is not the same as isolating a server-side content transform from the server process.
+A good component performs a finite operation with a clear input, output, and
+failure policy. Examples in this repository include:
 
-React Server Components are a useful example of this boundary. In December 2025, React disclosed [CVE-2025-55182](https://react.dev/blog/2025/12/03/critical-security-vulnerability-in-react-server-components), an unauthenticated remote-code-execution vulnerability in React Server Components. Next.js documented the downstream App Router impact as [CVE-2025-66478](https://nextjs.org/blog/CVE-2025-66478). The lesson is not that server components are uniquely bad. The lesson is that server-side rendering protocols run inside the trusted server boundary. When that boundary is crossed incorrectly, the blast radius can include application secrets, database access, and the host process.
+- Markdown to HTML;
+- HTML validation and accessibility analysis;
+- JSON formatting and CSV extraction;
+- image decoding, resizing, filtering, and encoding;
+- URL to QR-code SVG;
+- text or HTML rendering to SVG;
+- GUI and terminal state machines; and
+- WebAssembly validation, inspection, translation, and instrumentation.
 
-## Browser Trust Boundaries
+Use a component when portability, deterministic behavior, isolation, or exact
+testing justifies an explicit byte boundary. A normal library call is simpler
+when those properties do not buy anything for the application.
 
-Most web security bugs come from confusing three different things:
+## Choose The Data Boundary
 
-- Who sent this request?
-- Which origin is allowed to read the response?
-- What code is allowed to run inside this origin?
+The boundary should preserve the information needed by the next stage without
+exposing the host's internal objects.
 
-Cookies, sessions, bearer tokens, origins, HTML, and JavaScript each sit on different parts of that map.
+| Boundary | Use it when | Repository example |
+| --- | --- | --- |
+| One value or document | One operation consumes and produces finite content | Markdown to HTML, JSON formatting, URL to SVG |
+| Canonical raster image | Several components need direct pixel access | QIP KTX2 profiles between image components |
+| Routed site | A transform needs to inspect or change several responses | WARC link checking, metadata, and static export |
+| Retained render state | Time or user input changes later output | GUI and TUI components |
+| WebAssembly module | A component inspects or transforms another component | Wasm checks, counts, translators, and instrumentation |
+
+Prefer an existing format with a precise profile. Add an application-specific
+format when existing formats cannot preserve the required semantics. Do not
+pass a database handle or application object graph merely to avoid defining
+the bytes.
+
+See [Formats and Encodings](/docs/formats) for QIP's current boundaries.
+
+## Pass Capabilities Explicitly
+
+A normal QIP component receives no ambient filesystem, network, environment,
+clock, DOM, database, or secrets. Its host imports define what it can do.
 
 ```text
-User browser
-  |
-  | request to https://app.example
-  | browser may attach cookies for app.example
-  v
-+----------------------------------------------------------+
-| [trusted] app.example server                             |
-|                                                          |
-|  session cookie -> account identity                      |
-|  CSRF token/origin checks -> request intent              |
-|  HTML escaping/sanitizing -> code/content boundary        |
-+----------------------------------------------------------+
-  |
-  | response for app.example
-  v
-+----------------------------------------------------------+
-| Browser origin: https://app.example                      |
-|                                                          |
-|  JS here can call app.example APIs                       |
-|  JS here can read same-origin DOM and non-HttpOnly tokens |
-|  browser enforces limits against other origins            |
-+----------------------------------------------------------+
+ambient design:    code ──→ reaches into process and platform state
+
+QIP design:        host ──→ bytes, uniforms, time, events ──→ component
+                     ↑                                      │
+                     └────────── declared output ────────────┘
 ```
 
-The browser does a lot, but it does not know which POST request the user intended. It also cannot tell whether a CMS field was meant to be text, trusted HTML, or executable script unless the application keeps those boundaries clear.
+Content components receive input bytes and uniforms. A host can add the Time
+and Events capability for retained state. Compliance oracles receive only the
+small bridge used to declare cases. A new capability should name the data or
+operation that the host is granting.
 
-## XSS: Untrusted Content Becomes App Code
+Explicit capabilities make a component easier to run in another host. They
+also make review concrete: inspect the imports and the bytes supplied at each
+call.
 
-Cross-site scripting happens when untrusted content is rendered as active HTML or JavaScript inside a trusted origin.
+Time is a useful example. A QIP component does not call a clock. The host passes
+`now_ms` to `begin_update_at`, which makes each instant part of the recorded
+call sequence. A test can supply exact boundaries, long delays, and overflow
+cases without installing a fake clock. The component returns the next absolute
+time at which it wants an update, while the host remains responsible for
+waiting. TigerBeetle describes the same design move in
+[Tracking Time Without Clock](https://tigerbeetle.com/blog/2025-10-21-clockless-time/).
+
+## Common Placements
+
+### A Transform Inside An Application
+
+An application loads or receives data, calls one or more components, and then
+continues in normal code:
 
 ```text
-CMS field, user comment, Markdown, imported feed
-  |
-  | treated as trusted HTML
-  v
-+----------------------------------------------------------+
-| Browser origin: https://app.example                      |
-|                                                          |
-|  <script> or event handler now runs as app.example        |
-|                                                          |
-|  can read DOM                                            |
-|  can call same-origin APIs                               |
-|  can read tokens stored in JS-visible storage             |
-|  can submit requests with existing cookies                |
-+----------------------------------------------------------+
+app data → serialize → component pipeline → validate output → app data
 ```
 
-An `HttpOnly` cookie helps because JavaScript cannot read it directly. It does not stop injected JavaScript from sending same-origin requests that automatically include that cookie. A bearer token in `localStorage`, a global JS variable, or a page-embedded data blob is usually easier for XSS to steal.
+This works well for converters, validators, formatters, and renderers shared by
+web, server, CLI, CI, native, or mobile applications.
 
-The practical rule: untrusted content should stay text until a sanitizer or renderer deliberately turns it into a smaller safe subset. Markdown is not automatically safe. CMS HTML is not automatically safe. QIP output is not automatically safe.
+### A Content Or Whole-Site Pipeline
 
-## CSRF/XSRF: Surprise Requests Borrow A Session
-
-Cross-site request forgery happens when another site causes the browser to send a request that carries the user's existing authority.
+QIP Router can select a Content recipe from a source MIME type and apply it to
+one response. It can then package every routed response as WARC and run
+whole-site components.
 
 ```text
-https://evil.example
-  |
-  | link, image, form, script-created navigation
-  v
-User browser
-  |
-  | request to https://app.example
-  | cookies may be attached by the browser
-  v
-+----------------------------------------------------------+
-| [trusted] app.example server                             |
-|                                                          |
-|  "this user has a session" is not enough                 |
-|  server must also ask "did the user intend this action?" |
-+----------------------------------------------------------+
+source bytes → response recipe → routed response
+                                      │
+all routed responses ─────────────────┘
+              │
+              ▼
+            WARC → check links → add routes → static output
 ```
 
-The attacker usually cannot read the response across origins. That is still enough if the request changes state: publish, delete, transfer, invite, rotate, buy, subscribe.
+Keep filesystem discovery and HTTP delivery in the router. Keep byte-level
+response and archive transforms in components.
 
-Use `SameSite` cookies, CSRF tokens, method discipline, origin checks, and idempotent GET routes. These are application boundaries, not rendering boundaries.
+### A GUI Or TUI Render Loop
 
-## CMS And User-Generated Content
-
-A CMS is convenient because non-developers can change production content. It is also a trust decision.
+The host owns the clock, input devices, and presentation surface. The component
+owns retained state and renders the current view.
 
 ```text
-CMS editor / user / imported content
-  |
-  | content bytes
-  v
-+----------------------------------------------------------+
-| [trusted?] content store                                 |
-+----------------------------------------------------------+
-  |
-  | render as text, sanitized HTML, or trusted HTML?
-  v
-Browser origin
+clock + events → component state → KTX2 frame → graphical host
+                                └→ ANSI text  → terminal host
 ```
 
-Treat CMS content as a data source first. Decide what each field is allowed to contain:
+Use [GUI Components](/docs/gui-components) or [TUI Components](/docs/tui-components)
+for these output conventions.
 
-- Plain text is safest.
-- Markdown needs a renderer and usually an HTML sanitizer.
-- Sanitized HTML needs a clear allowed element/attribute policy.
-- Trusted HTML means the author can affect the page as code and should be treated like a developer.
-- User-generated content should not be rendered as same-origin active HTML.
+### Components That Process Components
 
-QIP can help with the transform part. A QIP Markdown renderer or sanitizer can run without filesystem, network, environment, or secret access. That limits what a bad renderer can do to the host. It does not mean the rendered HTML is safe to mount into a privileged origin.
-
-## Confused Deputy
-
-A confused deputy bug happens when trusted code is tricked into using its authority for less-trusted input.
+WebAssembly can cross the Content boundary like any other binary format. This
+lets one component inspect or transform another without putting the operation
+in every host:
 
 ```text
-untrusted input
-  |
-  | "please do this"
-  v
-+----------------------------------------------------------+
-| [trusted] app/server/browser with real authority          |
-|                                                          |
-|  has cookies, secrets, filesystem, network, database      |
-|  accidentally spends that authority for the attacker      |
-+----------------------------------------------------------+
+component.wasm → Wasm checker or translator → report, source, or component.wasm
 ```
 
-CSRF is one version: the browser has the user's cookies, and an attacker tries to borrow them for an unwanted action. Server-side request forgery is another: the server has network access, and attacker-controlled input chooses where it points. Template injection and rendering RCE follow the same pattern when a renderer with app privileges is made to execute content as code.
+The outer component still has bounded memory and no ambient host access. The
+host decides whether a returned module is trusted enough to execute.
 
-QIP is designed to make the deputy smaller. The component does not get ambient authority by default, so there is much less authority for attacker-controlled input to borrow.
+## Trust Input And Validate Output
 
-## Capabilities Instead Of Ambient Context
-
-Capability-based security starts with a simple rule: code can only use what it has been explicitly given.
-
-Many application tools assume global context. A helper can read process environment. A plugin can import a package. A server component can call application code. A template extension may reach the filesystem or network because it is running inside the app process.
-
-QIP is on the strict side of this spectrum. A component cannot reach out to discover context. The host passes bytes in and the component returns bytes out. If the component needs a setting, pass it as a uniform or include it in the input. If it needs database data, the app should query the database and pass only the relevant bytes.
+The boundary separates code authority from data correctness. It does not make
+arbitrary bytes trustworthy.
 
 ```text
-ambient model:       code -> reaches out for context
-capability model:    host -> passes explicit input -> code
-QIP default:         host -> bytes/uniforms/events -> component -> bytes
+untrusted bytes → validate format → transform → validate or escape for use
+                       │                              │
+                 component input               application boundary
 ```
 
-These explicit boundaries are easy to reason about, audit, test, and review.
+A known component may rely on its declared input profile. The application must
+establish that profile where untrusted data enters. A generic host that accepts
+arbitrary Wasm must also validate the module, its QIP exports, and its memory
+ranges before execution.
 
-## CSP And Sandboxed Previews
+Treat output according to its destination. HTML may need sanitizing or a
+sandboxed preview. A file path needs path policy. A returned Wasm module needs
+validation before execution. An image still needs size limits before decoding
+or allocation.
 
-Content Security Policy is a browser-side blast-radius control. It can restrict where scripts, images, styles, frames, and connections may come from. A good CSP does not replace escaping, sanitizing, or careful content modeling, but it gives the browser a policy to enforce when something slips.
+## What Isolation Provides
 
-Sandboxed iframes are another useful boundary. Any framework can add `sandbox`, and QIP should use it where it renders untrusted preview HTML. A sandboxed preview is a place to inspect output without immediately granting it the full authority of the app origin.
+Without additional imports, a component cannot directly:
+
+- read application secrets or environment variables;
+- query a database;
+- open files or sockets;
+- inspect process globals or the DOM;
+- install or load packages; or
+- call platform APIs.
+
+Fixed memory and host timeouts can also limit resource use. These properties
+reduce the authority held by transform code, including generated or
+third-party code.
+
+## What Isolation Does Not Provide
+
+WebAssembly isolation does not prove that a component is correct. A component
+can return malformed JSON, inaccurate calculations, misleading pixels, or
+unsafe HTML. It can also consume its full declared memory or run until the host
+timeout.
+
+QIP limits what the transform can reach. It does not decide whether the bytes
+are safe for their next use.
+
+## Web Security
+
+QIP reduces the authority and blast radius of a component, but it does not
+replace normal web security controls. Authentication, authorization, CSRF
+protection, output escaping, HTML sanitizing, Content Security Policy, and
+browser-origin decisions remain the application's responsibility.
+
+### Keep CSRF Protection In The Host
+
+Cross-Site Request Forgery (CSRF) makes an authenticated browser send an
+unwanted request to an application. It is a property of the HTTP request and
+session, not of the component that processes the request body.
+
+The host must check authorization and CSRF protection before it invokes a
+component for a state-changing request. A component result is not proof that
+the user intended the request.
 
 ```text
-app origin
-  |
-  | preview bytes
-  v
-<iframe sandbox>
-  |
-  | rendered output with reduced browser powers
-  v
-preview document
+HTTP request → host: authenticate, authorize, check CSRF → QIP component
 ```
 
-Use CSP and iframe sandboxing as browser boundaries. Use QIP as the transform boundary before the browser sees the bytes.
+Unpredictable values such as CSRF tokens belong to the host. If a component
+needs one to render output, the host passes it as an explicit input. This
+preserves deterministic execution for any fixed set of inputs. Do not ask the
+component to generate the token.
 
-## Script Tags And Growing Sandboxes
+If possible, let the host add the CSRF field around the component's HTML. If
+the component must render the complete form, pass the token as an opaque value
+and escape it for its HTML context. Do not put the token in URLs, logs, shared
+caches, snapshots, or diagnostic output.
 
-Loading JavaScript from a server is a different trust decision.
+Use the application's existing CSRF support. The
+[OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
+describes tokens, Fetch Metadata and origin checks, custom request headers,
+and `SameSite` cookies. It also explains why state-changing operations should
+not use `GET`.
 
-If you load JavaScript with `<script src="...">`, there is no small component boundary around that script. It runs as page code. It can allocate memory until the browser stops it. It can start more network requests. It can load more code. It runs in a browser sandbox, but the sandbox can grow in size and reach out to fetch more of what it wants.
+### Treat HTML And SVG As Active Output
 
-That is often intentional. Analytics and tracking scripts are added to help product and marketing teams understand behavior. The tradeoff is that the script is not just data. It is code running inside your page's authority.
+WebAssembly isolation does not sanitize component output. A component can
+return unsafe HTML even when it cannot access the DOM, cookies, or network.
+The browser can run that HTML with the authority of the page if the host puts
+it into an unsafe DOM sink.
 
-```text
-<script src="https://analytics.example/script.js">
-  |
-  v
-+----------------------------------------------------------+
-| Browser origin: https://app.example                      |
-|                                                          |
-|  third-party script runs as page code                    |
-|  can inspect DOM                                         |
-|  can send network requests                               |
-|  can allocate memory until browser/runtime limits         |
-|  can load more code                                      |
-+----------------------------------------------------------+
-```
+Treat output according to how the browser will interpret it:
 
-QIP is meant to sit on the stricter side of this spectrum. A component should not assume it can read global page context, discover tokens, call network APIs, or grow into a larger runtime. The host passes input explicitly and reads output explicitly.
+- Insert plain text with a text API such as `textContent`.
+- Escape values for the HTML, attribute, URL, CSS, or JavaScript context in
+  which they appear.
+- Sanitize untrusted HTML with a maintained sanitizer before insertion.
+- Treat arbitrary SVG as active content when it is inserted as document
+  markup.
+- Prefer pixels, a canvas, or another non-markup output for an untrusted
+  visual preview when those formats meet the requirement.
 
-The CLI and browser custom elements enforce fixed memory by default. `qip run`, `qip bench`, and `qip image` reject modules containing `memory.grow`; `<qip-edit>` and `<qip-play>` do the same before browser compilation. `--allow-memory-grow` and `allow-memory-grow` opt out when paired with an explicit `--max-memory <bytes>` or `max-memory="<bytes>"` cap.
+Content Security Policy and Trusted Types can add protection, but they do not
+remove the need for correct escaping and sanitizing. The
+[OWASP XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
+lists the required controls for each browser context and identifies safe DOM
+sinks.
 
-The cap remains opt-in for fixed-memory modules because their initial memory requirements vary. It is mandatory when growth is allowed.
+An existing XSS flaw can also change browser-side component inputs, bypass the
+component, or submit requests as the user. Do not rely on browser-side
+component output for authorization or another security decision.
 
-## How WebAssembly Changes The Shape
+## Choose The Server Or Browser
 
-WebAssembly is not HTML and it is not JavaScript. A Wasm module gets linear memory and imported functions. If the host does not import filesystem, network, DOM, clock, or secret access, the module cannot call those things directly.
+The safer location depends on the data and the authority of the result. A
+server does not make HTML safe, and a browser does not make a result
+authoritative.
 
-```text
-[trusted] browser JS or server host
-  |
-  | imports decide capabilities
-  v
-+----------------------------------------------------------+
-| [sandboxed] WebAssembly module                           |
-|                                                          |
-|  can compute over memory                                 |
-|  cannot reach host APIs without imports                  |
-+----------------------------------------------------------+
-```
+| Run on the server when | Run in the browser when |
+| --- | --- |
+| The result controls acceptance, authorization, billing, storage, or publication. | The result is a preview or presentation detail. |
+| The input contains server-side or shared private data. | A local file should remain on the user's device. |
+| All clients need one canonical result for caching, indexing, or reproducibility. | Low latency, offline use, or interactive rendering is useful. |
+| Output must be checked before another user receives it. | Output can go to a non-active sink such as pixels, a canvas, or `textContent`. |
 
-QIP narrows this further. A normal execution component is not given WASI or custom host imports. Its interface is input bytes, optional uniforms/events, `render(input_size)`, and output bytes. Compliance oracles receive only the `qip` oracle bridge used to declare conformance cases; the implementation under test remains separately instantiated. Instead of assuming global context, QIP makes context an explicit input.
+A hybrid design often works well:
 
-That means QIP is a useful place to run code you want to review as a transform instead of trusting as application code. It is especially useful for AI-generated components, content transforms, validators, and renderers that should not inherit the app's filesystem, network, database, or secret access.
+1. Run the component in the browser for an immediate preview.
+2. Submit the source data to the server.
+3. Run the component again on the server for the canonical result.
+4. Validate or sanitize the output before the host stores or serves it.
 
-## QIP Component Pipeline
+Run presentation near the user. Run security decisions where the application
+holds authority.
 
-QIP makes the small transform a separate boundary.
+## Costs And Trade-Offs
 
-```text
-[trusted] host app, qip run, qip router dev, qip router, native app, CI
-  |
-  | explicit input bytes
-  v
-+------------------+      +------------------+      +------------------+
-| [sandboxed]      |      | [sandboxed]      |      | [sandboxed]      |
-| component A      | ---> | component B      | ---> | component C      |
-|                  |      |                  |      |                  |
-| no filesystem    |      | no filesystem    |      | no filesystem    |
-| no network       |      | no network       |      | no network       |
-| no env/secrets   |      | no env/secrets   |      | no env/secrets   |
-| no package graph |      | no package graph |      | no package graph |
-+------------------+      +------------------+      +------------------+
-  ^                                                     |
-  |                                                     v
-  +---------------- explicit output bytes --------------+
-```
+The boundary is not free:
 
-Each stage receives only the bytes, uniforms, or events the host deliberately passes in. A Markdown renderer does not get a database handle. A QR-code generator does not get network access. A generated validator does not get environment variables or local files.
+- The host may need to serialize data and copy bytes into and out of linear
+  memory.
+- Components need explicit capacities, failure behavior, formats, and
+  lifecycle rules.
+- Host-specific objects and APIs require adapters instead of direct calls.
+- Debugging crosses a host/component boundary rather than one native call
+  stack.
+- Wasm artifacts must be built, tested, versioned, and distributed with their
+  source.
+- Fixed memory is a poor fit for operations whose working set has no useful
+  bound.
 
-The host is still trusted. The difference is that the component is not handed the host's privileges just because it is useful code.
+These costs are worthwhile when the boundary improves portability, review,
+testing, replacement, or containment. They are overhead when the code is
+already trusted, local, and tightly coupled to one host.
 
-## QIP Inside An Existing App
+## When Not To Use QIP
 
-QIP is not trying to replace the application. It fits at the places where a small piece of work should be portable, deterministic, or easier to review.
+Keep work in normal host code when it needs live database access, open-ended
+networking, secrets, platform UI APIs, framework lifecycle hooks, background
+services, or large shared mutable state.
 
-```text
-+----------------------------------------------------------+
-| [trusted] product app                                    |
-|                                                          |
-|  routes, auth, metrics, logging, DB queries, UI state     |
-|       |                                                  |
-|       | explicit bytes                                   |
-|       v                                                  |
-|    +-----------------------------------------------+     |
-|    | [sandboxed] QIP component or recipe            |     |
-|    |                                               |     |
-|    | markdown -> HTML                              |     |
-|    | SVG -> bitmap                                 |     |
-|    | URL -> QR SVG                                 |     |
-|    | HTML -> accessibility facts                   |     |
-|    +-----------------------------------------------+     |
-|       |                                                  |
-|       | explicit bytes                                   |
-|       v                                                  |
-|  app decides where the output goes                       |
-+----------------------------------------------------------+
-```
+Do not split a coherent operation into many components only to maximize the
+number of boundaries. Each boundary should identify useful data, isolate code
+with a different trust or lifecycle, or enable reuse across hosts.
 
-The application can weave normal code between QIP stages. For example, it can log a metric, run a database query, choose a component, pass bytes into QIP, then store or render the output. QIP should not become the whole app.
+Do not use QIP as proof that output is safe. Keep validation at ingress and at
+the point where output enters a more privileged interpretation.
 
-## QIP Router
+## Architecture Checklist
 
-QIP Router uses the same boundary, but applies it to routed content.
+Before adding a component, answer these questions:
 
-```text
-site/
-  index.md
-  docs/security.md
-  _recipes/text/markdown/10-render.wasm
-  _recipes/text/markdown/20-wrap.wasm
+1. What precise operation moves behind the boundary?
+2. Which bytes, MIME type, uniforms, time, or events does it receive?
+3. Which output and failure states can it produce?
+4. What remains in the host?
+5. Where is untrusted input validated?
+6. How is output checked or escaped for its destination?
+7. What memory and execution limits apply?
+8. Does the boundary justify serialization, copying, and adapter code?
 
-Request: /docs/security
-  |
-  v
-+----------------------------------------------------------+
-| [trusted] qip router                                     |
-|                                                          |
-|  resolve path -> read source bytes -> choose recipes      |
-+----------------------------------------------------------+
-  |
-  | docs/security.md bytes
-  v
-+------------------+      +------------------+
-| [sandboxed]      |      | [sandboxed]      |
-| 10-render.wasm   | ---> | 20-wrap.wasm     |
-| Markdown -> HTML |      | HTML -> page     |
-+------------------+      +------------------+
-  |
-  | response bytes
-  v
-Browser
-```
-
-The router can read files because it is the host. Recipe components cannot read the site tree directly. They only see the current response bytes unless the host passes a larger format, such as `application/warc`, into an archive-level recipe.
-
-## Whole-Site Recipes
-
-Some work needs the whole routed site, not one page at a time. QIP uses WARC as the explicit boundary format for that.
-
-```text
-[trusted] qip router
-  |
-  | routed site as application/warc
-  v
-+-----------------------------------------------+
-| [sandboxed] application/warc recipe            |
-|                                               |
-| check links, add sitemap, add redirects,       |
-| rewrite archive records                        |
-+-----------------------------------------------+
-  |
-  | updated application/warc
-  v
-[trusted] host writes tar, deploys, or inspects output
-```
-
-The component still does not get filesystem or network access. The host chooses to provide a whole archive as input bytes.
-
-## Security Boundary View
-
-QIP separates three questions that are often blended together:
-
-- What can the host process do?
-- What bytes are passed into this component?
-- What can this component do without asking the host?
-
-In QIP, the answer to the third question should be boring: it can compute over its linear memory and documented interface. It cannot open a socket, read `~/.ssh`, inspect `process.env`, install a package, or call a database unless the host gives it a custom capability. The current `qip` runtime does not provide WASI or custom host imports to Content components; the Compliance bridge exposes only case-oracle operations.
-
-That boundary is useful for unreviewed or AI-generated code. The code may still be wrong. It may still produce unsafe HTML, invalid JSON, or a bad image. But it should not be able to escape the input/output contract and rummage through the host.
-
-For browser security, keep the distinction sharp:
-
-- QIP can reduce the host privileges of the code doing a transform.
-- QIP cannot make untrusted HTML safe just because the HTML was produced by Wasm.
-- QIP cannot decide whether a session-bearing request was intentional.
-- QIP can be one stage in a larger safety pipeline, such as render Markdown, sanitize HTML, validate links, then embed output in a sandboxed preview or carefully escaped app view.
-
-## What Still Needs Review
-
-The boundary is not a substitute for all review.
-
-- Review what bytes the host passes in.
-- Review where output bytes are used.
-- Treat component output as untrusted until the next boundary validates or escapes it.
-- Do not mount untrusted HTML into a privileged origin without a sanitizer or sandboxed container.
-- Keep CMS and user-generated content policies explicit: text, Markdown, sanitized HTML, or trusted HTML.
-- Keep CSRF/XSRF defenses on state-changing routes; a component boundary does not replace request-intent checks.
-- Pin component artifacts for production use.
-- Keep memory and timeout limits tight enough for the job.
-- Use `qip comply` when a behavior can be checked against a separate spec.
-- Use `qip bench` when performance matters.
-
-The important shift is scope. A bad component should be a bad transform, not a bad transform with filesystem, network, package, and secret access.
-
-## Short Comparison
-
-| Model | Main unit | Good at | Security shape |
-| --- | --- | --- | --- |
-| Traditional web app | app process | simple request -> response rendering | server code and dependencies share app authority |
-| Next.js-style app | framework-coordinated app | routing, caching, server/client rendering, hydration | browser code is sandboxed; server/build code is trusted app code |
-| QIP | small component or recipe stage | deterministic transforms that run inside many apps | component sees explicit bytes and runs without ambient host access |
-
-QIP is not a better Next.js or a smaller traditional web framework. It is a different boundary. Use it when the valuable part is a portable, deterministic piece of work that should not inherit the full authority of the app around it.
+If the answers are short and testable, the boundary is probably at a useful
+level. If they reproduce the application's object model or require broad host
+access, keep the operation in the host or choose a narrower component.

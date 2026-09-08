@@ -1,105 +1,199 @@
 # How QIP Works
 
-QIP is a small host runtime that executes QIP components with explicit memory contracts.
+QIP runs small WebAssembly components behind explicit contracts. The host owns
+files, network access, clocks, windows, terminals, and application state. A
+component receives only the data and capabilities that the host passes to it.
 
-The mental model is simple:
+The usual component is an isolated computation over bytes:
 
-1. Host reads bytes
-2. Host writes bytes into component memory
-3. Component runs
-4. Host reads output bytes
-5. Optional: feed output to the next component
-
-That is the core loop for both CLI pipelines and web preview workflows.
-
-## 1. QIP Component Contracts
-
-A text/binary QIP component exports a small ABI:
-
-- `input_ptr`
-- `input_utf8_cap` or `input_bytes_cap`
-- `render(input_size) -> i64`
-- `output_utf8_cap` or `output_bytes_cap`
-
-The `render` result contains the output pointer, the output size, and a failure
-bit. The host validates capacities and boundaries before it writes or reads
-memory.
-
-This keeps QIP components interchangeable and predictable.
-
-## 2. Runtime Execution
-
-When you run:
-
-```bash
-qip run component-a.wasm component-b.wasm
+```text
+                   composable deterministic contract
+               ┌───────────────────────────────────────┐
+input bytes ──→ │    isolated imperative computation   │ ──→ output bytes
+MIME type       │      mutable memory, loops, SIMD      │     MIME type
+uniforms        └───────────────────────────────────────┘
 ```
 
-`qip`:
+The implementation inside the box can use ordinary imperative techniques. The
+boundary stays small enough for different hosts and components to agree on.
 
-- compiles the components
-- instantiates each component for execution
-- passes output of stage N as input to stage N+1
-- preserves deterministic stage order
+## The Host And The Component
 
-No hidden dependency graph.
+The host loads and instantiates the component. It decides where input comes
+from and where output goes. It also applies memory and execution limits.
 
-## 3. Content + Recipes (Web Dev Mode)
+The component owns one computation. It has WebAssembly linear memory and its
+exported functions, but no ambient filesystem, network, environment, clock,
+DOM, database, or package graph. A contract can add a specific capability,
+such as time or keyboard events, without exposing the rest of the host.
 
-When you run:
+This division keeps normal application work normal. A web app can query its
+database, authorize a request, pass selected bytes to a component, and decide
+whether to store or return the output.
 
-```bash
-qip router dev ./site
+## One Component Call
+
+A finite transform uses the [Content component contract](/docs/content-component):
+
+```text
+host                         component
+ │                              │
+ ├─ inspect capacities ────────→│
+ ├─ copy input to input_ptr ───→│ memory
+ ├─ set uniforms ──────────────→│
+ ├─ render(input_size) ────────→│ compute
+ │←──────── output pointer/size ┤
+ └─ read exactly that range ───→│ memory
 ```
 
-`qip` builds in-memory state from the site tree:
+The component declares whether its input and output are UTF-8 or arbitrary
+bytes. It can also declare exact MIME types such as `text/markdown`,
+`text/html`, or `image/ktx2`.
 
-- content files (source documents/assets)
-- reserved project directories such as `_recipes`, `_components`, and `_elements`
+`render` returns the output location and byte count. A successful call may
+produce an empty output. A fallible component can instead return a recoverable
+rejection, optionally with an input offset. A trap means the caller broke a
+precondition or the component has a defect; the host discards that instance.
 
-Recipe discovery uses:
+For the exact exports and result bits, use the
+[Content component contract](/docs/content-component).
 
-- `_recipes/<type>/<subtype>/NN-name.wasm`
-- optional disabled form: `-NN-name.wasm`
+## Pipelines Connect Compatible Formats
 
-Where `NN` is `00..99` and lower runs first.
+A pipeline passes one component's output bytes to the next component. The host
+tracks the current MIME type and rejects a stage whose declared input type is
+incompatible.
 
-Strictness today:
-
-- duplicate prefixes in the same MIME folder are an error
-- non-`.wasm` files are ignored
-- filenames must match the required format
-
-## 4. Request Handling
-
-For each request in `qip router dev`:
-
-1. Resolve request path to a source file
-2. Detect source MIME from file extension
-3. Load source bytes
-4. Run matching recipe chain (if any)
-5. Return response bytes + content type + ETag
-
-Selection is based on **source MIME** (for example `text/markdown`), which keeps routing linear and easy to inspect.
-
-## 5. Reload Without Restart
-
-`qip router dev` supports in-place reload with `SIGHUP`:
-
-```bash
-kill -HUP <pid>
+```text
+page.md                 fragment HTML                 complete HTML
+text/markdown           text/html                     text/html
+     │                       │                             │
+     ▼                       ▼                             ▼
+┌──────────────┐       ┌──────────────┐              application
+│ Markdown     │ ────→ │ page wrapper │ ──────────→  response, file,
+│ renderer     │       │              │              or next stage
+└──────────────┘       └──────────────┘
 ```
 
-On reload, `qip` rebuilds content routes and recipe chains, then swaps state atomically.
-If reload fails, the previous state keeps serving.
+The stages do not call each other. The host calls them in order and performs
+the copies. This keeps composition visible in a command, recipe, or host
+program:
 
-## 6. Why This Design
+```bash
+qip run components/text/markdown/commonmark.0.31.2.wasm \
+  components/text/html/html-page-wrap.wasm < page.md
+```
 
-The architecture optimizes for:
+Some boundaries carry more than one item. QIP uses KTX2 for canonical raster
+images, WARC for a routed collection of web responses, and WebAssembly itself
+for components that inspect or transform other components. See
+[Formats and Encodings](/docs/formats) for these choices.
 
-- small, inspectable interfaces
-- deterministic behavior
-- reproducible builds and serving
-- operational safety under change
+## State, Time, And Events
 
-Instead of adding framework complexity, `qip` keeps the host narrow and pushes domain logic into replaceable QIP components.
+A component can retain mutable state after its initial Content render. The
+[Time and Events contract](/docs/time-and-events) lets the host advance that
+state with a monotonic time and deliver explicit input events.
+
+```text
+time  0        120             455                  900
+      │         │               │                    │
+      S₀ ─────→ S₁ ───────────→ S₂ ───────────────→ S₃
+                wake            user event           wake
+```
+
+The host opens an update at a time, supplies any uniform overrides, sends
+events, and finishes the update. The component returns the next time at which
+it wants to wake. An event can cause an earlier update.
+
+Updating and rendering are separate operations:
+
+```text
+time or events ──→ update mutable state ──→ committed state
+                                                  │
+presentation uniforms ────────────────────────────┤
+                                                  ▼
+                                               render
+                                                  │
+                                                  ▼
+                                        KTX2, text, ANSI, SVG…
+```
+
+Only `render` changes the output buffer. Given the same initial input,
+uniforms, update times, and events, a conforming component produces the same
+state transitions and rendered bytes.
+
+[GUI components](/docs/gui-components) render KTX2 frames. [TUI
+components](/docs/tui-components) render UTF-8 or ANSI frames. Both use the
+same state-update model.
+
+## The Same Contract In Different Hosts
+
+The component contract does not prescribe an application framework. Each host
+maps its own environment onto the same calls.
+
+| Host | What the host owns | What the component does |
+| --- | --- | --- |
+| `qip run` or `qipx` | Files, standard input and output, pipeline order | Performs finite Content transforms |
+| Browser or native app | Windows, input devices, clocks, display surfaces | Updates state and renders GUI or TUI output |
+| QIP Router | Paths, source files, HTTP metadata, response delivery | Transforms one response or a complete WARC archive |
+| CI or compliance host | Fixtures, policies, timeouts, expected behavior | Runs the implementation or declares compliance cases |
+
+The host may retain an instance for repeated calls. It must replace an
+instance after a trap. Instance ownership and concurrency remain host choices.
+
+## Failures Stop At The Boundary
+
+QIP distinguishes expected invalid input from broken execution:
+
+```text
+accepted input  ──→ successful output
+invalid input   ──→ recoverable rejection
+bad call/defect ──→ trap; discard instance
+```
+
+Capacity checks protect input and output copies. Fixed memory prevents an
+ordinary component from growing without a declared bound. A host can also set
+an execution timeout. These controls constrain resource use; they do not prove
+that output is correct or safe for its eventual use.
+
+Read [Hard Limits](/docs/hard-limits) for the execution policy and
+[`qip comply`](/docs/comply) for checking behavior against executable cases.
+
+## Follow A Site Build
+
+QIP Router applies the same model at two scales:
+
+```text
+source file
+    │
+    ▼
+route-selected Content recipe
+Markdown ──→ HTML fragment ──→ complete HTML
+    │
+    ▼
+routed responses as application/warc
+    │
+    ▼
+whole-site components
+links ──→ metadata ──→ sitemap ──→ static files
+```
+
+The router can read the site tree because it is the host. A response recipe
+sees the current response bytes. A whole-site component sees the WARC bytes
+that the host deliberately supplies. Neither component receives filesystem or
+network access.
+
+See [Router](/docs/router) for path resolution and [Recipes](/docs/recipes) for
+selection, ordering, and whole-site processing.
+
+## Where To Go Next
+
+- [QIP Component Contracts](/docs/component-contract) helps you choose the
+  contract for a component.
+- [Adopting QIP In React](/docs/adopting-qip-in-react) shows one component in
+  Next.js Server and Client Components.
+- [Architecture Boundaries](/docs/architecture-boundaries) explains where to
+  put the boundary in a larger system.
+- [Writing QIP Components In Zig](/docs/zig-components) shows how to build a
+  component with fixed buffers and memory limits.

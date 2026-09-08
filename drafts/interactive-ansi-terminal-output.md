@@ -177,6 +177,6 @@ shaping, proportional layout, images, or pointer geometry defines the
 interface. KTX2, SVG, HTML, or a future semantic scene format is a better
 presentation boundary for those cases.
 
-See [Interactive Component Contract](/docs/interactive-component), [Timed And
-Eventful Component Contract](/docs/timed-and-eventful-components), and [Formats
-And Encodings](/docs/formats) for the current implemented contracts.
+See [TUI Components](/docs/tui-components), [Time and
+Events](/docs/time-and-events), and [Formats And Encodings](/docs/formats) for
+the current implemented contracts.

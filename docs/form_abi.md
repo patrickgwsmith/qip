@@ -752,6 +752,6 @@ Do not use Prompt Projection when:
 - the input contains files or large binary values; or
 - the application needs an ongoing simulation or direct event stream.
 
-Use the Interactive contract for persistent event-driven interfaces. Keep
+Use Time and Events for persistent event-driven interfaces. Keep
 ordinary application concerns, such as sessions, authorization, and email
 delivery, in the host application.

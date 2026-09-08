@@ -65,7 +65,7 @@ before each render. A Compliance oracle must set the uniforms needed by each
 case; the bridge does not retain a desired value between cases. These rules do
 not change Tile uniform persistence.
 
-Timed and Eventful update uniforms work the same way. A host can omit any
+Time and Events update uniforms work the same way. A host can omit any
 setter whose default it wants. `finish_update` resets all update uniforms, and
 the next update starts from authored defaults. Presentation uniforms reset when
 `render` returns.

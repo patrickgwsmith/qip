@@ -1,7 +1,7 @@
 # Earlier Transactional Content, Timed, And Interactive Proposal
 
-> The Timed and Eventful lifecycle has moved to the revised
-> [Timed And Eventful Component Contract](/docs/timed-and-eventful-components).
+> The Timed and Eventful lifecycle has moved to the revised [Time and
+> Events](/docs/time-and-events) contract.
 > The `begin_at`/`commit` design below records the earlier experiment and is
 > retained while remaining components migrate. New implementations use
 > `begin_update_at`/`finish_update`; `commit` is only for recoverable Content
@@ -14,8 +14,8 @@ experimental Timed component and host path now exercise `begin_at`, `commit`,
 complete uniforms, renderless transactions, and KTX2 output. A second component
 now exercises transactional key and pointer events. The remaining Timed and
 Interactive details are still design work;
-the current Interactive ABI is documented in
-[Interactive Component Contract](/docs/interactive-component).
+the current capability ABI is documented in [Time and
+Events](/docs/time-and-events).
 
 The design keeps immediate Content rendering and adds `commit` when a component
 supports recoverable rejection. A Timed component adds a monotonic
