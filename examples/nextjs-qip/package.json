@@ -1,0 +1,20 @@
+{
+  "name": "qip-nextjs-example",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare-component": "node scripts/copy-component.mjs",
+    "predev": "npm run prepare-component",
+    "dev": "next dev",
+    "prebuild": "npm run prepare-component",
+    "build": "next build",
+    "start": "next start",
+    "test": "node --test test/qip-content.test.mjs"
+  },
+  "dependencies": {
+    "next": "16.3.4",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  }
+}

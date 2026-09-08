@@ -86,7 +86,8 @@ QIP fits into existing apps when a small content transform should work the same 
 
 Keep the app in charge of routing, auth, storage, and product workflow. Move a small deterministic transformation into a QIP component: render Markdown, validate HTML, normalize an identifier, transform an image, or generate a QR code. The component gets only the bytes the app passes in, and the app gets portable behavior it can test by comparing output bytes.
 
-See [Adopting QIP In Existing Apps](/docs/adopting-qip) for the practical checklist.
+See [Adopting QIP In React](/docs/adopting-qip-in-react) for a complete Next.js
+Server Component and Client Component example.
 
 
 <nav class="docs-sidebar" aria-label="Docs">
@@ -95,7 +96,7 @@ See [Adopting QIP In Existing Apps](/docs/adopting-qip) for the practical checkl
 <ol>
 <li><a href="/docs">Why QIP Exists</a></li>
 <li><a href="/docs/how-it-works">How QIP Works</a></li>
-<li><a href="/docs/adopting-qip">Adopting QIP In Existing Apps</a></li>
+<li><a href="/docs/adopting-qip-in-react">Adopting QIP In React</a></li>
 <li><a href="/docs/architecture-boundaries">Architecture And Boundaries</a></li>
 </ol>
 </li>
@@ -106,7 +107,6 @@ See [Adopting QIP In Existing Apps](/docs/adopting-qip) for the practical checkl
 <li><a href="/docs/qip-elements">Browser Elements</a></li>
 <li><a hidden href="/docs/javascript-runner">JavaScript Renderer Annotated Source</a></li>
 <li><a href="/docs/running-in-javascript">Running In JavaScript</a></li>
-<li><a href="/docs/running-in-react">Running In React</a></li>
 <li><a href="/docs/running-in-swift">Running In Swift</a></li>
 <li><a href="/docs/running-in-java">Running In Java</a></li>
 <li><a href="/docs/running-in-python">Running In Python</a></li>

@@ -6,7 +6,7 @@ qip favors explicit contracts and simple pipelines. QIP components are sandboxed
 
 ## Core Docs
 
-- [Adopting QIP in existing apps](/docs/adopting-qip.md): Practical guidance for introducing QIP as narrow, portable components inside existing applications.
+- [Adopting QIP in React](/docs/adopting-qip-in-react.md): Add one existing QIP component to Next.js and run it in React Server and Client Components.
 - [How QIP works](/docs/how-it-works.md): End-to-end runtime model for QIP components, routing, and recipes.
 - [Hard limits](/docs/hard-limits.md): Memory, fixed-memory, and host capability policy for QIP components.
 - [Component contracts](/docs/component-contract.md): Component types, maturity, execution models, and contract detection.
@@ -17,7 +17,6 @@ qip favors explicit contracts and simple pipelines. QIP components are sandboxed
 - [Comply](/docs/comply.md): Compliance oracle bridge, reusable executable oracles, and ABI verification guidance.
 - [Running in JavaScript](/docs/running-in-javascript.md): Direct `.wasm` imports with allocation-free UTF-8 encoding into QIP component memory.
 - [Running QIP in Python](/docs/running-in-python.md): Load a QIP WebAssembly Core module from disk and call its UTF-8 content contract with Wasmtime.
-- [Running QIP in React](/docs/running-in-react.md): Run a QIP WebAssembly Core module in React Client Components or Next.js Server Components, with separate instance-lifetime guidance.
 - [qip CLI](/docs/qip-cli.md): Commands, runtime guardrails, and CLI-specific host behavior.
 
 ## Router & Site Building

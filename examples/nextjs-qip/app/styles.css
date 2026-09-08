@@ -1,0 +1,42 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  margin: 4rem auto;
+  max-width: 42rem;
+  padding: 0 1.5rem;
+}
+
+section {
+  border-block-start: 1px solid currentColor;
+  margin-block-start: 2rem;
+  padding-block-start: 1rem;
+}
+
+dt,
+label {
+  font-weight: 700;
+}
+
+dd {
+  margin: 0 0 1rem;
+}
+
+input {
+  box-sizing: border-box;
+  display: block;
+  font: inherit;
+  margin-block-start: 0.5rem;
+  padding: 0.5rem;
+  width: 100%;
+}
+
+output {
+  font-family: ui-monospace, monospace;
+}
