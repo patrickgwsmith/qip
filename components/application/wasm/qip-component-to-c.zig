@@ -62,10 +62,10 @@
 //! 3. Give direct calls typed C parameters and return values instead of copying
 //!    arguments through temporary `qip_val` arrays. Keep `call_indirect` type
 //!    validation and dispatch behavior unchanged.
-//! 4. Make stack depth a translation-time property. At control-flow joins, emit
-//!    only the value moves required by block parameters/results and eliminate
-//!    runtime `sp` updates and normalization where the validated stack shape is
-//!    static.
+//! 4. Use the translated maximum stack depth, which now sizes each operand
+//!    array, to assign stack positions to C temporaries. At control-flow joins,
+//!    emit only the value moves required by block results and eliminate runtime
+//!    `sp` updates and normalization where the validated stack shape is static.
 //! 5. Measure whether inlining or specializing scalar load/store helpers lets
 //!    Clang remove repeated address arithmetic. Preserve complete widened range
 //!    checks before every access.
@@ -91,6 +91,7 @@ const MAX_GLOBALS: usize = 4096;
 const MAX_EXPORTS: usize = 512;
 const MAX_DATA_SEGMENTS: usize = 1024;
 const MAX_CONTROLS: usize = 4096;
+const MAX_STACK_VALUES: u32 = 65536;
 const MAX_TABLE_ELEMENTS: usize = 16384;
 
 const INPUT_CONTENT_TYPE = "application/wasm";
@@ -134,6 +135,9 @@ const Error = error{
     InvalidType,
     InvalidSection,
     InvalidIndex,
+    InvalidControl,
+    StackUnderflow,
+    StackMismatch,
     UnsupportedFeature,
     TooManyItems,
     MissingMemory,
@@ -681,10 +685,264 @@ const Control = struct {
     end_arity: u1,
 };
 
+const StackControlKind = enum { function, block, loop, if_, else_ };
+const StackControl = struct {
+    kind: StackControlKind,
+    height: u32,
+    branch_arity: u1,
+    end_arity: u1,
+    is_unreachable: bool = false,
+};
+
+const StackValidator = struct {
+    local_count: u32,
+    height: u32 = 0,
+    max_height: u32 = 0,
+    controls: [MAX_CONTROLS]StackControl = undefined,
+    control_count: usize = 0,
+
+    fn push(self: *StackValidator, count: u32) Error!void {
+        if (count > MAX_STACK_VALUES - self.height) return Error.TooManyItems;
+        self.height += count;
+        self.max_height = @max(self.max_height, self.height);
+    }
+
+    fn pop(self: *StackValidator, count: u32) Error!void {
+        if (self.control_count == 0) return Error.InvalidControl;
+        const control = self.controls[self.control_count - 1];
+        var remaining = count;
+        while (remaining != 0) : (remaining -= 1) {
+            if (self.height == control.height) {
+                if (!control.is_unreachable) return Error.StackUnderflow;
+            } else {
+                self.height -= 1;
+            }
+        }
+    }
+
+    fn apply(self: *StackValidator, pops: u32, pushes: u32) Error!void {
+        try self.pop(pops);
+        try self.push(pushes);
+    }
+
+    fn pushControl(
+        self: *StackValidator,
+        kind: StackControlKind,
+        branch_arity: u1,
+        end_arity: u1,
+    ) Error!void {
+        if (self.control_count == MAX_CONTROLS) return Error.TooManyItems;
+        self.controls[self.control_count] = .{
+            .kind = kind,
+            .height = self.height,
+            .branch_arity = branch_arity,
+            .end_arity = end_arity,
+        };
+        self.control_count += 1;
+    }
+
+    fn popControl(self: *StackValidator) Error!StackControl {
+        if (self.control_count == 0) return Error.InvalidControl;
+        const control = self.controls[self.control_count - 1];
+        try self.pop(control.end_arity);
+        if (self.height != control.height) return Error.StackMismatch;
+        self.control_count -= 1;
+        return control;
+    }
+
+    fn markUnreachable(self: *StackValidator) Error!void {
+        if (self.control_count == 0) return Error.InvalidControl;
+        self.height = self.controls[self.control_count - 1].height;
+        self.controls[self.control_count - 1].is_unreachable = true;
+    }
+
+    fn target(self: *const StackValidator, depth: u32) Error!StackControl {
+        if (depth >= self.control_count) return Error.InvalidIndex;
+        return self.controls[self.control_count - 1 - depth];
+    }
+
+    fn blockArity(r: *Reader) Error!u1 {
+        return switch (try r.byte()) {
+            0x40 => 0,
+            0x7f, 0x7e, 0x7d, 0x7c => 1,
+            else => Error.UnsupportedFeature,
+        };
+    }
+
+    fn localIndex(self: *const StackValidator, r: *Reader) Error!u32 {
+        const index = try r.varU32();
+        if (index >= self.local_count) return Error.InvalidIndex;
+        return index;
+    }
+
+    fn globalIndex(r: *Reader) Error!u32 {
+        const index = try r.varU32();
+        if (index >= global_count) return Error.InvalidIndex;
+        return index;
+    }
+
+    fn branch(self: *StackValidator, control: StackControl) Error!void {
+        try self.pop(control.branch_arity);
+        try self.markUnreachable();
+    }
+
+    fn bulkMemory(self: *StackValidator, r: *Reader) Error!void {
+        switch (try r.varU32()) {
+            0...7 => try self.apply(1, 1),
+            8 => {
+                if (try r.varU32() >= data_count or try r.varU32() != 0) return Error.InvalidIndex;
+                try self.pop(3);
+            },
+            9 => if (try r.varU32() >= data_count) return Error.InvalidIndex,
+            10 => {
+                if (try r.varU32() != 0 or try r.varU32() != 0) return Error.InvalidIndex;
+                try self.pop(3);
+            },
+            11 => {
+                if (try r.varU32() != 0) return Error.InvalidIndex;
+                try self.pop(3);
+            },
+            else => return Error.UnsupportedFeature,
+        }
+    }
+
+    fn validate(self: *StackValidator, r: *Reader, result_arity: u1) Error!u32 {
+        try self.pushControl(.function, result_arity, result_arity);
+        while (r.remaining() != 0) {
+            const op = try r.byte();
+            switch (op) {
+                0x00 => try self.markUnreachable(),
+                0x01 => {},
+                0x02, 0x03 => {
+                    const arity = try blockArity(r);
+                    try self.pushControl(if (op == 0x02) .block else .loop, if (op == 0x03) 0 else arity, arity);
+                },
+                0x04 => {
+                    try self.pop(1);
+                    const arity = try blockArity(r);
+                    try self.pushControl(.if_, arity, arity);
+                },
+                0x05 => {
+                    const control = try self.popControl();
+                    if (control.kind != .if_) return Error.InvalidControl;
+                    try self.pushControl(.else_, control.branch_arity, control.end_arity);
+                },
+                0x0b => {
+                    const control = try self.popControl();
+                    if (control.kind == .if_ and control.end_arity != 0) return Error.InvalidControl;
+                    try self.push(control.end_arity);
+                    if (self.control_count == 0) {
+                        if (r.remaining() != 0 or self.height != result_arity) return Error.StackMismatch;
+                        return self.max_height;
+                    }
+                },
+                0x0c => try self.branch(try self.target(try r.varU32())),
+                0x0d => {
+                    const control = try self.target(try r.varU32());
+                    try self.pop(1);
+                    try self.pop(control.branch_arity);
+                    try self.push(control.branch_arity);
+                },
+                0x0e => {
+                    const count = try r.varU32();
+                    if (count > MAX_CONTROLS) return Error.TooManyItems;
+                    var expected_arity: ?u1 = null;
+                    var i: u32 = 0;
+                    while (i <= count) : (i += 1) {
+                        const arity = (try self.target(try r.varU32())).branch_arity;
+                        if (expected_arity) |expected| {
+                            if (arity != expected) return Error.StackMismatch;
+                        } else {
+                            expected_arity = arity;
+                        }
+                    }
+                    try self.pop(1);
+                    try self.pop(expected_arity orelse 0);
+                    try self.markUnreachable();
+                },
+                0x0f => try self.branch(self.controls[0]),
+                0x10 => {
+                    const index = try r.varU32();
+                    if (index >= function_count) return Error.InvalidIndex;
+                    const ft = types[functions[index].type_index];
+                    try self.apply(ft.params_len, if (ft.result == null) 0 else 1);
+                },
+                0x11 => {
+                    const type_index = try r.varU32();
+                    if (type_index >= type_count or try r.varU32() != 0 or table_size == 0) return Error.InvalidIndex;
+                    const ft = types[type_index];
+                    try self.apply(ft.params_len + 1, if (ft.result == null) 0 else 1);
+                },
+                0x1a => try self.pop(1),
+                0x1b => try self.apply(3, 1),
+                0x20 => {
+                    _ = try self.localIndex(r);
+                    try self.push(1);
+                },
+                0x21 => {
+                    _ = try self.localIndex(r);
+                    try self.pop(1);
+                },
+                0x22 => {
+                    _ = try self.localIndex(r);
+                    try self.apply(1, 1);
+                },
+                0x23 => {
+                    _ = try globalIndex(r);
+                    try self.push(1);
+                },
+                0x24 => {
+                    const index = try globalIndex(r);
+                    if (!globals[index].mutable) return Error.InvalidIndex;
+                    try self.pop(1);
+                },
+                0x28...0x35 => {
+                    _ = try r.varU32();
+                    _ = try r.varU32();
+                    try self.apply(1, 1);
+                },
+                0x36...0x3e => {
+                    _ = try r.varU32();
+                    _ = try r.varU32();
+                    try self.pop(2);
+                },
+                0x3f => {
+                    if (try r.byte() != 0) return Error.InvalidIndex;
+                    try self.push(1);
+                },
+                0x40 => return Error.UnsupportedFeature,
+                0x41 => {
+                    _ = try r.s32();
+                    try self.push(1);
+                },
+                0x42 => {
+                    _ = try r.s64();
+                    try self.push(1);
+                },
+                0x43 => {
+                    _ = try r.fixedU32();
+                    try self.push(1);
+                },
+                0x44 => {
+                    _ = try r.fixedU64();
+                    try self.push(1);
+                },
+                0x45, 0x50, 0x67...0x69, 0x79...0x7b, 0x8b...0x8f, 0x91, 0x99...0x9d, 0x9f, 0xa7...0xbf, 0xc0...0xc4 => try self.apply(1, 1),
+                0x46...0x4f, 0x51...0x66, 0x6a...0x78, 0x7c...0x8a, 0x92...0x95, 0x98, 0xa0...0xa3, 0xa6 => try self.apply(2, 1),
+                0xfc => try self.bulkMemory(r),
+                0xfd => return Error.UnsupportedFeature,
+                else => return Error.UnsupportedFeature,
+            }
+        }
+        return Error.UnexpectedEof;
+    }
+};
+
 const FunctionEmitter = struct {
     out: *Writer,
     prefix: []const u8,
     function_index: u32,
+    local_count: u32,
     next_label: u32 = 0,
     next_call: u32 = 0,
     controls: [MAX_CONTROLS]Control = undefined,
@@ -703,6 +961,24 @@ const FunctionEmitter = struct {
     fn target(self: *FunctionEmitter, depth: u32) Error!Control {
         if (depth >= self.control_count) return Error.InvalidIndex;
         return self.controls[self.control_count - 1 - depth];
+    }
+
+    fn localIndex(self: *const FunctionEmitter, r: *Reader) Error!u32 {
+        const index = try r.varU32();
+        if (index >= self.local_count) return Error.InvalidIndex;
+        return index;
+    }
+
+    fn globalIndex(r: *Reader) Error!u32 {
+        const index = try r.varU32();
+        if (index >= global_count) return Error.InvalidIndex;
+        return index;
+    }
+
+    fn writableGlobalIndex(r: *Reader) Error!u32 {
+        const index = try globalIndex(r);
+        if (!globals[index].mutable) return Error.InvalidIndex;
+        return index;
     }
 
     fn blockArity(r: *Reader) Error!u1 {
@@ -1017,11 +1293,11 @@ const FunctionEmitter = struct {
                 0x11 => try self.emitCallIndirect(r),
                 0x1a => try self.out.write("  --sp;\n"),
                 0x1b => try self.out.write("  { uint32_t c = s[--sp].u32; --sp; if (!c) s[sp - 1] = s[sp]; }\n"),
-                0x20 => try self.out.print("  s[sp++] = v[{d}];\n", .{try r.varU32()}),
-                0x21 => try self.out.print("  v[{d}] = s[--sp];\n", .{try r.varU32()}),
-                0x22 => try self.out.print("  v[{d}] = s[sp - 1];\n", .{try r.varU32()}),
-                0x23 => try self.out.print("  s[sp++] = i->g[{d}];\n", .{try r.varU32()}),
-                0x24 => try self.out.print("  i->g[{d}] = s[--sp];\n", .{try r.varU32()}),
+                0x20 => try self.out.print("  s[sp++] = v[{d}];\n", .{try self.localIndex(r)}),
+                0x21 => try self.out.print("  v[{d}] = s[--sp];\n", .{try self.localIndex(r)}),
+                0x22 => try self.out.print("  v[{d}] = s[sp - 1];\n", .{try self.localIndex(r)}),
+                0x23 => try self.out.print("  s[sp++] = i->g[{d}];\n", .{try globalIndex(r)}),
+                0x24 => try self.out.print("  i->g[{d}] = s[--sp];\n", .{try writableGlobalIndex(r)}),
                 0x28...0x35 => try self.emitLoad(op, r),
                 0x36...0x3e => try self.emitStore(op, r),
                 0x3f => {
@@ -1522,6 +1798,10 @@ fn writeFunction(out: *Writer, prefix: []const u8, index: u32) Error!void {
         local_count += count;
     }
 
+    var validation_reader = r;
+    var validator = StackValidator{ .local_count = local_count };
+    const max_stack = try validator.validate(&validation_reader, if (ft.result == null) 0 else 1);
+
     try out.print(
         \\static {s}_val {s}_f{d}({s}_instance *i, const {s}_val *args) {{
         \\  {s}_val s[{d}], v[{d}], z;
@@ -1530,7 +1810,7 @@ fn writeFunction(out: *Writer, prefix: []const u8, index: u32) Error!void {
         \\  (void)args; if (0) goto f_return;
         \\  if (++i->call_depth > {s}_CALL_DEPTH_LIMIT) {s}_trap(i, {s}_TRAP_CALL_DEPTH);
         \\
-    , .{ prefix, prefix, index, prefix, prefix, prefix, function.body.len + 1, @max(local_count, 1), prefix, prefix, prefix });
+    , .{ prefix, prefix, index, prefix, prefix, prefix, @max(max_stack, 1), @max(local_count, 1), prefix, prefix, prefix });
     var p: u32 = 0;
     while (p < ft.params_len) : (p += 1) {
         try out.print("  v[{d}] = args[{d}];\n", .{ p, p });
@@ -1545,6 +1825,7 @@ fn writeFunction(out: *Writer, prefix: []const u8, index: u32) Error!void {
         .out = out,
         .prefix = prefix,
         .function_index = index,
+        .local_count = local_count,
     };
     try emitter.pushControl(function_control);
     if (try emitter.sequence(&r, false)) return Error.InvalidSection;
@@ -1718,4 +1999,132 @@ export fn render(input_size: u32) packed struct(u64) {
         .output_ptr = @intCast(@intFromPtr(&output_buf)),
         .failed = 0,
     };
+}
+
+fn expectInvalidIndexInstruction(bytes: []const u8, local_count: u32) !void {
+    var out = Writer{};
+    var emitter = FunctionEmitter{
+        .out = &out,
+        .prefix = "test",
+        .function_index = 0,
+        .local_count = local_count,
+    };
+    var reader = Reader.init(bytes);
+    try std.testing.expectError(Error.InvalidIndex, emitter.sequence(&reader, false));
+    try std.testing.expectEqual(@as(usize, 0), out.pos);
+}
+
+fn validateTestStack(bytes: []const u8, result_arity: u1) Error!u32 {
+    var reader = Reader.init(bytes);
+    var validator = StackValidator{ .local_count = 0 };
+    return validator.validate(&reader, result_arity);
+}
+
+test "reject out-of-range local instruction indices before emitting C" {
+    const instructions = [_]u8{ 0x20, 0x21, 0x22 };
+    for (instructions) |instruction| {
+        const body = [_]u8{ instruction, 0x01, 0x0b };
+        try expectInvalidIndexInstruction(&body, 1);
+    }
+}
+
+test "reject out-of-range global instruction indices before emitting C" {
+    resetModule();
+    defer resetModule();
+    global_count = 1;
+    globals[0] = .{
+        .value_type = .i32,
+        .mutable = true,
+        .initial = .{ .u32_ = 0 },
+    };
+
+    const instructions = [_]u8{ 0x23, 0x24 };
+    for (instructions) |instruction| {
+        const body = [_]u8{ instruction, 0x01, 0x0b };
+        try expectInvalidIndexInstruction(&body, 0);
+    }
+}
+
+test "reject writes to immutable globals before emitting C" {
+    resetModule();
+    defer resetModule();
+    global_count = 1;
+    globals[0] = .{
+        .value_type = .i32,
+        .mutable = false,
+        .initial = .{ .u32_ = 0 },
+    };
+
+    const body = [_]u8{ 0x24, 0x00, 0x0b };
+    try expectInvalidIndexInstruction(&body, 0);
+}
+
+test "reject operand stack underflow" {
+    const body = [_]u8{ 0x6a, 0x0b }; // i32.add; end
+    try std.testing.expectError(Error.StackUnderflow, validateTestStack(&body, 0));
+}
+
+test "reject extra operand stack values at function end" {
+    const body = [_]u8{ 0x41, 0x00, 0x0b }; // i32.const 0; end
+    try std.testing.expectError(Error.StackMismatch, validateTestStack(&body, 0));
+}
+
+test "do not consume values below a block stack boundary" {
+    const body = [_]u8{
+        0x41, 0x00, // i32.const 0
+        0x02, 0x40, // block
+        0x1a, // drop
+        0x0b, // end block
+        0x1a, // drop
+        0x0b, // end function
+    };
+    try std.testing.expectError(Error.StackUnderflow, validateTestStack(&body, 0));
+}
+
+test "accept balanced polymorphic dead code" {
+    const body = [_]u8{
+        0x00, // unreachable
+        0x6a, // i32.add consumes polymorphic values
+        0x1a, // drop
+        0x0b, // end function
+    };
+    try std.testing.expectEqual(@as(u32, 1), try validateTestStack(&body, 0));
+}
+
+test "compute the exact maximum operand stack height" {
+    const body = [_]u8{
+        0x41, 0x01, // i32.const 1
+        0x41, 0x02, // i32.const 2
+        0x6a, // i32.add
+        0x0b, // end function
+    };
+    try std.testing.expectEqual(@as(u32, 2), try validateTestStack(&body, 1));
+}
+
+test "size generated C operand arrays from maximum stack height" {
+    resetModule();
+    defer resetModule();
+    types[0] = .{ .params_off = 0, .params_len = 0, .result = .i32 };
+    type_count = 1;
+    functions[0] = .{
+        .type_index = 0,
+        .body = &.{
+            0x00, // no local groups
+            0x41, 0x01, // i32.const 1
+            0x41, 0x02, // i32.const 2
+            0x6a, // i32.add
+            0x0b, // end function
+        },
+    };
+    function_count = 1;
+
+    var out = Writer{};
+    try writeFunction(&out, "test", 0);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..out.pos], "test_val s[2], v[1], z;") != null);
+}
+
+test "reject operand stacks above the translation limit" {
+    var validator = StackValidator{ .local_count = 0 };
+    try validator.push(MAX_STACK_VALUES);
+    try std.testing.expectError(Error.TooManyItems, validator.push(1));
 }

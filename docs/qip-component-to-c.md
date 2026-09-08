@@ -26,6 +26,13 @@ WebAssembly validator. Validate untrusted input before translation. This is an
 artifact-generation step: do not expose the translator as a service that
 accepts arbitrary Wasm and compiles the resulting C.
 
+During translation, the component rejects out-of-range local and global
+indices, writes to immutable globals, operand-stack underflow, and unmatched
+stack heights at control-flow boundaries. It also computes each function's
+maximum operand-stack height and uses that value to size the generated C
+array. It does not yet check every operand type, so these checks do not replace
+a complete WebAssembly validator.
+
 ## Generated Header
 
 Every header hashes the complete input bytes with SHA-256 and uses the first
