@@ -5,7 +5,7 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /application/warc/warc-counts.wasm,bytes,application/warc,134217728,utf8,text/csv,16384
 /application/warc/warc-to-sitemap.wasm,bytes,application/warc,33554432,utf8,application/xml,8388608
 /application/warc/warc-to-static-tar-no-trailing-slash.wasm,bytes,application/warc,134217728,bytes,application/x-tar,134217728
-/application/wasm/wasm-counts.wasm,bytes,application/wasm,8388608,utf8,text/csv,32768
+/application/wasm/wasm-counts.wasm,bytes,application/wasm,8388608,utf8,text/csv,3375
 /application/wasm/render-cyclomatic-complexity.wasm,bytes,application/wasm,8388608,utf8,text/plain,20
 /application/wasm/qip-component-to-c.wasm,bytes,application/wasm,1048576,utf8,text/x-c,16777216
 /application/wasm/qip-component-to-swift.wasm,bytes,application/wasm,1048576,utf8,text/x-swift,16777216

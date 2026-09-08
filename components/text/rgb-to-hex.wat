@@ -1,374 +1,216 @@
 (module $RGBToHex
-  (memory (export "memory") 4 4)
+  ;; Input occupies page 1 and the seven-byte output starts in page 2.
+  ;; Parser positions travel in i64 results, so no fourth scratch page is used.
+  (memory (export "memory") 3 3)
   (global $input_ptr i32 (i32.const 0x10000))
-  (func (export "input_ptr") (result i32)
-    (global.get $input_ptr))
-  (global $input_utf8_cap i32 (i32.const 0x10000))
-  (func (export "input_utf8_cap") (result i32)
-    (global.get $input_utf8_cap))
   (global $output_ptr i32 (i32.const 0x20000))
-  (global $output_utf8_cap i32 (i32.const 0x10000))
-  (func (export "output_utf8_cap") (result i32)
-    (global.get $output_utf8_cap))
+  (func (export "input_ptr") (result i32) (global.get $input_ptr))
+  (func (export "input_utf8_cap") (result i32) (i32.const 0x10000))
+  (func (export "output_utf8_cap") (result i32) (i32.const 7))
 
-  ;; Check if character is ASCII whitespace
-  (func $is_whitespace (param $c i32) (result i32)
-    (i32.or
-      (i32.eq (local.get $c) (i32.const 32))
+  ;; Return channel << 32 | next_position, or -1 for invalid input.
+  (func $parse_channel
+    (param $pos i32) (param $end i32) (param $last i32) (param $wrapped i32)
+    (param $first_c i32) (param $has_first_c i32)
+    (result i64)
+    (local $c i32) (local $value i32)
+
+    (if (local.get $has_first_c)
+      (then (local.set $c (local.get $first_c)))
+      (else
+        (block $leading_done
+          (loop $leading
+            (br_if $leading_done (i32.ge_u (local.get $pos) (local.get $end)))
+            (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
+            (br_if $leading_done (i32.eqz
+              (i32.or
+                (i32.eq (local.get $c) (i32.const 32))
+                (i32.and
+                  (i32.le_u (i32.sub (local.get $c) (i32.const 9)) (i32.const 4))
+                  (i32.ne (local.get $c) (i32.const 11))))))
+            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+            (br $leading)))))
+
+    ;; The leading-whitespace scan already loaded the first non-whitespace
+    ;; byte. Consume it here instead of loading it a second time.
+    (if
       (i32.or
-        (i32.eq (local.get $c) (i32.const 9))
-        (i32.or
-          (i32.eq (local.get $c) (i32.const 10))
+        (i32.ge_u (local.get $pos) (local.get $end))
+        (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 9)))
+      (then (return (i64.const -1))))
+    (local.set $value (i32.sub (local.get $c) (i32.const 48)))
+    (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+
+    (block $digits_done
+      (loop $digits
+        (br_if $digits_done (i32.ge_u (local.get $pos) (local.get $end)))
+        (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
+        (br_if $digits_done
+          (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 9)))
+        (local.set $value
+          (i32.add
+            (i32.mul (local.get $value) (i32.const 10))
+            (i32.sub (local.get $c) (i32.const 48))))
+        (if (i32.gt_u (local.get $value) (i32.const 255))
+          (then (return (i64.const -1))))
+        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+        (br $digits)))
+    (block $trailing_done
+      (loop $trailing
+        (br_if $trailing_done (i32.ge_u (local.get $pos) (local.get $end)))
+        (br_if $trailing_done (i32.eqz
           (i32.or
-            (i32.eq (local.get $c) (i32.const 12))
-            (i32.eq (local.get $c) (i32.const 13))
-          )
-        )
-      )
-    )
-  )
-
-  ;; Check if character is a digit
-  (func $is_digit (param $c i32) (result i32)
-    (i32.and
-      (i32.ge_u (local.get $c) (i32.const 48))  ;; '0'
-      (i32.le_u (local.get $c) (i32.const 57))  ;; '9'
-    )
-  )
-
-  ;; Convert ASCII letter to lowercase (non-letters unchanged)
-  (func $to_lower_ascii (param $c i32) (result i32)
-    (if (result i32)
-      (i32.and
-        (i32.ge_u (local.get $c) (i32.const 65))  ;; 'A'
-        (i32.le_u (local.get $c) (i32.const 90))  ;; 'Z'
-      )
-      (then
-        (i32.add (local.get $c) (i32.const 32))
-      )
-      (else
-        (local.get $c)
-      )
-    )
-  )
-
-  ;; Parse a decimal number from input
-  ;; Returns the number, or -1 if invalid
-  ;; Updates the position parameter
-  (func $parse_number (param $start i32) (param $end i32) (param $pos_ptr i32) (result i32)
-    (local $pos i32)
-    (local $num i32)
-    (local $c i32)
-    (local $has_digit i32)
-
-    (local.set $pos (local.get $start))
-
-    ;; Skip leading whitespace
-    (block $break_ws
-      (loop $continue_ws
-        (br_if $break_ws (i32.ge_u (local.get $pos) (local.get $end)))
-        (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
-        (br_if $break_ws (i32.eqz (call $is_whitespace (local.get $c))))
+            (i32.eq (local.get $c) (i32.const 32))
+            (i32.and
+              (i32.le_u (i32.sub (local.get $c) (i32.const 9)) (i32.const 4))
+              (i32.ne (local.get $c) (i32.const 11))))))
         (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-        (br $continue_ws)
-      )
-    )
-
-    ;; Parse digits
-    (block $break_digits
-      (loop $continue_digits
-        (br_if $break_digits (i32.ge_u (local.get $pos) (local.get $end)))
-        (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
-        (br_if $break_digits (i32.eqz (call $is_digit (local.get $c))))
-
-        (local.set $has_digit (i32.const 1))
-        (local.set $num (i32.add
-          (i32.mul (local.get $num) (i32.const 10))
-          (i32.sub (local.get $c) (i32.const 48))
-        ))
-        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-        (br $continue_digits)
-      )
-    )
-
-    ;; If no digits found, return -1
-    (if (i32.eqz (local.get $has_digit))
-      (then
-        (return (i32.const -1))
-      )
-    )
-
-    ;; Update position
-    (i32.store (local.get $pos_ptr) (local.get $pos))
-
-    (local.get $num)
-  )
-
-  ;; Skip whitespace and comma
-  (func $skip_separator (param $start i32) (param $end i32) (result i32)
-    (local $pos i32)
-    (local $c i32)
-    (local $found_comma i32)
-
-    (local.set $pos (local.get $start))
-
-    ;; Skip whitespace and look for comma
-    (block $break
-      (loop $continue
-        (br_if $break (i32.ge_u (local.get $pos) (local.get $end)))
-        (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
-
-        (if (i32.eq (local.get $c) (i32.const 44))  ;; comma
+        (if (i32.lt_u (local.get $pos) (local.get $end))
           (then
-            (local.set $found_comma (i32.const 1))
-            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-            (br $continue)
-          )
-        )
+            (local.set $c
+              (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))))
+        (br $trailing)))
 
-        (if (call $is_whitespace (local.get $c))
-          (then
-            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-            (br $continue)
-          )
-        )
-
-        (br $break)
-      )
-    )
-
-    ;; Must have found a comma
-    (if (i32.eqz (local.get $found_comma))
-      (then (return (i32.const -1)))
-    )
-
-    (local.get $pos)
-  )
-
-  ;; Convert byte to hex digit
-  (func $to_hex_digit (param $value i32) (result i32)
-    (if (result i32)
-      (i32.lt_u (local.get $value) (i32.const 10))
+    (if (local.get $last)
       (then
-        (i32.add (local.get $value) (i32.const 48))  ;; '0'
-      )
+        (if (local.get $wrapped)
+          (then
+            (if (i32.or
+                  (i32.ge_u (local.get $pos) (local.get $end))
+                  (i32.ne (local.get $c) (i32.const 41)))
+              (then (return (i64.const -1))))
+            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+            (block $end_ws_done
+              (loop $end_ws
+                (br_if $end_ws_done (i32.ge_u (local.get $pos) (local.get $end)))
+                (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
+                (br_if $end_ws_done (i32.eqz
+                  (i32.or
+                    (i32.eq (local.get $c) (i32.const 32))
+                    (i32.and
+                      (i32.le_u (i32.sub (local.get $c) (i32.const 9)) (i32.const 4))
+                      (i32.ne (local.get $c) (i32.const 11))))))
+                (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+                (br $end_ws)))))
+        (if (i32.ne (local.get $pos) (local.get $end))
+          (then (return (i64.const -1)))))
       (else
-        (i32.add (i32.sub (local.get $value) (i32.const 10)) (i32.const 97))  ;; 'a'
-      )
-    )
-  )
+        (if (i32.or
+              (i32.ge_u (local.get $pos) (local.get $end))
+              (i32.ne (local.get $c) (i32.const 44)))
+          (then (return (i64.const -1))))
+        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))))
 
-  ;; Convert byte to two hex digits and write to output
-  (func $byte_to_hex (param $value i32) (param $out_pos i32)
-    (local $high i32)
-    (local $low i32)
+    (i64.or
+      (i64.shl (i64.extend_i32_u (local.get $value)) (i64.const 32))
+      (i64.extend_i32_u (local.get $pos))))
 
-    (local.set $high (i32.shr_u (local.get $value) (i32.const 4)))
-    (local.set $low (i32.and (local.get $value) (i32.const 15)))
-
+  (func $write_hex_byte (param $value i32) (param $pos i32)
+    (local $digit i32)
+    (local.set $digit (i32.shr_u (local.get $value) (i32.const 4)))
+    (i32.store8 (i32.add (global.get $output_ptr) (local.get $pos))
+      (i32.add (i32.add (local.get $digit) (i32.const 48))
+        (select (i32.const 39) (i32.const 0)
+          (i32.ge_u (local.get $digit) (i32.const 10)))))
+    (local.set $digit (i32.and (local.get $value) (i32.const 15)))
     (i32.store8
-      (i32.add (global.get $output_ptr) (local.get $out_pos))
-      (call $to_hex_digit (local.get $high)))
-
-    (i32.store8
-      (i32.add (global.get $output_ptr) (i32.add (local.get $out_pos) (i32.const 1)))
-      (call $to_hex_digit (local.get $low)))
-  )
+      (i32.add (i32.add (global.get $output_ptr) (local.get $pos)) (i32.const 1))
+      (i32.add (i32.add (local.get $digit) (i32.const 48))
+        (select (i32.const 39) (i32.const 0)
+          (i32.ge_u (local.get $digit) (i32.const 10))))))
 
   (func $render_size (param $input_size i32) (result i32)
-    (local $start i32)
-    (local $end i32)
-    (local $pos i32)
-    (local $pos_ptr i32)
-    (local $r i32)
-    (local $g i32)
-    (local $b i32)
-    (local $current_char i32)
+    (local $pos i32) (local $c i32) (local $wrapped i32)
+    (local $channel i32) (local $parsed i64) (local $rgb i32)
+    (if (i32.eqz (local.get $input_size)) (then (return (i32.const 0))))
 
-    ;; Allocate space for position pointer (after output buffer)
-    (local.set $pos_ptr (i32.const 0x30000))
+    (block $leading_done
+      (loop $leading
+        (br_if $leading_done (i32.ge_u (local.get $pos) (local.get $input_size)))
+        (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
+        (br_if $leading_done (i32.eqz
+          (i32.or
+            (i32.eq (local.get $c) (i32.const 32))
+            (i32.and
+              (i32.le_u (i32.sub (local.get $c) (i32.const 9)) (i32.const 4))
+              (i32.ne (local.get $c) (i32.const 11))))))
+        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+        (br $leading)))
+    (if (i32.ge_u (local.get $pos) (local.get $input_size))
+      (then (return (i32.const 0))))
 
-    ;; Empty input is invalid
-    (if (i32.eq (local.get $input_size) (i32.const 0))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Trim leading whitespace
-    (local.set $start (i32.const 0))
-    (block $break_leading
-      (loop $continue_leading
-        (br_if $break_leading (i32.ge_u (local.get $start) (local.get $input_size)))
-        (local.set $current_char (i32.load8_u (i32.add (global.get $input_ptr) (local.get $start))))
-        (br_if $break_leading (i32.eqz (call $is_whitespace (local.get $current_char))))
-        (local.set $start (i32.add (local.get $start) (i32.const 1)))
-        (br $continue_leading)
-      )
-    )
-
-    ;; Trim trailing whitespace
-    (local.set $end (local.get $input_size))
-    (block $break_trailing
-      (loop $continue_trailing
-        (br_if $break_trailing (i32.le_u (local.get $end) (local.get $start)))
-        (local.set $current_char (i32.load8_u (i32.add (global.get $input_ptr) (i32.sub (local.get $end) (i32.const 1)))))
-        (br_if $break_trailing (i32.eqz (call $is_whitespace (local.get $current_char))))
-        (local.set $end (i32.sub (local.get $end) (i32.const 1)))
-        (br $continue_trailing)
-      )
-    )
-
-    ;; If empty after trimming, invalid
-    (if (i32.ge_u (local.get $start) (local.get $end))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Support optional rgb(...) wrapper (whitespace tolerant)
     (if
-      (i32.ge_u (i32.sub (local.get $end) (local.get $start)) (i32.const 3))
+      (i32.le_u (i32.const 3) (i32.sub (local.get $input_size) (local.get $pos)))
       (then
         (if
+        (i32.and
+          (i32.eq
+            (i32.or (local.get $c) (i32.const 32))
+            (i32.const 114))
           (i32.and
             (i32.eq
-              (call $to_lower_ascii
-                (i32.load8_u (i32.add (global.get $input_ptr) (local.get $start))))
-              (i32.const 114))  ;; 'r'
+              (i32.or (i32.load8_u
+                (i32.add (i32.add (global.get $input_ptr) (local.get $pos)) (i32.const 1)))
+                (i32.const 32))
+              (i32.const 103))
+            (i32.eq
+              (i32.or (i32.load8_u
+                (i32.add (i32.add (global.get $input_ptr) (local.get $pos)) (i32.const 2)))
+                (i32.const 32))
+              (i32.const 98))))
+        (then
+        (local.set $wrapped (i32.const 1))
+        (local.set $pos (i32.add (local.get $pos) (i32.const 3)))
+        (block $rgb_ws_done
+          (loop $rgb_ws
+            (br_if $rgb_ws_done (i32.ge_u (local.get $pos) (local.get $input_size)))
+            (local.set $c (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
+            (br_if $rgb_ws_done (i32.eqz
+              (i32.or
+                (i32.eq (local.get $c) (i32.const 32))
+                (i32.and
+                  (i32.le_u (i32.sub (local.get $c) (i32.const 9)) (i32.const 4))
+                  (i32.ne (local.get $c) (i32.const 11))))))
+            (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
+            (br $rgb_ws)))
+        (if (i32.or
+              (i32.ge_u (local.get $pos) (local.get $input_size))
+              (i32.ne (local.get $c) (i32.const 40)))
+          (then (return (i32.const 0))))
+          (local.set $pos (i32.add (local.get $pos) (i32.const 1)))))))
+
+    (block $channels_done
+      (loop $channels
+        (local.set $parsed
+          (call $parse_channel
+            (local.get $pos) (local.get $input_size)
+            (i32.eq (local.get $channel) (i32.const 2))
+            (local.get $wrapped)
+            (local.get $c)
             (i32.and
-              (i32.eq
-                (call $to_lower_ascii
-                  (i32.load8_u (i32.add (global.get $input_ptr) (i32.add (local.get $start) (i32.const 1)))))
-                (i32.const 103))  ;; 'g'
-              (i32.eq
-                (call $to_lower_ascii
-                  (i32.load8_u (i32.add (global.get $input_ptr) (i32.add (local.get $start) (i32.const 2)))))
-                (i32.const 98))   ;; 'b'
-            )
-          )
-          (then
-            (local.set $pos (i32.add (local.get $start) (i32.const 3)))
+              (i32.eqz (local.get $wrapped))
+              (i32.eqz (local.get $channel)))))
+        (if (i64.eq (local.get $parsed) (i64.const -1))
+          (then (return (i32.const 0))))
+        (local.set $pos (i32.wrap_i64 (local.get $parsed)))
+        (local.set $rgb
+          (i32.or
+            (i32.shl (local.get $rgb) (i32.const 8))
+            (i32.wrap_i64 (i64.shr_u (local.get $parsed) (i64.const 32)))))
+        (local.set $channel (i32.add (local.get $channel) (i32.const 1)))
+        (br_if $channels (i32.lt_u (local.get $channel) (i32.const 3)))))
 
-            ;; Skip whitespace after rgb and before '('
-            (block $break_rgb_ws
-              (loop $continue_rgb_ws
-                (br_if $break_rgb_ws (i32.ge_u (local.get $pos) (local.get $end)))
-                (local.set $current_char (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
-                (br_if $break_rgb_ws (i32.eqz (call $is_whitespace (local.get $current_char))))
-                (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-                (br $continue_rgb_ws)
-              )
-            )
+    ;; Seven store8 instructions write exactly the seven returned bytes.
+    (i32.store8 (global.get $output_ptr) (i32.const 35))
+    (call $write_hex_byte
+      (i32.and (i32.shr_u (local.get $rgb) (i32.const 16)) (i32.const 255))
+      (i32.const 1))
+    (call $write_hex_byte
+      (i32.and (i32.shr_u (local.get $rgb) (i32.const 8)) (i32.const 255))
+      (i32.const 3))
+    (call $write_hex_byte (i32.and (local.get $rgb) (i32.const 255)) (i32.const 5))
+    (i32.const 7))
 
-            ;; Require opening '('
-            (if
-              (i32.or
-                (i32.ge_u (local.get $pos) (local.get $end))
-                (i32.ne
-                  (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos)))
-                  (i32.const 40)))  ;; '('
-              (then (return (i32.const 0)))
-            )
-
-            ;; Parse range starts after '('
-            (local.set $start (i32.add (local.get $pos) (i32.const 1)))
-
-            ;; Find closing ')' at the end, ignoring whitespace before it
-            (local.set $pos (local.get $end))
-            (block $break_close_ws
-              (loop $continue_close_ws
-                (br_if $break_close_ws (i32.le_u (local.get $pos) (local.get $start)))
-                (local.set $current_char
-                  (i32.load8_u (i32.add (global.get $input_ptr) (i32.sub (local.get $pos) (i32.const 1)))))
-                (br_if $break_close_ws (i32.eqz (call $is_whitespace (local.get $current_char))))
-                (local.set $pos (i32.sub (local.get $pos) (i32.const 1)))
-                (br $continue_close_ws)
-              )
-            )
-
-            ;; Require closing ')'
-            (if
-              (i32.or
-                (i32.le_u (local.get $pos) (local.get $start))
-                (i32.ne
-                  (i32.load8_u (i32.add (global.get $input_ptr) (i32.sub (local.get $pos) (i32.const 1))))
-                  (i32.const 41)))  ;; ')'
-              (then (return (i32.const 0)))
-            )
-
-            ;; Parse range ends before ')'
-            (local.set $end (i32.sub (local.get $pos) (i32.const 1)))
-          )
-        )
-      )
-    )
-
-    ;; Parse R value
-    (local.set $r (call $parse_number (local.get $start) (local.get $end) (local.get $pos_ptr)))
-    (if (i32.eq (local.get $r) (i32.const -1))
-      (then (return (i32.const 0)))
-    )
-    (if (i32.gt_u (local.get $r) (i32.const 255))
-      (then (return (i32.const 0)))
-    )
-    (local.set $pos (i32.load (local.get $pos_ptr)))
-
-    ;; Skip separator (comma)
-    (local.set $pos (call $skip_separator (local.get $pos) (local.get $end)))
-    (if (i32.eq (local.get $pos) (i32.const -1))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Parse G value
-    (local.set $g (call $parse_number (local.get $pos) (local.get $end) (local.get $pos_ptr)))
-    (if (i32.eq (local.get $g) (i32.const -1))
-      (then (return (i32.const 0)))
-    )
-    (if (i32.gt_u (local.get $g) (i32.const 255))
-      (then (return (i32.const 0)))
-    )
-    (local.set $pos (i32.load (local.get $pos_ptr)))
-
-    ;; Skip separator (comma)
-    (local.set $pos (call $skip_separator (local.get $pos) (local.get $end)))
-    (if (i32.eq (local.get $pos) (i32.const -1))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Parse B value
-    (local.set $b (call $parse_number (local.get $pos) (local.get $end) (local.get $pos_ptr)))
-    (if (i32.eq (local.get $b) (i32.const -1))
-      (then (return (i32.const 0)))
-    )
-    (if (i32.gt_u (local.get $b) (i32.const 255))
-      (then (return (i32.const 0)))
-    )
-    (local.set $pos (i32.load (local.get $pos_ptr)))
-
-    ;; Skip any trailing whitespace
-    (block $break_final
-      (loop $continue_final
-        (br_if $break_final (i32.ge_u (local.get $pos) (local.get $end)))
-        (local.set $current_char (i32.load8_u (i32.add (global.get $input_ptr) (local.get $pos))))
-        (br_if $break_final (i32.eqz (call $is_whitespace (local.get $current_char))))
-        (local.set $pos (i32.add (local.get $pos) (i32.const 1)))
-        (br $continue_final)
-      )
-    )
-
-    ;; Make sure we consumed all input
-    (if (i32.ne (local.get $pos) (local.get $end))
-      (then (return (i32.const 0)))
-    )
-
-    ;; Write # prefix
-    (i32.store8 (global.get $output_ptr) (i32.const 35))  ;; '#'
-
-    ;; Convert to hex: #RRGGBB
-    (call $byte_to_hex (local.get $r) (i32.const 1))
-    (call $byte_to_hex (local.get $g) (i32.const 3))
-    (call $byte_to_hex (local.get $b) (i32.const 5))
-
-    ;; Return length: 7 characters (#RRGGBB)
-    (i32.const 7)
-  )
   (func (export "render") (param $input_size i32) (result i64)
     (i64.or
       (i64.shl (i64.extend_i32_u (global.get $output_ptr)) (i64.const 32))
