@@ -133,6 +133,7 @@ Server Component and Client Component example.
 <li><a href="/docs/c-wasm-toolchains">Building C Libraries As QIP Components</a></li>
 <li><a href="/docs/benchmarking-components">Benchmarking Components</a></li>
 <li><a href="/docs/tracing">Tracing</a></li>
+<li><a href="/docs/qip-content-interpreter">Running A Content Component In The QIP Interpreter</a></li>
 <li><a href="/docs/wasm-counts">Counting A WebAssembly Module</a></li>
 <li><a href="/docs/render-cyclomatic-complexity">Render-Reachable WebAssembly Cyclomatic Complexity</a></li>
 <li><a href="/docs/nontrapping-divides">Proving Non-Trapping Divides</a></li>

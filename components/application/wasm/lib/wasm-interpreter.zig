@@ -47,9 +47,16 @@ pub const Error = error{
     UnsupportedFeature,
     TooManyItems,
     MissingMemory,
+    MissingMemoryExport,
     MissingRender,
     InvalidRenderSignature,
     InvalidInputContract,
+    InvalidOutputContract,
+    MissingOutputCapacity,
+    MissingFunctionExport,
+    InvalidFunctionSignature,
+    InvocationFailed,
+    InstructionBudgetExceeded,
     MissingInputBuffer,
     InputTooLarge,
     InvalidUTF8,
@@ -126,6 +133,19 @@ const FuncType = struct {
 pub const FunctionSignature = struct {
     parameters: []const ValType,
     result: ?ValType,
+};
+
+pub const ContentContract = struct {
+    input_pointer: ?u32,
+    input_capacity: ?u32,
+    input_is_utf8: bool,
+    output_capacity: u32,
+    output_is_utf8: bool,
+};
+
+pub const ContentOutput = union(enum) {
+    accepted: []const u8,
+    rejected: u32,
 };
 
 pub const InstructionRange = struct {
@@ -388,8 +408,10 @@ pub const Machine = struct {
             const start: usize = self.target_input_ptr;
             @memcpy(self.memory[start .. start + self.target_input.len], self.target_input);
         }
-        @memset(self.loop_counts[0..self.instruction_count], 0);
-        @memset(self.function_invocations[0..self.function_count], 0);
+        try self.beginRender();
+    }
+
+    fn resetInvocation(self: *Machine) void {
         self.stack_count = 0;
         self.locals_count = 0;
         self.frame_count = 0;
@@ -405,7 +427,48 @@ pub const Machine = struct {
         self.last_access_kind = .none;
         self.last_read_access = .{};
         self.last_write_access = .{};
+    }
+
+    /// Discards the current invocation without resetting memory or globals and
+    /// starts the target Content component's render function.
+    pub fn beginRender(self: *Machine) Error!void {
+        @memset(self.loop_counts[0..self.instruction_count], 0);
+        @memset(self.function_invocations[0..self.function_count], 0);
+        self.resetInvocation();
         try self.enterFunction(self.render_function, 0, &.{@as(Value, self.target_input.len)});
+    }
+
+    /// Runs one exported scalar setter without resetting memory or globals.
+    /// This is sufficient for the one-argument, same-result-type QIP uniform
+    /// ABI. Call beginRender after applying all setters.
+    pub fn invokeScalarSetter(
+        self: *Machine,
+        name: []const u8,
+        value: Value,
+        value_type: ValType,
+        budget: usize,
+    ) Error!Value {
+        var function_index: ?u32 = null;
+        for (self.exports[0..self.export_count]) |exp| {
+            if (!std.mem.eql(u8, self.module[exp.name_offset .. exp.name_offset + exp.name_length], name)) continue;
+            if (function_index != null or exp.kind != 0 or exp.index >= self.function_count) return Error.InvalidFunctionSignature;
+            function_index = exp.index;
+        }
+        const index = function_index orelse return Error.MissingFunctionExport;
+        const function_type = self.types[self.functions[index].type_index];
+        if (function_type.params != 1 or function_type.results != 1 or
+            function_type.parameter_types[0] != value_type or function_type.result_type != value_type or
+            value_type == .v128)
+        {
+            return Error.InvalidFunctionSignature;
+        }
+
+        self.resetInvocation();
+        try self.enterFunction(index, 0, &.{value});
+        self.continueFor(budget);
+        if (self.budget_exhausted) return Error.InstructionBudgetExceeded;
+        if (self.status != .halted) return Error.InvocationFailed;
+        return self.result;
     }
 
     fn resetMemory(self: *Machine) void {
@@ -590,6 +653,16 @@ pub const Machine = struct {
         return null;
     }
 
+    pub fn functionExportIndex(self: *const Machine, name: []const u8) ?u32 {
+        var result: ?u32 = null;
+        for (self.exports[0..self.export_count]) |exp| {
+            if (!std.mem.eql(u8, self.module[exp.name_offset .. exp.name_offset + exp.name_length], name)) continue;
+            if (result != null or exp.kind != 0 or exp.index >= self.function_count) return null;
+            result = exp.index;
+        }
+        return result;
+    }
+
     pub fn functionSignature(self: *const Machine, function_index: u32) ?FunctionSignature {
         if (function_index >= self.function_count) return null;
         const function = self.functions[function_index];
@@ -640,6 +713,59 @@ pub const Machine = struct {
             }
         }
         return false;
+    }
+
+    pub fn contentContract(self: *const Machine) Error!ContentContract {
+        var memory_exported = false;
+        for (self.exports[0..self.export_count]) |exp| {
+            if (exp.kind == 2 and exp.index == 0 and
+                std.mem.eql(u8, self.module[exp.name_offset .. exp.name_offset + exp.name_length], "memory"))
+            {
+                memory_exported = true;
+                break;
+            }
+        }
+        if (!memory_exported) return Error.MissingMemoryExport;
+
+        const input_pointer = try self.inputPointer();
+        const input_capacity = try self.inputCapacity();
+        if ((input_pointer == null) != (input_capacity == null)) return Error.InvalidInputContract;
+        if (input_pointer) |pointer| {
+            const end = @as(u64, pointer) + input_capacity.?;
+            if (end > self.memory_size) return Error.InvalidInputContract;
+            for (self.data_segments[0..self.data_segment_count]) |segment| {
+                const data_start: u64 = segment.offset;
+                const data_end = data_start + segment.bytes_length;
+                if (@as(u64, pointer) < data_end and data_start < end) return Error.InvalidInputContract;
+            }
+        }
+
+        const output_capacity = try self.outputCapacity() orelse return Error.MissingOutputCapacity;
+        return .{
+            .input_pointer = input_pointer,
+            .input_capacity = input_capacity,
+            .input_is_utf8 = self.hasFunctionExport("input_utf8_cap"),
+            .output_capacity = output_capacity,
+            .output_is_utf8 = self.hasFunctionExport("output_utf8_cap"),
+        };
+    }
+
+    pub fn contentOutput(self: *const Machine) Error!?ContentOutput {
+        if (self.status != .halted) return null;
+        if ((self.result >> 63) != 0) {
+            if ((self.result & 0x7fff_ffff_0000_0000) != 0) return Error.InvalidOutputContract;
+            return .{ .rejected = @truncate(self.result) };
+        }
+
+        const contract = try self.contentContract();
+        const size: u32 = @truncate(self.result);
+        const pointer: u32 = @truncate(self.result >> 32);
+        if (size > contract.output_capacity) return Error.InvalidOutputContract;
+        const end = @as(u64, pointer) + size;
+        if (end > self.memory_size) return Error.InvalidOutputContract;
+        const output = self.memory[pointer..@intCast(end)];
+        if (contract.output_is_utf8 and !std.unicode.utf8ValidateSlice(output)) return Error.InvalidOutputContract;
+        return .{ .accepted = output };
     }
 
     pub fn staticExportedBytes(
