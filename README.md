@@ -78,10 +78,9 @@ printf 'qip + wasm\n' \
 
 qipdb runs a QIP Content component inside a small WebAssembly interpreter and
 shows its instructions, operand stack, locals, globals, linear memory, calls,
-loops, and counters. The final screen includes a SHA-256 digest of the output,
-which you can compare with the same component in a normal runtime.
+loops, and live counters.
 
-Start with the small `rgb-to-hex` parser:
+Start with the small `rgb-to-hex` component:
 
 ```sh
 npx @qip.dev/qipx qip.dev tui \
@@ -90,7 +89,7 @@ npx @qip.dev/qipx qip.dev tui \
   interactive/qipdb.wasm
 ```
 
-Inspect a larger parser with tables and indirect calls:
+Inspect a larger Commonmark Markdown component with tables and indirect calls:
 
 ```sh
 npx @qip.dev/qipx qip.dev tui \
@@ -99,8 +98,7 @@ npx @qip.dev/qipx qip.dev tui \
   interactive/qipdb.wasm
 ```
 
-From this repository, inspect the SIMD PNG decoder with an image as its exact
-byte input:
+Debug a PNG decodee with SIMD acceleration passing a image file as input:
 
 ```sh
 npx @qip.dev/qipx qip.dev tui \
@@ -109,23 +107,20 @@ npx @qip.dev/qipx qip.dev tui \
   interactive/qipdb.wasm
 ```
 
-Press ↓ or `s` to step, Space to continue, `i` to expand the program summary,
-`v` to cycle variable values through hexadecimal, decimal, and ASCII, and `?`
-for the complete key and color guide. qipdb deliberately supports a bounded
-WebAssembly profile rather than every WebAssembly feature; it rejects an
-unsupported target before execution.
+qipdb deliberately supports a bounded
+WebAssembly profile rather than every WebAssembly feature, this lets it gain determinism.
 
 ## Module contract
 
 QIP does not use WASI or WIT, standards that have ballooned in complexity from scope creep. We want to get stuff done in today’s browsers so we pick a much smaller contract between hosts and modules:
 
 - `input_ptr()` / `input_bytes_cap()`: where the host writes input.
-- `input_content_type_ptr()` / `input_content_type_size()`: MIME type of the input
-- `output_bytes_cap()`: the maximum output size.
-- `output_content_type_ptr()` / `output_content_type_size()`: MIME type of the output
-- `render(input_size) -> i64`: transform input and return its output pointer and
+- `input_content_type_ptr()` / `input_content_type_size()`: optional MIME type of the input
+- `output_bytes_cap()`: the declared maximum output size.
+- `output_content_type_ptr()` / `output_content_type_size()`: optional MIME type of the output
+- `render(input_size) -> i64`: function that does the work to transform input and return the output pointer and
   size, or reject the input.
-- Optional `uniform_set_<key>(value)`: primitive integer or float parameters applied before rendering.
+- `uniform_set_<key>(value)`: optional primitive integer/float parameters applied before rendering.
 
 You can read more about the [Content component contract in our docs](./docs/content-component.md).
 
@@ -133,10 +128,7 @@ You can read more about the [Content component contract in our docs](./docs/cont
 
 You can pipe the results of other CLI tools to stdin, pass one raw file with
 `-i`, or construct multipart input with repeatable `-F` options. You can also
-chain multiple QIP components together.
-
-With hosts, `-F name=@path.wasm` downloads and saves a missing safe relative
-Wasm file using the same local-first rules as pipeline components.
+chain multiple QIP components together like unix tools.
 
 Put one or more HTTPS hosts before `run`, `dry run`, `bench`, or `comply` to
 load a missing component by its relative path:
@@ -146,7 +138,7 @@ printf '# Hello\n' \
   | qipx qip.dev run text/markdown/gfm-commonmark.0.31.2.wasm
 ```
 
-`qipx` uses local components when available. Otherwise, it downloads them over HTTPS and saves them at the same local file path for later runs.
+`qipx` uses local components when available. Otherwise, it downloads them over HTTPS and saves them at the same local file path for later runs. There's no special protocol or discovery mechanism: it’s just a GET.
 
 ```bash
 npm install --global @qip.dev/qipx
