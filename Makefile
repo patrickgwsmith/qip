@@ -1,4 +1,4 @@
-.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm test test-go test-node test-deno test-comply test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report
+.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report
 
 default: qip compliance components recipes
 
@@ -158,6 +158,8 @@ ZIG_GLOBAL_CACHE_DIR ?= /tmp/zig-global-cache
 ZIG_ENV := ZIG_CACHE_DIR=$(ZIG_CACHE_DIR) ZIG_GLOBAL_CACHE_DIR=$(ZIG_GLOBAL_CACHE_DIR)
 ZIG_WASM_MAX_MEMORY ?= 67108864
 ODIN_WASM_MAX_MEMORY ?= 2097152
+RUST_WASM_TARGET_DIR ?= /tmp/qip-rust-wasm-target
+RUST_WASM_CARGO_FLAGS ?=
 
 HOST_OS ?= $(shell uname -s)
 ifeq ($(HOST_OS),Darwin)
@@ -317,10 +319,17 @@ components/interactive/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 components/interactive/qipdb.wasm: components/interactive/qipdb.zig components/application/wasm/lib/wasm-interpreter.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
+components/application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+components/application/wasm/qip-content-interpreter.wasm: components/application/wasm/qip-content-interpreter.zig components/application/wasm/lib/wasm-interpreter.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
+
 test/fixtures/wasm-debugger-bulk-memory.wasm: test/fixtures/wasm-debugger-bulk-memory.wat
 	wat2wasm $< -o $@
 
 test/fixtures/wasm-debugger-call-indirect.wasm: test/fixtures/wasm-debugger-call-indirect.wat
+	wat2wasm $< -o $@
+
+test/fixtures/qip-content-interpreter-uniforms.wasm: test/fixtures/qip-content-interpreter-uniforms.wat
 	wat2wasm $< -o $@
 
 components/interactive/cover-flow.wasm: components/interactive/cover-flow.zig components/image/lib/ktx2-rgba8-srgb.zig
@@ -355,6 +364,12 @@ components/application/wasm/wasm-validate-core-1.0.wasm: ZIG_WASM_MAX_MEMORY = 2
 # Keep bulk-memory lowering for copies, but do not emit sign-extension opcodes.
 components/application/wasm/wasm-validate-core-1.0.wasm: components/application/wasm/wasm-validate-core-1.0.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) -mcpu=generic-sign_ext --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+CORE2_VALIDATOR_DIR := components/application/wasm/wasm-validate-core-2.0
+CORE2_VALIDATOR_DEPS := $(shell find $(CORE2_VALIDATOR_DIR) third_party/rust/wasmparser-0.252.0 third_party/rust/bitflags-2.13.0 -type f)
+components/application/wasm/wasm-validate-core-2.0.wasm: $(CORE2_VALIDATOR_DEPS)
+	cd $(CORE2_VALIDATOR_DIR) && CARGO_TARGET_DIR=$(RUST_WASM_TARGET_DIR) cargo build --release --locked --offline --target wasm32-unknown-unknown $(RUST_WASM_CARGO_FLAGS)
+	cp $(RUST_WASM_TARGET_DIR)/wasm32-unknown-unknown/release/qip-wasm-validate-core-2.wasm $@
 
 components/application/wasm/wasm-bounded-loops.wasm: ZIG_WASM_MAX_MEMORY = 25165824
 components/application/wasm/wasm-bounded-loops.wasm: components/application/wasm/wasm-bounded-loops.zig components/application/wasm/lib/wasm-reader.zig
@@ -857,6 +872,7 @@ components-zig-wasm: components/text/markdown/markdown-basic.wasm
 components-zig-wasm: components/text/html/html-page-wrap.wasm
 components-zig-wasm: recipes/text/markdown/10-markdown-basic.wasm
 components-zig-wasm: recipes/text/markdown/80-html-page-wrap.wasm
+components-rust-wasm: components/application/wasm/wasm-validate-core-2.0.wasm
 
 recipes: $(patsubst recipes/text/markdown/%.zig,recipes/text/markdown/%.wasm,$(wildcard recipes/text/markdown/*.zig))
 recipes: $(patsubst recipes/application/warc/%.zig,recipes/application/warc/%.wasm,$(wildcard recipes/application/warc/*.zig))
@@ -871,9 +887,17 @@ recipes: recipes/text/markdown/24-html-code-syntax-highlight-html.wasm
 recipes: recipes/text/markdown/28-html-code-syntax-highlight-css.wasm
 recipes: recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm
 
-components: components-wat-wasm components-c-wasm components-zig-wasm
+components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
 test: qip components test-go test-node test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help
+
+test-wasm-core-1-spec: components/application/wasm/wasm-validate-core-1.0.wasm
+	@test -n "$(WASM_CORE_1_0_SPEC_DIR)" || (echo "set WASM_CORE_1_0_SPEC_DIR to the WebAssembly spec wg-1.0 checkout" && exit 1)
+	node test/wasm-validate-core-1.0-spec.mjs $(WASM_CORE_1_0_SPEC_DIR)
+
+test-wasm-core-2-spec: components/application/wasm/wasm-validate-core-2.0.wasm
+	@test -n "$(WASM_CORE_2_0_SPEC_DIR)" || (echo "set WASM_CORE_2_0_SPEC_DIR to the WebAssembly spec wg-2.0 checkout" && exit 1)
+	node test/wasm-validate-core-2.0-spec.mjs $(WASM_CORE_2_0_SPEC_DIR)
 
 test-markdown-pathological: qip components/text/markdown/gfm-commonmark.0.31.2.wasm
 	QIP_BIN=$(QIP_BIN) tools/test-markdown-pathological.sh
@@ -909,7 +933,7 @@ test-warc-libs:
 test-qip-router-help: qip
 	QIP_BIN=$(QIP_BIN) sh test/qip-router-help.sh
 
-test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm test/fixtures/wasm-debugger-call-indirect.wasm
+test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm test/fixtures/wasm-debugger-call-indirect.wasm test/fixtures/qip-content-interpreter-uniforms.wasm
 	node --check site/qip-runner.js
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs
@@ -934,6 +958,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-play-debug-stats.mjs
 	node --test test/qip-play-steps.mjs
 	node --test test/qipdb.mjs
+	node --test test/qip-content-interpreter.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
 	node --test test/ktx2-resize-simd.mjs
@@ -1178,6 +1203,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=components/bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "components/interactive/qipdb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig || status=1; \
+		elif [ "$$f" = "components/application/wasm/qip-content-interpreter.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig || status=1; \
 		elif [ "$$f" = "components/text/html/html-to-svg-inter-paths.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=components/text/lib/inter_display_latin_paths.zig -Minter_bold=components/text/lib/inter_display_bold_latin_paths.zig || status=1; \
 		elif [ "$$f" = "components/image/svg+xml/svg-to-pdf-inter-font.zig" ]; then \

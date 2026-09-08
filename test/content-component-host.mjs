@@ -123,3 +123,32 @@ test("Core Wasm validation rejects and recovers without copying accepted input",
   assert.equal(accepted.status, "accepted");
   assert.deepEqual(Buffer.from(accepted.output), wasmBytes);
 });
+
+test("Core 2.0 validation accepts Core 2.0 and rejects later proposals", async () => {
+  const validatorBytes = await readFile(
+    "components/application/wasm/wasm-validate-core-2.0.wasm",
+  );
+  const host = new ContentComponentHost(validatorBytes, {
+    label: "Core 2.0 Wasm validator",
+  });
+
+  // () -> (i32, i64) uses Core 2.0 multi-value results.
+  const multiValue = Buffer.from(
+    "0061736d010000000106016000027f7e030201000a08010600410042000b",
+    "hex",
+  );
+  const accepted = host.run(multiValue);
+  assert.equal(accepted.status, "accepted");
+  assert.deepEqual(Buffer.from(accepted.output), multiValue);
+
+  // return_call is a tail-call proposal instruction, not Core 2.0.
+  const tailCall = Buffer.from(
+    "0061736d0100000001040160000003030200000a0902040012010b02000b",
+    "hex",
+  );
+  const rejected = host.run(tailCall);
+  assert.equal(rejected.status, "rejected");
+  assert.equal(rejected.inputOffset, 24);
+
+  assert.equal(host.run(multiValue).status, "accepted");
+});

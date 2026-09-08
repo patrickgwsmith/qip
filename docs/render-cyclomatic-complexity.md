@@ -48,7 +48,7 @@ for the complete module.
 
 The input must contain a defined function export named `render`. Malformed Wasm
 or a module without that export traps. Validate untrusted bytes with
-[`wasm-validate-core-1.0.wasm`](/application/wasm/wasm-validate-core-1.0.wasm)
+[`wasm-validate-core-2.0.wasm`](/application/wasm/wasm-validate-core-2.0.wasm)
 first.
 
 ## When Not To Use It

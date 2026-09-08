@@ -110,13 +110,17 @@ For untrusted Wasm bytes, validate the core module first:
 
 ```bash
 qip run -i component.wasm -- \
-  components/application/wasm/wasm-validate-core-1.0.wasm \
+  components/application/wasm/wasm-validate-core-2.0.wasm \
   components/application/wasm/wasm-strict-profile.wasm \
   components/application/wasm/wasm-bounded-loops.wasm
 ```
 
-The profile checker assumes valid core Wasm. It fails closed when it cannot
-decode an instruction body, but it does not replace full core Wasm validation.
+`wasm-validate-core-2.0.wasm` validates the complete Core 2.0 language. This
+includes SIMD, multi-value functions, reference types, and bulk memory. Use
+`wasm-validate-core-1.0.wasm` only when a pipeline must reject every feature
+added after Core 1.0. The profile checker assumes valid core Wasm. It fails
+closed when it cannot decode an instruction body, but it does not replace full
+core Wasm validation.
 
 ### `wasm-strict-profile`
 
@@ -167,7 +171,7 @@ no counter or exit, so the checker rejects it. A correct loop can still fail
 this conservative proof. In that case, simplify the loop, add a step budget,
 or use a runtime time limit. See [Provable Loops](provable-loops.md).
 
-### Bounded Output Proofs
+<h3 id="bounded-output-proofs">Bounded Output Proofs</h3>
 
 `wasm-bounded-output.wasm` checks the successful result of a Content
 component's `render(i32) -> i64`. It proves that the returned output size is
