@@ -6,10 +6,12 @@
 //! useful in a terminal as well as a browser.
 
 const std = @import("std");
-const debug = @import("wasm_debug");
+const interpreter = @import("wasm_interpreter");
+const wasm_counts = @import("wasm_counts");
 
 const MULTIPART_OVERHEAD_CAP: usize = 32 * 1024;
-const INPUT_CAP: usize = debug.MAX_MODULE_BYTES + debug.MAX_TARGET_MEMORY_BYTES + MULTIPART_OVERHEAD_CAP;
+const MAX_TARGET_INPUT_BYTES: usize = 8 * 1024 * 1024;
+const INPUT_CAP: usize = interpreter.MAX_MODULE_BYTES + MAX_TARGET_INPUT_BYTES + MULTIPART_OVERHEAD_CAP;
 const OUTPUT_CAP: usize = 64 * 1024;
 const TYPE_PREFIX = "multipart/form-data;boundary=uuid-";
 const DEFAULT_UUID = "00000000-0000-0000-0000-000000000000";
@@ -31,30 +33,39 @@ const DEFAULT_INSTRUCTION_BUDGET: u32 = 100_000;
 const MAX_INSTRUCTION_BUDGET: u32 = 1_000_000;
 const REPLAY_INSTRUCTION_CAP: usize = MAX_INSTRUCTION_BUDGET;
 const MEMORY_VIEW_BYTES: usize = 128;
+const MEMORY_ACCESS_CONTEXT_ROWS: usize = 3;
 const INSTRUCTION_MARKER_WIDTH: usize = 3;
 const INSTRUCTION_WINDOW_SIZE: usize = 11;
 const INSTRUCTION_WINDOW_PREVIOUS: usize = 5;
 const COLUMN_BUFFER_CAP: usize = 16 * 1024;
-const LEFT_COLUMN_WIDTH: usize = 46;
+const LEFT_COLUMN_WIDTH: usize = 44;
 const WRITER_LINE_CAP: usize = 256;
 
 const SGR_RESET = "\x1b[0m";
 const SGR_BOLD = "\x1b[1m";
+const SGR_UNDERLINE = "\x1b[4m";
 const SGR_CONTROL_KEY = "\x1b[1;97m";
 const SGR_DIM = "\x1b[2m";
 const SGR_ERROR = "\x1b[1;91m";
 const SGR_WARNING = "\x1b[1;93m";
+const SGR_STATUS_READY = "\x1b[96m";
+const SGR_STATUS_PAUSED = "\x1b[93m";
+const SGR_STATUS_COMPLETE = "\x1b[92m";
+const SGR_STATUS_FAILED = "\x1b[91m";
 const SGR_INSTRUCTION = "\x1b[93m";
 const SGR_STORAGE = "\x1b[34m";
 const SGR_READ = "\x1b[95m";
+const SGR_READ_ACCESS = "\x1b[4;95m";
 const SGR_WRITE = "\x1b[92m";
 const SGR_WRITE_TARGET = "\x1b[1;92m";
+const SGR_WRITE_ACCESS = "\x1b[1;4;92m";
 const SGR_VALUE = "\x1b[94m";
-const SGR_CONTROL_FLOW = "\x1b[91m";
+const SGR_CONTROL_FLOW = "\x1b[36m";
 const SGR_LOOP_CALL = "\x1b[96m";
 const SGR_SELECTED_VALUE = "\x1b[4;94m";
 const SGR_MEMORY_DATA = "\x1b[33m";
 const SGR_MEMORY_INPUT = "\x1b[34m";
+const SGR_MEMORY_INPUT_ACCESS = "\x1b[4;34m";
 const SGR_MEMORY_WRITTEN = SGR_WRITE;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
@@ -62,7 +73,7 @@ var input_content_type = (TYPE_PREFIX ++ DEFAULT_UUID).*;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
 var left_column_buf: [COLUMN_BUFFER_CAP]u8 = undefined;
 var right_column_buf: [COLUMN_BUFFER_CAP]u8 = undefined;
-var machine: debug.Machine = undefined;
+var machine: interpreter.Machine = undefined;
 var phase: Phase = .initializing;
 var begun_at_ms: i64 = 0;
 var committed_at_ms: i64 = 0;
@@ -75,6 +86,7 @@ var memory_view_bytes: usize = MEMORY_VIEW_BYTES;
 var memory_address_entry = false;
 var memory_address_value: u32 = 0;
 var memory_address_digits: u8 = 0;
+var help_visible = false;
 var step_replay_available = false;
 var step_replay_count: usize = 0;
 var step_replay_target: u32 = std.math.maxInt(u32);
@@ -86,6 +98,8 @@ var viewport_lines: u32 = std.math.maxInt(u32);
 var output_digest: [32]u8 = undefined;
 var output_digest_valid = false;
 var render_stack_pointer: ?StackPointerPattern = null;
+var static_counts: ?wasm_counts.Counts = null;
+var counters_expanded = false;
 
 const Phase = enum { initializing, ready, updating };
 
@@ -98,7 +112,7 @@ const MultipartError = error{
     UnknownPart,
 };
 
-const LoadError = debug.Error || MultipartError;
+const LoadError = interpreter.Error || MultipartError;
 
 const DebugInput = struct {
     component: []const u8,
@@ -294,13 +308,24 @@ export fn uniform_set_lines(value: u32) u32 {
 
 export fn key_event(x11_key: i32, flags: i32) i32 {
     if (phase != .updating) @trap();
-    if ((flags & FLAG_KEY_DOWN) == 0 or load_error != null) return 0;
+    if ((flags & FLAG_KEY_DOWN) == 0) return 0;
     if (x11_key == '[' and (flags & FLAG_ALT) != 0 and (flags & (FLAG_SHIFT | FLAG_CTRL | FLAG_META)) == 0) {
+        if (load_error != null) return 0;
         stepBackward();
         return 1;
     }
     if ((flags & (FLAG_CTRL | FLAG_ALT | FLAG_META)) != 0) return 0;
+    if (x11_key == '?') {
+        help_visible = !help_visible;
+        return 1;
+    }
     if (memory_address_entry) return handleMemoryAddressKey(x11_key);
+    if (x11_key == 'i' or x11_key == 'I') {
+        if (static_counts == null) return 0;
+        counters_expanded = !counters_expanded;
+        return 1;
+    }
+    if (load_error != null) return 0;
 
     const accesses_before = machine.counters.memory_reads + machine.counters.memory_writes;
     var execution_command = false;
@@ -525,12 +550,12 @@ fn handleMemoryAddressKey(x11_key: i32) i32 {
         },
         'r', 'R' => {
             if (!machine.last_read_access.valid) return 0;
-            showMemoryAt(machine.last_read_access.address);
+            showMemoryAccessWithContext(machine.last_read_access);
             return 1;
         },
         'w', 'W' => {
             if (!machine.last_write_access.valid) return 0;
-            showMemoryAt(machine.last_write_access.address);
+            showMemoryAccessWithContext(machine.last_write_access);
             return 1;
         },
         else => {},
@@ -546,6 +571,15 @@ fn handleMemoryAddressKey(x11_key: i32) i32 {
 fn showMemoryAt(address: u32) void {
     if (machine.memory_size == 0) return;
     memory_view_offset = @min(@as(usize, address), machine.memory_size - 1);
+    memory_view_bytes = MEMORY_VIEW_BYTES;
+    memory_view_visible = true;
+    memory_address_entry = false;
+}
+
+fn showMemoryAccessWithContext(access: interpreter.MemoryEvent) void {
+    if (!access.valid or machine.memory_size == 0) return;
+    const access_row = @as(usize, access.address) & ~@as(usize, 15);
+    memory_view_offset = access_row -| MEMORY_ACCESS_CONTEXT_ROWS * 16;
     memory_view_bytes = MEMORY_VIEW_BYTES;
     memory_view_visible = true;
     memory_address_entry = false;
@@ -609,16 +643,12 @@ fn pageMemoryForward() void {
 
 fn followLastMemoryAccess() void {
     if (!machine.last_access.valid) return;
-    memory_view_offset = @as(usize, machine.last_access.address) & ~@as(usize, 15);
-    memory_view_bytes = MEMORY_VIEW_BYTES;
-    memory_view_visible = true;
+    showMemoryAccessWithContext(machine.last_access);
 }
 
 fn followCurrentStoreTarget() bool {
     const target = currentStoreTarget() orelse return false;
-    memory_view_offset = @as(usize, target.address) & ~@as(usize, 15);
-    memory_view_bytes = MEMORY_VIEW_BYTES;
-    memory_view_visible = true;
+    showMemoryAccessWithContext(target);
     return true;
 }
 
@@ -644,6 +674,8 @@ export fn render(input_size: u32) packed struct(u64) {
         memory_address_entry = false;
         memory_address_value = 0;
         memory_address_digits = 0;
+        help_visible = false;
+        counters_expanded = false;
         step_replay_available = false;
         step_replay_count = 0;
         step_replay_target = std.math.maxInt(u32);
@@ -651,6 +683,7 @@ export fn render(input_size: u32) packed struct(u64) {
         last_command_budget = DEFAULT_INSTRUCTION_BUDGET;
         output_digest_valid = false;
         render_stack_pointer = null;
+        static_counts = null;
         clearRecentValueWrite();
         const debug_input = parseMultipart(input_buf[0..input_size]) catch |err| {
             load_error = err;
@@ -662,6 +695,7 @@ export fn render(input_size: u32) packed struct(u64) {
                 .failed = 0,
             };
         };
+        static_counts = wasm_counts.analyze(debug_input.component) catch null;
         machine.loadWithInput(debug_input.component, debug_input.target_input) catch |err| {
             load_error = err;
         };
@@ -820,7 +854,7 @@ fn renderHex64(out: *Writer, value: u64) void {
 fn instructionStyle(op: u8) []const u8 {
     if (isWriteInstruction(op)) return SGR_WRITE;
     if (op == 0x20 or op == 0x23 or (op >= 0x28 and op <= 0x35)) return SGR_READ;
-    if (op == 0x03 or op == 0x10) return SGR_LOOP_CALL;
+    if (op == 0x03 or op == 0x10 or op == 0x11) return SGR_LOOP_CALL;
     if (op == 0x1b) return SGR_CONTROL_FLOW;
     return switch (op) {
         0x00...0x02, 0x04...0x0f => SGR_CONTROL_FLOW,
@@ -833,7 +867,7 @@ fn instructionStyleAt(index: u32) []const u8 {
     return instructionStyle(machine.instructions[index].op);
 }
 
-fn renderOpcodeName(out: *Writer, instruction: debug.Instruction, style: []const u8) void {
+fn renderOpcodeName(out: *Writer, instruction: interpreter.Instruction, style: []const u8) void {
     switch (instruction.op) {
         0x20...0x22 => {
             out.raw(SGR_STORAGE);
@@ -855,7 +889,7 @@ fn renderOpcodeName(out: *Writer, instruction: debug.Instruction, style: []const
             out.raw(SGR_RESET);
         },
         0x28...0x35 => {
-            const name = debug.opcodeName(instruction.op);
+            const name = interpreter.opcodeName(instruction.op);
             const separator = std.mem.indexOfScalar(u8, name, '.') orelse unreachable;
             out.raw(SGR_INSTRUCTION);
             out.text(name[0..separator]);
@@ -864,7 +898,7 @@ fn renderOpcodeName(out: *Writer, instruction: debug.Instruction, style: []const
             out.raw(SGR_RESET);
         },
         0x36...0x3e => {
-            const name = debug.opcodeName(instruction.op);
+            const name = interpreter.opcodeName(instruction.op);
             const separator = std.mem.indexOfScalar(u8, name, '.') orelse unreachable;
             out.raw(SGR_INSTRUCTION);
             out.text(name[0..separator]);
@@ -873,7 +907,7 @@ fn renderOpcodeName(out: *Writer, instruction: debug.Instruction, style: []const
             out.raw(SGR_RESET);
         },
         0xfc => {
-            const name = debug.instructionName(instruction);
+            const name = interpreter.instructionName(instruction);
             const separator = std.mem.indexOfScalar(u8, name, '.') orelse unreachable;
             out.raw(SGR_INSTRUCTION);
             out.text(name[0..separator]);
@@ -883,10 +917,7 @@ fn renderOpcodeName(out: *Writer, instruction: debug.Instruction, style: []const
         },
         else => {
             out.raw(style);
-            out.print("{s}{s}", .{
-                if (instruction.op == 0x03) "[LOOP] " else "",
-                debug.opcodeName(instruction.op),
-            });
+            out.text(interpreter.opcodeName(instruction.op));
         },
     }
 }
@@ -923,7 +954,8 @@ fn storeWidth(op: u8) ?u8 {
     };
 }
 
-fn currentStoreTarget() ?debug.MemoryEvent {
+fn currentStoreTarget() ?interpreter.MemoryEvent {
+    if (atHostInputStop()) return null;
     if (machine.current_instruction >= machine.instruction_count) return null;
     const instruction = machine.instructions[machine.current_instruction];
     if (instruction.op == 0xfc and (instruction.immediate == 10 or instruction.immediate == 11)) {
@@ -946,7 +978,7 @@ fn currentStoreTarget() ?debug.MemoryEvent {
     return .{ .valid = true, .address = @intCast(effective), .width = width };
 }
 
-fn memoryWriteHighlight() debug.MemoryEvent {
+fn memoryWriteHighlight() interpreter.MemoryEvent {
     if (currentStoreTarget()) |target| return target;
     return .{};
 }
@@ -954,23 +986,36 @@ fn memoryWriteHighlight() debug.MemoryEvent {
 fn renderText() usize {
     var out = Writer.init(&output_buf);
 
+    renderCounters(&out, load_error == null);
+
+    if (help_visible) {
+        renderHelp(&out);
+        out.text("\n");
+    }
+
     if (load_error) |err| {
         out.raw(SGR_ERROR);
         out.print("INPUT  rejected  reason {s}", .{@errorName(err)});
         out.raw(SGR_RESET);
         out.text("\n\n");
-        out.text("Initial profile: wasm32, one fixed memory up to 8 MiB, no imports, scalar\n");
-        out.text("i32/i64, direct calls, active data segments, and memory.copy/fill.\n");
+        out.text("Initial profile: wasm32, memory up to 128 MiB, no imports or table\n");
+        out.text("mutation, scalar i32/i64, direct/indirect calls, active data/elements.\n");
         return out.offset;
     }
 
     if (memory_address_entry or memory_view_visible) {
         out.styled(SGR_BOLD, "MEMORY");
-        out.print("  {d} B  reads={d} writes={d}  ", .{
-            machine.memory_size,
-            machine.counters.memory_reads,
-            machine.counters.memory_writes,
-        });
+        out.text("  ");
+        renderMemorySize(&out, machine.memory_size);
+        out.print("  pages={d}  reads=", .{machine.memory_pages});
+        out.raw(SGR_READ);
+        out.print("{d}", .{machine.counters.memory_reads});
+        out.raw(SGR_RESET);
+        out.text(" writes=");
+        out.raw(SGR_WRITE);
+        out.print("{d}", .{machine.counters.memory_writes});
+        out.raw(SGR_RESET);
+        out.text("  ");
         out.styled(SGR_CONTROL_KEY, "x");
         out.text(" examine\n");
         renderMemory(&out);
@@ -998,47 +1043,430 @@ fn renderText() usize {
         }
     }
 
-    out.text("\n");
-    out.styled(SGR_BOLD, "COUNTERS");
-    out.print("  instructions={d}  branches={d}  calls={d}  returns={d}\n", .{
-        machine.counters.instructions,
-        machine.counters.branches,
-        machine.counters.calls,
-        machine.counters.returns,
-    });
-    renderLoops(&out);
     return out.offset;
+}
+
+fn renderMemorySize(out: *Writer, byte_count: usize) void {
+    const kib = 1024;
+    const mib = 1024 * kib;
+    if (byte_count >= mib and byte_count % mib == 0) {
+        out.print("{d} MiB", .{byte_count / mib});
+    } else if (byte_count >= kib and byte_count % kib == 0) {
+        out.print("{d} KiB", .{byte_count / kib});
+    } else {
+        out.print("{d} B", .{byte_count});
+    }
+}
+
+fn renderComponentSummary(out: *Writer, max_columns: usize) void {
+    const input_type = componentInputType();
+    const output_type = componentOutputType();
+    const contract = componentContract(output_type);
+
+    out.styled(SGR_BOLD, "WASM");
+    out.text("  ");
+    out.raw(SGR_DIM);
+    out.print("{d} B", .{machine.module.len});
+    out.raw(SGR_RESET);
+    out.print("  QIP {s} component  ", .{contract});
+
+    const fixed_columns = 29 + decimalDigits(machine.module.len) + contract.len;
+    const type_columns = max_columns -| fixed_columns;
+    var input_columns = @min(input_type.len, 24);
+    var output_columns = @min(output_type.len, 24);
+    while (input_columns + output_columns > type_columns) {
+        if (output_columns >= input_columns and output_columns > 3)
+            output_columns -= 1
+        else if (input_columns > 3)
+            input_columns -= 1
+        else
+            break;
+    }
+    renderSummaryType(out, input_type, input_columns);
+    out.text(" → ");
+    renderSummaryType(out, output_type, output_columns);
+    out.text("\n");
+}
+
+fn renderQipSummary(out: *Writer, max_columns: usize) void {
+    const input_type = componentInputType();
+    const output_type = componentOutputType();
+    const input_capacity = machine.inputCapacity() catch null;
+    const output_capacity = machine.outputCapacity() catch null;
+    const no_input = !machine.hasFunctionExport("input_ptr") and
+        !machine.hasFunctionExport("input_utf8_cap") and
+        !machine.hasFunctionExport("input_bytes_cap");
+
+    out.styled(SGR_BOLD, "QIP");
+    out.text("      ");
+    const fixed_columns = "QIP      ".len + " → ".len +
+        "  input-capacity=".len + capacityTextLength(input_capacity, no_input) +
+        "  output-capacity=".len + capacityTextLength(output_capacity, false);
+    const type_columns = max_columns -| fixed_columns;
+    var input_columns = @min(input_type.len, 24);
+    var output_columns = @min(output_type.len, 24);
+    while (input_columns + output_columns > type_columns) {
+        if (output_columns >= input_columns and output_columns > 3)
+            output_columns -= 1
+        else if (input_columns > 3)
+            input_columns -= 1
+        else
+            break;
+    }
+    renderSummaryType(out, input_type, input_columns);
+    out.text(" → ");
+    renderSummaryType(out, output_type, output_columns);
+    out.text("  input-capacity=");
+    if (input_capacity) |capacity| {
+        out.raw(SGR_VALUE);
+        out.print("{d}", .{capacity});
+        out.raw(SGR_RESET);
+        out.text(" B");
+    } else if (no_input) {
+        out.raw(SGR_DIM);
+        out.text("none");
+        out.raw(SGR_RESET);
+    } else {
+        out.raw(SGR_ERROR);
+        out.text("unknown");
+        out.raw(SGR_RESET);
+    }
+    out.text("  output-capacity=");
+    if (output_capacity) |capacity| {
+        out.raw(SGR_VALUE);
+        out.print("{d}", .{capacity});
+        out.raw(SGR_RESET);
+        out.text(" B");
+    } else {
+        out.raw(SGR_ERROR);
+        out.text("unknown");
+        out.raw(SGR_RESET);
+    }
+    out.text("\n");
+}
+
+fn capacityTextLength(capacity: ?u32, absent: bool) usize {
+    if (capacity) |value| return decimalDigits(value) + " B".len;
+    return if (absent) "none".len else "unknown".len;
+}
+
+fn componentContract(output_type: []const u8) []const u8 {
+    if (machine.hasFunctionExport("tile_rgba32float_64x64")) return "tile";
+
+    const timed = machine.hasFunctionExport("begin_update_at") and
+        machine.hasFunctionExport("finish_update");
+    const keyed = machine.hasFunctionExport("key_event");
+    const pointed = machine.hasFunctionExport("pointer_event");
+    const eventful = keyed or pointed;
+    if (timed and keyed and isTextType(output_type)) return "TUI";
+    if ((timed or eventful) and std.mem.eql(u8, output_type, "image/ktx2")) return "GUI";
+    if (eventful) return "eventful content";
+    if (timed) return "timed content";
+    if (machine.hasFunctionExport("failure_modes_per_input_offset")) return "fallible content";
+    return "content";
+}
+
+fn decimalDigits(value: usize) usize {
+    var remaining = value;
+    var digits: usize = 1;
+    while (remaining >= 10) : (digits += 1) remaining /= 10;
+    return digits;
+}
+
+fn componentInputType() []const u8 {
+    if (declaredContentType("input_content_type_ptr", "input_content_type_size")) |content_type| {
+        return content_type;
+    }
+    if (machine.hasFunctionExport("input_utf8_cap")) return "UTF-8";
+    if (machine.hasFunctionExport("input_bytes_cap")) return "bytes";
+    return "no input";
+}
+
+fn componentOutputType() []const u8 {
+    if (declaredContentType("output_content_type_ptr", "output_content_type_size")) |content_type| {
+        return content_type;
+    }
+    if (machine.hasFunctionExport("output_utf8_cap")) return "UTF-8";
+    if (machine.hasFunctionExport("output_bytes_cap")) return "bytes";
+    return "unknown";
+}
+
+fn declaredContentType(pointer_export: []const u8, size_export: []const u8) ?[]const u8 {
+    const maybe_bytes = machine.staticExportedBytes(pointer_export, size_export) catch return null;
+    const bytes = maybe_bytes orelse return null;
+    const end = std.mem.indexOfScalar(u8, bytes, ';') orelse bytes.len;
+    const base_type = bytes[0..end];
+    if (base_type.len < 3 or base_type.len > 127) return null;
+    var slash = false;
+    for (base_type) |byte| switch (byte) {
+        'a'...'z', 'A'...'Z', '0'...'9', '!', '#', '$', '&', '^', '_', '.', '+', '-' => {},
+        '/' => slash = true,
+        else => return null,
+    };
+    return if (slash) base_type else null;
+}
+
+fn isTextType(content_type: []const u8) bool {
+    return std.mem.eql(u8, content_type, "UTF-8") or std.mem.startsWith(u8, content_type, "text/");
+}
+
+fn renderSummaryType(out: *Writer, content_type: []const u8, max_bytes: usize) void {
+    if (content_type.len <= max_bytes) {
+        out.text(content_type);
+        return;
+    }
+    out.text(content_type[0 .. max_bytes - 3]);
+    out.text("...");
+}
+
+fn renderHelp(out: *Writer) void {
+    out.styled(SGR_BOLD, "HELP");
+    out.text("  ");
+    out.styled(SGR_CONTROL_KEY, "?");
+    out.text(" close\n");
+    out.text("  STATUS  ");
+    out.styled(SGR_STATUS_READY, "●");
+    out.text(" at instruction  ");
+    out.styled(SGR_STATUS_PAUSED, "●");
+    out.text(" budget exhausted  ");
+    out.styled(SGR_STATUS_COMPLETE, "●");
+    out.text(" completed  ");
+    out.styled(SGR_STATUS_FAILED, "●");
+    out.text(" failed/trapped\n");
+    out.text("  COLOR LEGEND\n");
+    out.text("    ");
+    out.styled(SGR_INSTRUCTION, "i32.add");
+    out.text(" ordinary  ");
+    out.styled(SGR_STORAGE, "local/global");
+    out.text(" storage  ");
+    out.styled(SGR_READ, ".get/.load");
+    out.text(" read\n");
+    out.text("    ");
+    out.styled(SGR_WRITE, ".set/.store");
+    out.text(" write  ");
+    out.styled(SGR_CONTROL_FLOW, "if/select");
+    out.text(" control  ");
+    out.styled(SGR_LOOP_CALL, "loop/call");
+    out.text(" loops and calls\n");
+    out.text("    ");
+    out.styled(SGR_VALUE, "0x00000000");
+    out.text(" value\n");
+    out.text("  EXECUTION\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "↓ / S / F11");
+    out.text(" step into       ");
+    out.styled(SGR_CONTROL_KEY, "N / F10");
+    out.text(" step over\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "↑ / Alt-[");
+    out.text(" step back       ");
+    out.styled(SGR_CONTROL_KEY, "F / Shift-F11");
+    out.text(" finish function\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "Space / C / F5");
+    out.text(" continue        ");
+    out.styled(SGR_CONTROL_KEY, "R");
+    out.text(" restart        ");
+    out.styled(SGR_CONTROL_KEY, "I");
+    out.text(" counters\n");
+    out.text("  MEMORY\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "X");
+    out.text(" examine          ");
+    out.styled(SGR_CONTROL_KEY, "0-9 / A-F");
+    out.text(" enter address\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "X I / X O");
+    out.text(" input/output     ");
+    out.styled(SGR_CONTROL_KEY, "X R / X W");
+    out.text(" last read/write\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "X ↑ / X ↓");
+    out.text(" page memory      ");
+    out.styled(SGR_CONTROL_KEY, "Backspace / Enter / Esc");
+    out.text(" edit/accept/cancel\n");
+}
+
+fn renderCounters(out: *Writer, include_runtime: bool) void {
+    out.styled(SGR_BOLD, "qipdb");
+    out.text("  ");
+    renderStatusLight(out);
+    const counts = static_counts orelse {
+        if (include_runtime) out.print("  executed={d}", .{machine.counters.instructions});
+        out.text("\n");
+        return;
+    };
+    out.text("  ");
+    out.styled(SGR_CONTROL_KEY, "i");
+    out.text(if (counters_expanded) " collapse" else " expand");
+    out.text("  ");
+    out.styled(SGR_CONTROL_KEY, "?");
+    out.text(" help");
+    if (!counters_expanded) {
+        if (include_runtime) {
+            if (machine.counters.instructions == 0) {
+                out.text("  ");
+                renderComponentSummary(out, 52);
+                return;
+            }
+            out.print("  executed={d}  calls=", .{machine.counters.instructions});
+            out.raw(SGR_LOOP_CALL);
+            out.print("{d}", .{machine.counters.calls});
+            out.raw(SGR_RESET);
+            out.text("  iterations=");
+            out.raw(SGR_LOOP_CALL);
+            out.print("{d}", .{machine.counters.loop_iterations});
+            out.raw(SGR_RESET);
+            out.text("\n");
+        } else {
+            out.print("  instructions={d}  functions={d}  loops=", .{
+                counts.function_instructions,
+                counts.functions_defined + counts.functions_imported,
+            });
+            out.raw(SGR_LOOP_CALL);
+            out.print("{d}", .{counts.loops});
+            out.raw(SGR_RESET);
+            out.text("\n");
+        }
+        return;
+    }
+
+    out.text("\n");
+    out.text("  ");
+    out.styled(SGR_BOLD, "WASM");
+    out.text("     ");
+    out.raw(SGR_DIM);
+    out.print("{d} B", .{machine.module.len});
+    out.raw(SGR_RESET);
+    out.text("\n");
+    out.text("  ");
+    renderQipSummary(out, 78);
+    out.print("  EXPORTS  functions={d}  tables={d}  memories={d}  globals={d}  tags={d}\n", .{
+        counts.functions_exported,
+        counts.tables_exported,
+        counts.memories_exported,
+        counts.globals_exported,
+        counts.tags_exported,
+    });
+    if (include_runtime) {
+        out.print("  RUNTIME  executed={d}  branches-taken={d}  calls={d}  returns={d}  indirect={d}\n", .{
+            machine.counters.instructions,
+            machine.counters.branches,
+            machine.counters.calls,
+            machine.counters.returns,
+            machine.counters.indirect_calls,
+        });
+    }
+    out.print("  CODE     instructions={d}  functions={d}  globals={d}\n", .{
+        counts.function_instructions,
+        counts.functions_defined + counts.functions_imported,
+        counts.globals_defined + counts.globals_imported,
+    });
+    out.print("  CONTROL  loops={d}  branch-sites={d}  conditional-sites={d}\n", .{
+        counts.loops,
+        counts.branches,
+        counts.conditional_branches,
+    });
+    out.print("  CALLS    direct={d}  call_indirect={d}  return_call_indirect={d}  call_ref={d}\n", .{
+        counts.calls_direct_local + counts.calls_direct_imported,
+        counts.call_indirect,
+        counts.return_call_indirect,
+        counts.call_ref,
+    });
+    out.print("  TABLES   tables={d}  fixed={d}  initial-slots={d}  maximum-slots={d}\n", .{
+        counts.tables_defined + counts.tables_imported,
+        counts.tables_fixed_size,
+        counts.table_initial_slots,
+        counts.table_maximum_slots,
+    });
+    out.print("  TYPES    funcref={d}  externref={d}  typed-reference={d}  table64={d}\n", .{
+        counts.tables_funcref,
+        counts.tables_externref,
+        counts.tables_typed_reference,
+        counts.tables_table64,
+    });
+    out.print("  ELEMENTS active={d}  passive={d}  declarative={d}  initializers={d}\n", .{
+        counts.active_element_segments,
+        counts.passive_element_segments,
+        counts.declarative_element_segments,
+        counts.element_initializers,
+    });
+    out.print("  TABLEOPS get={d} set={d} init={d} drop={d} copy={d} grow={d} size={d} fill={d}\n", .{
+        counts.table_get,
+        counts.table_set,
+        counts.table_init,
+        counts.elem_drop,
+        counts.table_copy,
+        counts.table_grow,
+        counts.table_size,
+        counts.table_fill,
+    });
+    out.print("  REFS     null={d}  is-null={d}  func={d}\n", .{
+        counts.ref_null,
+        counts.ref_is_null,
+        counts.ref_func,
+    });
+    out.print("  SIMD     instructions={d}  v128-types={d}\n", .{
+        counts.simd_instructions,
+        counts.v128_types,
+    });
+    out.print("  MEMORY   load-sites={d}  store-sites={d}  copies={d}  fills={d}\n", .{
+        counts.memory_loads,
+        counts.memory_stores,
+        counts.memory_copies,
+        counts.memory_fills,
+    });
+    out.print("  TRAPS    potential-sites={d}  explicit={d}  memory={d}  table={d}\n", .{
+        counts.potentially_trapping_instructions,
+        counts.explicit_traps,
+        counts.potentially_trapping_memory,
+        counts.potentially_trapping_table,
+    });
+    out.print("           division={d}  remainder={d}  float-to-int={d}  call-ref={d}\n", .{
+        counts.integer_divisions,
+        counts.integer_remainders,
+        counts.trapping_float_to_int,
+        counts.call_ref,
+    });
+    if (include_runtime) renderFunctionGraph(out);
+}
+
+fn renderStatusLight(out: *Writer) void {
+    const style = if (load_error != null)
+        SGR_STATUS_FAILED
+    else switch (machine.status) {
+        .empty => SGR_DIM,
+        .ready => if (machine.budget_exhausted) SGR_STATUS_PAUSED else SGR_STATUS_READY,
+        .halted => if ((machine.result >> 63) == 0) SGR_STATUS_COMPLETE else SGR_STATUS_FAILED,
+        .trapped => SGR_STATUS_FAILED,
+    };
+    out.raw(style);
+    out.text("●");
+    out.raw(SGR_RESET);
 }
 
 fn renderExecutionColumns(out: *Writer) void {
     var left = Writer.init(&left_column_buf);
     left.styled(SGR_BOLD, "INSTRUCTIONS");
-    left.print("  {s}\n", .{@tagName(machine.status)});
-    left.raw(SGR_DIM);
-    left.print("  wasm={d} B  input={d} B", .{
-        machine.module.len,
-        machine.target_input.len,
-    });
-    left.raw(SGR_RESET);
-    left.text("\n");
+    left.text("  ");
     if (machine.status == .halted or machine.status == .trapped) {
-        left.text("  ");
         left.styled(SGR_CONTROL_KEY, "r");
         left.text(" restart\n");
     } else {
-        left.text("  ");
         left.styled(SGR_CONTROL_KEY, "Space");
         if (machine.budget_exhausted)
             left.text(" continue\n")
         else
             left.text(" run\n");
-        left.text("  ");
-        left.styled(SGR_CONTROL_KEY, "f/Shift-F11");
-        left.text(" finish\n");
+        if (machine.frame_count > 1) {
+            left.text("  ");
+            left.styled(SGR_CONTROL_KEY, "f");
+            left.text(" finish\n");
+        }
     }
     if (machine.status == .trapped) {
         left.raw(SGR_ERROR);
-        left.print("  trap {s}", .{debug.trapName(machine.trap)});
+        left.print("  trap {s}", .{interpreter.trapName(machine.trap)});
         left.raw(SGR_RESET);
         left.text("\n");
     }
@@ -1051,7 +1479,8 @@ fn renderExecutionColumns(out: *Writer) void {
     renderInstructions(&left);
 
     var right = Writer.init(&right_column_buf);
-    right.styled(SGR_BOLD, "STACKS/LOCALS\n");
+    right.styled(SGR_BOLD, "STACKS/LOCALS");
+    right.text("\n");
     renderGlobals(&right);
     renderStacks(&right);
 
@@ -1100,6 +1529,7 @@ fn writeSpaces(out: *Writer, amount: usize) void {
 
 fn renderInstructions(out: *Writer) void {
     const current = machine.current_instruction;
+    const host_input_visible = renderHostInput(out);
     if (current >= machine.instruction_count) {
         if (step_replay_available and step_replay_count > 0 and step_replay_target < machine.instruction_count) {
             renderInstructionLine(out, step_replay_target, current, .{}, false);
@@ -1110,25 +1540,57 @@ fn renderInstructions(out: *Writer) void {
     }
     const current_function = machine.instructions[current].function_index;
     const current_index: usize = @intCast(current);
-    const targets = machine.stepTargets();
+    const display_current = if (host_input_visible) std.math.maxInt(u32) else current;
+    const targets: interpreter.StepTargets = if (host_input_visible)
+        .{ .into = current }
+    else
+        machine.stepTargets();
     var function_first = current_index;
     while (function_first > 0 and machine.instructions[function_first - 1].function_index == current_function) function_first -= 1;
     var function_end = current_index + 1;
     while (function_end < machine.instruction_count and machine.instructions[function_end].function_index == current_function) function_end += 1;
-    const window = instructionWindow(current_index, function_first, function_end);
+    var window = instructionWindow(current_index, function_first, function_end);
+    if (host_input_visible and window.end - window.first == INSTRUCTION_WINDOW_SIZE) window.end -= 1;
     var current_call_target: ?u32 = null;
     var i: usize = window.first;
     while (i < window.end) : (i += 1) {
         const instruction = machine.instructions[i];
-        renderInstructionLine(out, @intCast(i), current, targets, false);
-        if (instruction.op == 0x10) {
-            const target = renderCallPreview(out, instruction, current, targets);
-            if (i == current) current_call_target = target;
+        renderInstructionLine(out, @intCast(i), display_current, targets, false);
+        if (instruction.op == 0x10 or (instruction.op == 0x11 and i == display_current)) {
+            const target = renderCallPreview(out, instruction, display_current, targets);
+            if (i == display_current) current_call_target = target;
         }
     }
     renderTargetsOutsideFunction(out, current_function, targets, current_call_target);
     renderTargetsOutsideWindow(out, current_function, window.first, window.end, targets, current_call_target);
     renderReplayTargetOutsideWindow(out, window.first, window.end);
+}
+
+fn renderHostInput(out: *Writer) bool {
+    if (!atHostInputStop()) return false;
+    out.styled(SGR_CONTROL_KEY, "=>");
+    out.text(" ");
+    out.raw(SGR_UNDERLINE);
+    out.text("host ");
+    const input_pointer = machine.inputPointer() catch null;
+    if (input_pointer) |pointer| {
+        out.text("wrote ");
+        out.raw(SGR_VALUE);
+        out.print("{d}", .{machine.target_input.len});
+        out.raw(SGR_RESET);
+        out.raw(SGR_UNDERLINE);
+        out.text(" B input at ");
+        renderHex32(out, pointer);
+    } else {
+        out.text("passed no component input");
+    }
+    out.raw(SGR_RESET);
+    out.text("\n");
+    return true;
+}
+
+fn atHostInputStop() bool {
+    return machine.status == .ready and machine.counters.instructions == 0;
 }
 
 const InstructionWindow = struct {
@@ -1145,31 +1607,40 @@ fn instructionWindow(current: usize, function_first: usize, function_end: usize)
     return .{ .first = first, .end = end };
 }
 
-fn renderInstructionLine(out: *Writer, index: u32, current: u32, targets: debug.StepTargets, child: bool) void {
+fn renderInstructionLine(out: *Writer, index: u32, current: u32, targets: interpreter.StepTargets, child: bool) void {
     const instruction = machine.instructions[index];
+    const is_current = index == current;
     renderInstructionMarkers(out, index, current, targets);
+    if (is_current) out.raw(SGR_UNDERLINE);
     if (child) out.text("  ");
     const indent = instructionIndent(instruction);
     writeSpaces(out, indent);
     out.print("f{d} ", .{instruction.function_index});
     renderCodeOffset(out, instruction.byte_offset);
+    if (is_current) out.raw(SGR_UNDERLINE);
     out.text(" ");
     renderOpcodeName(out, instruction, instructionStyleAt(index));
+    if (is_current) out.raw(SGR_UNDERLINE);
     switch (instruction.op) {
         0x10 => out.print(" f{d}", .{instruction.immediate}),
+        0x11 => out.print(" (type {d})", .{interpreter.indirectTypeIndex(instruction)}),
         0x0c, 0x0d, 0x20...0x24, 0x28...0x3e, 0x41, 0x42 => out.print(" {d}", .{instruction.immediate}),
         else => {},
     }
-    if (instruction.op == 0x03) out.print("   iterations={d}", .{machine.loop_counts[index]});
+    if (instruction.op == 0x03) out.print(" iterations={d}", .{machine.loop_counts[index]});
     out.raw(SGR_RESET);
+    if (is_current) out.raw(SGR_UNDERLINE);
     renderStackPointerAnnotation(out, index);
     out.raw(SGR_RESET);
     out.text("\n");
     const continuation_indent = INSTRUCTION_MARKER_WIDTH + 1 + @as(usize, @intFromBool(child)) * 2;
-    if (instruction.op == 0x10) {
+    if (instruction.op == 0x10 or instruction.op == 0x11) {
         var signature_buffer: [512]u8 = undefined;
         var signature = Writer.init(&signature_buffer);
-        renderFunctionSignature(&signature, @intCast(instruction.immediate));
+        if (instruction.op == 0x10)
+            renderFunctionSignature(&signature, @intCast(instruction.immediate))
+        else
+            renderTypeSignature(&signature, interpreter.indirectTypeIndex(instruction));
         renderIndentedLines(out, continuation_indent, indent, signature.buffer[0..signature.offset]);
     }
 }
@@ -1266,7 +1737,7 @@ fn inferRenderStackPointer() ?StackPointerPattern {
     };
 }
 
-fn instructionIndent(instruction: debug.Instruction) usize {
+fn instructionIndent(instruction: interpreter.Instruction) usize {
     const closes_block = instruction.op == 0x05 or instruction.op == 0x0b;
     return instruction.depth -| @intFromBool(closes_block);
 }
@@ -1285,14 +1756,42 @@ fn renderIndentedLines(out: *Writer, indent: usize, extra_indent: usize, value: 
 
 const StackPreview = struct {
     value: u64,
-    value_type: debug.ValType,
+    value_type: interpreter.ValType,
 };
 
-fn currentStackPreview(instruction: debug.Instruction) ?StackPreview {
-    if (instruction.op == 0x23) {
-        if (instruction.immediate >= machine.global_count) return null;
-        const global = machine.globals[@intCast(instruction.immediate)];
-        return .{ .value = global.value, .value_type = global.value_type };
+const TransferKind = enum { get, set };
+
+const LocalTransfer = struct {
+    kind: TransferKind,
+    slot_index: usize,
+    stack_index: usize,
+    value: u64,
+    value_type: interpreter.ValType,
+};
+
+const GlobalTransfer = struct {
+    kind: TransferKind,
+    global_index: usize,
+    stack_index: usize,
+    value: u64,
+    value_type: interpreter.ValType,
+};
+
+const TransferConnector = enum { none, line, source, destination };
+const StackDataflowConnector = enum { first_input, input, instruction, output };
+
+fn currentStackPreview(instruction: interpreter.Instruction) ?StackPreview {
+    if (instruction.op >= 0x41 and instruction.op <= 0x44) {
+        return .{
+            .value = instruction.immediate,
+            .value_type = switch (instruction.op) {
+                0x41 => .i32,
+                0x42 => .i64,
+                0x43 => .f32,
+                0x44 => .f64,
+                else => unreachable,
+            },
+        };
     }
     if (instruction.op == 0x1b) {
         if (machine.stack_count < 3) return null;
@@ -1312,6 +1811,23 @@ fn currentStackPreview(instruction: debug.Instruction) ?StackPreview {
             else => unreachable,
         };
         return .{ .value = result, .value_type = .i32 };
+    }
+    if (instruction.op == 0xa7 or instruction.op == 0xac or instruction.op == 0xad or
+        (instruction.op >= 0xc0 and instruction.op <= 0xc4))
+    {
+        if (machine.stack_count < 1) return null;
+        const value = machine.stack[machine.stack_count - 1];
+        return switch (instruction.op) {
+            0xa7 => .{ .value = @as(u32, @truncate(value)), .value_type = .i32 },
+            0xac => .{ .value = @as(u64, @bitCast(@as(i64, @as(i32, @bitCast(@as(u32, @truncate(value))))))), .value_type = .i64 },
+            0xad => .{ .value = @as(u32, @truncate(value)), .value_type = .i64 },
+            0xc0 => .{ .value = @as(u32, @bitCast(@as(i32, @as(i8, @bitCast(@as(u8, @truncate(value))))))), .value_type = .i32 },
+            0xc1 => .{ .value = @as(u32, @bitCast(@as(i32, @as(i16, @bitCast(@as(u16, @truncate(value))))))), .value_type = .i32 },
+            0xc2 => .{ .value = @as(u64, @bitCast(@as(i64, @as(i8, @bitCast(@as(u8, @truncate(value))))))), .value_type = .i64 },
+            0xc3 => .{ .value = @as(u64, @bitCast(@as(i64, @as(i16, @bitCast(@as(u16, @truncate(value))))))), .value_type = .i64 },
+            0xc4 => .{ .value = @as(u64, @bitCast(@as(i64, @as(i32, @bitCast(@as(u32, @truncate(value))))))), .value_type = .i64 },
+            else => unreachable,
+        };
     }
     if (machine.stack_count < 2) return null;
     const left = machine.stack[machine.stack_count - 2];
@@ -1361,11 +1877,12 @@ fn currentStackPreview(instruction: debug.Instruction) ?StackPreview {
         0x8a => std.math.rotr(u64, left, right),
         else => return null,
     };
-    const value_type: debug.ValType = if (instruction.op <= 0x78) .i32 else .i64;
+    const value_type: interpreter.ValType = if (instruction.op <= 0x78) .i32 else .i64;
     return .{ .value = result, .value_type = value_type };
 }
 
 fn renderCurrentStackPreview(out: *Writer) void {
+    if (atHostInputStop()) return;
     if (machine.current_instruction >= machine.instruction_count) return;
     const instruction = machine.instructions[machine.current_instruction];
     if (instruction.op == 0xfc) {
@@ -1373,20 +1890,30 @@ fn renderCurrentStackPreview(out: *Writer) void {
         return;
     }
     const preview = currentStackPreview(instruction) orelse return;
-    out.text("  ");
-    renderOpcodeName(out, instruction, instructionStyleAt(machine.current_instruction));
-    if (instruction.op == 0x23) out.print(" {d}", .{instruction.immediate});
+    const style = instructionStyleAt(machine.current_instruction);
+    const stack_dataflow = machine.currentStackInputCount() > 0;
+    if (stack_dataflow)
+        renderStackDataflowConnector(out, .instruction, style)
+    else
+        out.text("  ");
+    renderOpcodeName(out, instruction, style);
     out.raw(SGR_RESET);
     out.text("\n");
-    out.raw(SGR_DIM);
-    out.text("    -> ");
+    if (stack_dataflow)
+        renderStackDataflowConnector(out, .output, style)
+    else {
+        out.raw(SGR_DIM);
+        out.text("   ──▶ ");
+    }
+    out.text("next stack[");
+    out.print("{d}] ", .{machine.stack_count - machine.currentStackInputCount()});
     out.raw(SGR_RESET);
     renderTypedValue(out, preview.value_type, preview.value);
     out.raw(SGR_RESET);
     out.text("\n");
 }
 
-fn renderCurrentBulkMemoryPreview(out: *Writer, instruction: debug.Instruction) void {
+fn renderCurrentBulkMemoryPreview(out: *Writer, instruction: interpreter.Instruction) void {
     if (machine.stack_count < 3) return;
     const destination: u32 = @truncate(machine.stack[machine.stack_count - 3]);
     const operand: u32 = @truncate(machine.stack[machine.stack_count - 2]);
@@ -1395,7 +1922,7 @@ fn renderCurrentBulkMemoryPreview(out: *Writer, instruction: debug.Instruction) 
     renderOpcodeName(out, instruction, SGR_WRITE);
     out.text("\n");
     out.raw(SGR_WRITE_TARGET);
-    out.text("    -> dst ");
+    out.text("   ──▶ dst ");
     renderBareHex32(out, destination);
     out.raw(SGR_WRITE_TARGET);
     out.print("+{d}\n", .{length});
@@ -1412,7 +1939,7 @@ fn renderCurrentBulkMemoryPreview(out: *Writer, instruction: debug.Instruction) 
     }
 }
 
-fn renderTypedValue(out: *Writer, value_type: debug.ValType, value: u64) void {
+fn renderTypedValue(out: *Writer, value_type: interpreter.ValType, value: u64) void {
     switch (value_type) {
         .i32, .f32 => {
             out.print("{s} ", .{@tagName(value_type)});
@@ -1427,6 +1954,15 @@ fn renderTypedValue(out: *Writer, value_type: debug.ValType, value: u64) void {
 
 fn renderFunctionSignature(out: *Writer, function_index: u32) void {
     const signature = machine.functionSignature(function_index) orelse return;
+    renderSignature(out, signature);
+}
+
+fn renderTypeSignature(out: *Writer, type_index: u32) void {
+    const signature = machine.typeSignature(type_index) orelse return;
+    renderSignature(out, signature);
+}
+
+fn renderSignature(out: *Writer, signature: interpreter.FunctionSignature) void {
     if (signature.parameters.len > 1) {
         for (signature.parameters) |parameter| out.print(";; (param {s})\n", .{@tagName(parameter)});
         out.text(";; (result");
@@ -1441,15 +1977,15 @@ fn renderFunctionSignature(out: *Writer, function_index: u32) void {
     out.text(")");
 }
 
-fn renderInstructionMarkers(out: *Writer, index: u32, current: u32, targets: debug.StepTargets) void {
+fn renderInstructionMarkers(out: *Writer, index: u32, current: u32, targets: interpreter.StepTargets) void {
     var length: usize = 0;
     if (step_replay_available and step_replay_count > 0 and index == step_replay_target) {
         out.styled(SGR_CONTROL_KEY, "↑");
         length += 1;
     }
     if (index == current) {
-        out.styled(SGR_CONTROL_KEY, "@");
-        length += 1;
+        out.styled(SGR_CONTROL_KEY, "=>");
+        length += 2;
     }
     if (index == targets.into) {
         out.styled(SGR_CONTROL_KEY, "↓");
@@ -1485,9 +2021,10 @@ fn restartTarget() u32 {
     return std.math.maxInt(u32);
 }
 
-fn renderCallPreview(out: *Writer, call: debug.Instruction, current: u32, targets: debug.StepTargets) ?u32 {
+fn renderCallPreview(out: *Writer, call: interpreter.Instruction, current: u32, targets: interpreter.StepTargets) ?u32 {
+    const function_index = machine.callTarget(call) orelse return null;
     for (machine.instructions[0..machine.instruction_count], 0..) |instruction, index| {
-        if (instruction.function_index != call.immediate) continue;
+        if (instruction.function_index != function_index) continue;
         const target: u32 = @intCast(index);
         renderInstructionLine(out, target, current, targets, true);
         writeSpaces(out, INSTRUCTION_MARKER_WIDTH + 1);
@@ -1497,7 +2034,7 @@ fn renderCallPreview(out: *Writer, call: debug.Instruction, current: u32, target
     return null;
 }
 
-fn renderTargetsOutsideFunction(out: *Writer, current_function: u32, targets: debug.StepTargets, skip: ?u32) void {
+fn renderTargetsOutsideFunction(out: *Writer, current_function: u32, targets: interpreter.StepTargets, skip: ?u32) void {
     const target_list = [_]u32{ targets.into, targets.over, targets.out };
     for (target_list, 0..) |target, target_index| {
         if (target >= machine.instruction_count) continue;
@@ -1511,7 +2048,7 @@ fn renderTargetsOutsideFunction(out: *Writer, current_function: u32, targets: de
     }
 }
 
-fn renderTargetsOutsideWindow(out: *Writer, current_function: u32, first: usize, end: usize, targets: debug.StepTargets, skip: ?u32) void {
+fn renderTargetsOutsideWindow(out: *Writer, current_function: u32, first: usize, end: usize, targets: interpreter.StepTargets, skip: ?u32) void {
     const target_list = [_]u32{ targets.into, targets.over, targets.out };
     for (target_list, 0..) |target, target_index| {
         if (target >= machine.instruction_count) continue;
@@ -1527,6 +2064,14 @@ fn renderTargetsOutsideWindow(out: *Writer, current_function: u32, first: usize,
 }
 
 fn renderStacks(out: *Writer) void {
+    const frame_index = if (machine.frame_count == 0) null else machine.frame_count - 1;
+    const local_transfer = if (frame_index) |index| currentLocalTransfer(index) else null;
+    const global_transfer = currentGlobalTransfer();
+    const stack_dataflow = hasStackDataflowPreview();
+    const stack_dataflow_style = if (machine.current_instruction < machine.instruction_count)
+        instructionStyleAt(machine.current_instruction)
+    else
+        SGR_RESET;
     if (machine.frame_count == 0) {
         out.text("  calls empty\n");
     } else {
@@ -1535,23 +2080,35 @@ fn renderStacks(out: *Writer) void {
         while (i > 0 and count < 12) : (count += 1) {
             i -= 1;
             const frame = machine.frames[i];
-            const relationship = if (i == machine.frame_count - 1) "frame" else "caller";
+            if (global_transfer != null) {
+                renderTopLevelTransferConnector(out, .line, global_transfer.?.kind);
+            } else if (local_transfer != null and i != machine.frame_count - 1) {
+                renderTopLevelTransferConnector(out, .line, local_transfer.?.kind);
+            } else {
+                out.text("  ");
+            }
             if (machine.functionName(frame.function_index)) |name| {
                 const shown_name = name[0..@min(name.len, 16)];
-                out.print("  {s} f{d} {s}{s}\n", .{
-                    relationship,
+                out.print("#{d} f{d} {s}{s}\n", .{
+                    count,
                     frame.function_index,
                     shown_name,
                     if (shown_name.len < name.len) "…" else "",
                 });
             } else {
-                out.print("  {s} f{d}\n", .{ relationship, frame.function_index });
+                out.print("#{d} f{d}\n", .{ count, frame.function_index });
             }
-            if (i == machine.frame_count - 1) renderFrameValues(out, i);
+            if (i == machine.frame_count - 1) renderFrameValues(out, i, if (global_transfer) |transfer| transfer.kind else null);
         }
     }
     if (machine.stack_count == 0) {
-        out.text("  stack empty\n");
+        if (global_transfer != null)
+            renderTransferConnector(out, .line, global_transfer.?.kind)
+        else if (local_transfer != null and local_transfer.?.kind == .get)
+            renderTransferConnector(out, .line, .get)
+        else
+            out.text("    ");
+        out.text("stack empty\n");
     } else {
         const input_count = @min(machine.currentStackInputCount(), machine.stack_count);
         const first_input = machine.stack_count - input_count;
@@ -1561,22 +2118,71 @@ fn renderStacks(out: *Writer) void {
             SGR_RESET;
         var i = machine.stack_count - @min(machine.stack_count, 12);
         while (i < machine.stack_count) : (i += 1) {
+            const transfer_source = local_transfer != null and
+                local_transfer.?.kind == .set and
+                local_transfer.?.stack_index == i;
+            if (local_transfer) |transfer| {
+                renderTransferConnector(
+                    out,
+                    if (transfer_source) .source else .line,
+                    transfer.kind,
+                );
+            } else if (global_transfer) |transfer| {
+                const global_source = transfer.kind == .set and transfer.stack_index == i;
+                renderTransferConnector(out, if (global_source) .source else .line, transfer.kind);
+            } else if (stack_dataflow and i >= first_input) {
+                renderStackDataflowConnector(
+                    out,
+                    if (i == first_input) .first_input else .input,
+                    stack_dataflow_style,
+                );
+            } else {
+                out.text("    ");
+            }
             if (i >= first_input) {
-                out.raw(currentStackInputStyle(i, input_style));
-                out.print("  stack[{d}] {s} ", .{ i, @tagName(machine.stack_types[i]) });
+                const style = currentStackInputStyle(i, input_style);
+                out.raw(style);
+                out.print("stack[{d}] {s} ", .{ i, @tagName(machine.stack_types[i]) });
                 switch (machine.stack_types[i]) {
                     .i32, .f32 => out.print("0x{x:0>8}", .{@as(u32, @truncate(machine.stack[i]))}),
                     .i64, .f64 => out.print("0x{x:0>16}", .{machine.stack[i]}),
                 }
                 out.raw(SGR_RESET);
             } else {
-                out.print("  stack[{d}] ", .{i});
+                out.print("stack[{d}] ", .{i});
                 renderTypedValue(out, machine.stack_types[i], machine.stack[i]);
             }
             out.text("\n");
         }
     }
+    if (local_transfer) |transfer| {
+        if (transfer.kind == .get) {
+            renderTransferConnector(out, .destination, transfer.kind);
+            out.raw(SGR_READ);
+            out.text("next stack[");
+            out.print("{d}] ", .{transfer.stack_index});
+            renderTypedValue(out, transfer.value_type, transfer.value);
+            out.raw(SGR_RESET);
+            out.text("\n");
+        }
+    }
+    if (global_transfer) |transfer| {
+        if (transfer.kind == .get) {
+            renderTransferConnector(out, .destination, transfer.kind);
+            out.raw(SGR_READ);
+            out.print("next stack[{d}] ", .{transfer.stack_index});
+            renderTypedValue(out, transfer.value_type, transfer.value);
+            out.raw(SGR_RESET);
+            out.text("\n");
+        }
+    }
     renderCurrentStackPreview(out);
+}
+
+fn hasStackDataflowPreview() bool {
+    if (atHostInputStop() or machine.current_instruction >= machine.instruction_count) return false;
+    if (machine.currentStackInputCount() == 0) return false;
+    return currentStackPreview(machine.instructions[machine.current_instruction]) != null;
 }
 
 fn currentStackInputStyle(stack_index: usize, default: []const u8) []const u8 {
@@ -1602,8 +2208,9 @@ fn renderGlobals(out: *Writer) void {
         return;
     }
     const read_target = currentGlobalReadTarget();
-    const write_target = currentGlobalWriteTarget();
+    const write_target = recentGlobalWriteTarget();
     const shown = @min(machine.global_count, 12);
+    const transfer = currentGlobalTransfer();
     for (machine.globals[0..shown], 0..) |global, index| {
         const highlight_style: ?[]const u8 = if (read_target != null and read_target.? == index)
             SGR_READ
@@ -1611,8 +2218,19 @@ fn renderGlobals(out: *Writer) void {
             SGR_WRITE_TARGET
         else
             null;
+        if (transfer) |active_transfer| {
+            const connector: TransferConnector = if (index == active_transfer.global_index)
+                if (active_transfer.kind == .get) .source else .none
+            else if (index > active_transfer.global_index)
+                .line
+            else
+                .none;
+            renderTopLevelTransferConnector(out, connector, active_transfer.kind);
+        } else {
+            out.text("  ");
+        }
         if (highlight_style) |style| out.raw(style);
-        out.print("  global[{d}] ", .{index});
+        out.print("global[{d}] ", .{index});
         if (highlight_style != null) {
             out.print("0x{x:0>16}", .{global.value});
             out.raw(SGR_RESET);
@@ -1620,90 +2238,382 @@ fn renderGlobals(out: *Writer) void {
             renderHex64(out, global.value);
         }
         out.text("\n");
+        if (transfer) |active_transfer| {
+            if (active_transfer.kind == .set and index == active_transfer.global_index) {
+                renderTopLevelTransferConnector(out, .destination, active_transfer.kind);
+                renderNextStorageValue(out, "global", active_transfer.global_index, active_transfer.value_type, active_transfer.value);
+            }
+        }
         if (render_stack_pointer) |pattern| {
             if (pattern.global_index == index) {
-                out.text("    ");
+                if (transfer != null and index >= transfer.?.global_index)
+                    renderTransferConnector(out, .line, transfer.?.kind)
+                else
+                    out.text("    ");
                 out.styled(SGR_STORAGE, "stack pointer (inferred)");
                 out.text("\n");
             }
         }
     }
-    if (shown < machine.global_count) out.print("  ... {d} more globals\n", .{machine.global_count - shown});
+    if (shown < machine.global_count) {
+        if (transfer != null and transfer.?.global_index < shown)
+            renderTopLevelTransferConnector(out, .line, transfer.?.kind)
+        else
+            out.text("  ");
+        out.print("... {d} more globals\n", .{machine.global_count - shown});
+    }
+}
+
+fn currentGlobalTransfer() ?GlobalTransfer {
+    if (atHostInputStop()) return null;
+    if (machine.current_instruction >= machine.instruction_count) return null;
+    const instruction = machine.instructions[machine.current_instruction];
+    if (instruction.op != 0x23 and instruction.op != 0x24) return null;
+    const global_index: usize = @intCast(instruction.immediate);
+    if (global_index >= machine.global_count or global_index >= 12) return null;
+    const global = machine.globals[global_index];
+    if (instruction.op == 0x23) {
+        return .{
+            .kind = .get,
+            .global_index = global_index,
+            .stack_index = machine.stack_count,
+            .value = global.value,
+            .value_type = global.value_type,
+        };
+    }
+    if (machine.stack_count == 0) return null;
+    return .{
+        .kind = .set,
+        .global_index = global_index,
+        .stack_index = machine.stack_count - 1,
+        .value = machine.stack[machine.stack_count - 1],
+        .value_type = machine.stack_types[machine.stack_count - 1],
+    };
 }
 
 fn currentGlobalReadTarget() ?usize {
+    if (atHostInputStop()) return null;
     if (machine.current_instruction >= machine.instruction_count) return null;
     const instruction = machine.instructions[machine.current_instruction];
     if (instruction.op != 0x23) return null;
     return @intCast(instruction.immediate);
 }
 
-fn currentGlobalWriteTarget() ?usize {
-    if (machine.current_instruction < machine.instruction_count) {
-        const instruction = machine.instructions[machine.current_instruction];
-        if (instruction.op == 0x24) return @intCast(instruction.immediate);
-    }
+fn recentGlobalWriteTarget() ?usize {
     if (recent_global_write) |target| return @intCast(target);
     return null;
 }
 
-fn renderFrameValues(out: *Writer, frame_index: usize) void {
+fn renderFrameValues(out: *Writer, frame_index: usize, global_transfer_kind: ?TransferKind) void {
     const parameters = machine.frameParameters(frame_index);
     const locals = machine.frameDefinedLocals(frame_index);
     if (parameters.len == 0 and locals.len == 0) {
-        out.text("    params none   locals none\n");
+        if (global_transfer_kind) |kind|
+            renderTransferConnector(out, .line, kind)
+        else
+            out.text("    ");
+        out.text("params none   locals none\n");
         return;
     }
-    const write_target = currentLocalWriteTarget(frame_index);
-    const parameter_target = if (write_target != null and write_target.? < parameters.len) write_target else null;
-    const local_target = if (write_target != null and write_target.? >= parameters.len)
+    const transfer = currentLocalTransfer(frame_index);
+    const read_target = if (transfer != null and transfer.?.kind == .get) transfer.?.slot_index else null;
+    const write_target = recentLocalWriteTarget(frame_index);
+    const parameter_read_target = if (read_target != null and read_target.? < parameters.len) read_target else null;
+    const local_read_target = if (read_target != null and read_target.? >= parameters.len)
+        read_target.? - parameters.len
+    else
+        null;
+    const parameter_write_target = if (write_target != null and write_target.? < parameters.len) write_target else null;
+    const local_write_target = if (write_target != null and write_target.? >= parameters.len)
         write_target.? - parameters.len
     else
         null;
-    renderValueSlots(out, "param", parameters, parameter_target);
-    renderValueSlots(out, "local", locals, local_target);
+    renderValueSlots(out, "param", parameters, parameter_read_target, parameter_write_target, transfer, 0, global_transfer_kind);
+    renderValueSlots(out, "local", locals, local_read_target, local_write_target, transfer, parameters.len, global_transfer_kind);
 }
 
-fn currentLocalWriteTarget(frame_index: usize) ?usize {
-    if (frame_index + 1 != machine.frame_count) return null;
-    if (machine.current_instruction < machine.instruction_count) {
-        const instruction = machine.instructions[machine.current_instruction];
-        if (instruction.op == 0x21 or instruction.op == 0x22) return @intCast(instruction.immediate);
+fn currentLocalTransfer(frame_index: usize) ?LocalTransfer {
+    if (atHostInputStop()) return null;
+    if (frame_index + 1 != machine.frame_count or machine.current_instruction >= machine.instruction_count) return null;
+    const instruction = machine.instructions[machine.current_instruction];
+    if (instruction.op < 0x20 or instruction.op > 0x22) return null;
+    const frame = machine.frames[frame_index];
+    const slot_index: usize = @intCast(instruction.immediate);
+    if (slot_index >= frame.locals_count) return null;
+    const absolute_slot = frame.locals_base + slot_index;
+    if (instruction.op == 0x20) {
+        return .{
+            .kind = .get,
+            .slot_index = slot_index,
+            .stack_index = machine.stack_count,
+            .value = machine.locals[absolute_slot],
+            .value_type = machine.local_types[absolute_slot],
+        };
     }
+    if (machine.stack_count == 0) return null;
+    return .{
+        .kind = .set,
+        .slot_index = slot_index,
+        .stack_index = machine.stack_count - 1,
+        .value = machine.stack[machine.stack_count - 1],
+        .value_type = machine.stack_types[machine.stack_count - 1],
+    };
+}
+
+fn recentLocalWriteTarget(frame_index: usize) ?usize {
+    if (frame_index + 1 != machine.frame_count) return null;
     if (recent_local_write_frame_count == machine.frame_count) {
         if (recent_local_write) |target| return @intCast(target);
     }
     return null;
 }
 
-fn renderValueSlots(out: *Writer, label: []const u8, values: []const u64, write_target: ?usize) void {
+fn renderValueSlots(
+    out: *Writer,
+    label: []const u8,
+    values: []const u64,
+    read_target: ?usize,
+    write_target: ?usize,
+    transfer: ?LocalTransfer,
+    slot_offset: usize,
+    global_transfer_kind: ?TransferKind,
+) void {
     if (values.len == 0) {
-        out.print("    {s}s none\n", .{label});
+        if (transfer != null and transfer.?.slot_index < slot_offset)
+            renderTransferConnector(out, .line, transfer.?.kind)
+        else if (global_transfer_kind) |kind|
+            renderTransferConnector(out, .line, kind)
+        else
+            out.text("    ");
+        out.print("{s}s none\n", .{label});
         return;
     }
     const shown = @min(values.len, 12);
     for (values[0..shown], 0..) |value, index| {
-        if (write_target != null and write_target.? == index) out.raw(SGR_WRITE_TARGET);
-        out.print("    {s}[{d}] ", .{ label, index });
-        if (write_target != null and write_target.? == index) {
+        const is_read_target = read_target != null and read_target.? == index;
+        const is_write_target = write_target != null and write_target.? == index;
+        const style: ?[]const u8 = if (is_read_target)
+            SGR_READ
+        else if (is_write_target)
+            SGR_WRITE_TARGET
+        else
+            null;
+        const connector: TransferConnector = if (transfer) |active_transfer| blk: {
+            const slot_index = slot_offset + index;
+            if (slot_index == active_transfer.slot_index) {
+                break :blk if (active_transfer.kind == .get) .source else .none;
+            }
+            break :blk if (slot_index > active_transfer.slot_index) .line else .none;
+        } else .none;
+        if (transfer) |active_transfer|
+            renderTransferConnector(out, connector, active_transfer.kind)
+        else if (global_transfer_kind) |kind|
+            renderTransferConnector(out, .line, kind)
+        else
+            out.text("    ");
+        if (style) |active_style| out.raw(active_style);
+        out.print("{s}[{d}] ", .{ label, index });
+        if (style != null) {
             out.print("0x{x:0>16}", .{value});
             out.raw(SGR_RESET);
         } else {
             renderHex64(out, value);
         }
         out.text("\n");
+        if (transfer) |active_transfer| {
+            const slot_index = slot_offset + index;
+            if (active_transfer.kind == .set and slot_index == active_transfer.slot_index) {
+                renderTransferConnector(out, .destination, active_transfer.kind);
+                renderNextStorageValue(out, label, index, active_transfer.value_type, active_transfer.value);
+            }
+        }
     }
-    if (shown < values.len) out.print("    ... {d} more {s}s\n", .{ values.len - shown, label });
+    if (shown < values.len) {
+        if (transfer != null and transfer.?.slot_index < slot_offset + shown)
+            renderTransferConnector(out, .line, transfer.?.kind)
+        else if (global_transfer_kind) |kind|
+            renderTransferConnector(out, .line, kind)
+        else
+            out.text("    ");
+        out.print("... {d} more {s}s\n", .{ values.len - shown, label });
+    }
 }
 
-fn renderLoops(out: *Writer) void {
-    var i: usize = 0;
-    while (i < machine.instruction_count) : (i += 1) {
+fn renderNextStorageValue(out: *Writer, label: []const u8, index: usize, value_type: interpreter.ValType, value: u64) void {
+    out.raw(SGR_WRITE);
+    out.print("next {s}[{d}] ", .{ label, index });
+    renderTypedValue(out, value_type, value);
+    out.raw(SGR_RESET);
+    out.text("\n");
+}
+
+fn renderTransferConnector(out: *Writer, connector: TransferConnector, kind: TransferKind) void {
+    if (connector == .none) {
+        out.text("    ");
+        return;
+    }
+    out.raw(if (kind == .get) SGR_READ else SGR_WRITE);
+    out.text(switch (connector) {
+        .none => unreachable,
+        .line => "│   ",
+        .source => if (kind == .get) "┌─  " else "└─  ",
+        .destination => if (kind == .get) "└─▶ " else "┌─▶ ",
+    });
+    out.raw(SGR_RESET);
+}
+
+fn renderStackDataflowConnector(out: *Writer, connector: StackDataflowConnector, style: []const u8) void {
+    out.raw(style);
+    out.text(switch (connector) {
+        .first_input => "┌─  ",
+        .input => "├─  ",
+        .instruction => "├─  ",
+        .output => "└─▶ ",
+    });
+    out.raw(SGR_RESET);
+}
+
+fn renderTopLevelTransferConnector(out: *Writer, connector: TransferConnector, kind: TransferKind) void {
+    if (connector == .none) {
+        out.text("  ");
+        return;
+    }
+    out.raw(if (kind == .get) SGR_READ else SGR_WRITE);
+    out.text(switch (connector) {
+        .none => unreachable,
+        .line => "│ ",
+        .source => if (kind == .get) "┌─" else "└─",
+        .destination => if (kind == .get) "└▶" else "┌▶",
+    });
+    out.raw(SGR_RESET);
+}
+
+fn renderFunctionGraph(out: *Writer) void {
+    var order: [interpreter.MAX_FUNCTIONS]u32 = undefined;
+    const function_count = collectReachableFunctions(&order);
+    out.print("  FUNCTIONS reachable={d}/{d}  ", .{ function_count, machine.function_count });
+    out.raw(SGR_LOOP_CALL);
+    out.text("→ direct  ⇢ possible indirect");
+    out.raw(SGR_RESET);
+    out.text("\n");
+    for (order[0..function_count]) |function_index| {
+        out.print("    f{d}", .{function_index});
+        if (machine.functionName(function_index)) |name| {
+            const shown_name = name[0..@min(name.len, 18)];
+            out.print(" {s}{s}", .{ shown_name, if (shown_name.len < name.len) "…" else "" });
+        }
+        out.text("  calls=");
+        out.raw(SGR_LOOP_CALL);
+        out.print("{d}", .{machine.function_invocations[function_index]});
+        out.raw(SGR_RESET);
+        renderFunctionCallEdges(out, function_index);
+        out.text("\n");
+        renderFunctionLoops(out, function_index);
+    }
+}
+
+fn collectReachableFunctions(order: *[interpreter.MAX_FUNCTIONS]u32) usize {
+    if (machine.function_count == 0 or machine.render_function >= machine.function_count) return 0;
+    var seen = [_]bool{false} ** interpreter.MAX_FUNCTIONS;
+    seen[machine.render_function] = true;
+    order[0] = machine.render_function;
+    var count: usize = 1;
+    var cursor: usize = 0;
+    while (cursor < count) : (cursor += 1) {
+        const caller = order[cursor];
+        const range = machine.functionInstructionRange(caller) orelse continue;
+        for (machine.instructions[range.first..range.end]) |instruction| {
+            if (instruction.op == 0x10) {
+                appendReachableFunction(order, &seen, &count, @intCast(instruction.immediate));
+            } else if (instruction.op == 0x11) {
+                var target: u32 = 0;
+                while (target < machine.function_count) : (target += 1) {
+                    if (machine.indirectCallMayTarget(instruction, target)) {
+                        appendReachableFunction(order, &seen, &count, target);
+                    }
+                }
+            }
+        }
+    }
+    return count;
+}
+
+fn appendReachableFunction(
+    order: *[interpreter.MAX_FUNCTIONS]u32,
+    seen: *[interpreter.MAX_FUNCTIONS]bool,
+    count: *usize,
+    function_index: u32,
+) void {
+    if (function_index >= machine.function_count or seen[function_index]) return;
+    seen[function_index] = true;
+    order[count.*] = function_index;
+    count.* += 1;
+}
+
+fn renderFunctionCallEdges(out: *Writer, caller: u32) void {
+    const range = machine.functionInstructionRange(caller) orelse return;
+    var direct_sites = [_]u32{0} ** interpreter.MAX_FUNCTIONS;
+    var indirect_targets = [_]bool{false} ** interpreter.MAX_FUNCTIONS;
+    for (machine.instructions[range.first..range.end]) |instruction| {
+        if (instruction.op == 0x10) {
+            const target: u32 = @intCast(instruction.immediate);
+            if (target < machine.function_count) direct_sites[target] +|= 1;
+        } else if (instruction.op == 0x11) {
+            var target: u32 = 0;
+            while (target < machine.function_count) : (target += 1) {
+                if (machine.indirectCallMayTarget(instruction, target)) indirect_targets[target] = true;
+            }
+        }
+    }
+
+    var total: usize = 0;
+    for (0..machine.function_count) |target| {
+        if (direct_sites[target] != 0 or indirect_targets[target]) total += 1;
+    }
+    if (total == 0) return;
+
+    var shown: usize = 0;
+    out.raw(SGR_LOOP_CALL);
+    inline for (0..2) |edge_kind| {
+        var group_started = false;
+        for (0..machine.function_count) |target| {
+            const matches = if (edge_kind == 0)
+                direct_sites[target] != 0
+            else
+                direct_sites[target] == 0 and indirect_targets[target];
+            if (!matches or shown == 4) continue;
+            if (!group_started) {
+                out.text(if (edge_kind == 0) "  → " else "  ⇢ ");
+                group_started = true;
+            } else {
+                out.text(", ");
+            }
+            out.print("f{d}", .{target});
+            if (direct_sites[target] > 1) out.print(" ×{d}", .{direct_sites[target]});
+            shown += 1;
+        }
+    }
+    if (shown < total) out.print("  … +{d}", .{total - shown});
+    out.raw(SGR_RESET);
+}
+
+fn renderFunctionLoops(out: *Writer, function_index: u32) void {
+    const range = machine.functionInstructionRange(function_index) orelse return;
+    var i: usize = range.first;
+    while (i < range.end) : (i += 1) {
         const instruction = machine.instructions[i];
         if (instruction.op != 0x03) continue;
-        out.print("  loop f{d} ", .{instruction.function_index});
+        out.text("      ");
+        out.raw(SGR_LOOP_CALL);
+        out.text("loop");
+        out.raw(SGR_RESET);
+        out.text(" ");
         renderCodeOffset(out, instruction.byte_offset);
-        out.print(" iterations={d}\n", .{machine.loop_counts[i]});
+        out.text("  iterations=");
+        out.raw(SGR_LOOP_CALL);
+        out.print("{d}", .{machine.loop_counts[i]});
+        out.raw(SGR_RESET);
+        out.text("\n");
     }
 }
 
@@ -1756,18 +2666,9 @@ fn renderMemory(out: *Writer) void {
     }
 
     const end = @min(machine.memory_size, memory_view_offset + memory_view_bytes);
-    out.raw(SGR_DIM);
-    out.text("  view ");
-    out.raw(SGR_RESET);
-    renderHex32(out, @intCast(memory_view_offset));
-    out.raw(SGR_DIM);
-    out.text("..");
-    out.raw(SGR_RESET);
-    renderHex32(out, @intCast(end));
-    out.raw(SGR_RESET);
-    out.text("\n");
     var row = memory_view_offset;
     const write_highlight = memoryWriteHighlight();
+    const input_highlight = hostInputHighlight();
     const write_start: usize = write_highlight.address;
     const write_end = write_start + @as(usize, write_highlight.width);
     while (row < end) : (row += 16) {
@@ -1779,7 +2680,23 @@ fn renderMemory(out: *Writer) void {
         var active_style: []const u8 = "";
         while (column < 16) : (column += 1) {
             const address = row + column;
-            const style = memoryByteStyle(address, write_highlight, write_start, write_end);
+            const style = memoryDisplayByteStyle(address, write_highlight, input_highlight, write_start, write_end);
+            const access_style = std.mem.eql(u8, style, SGR_READ_ACCESS) or
+                std.mem.eql(u8, style, SGR_WRITE_ACCESS) or
+                std.mem.eql(u8, style, SGR_MEMORY_INPUT_ACCESS);
+            if (access_style) {
+                if (active_style.len != 0) out.raw(SGR_RESET);
+                out.raw(style);
+                if (address < row_end)
+                    out.print("{x:0>2}", .{machine.memory[address]})
+                else
+                    out.text("  ");
+                out.raw(SGR_RESET);
+                out.text(" ");
+                active_style = "";
+                if (column == 7) out.text(" ");
+                continue;
+            }
             if (!std.mem.eql(u8, style, active_style)) {
                 if (column != 0) out.raw(SGR_RESET);
                 out.raw(style);
@@ -1801,7 +2718,7 @@ fn renderMemory(out: *Writer) void {
                 out.text(" ");
                 continue;
             }
-            const style = memoryByteStyle(address, write_highlight, write_start, write_end);
+            const style = memoryDisplayByteStyle(address, write_highlight, input_highlight, write_start, write_end);
             if (!std.mem.eql(u8, style, active_style)) {
                 if (column != 0) out.raw(SGR_RESET);
                 out.raw(style);
@@ -1812,39 +2729,52 @@ fn renderMemory(out: *Writer) void {
         }
         out.raw(SGR_RESET);
         out.text("|\n");
-        renderMemoryAccessMarker(out, row, row_end);
     }
 }
 
-fn memoryByteStyle(address: usize, write_highlight: debug.MemoryEvent, write_start: usize, write_end: usize) []const u8 {
+fn memoryByteStyle(address: usize, write_highlight: interpreter.MemoryEvent, write_start: usize, write_end: usize) []const u8 {
     if (write_highlight.valid and address >= write_start and address < write_end) return SGR_WRITE_TARGET;
     return memoryProvenanceStyle(machine.memoryByteProvenance(address));
 }
 
-fn memoryProvenanceStyle(provenance: debug.MemoryByteProvenance) []const u8 {
+fn memoryDisplayByteStyle(address: usize, write_highlight: interpreter.MemoryEvent, input_highlight: interpreter.MemoryEvent, write_start: usize, write_end: usize) []const u8 {
+    if (machine.last_access.valid) {
+        const access_start: usize = machine.last_access.address;
+        const access_end = @min(machine.memory_size, access_start + @as(usize, machine.last_access.width));
+        if (address >= access_start and address < access_end) {
+            return if (machine.last_access_kind == .write) SGR_WRITE_ACCESS else SGR_READ_ACCESS;
+        }
+    }
+    if (memoryEventContains(machine.last_read_access, address)) return SGR_READ_ACCESS;
+    if (memoryEventContains(machine.last_write_access, address)) return SGR_WRITE_ACCESS;
+    if (memoryEventContains(input_highlight, address)) return SGR_MEMORY_INPUT_ACCESS;
+    return memoryByteStyle(address, write_highlight, write_start, write_end);
+}
+
+fn hostInputHighlight() interpreter.MemoryEvent {
+    if (machine.counters.instructions != 0 or machine.target_input.len == 0) return .{};
+    const address = (machine.inputPointer() catch return .{}) orelse return .{};
+    return .{
+        .valid = true,
+        .address = address,
+        .width = @intCast(machine.target_input.len),
+    };
+}
+
+fn memoryEventContains(event: interpreter.MemoryEvent, address: usize) bool {
+    if (!event.valid) return false;
+    const start: usize = event.address;
+    const end = @min(machine.memory_size, start + @as(usize, event.width));
+    return address >= start and address < end;
+}
+
+fn memoryProvenanceStyle(provenance: interpreter.MemoryByteProvenance) []const u8 {
     return switch (provenance) {
         .untouched => SGR_DIM,
         .data => SGR_MEMORY_DATA,
         .input => SGR_MEMORY_INPUT,
         .written => SGR_MEMORY_WRITTEN,
     };
-}
-
-fn renderMemoryAccessMarker(out: *Writer, row: usize, row_end: usize) void {
-    if (!machine.last_access.valid) return;
-    const access_start: usize = machine.last_access.address;
-    const access_end = @min(machine.memory_size, access_start + @as(usize, machine.last_access.width));
-    if (access_start >= row_end or access_end <= row) return;
-
-    out.raw(if (machine.last_access_kind == .write) SGR_WRITE_TARGET else SGR_READ);
-    out.text("            ");
-    for (0..16) |column| {
-        const address = row + column;
-        out.text(if (address >= access_start and address < access_end) "^^ " else "   ");
-        if (column == 7) out.text(" ");
-    }
-    out.print(" last {s}\n", .{@tagName(machine.last_access_kind)});
-    out.raw(SGR_RESET);
 }
 
 test "parses component and input multipart parts" {
@@ -1891,6 +2821,7 @@ test "keeps the instruction window full at function boundaries" {
 test "assigns opcode colors by instruction family" {
     try std.testing.expectEqualStrings(SGR_LOOP_CALL, instructionStyle(0x03));
     try std.testing.expectEqualStrings(SGR_LOOP_CALL, instructionStyle(0x10));
+    try std.testing.expectEqualStrings(SGR_LOOP_CALL, instructionStyle(0x11));
     try std.testing.expectEqualStrings(SGR_CONTROL_FLOW, instructionStyle(0x1b));
     try std.testing.expectEqualStrings(SGR_READ, instructionStyle(0x20));
     try std.testing.expectEqualStrings(SGR_WRITE, instructionStyle(0x21));
@@ -1903,6 +2834,44 @@ test "assigns opcode colors by instruction family" {
     try std.testing.expectEqualStrings(SGR_INSTRUCTION, instructionStyle(0x41));
     try std.testing.expectEqualStrings(SGR_INSTRUCTION, instructionStyle(0x44));
     try std.testing.expectEqualStrings(SGR_INSTRUCTION, instructionStyle(0x1a));
+}
+
+test "previews numeric constants on the next stack" {
+    const cases = [_]struct {
+        op: u8,
+        value: u64,
+        value_type: interpreter.ValType,
+    }{
+        .{ .op = 0x41, .value = 90, .value_type = .i32 },
+        .{ .op = 0x42, .value = 90, .value_type = .i64 },
+        .{ .op = 0x43, .value = 0x3fc00000, .value_type = .f32 },
+        .{ .op = 0x44, .value = 0x3ff8000000000000, .value_type = .f64 },
+    };
+    for (cases) |case| {
+        const preview = currentStackPreview(.{
+            .op = case.op,
+            .function_index = 0,
+            .byte_offset = 0,
+            .immediate = case.value,
+        }).?;
+        try std.testing.expectEqual(case.value, preview.value);
+        try std.testing.expectEqual(case.value_type, preview.value_type);
+    }
+}
+
+test "formats Wasm memory in the largest exact binary unit" {
+    var buffer: [32]u8 = undefined;
+    var writer = Writer.init(&buffer);
+    renderMemorySize(&writer, 256 * 1024);
+    try std.testing.expectEqualStrings("256 KiB", buffer[0..writer.offset]);
+
+    writer = Writer.init(&buffer);
+    renderMemorySize(&writer, 8 * 1024 * 1024);
+    try std.testing.expectEqualStrings("8 MiB", buffer[0..writer.offset]);
+
+    writer = Writer.init(&buffer);
+    renderMemorySize(&writer, 5 * 1024 * 1024 + 64 * 1024);
+    try std.testing.expectEqualStrings("5184 KiB", buffer[0..writer.offset]);
 }
 
 test "viewport uniforms clip complete bottom rows and visible columns" {
@@ -1941,21 +2910,29 @@ test "steps a render function and counts a loop" {
     try std.testing.expect(branchTargetsLoop(loop_branch.?));
     try std.testing.expectEqualStrings(SGR_LOOP_CALL, instructionStyleAt(loop_branch.?));
     const signature = machine.functionSignature(0).?;
-    try std.testing.expectEqualSlices(debug.ValType, &.{.i32}, signature.parameters);
-    try std.testing.expectEqual(debug.ValType.i64, signature.result.?);
+    try std.testing.expectEqualSlices(interpreter.ValType, &.{.i32}, signature.parameters);
+    try std.testing.expectEqual(interpreter.ValType.i64, signature.result.?);
     try std.testing.expectEqualSlices(u64, &.{0}, machine.frameParameters(0));
     try std.testing.expectEqualSlices(u64, &.{0}, machine.frameDefinedLocals(0));
+    const initial_screen = output_buf[0..renderText()];
+    try std.testing.expect(std.mem.indexOf(u8, initial_screen, "loop iterations=0") != null);
+    try std.testing.expect(std.mem.indexOf(u8, initial_screen, "[LOOP]") == null);
+    try std.testing.expect(std.mem.indexOf(u8, initial_screen, "loop   iterations=") == null);
     for (0..7) |_| _ = machine.step();
     try std.testing.expectEqualSlices(u64, &.{1}, machine.frameDefinedLocals(0));
     _ = machine.step();
     const comparison = currentStackPreview(machine.instructions[machine.current_instruction]).?;
-    try std.testing.expectEqual(debug.ValType.i32, comparison.value_type);
+    try std.testing.expectEqual(interpreter.ValType.i32, comparison.value_type);
     try std.testing.expectEqual(@as(u64, 1), comparison.value);
     const comparison_screen = output_buf[0..renderText()];
     try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "i32.lt_u") != null);
     try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "i32 \x1b[94m0x00000001\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "┌─  \x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "├─  \x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "├─  \x1b[0m\x1b[93mi32.lt_u") != null);
+    try std.testing.expect(std.mem.indexOf(u8, comparison_screen, "└─▶ \x1b[0mnext stack[0]") != null);
     machine.continueFor(100);
-    try std.testing.expectEqual(debug.Status.halted, machine.status);
+    try std.testing.expectEqual(interpreter.Status.halted, machine.status);
     try std.testing.expectEqual(@as(u64, 3), machine.result);
     try std.testing.expectEqual(@as(u64, 2), machine.counters.loop_iterations);
 }
@@ -1985,19 +2962,19 @@ test "retains the most recent memory access" {
     memory_view_visible = true;
     memory_view_offset = 0;
     const initial_memory = output_buf[0..renderText()];
-    try std.testing.expectEqual(debug.MemoryByteProvenance.data, machine.memoryByteProvenance(16));
+    try std.testing.expectEqual(interpreter.MemoryByteProvenance.data, machine.memoryByteProvenance(16));
     try std.testing.expect(std.mem.indexOf(u8, initial_memory, "\x1b[33m00 ") != null);
     _ = machine.step();
     _ = machine.step();
     const before_store = output_buf[0..renderText()];
-    try std.testing.expect(std.mem.indexOf(u8, before_store, "\x1b[93mi32\x1b[92m.store8\x1b[0m 0\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, before_store, "\x1b[93mi32\x1b[92m.store8\x1b[0m\x1b[4m 0\x1b[0m") != null);
     try std.testing.expect(std.mem.indexOf(u8, before_store, "\x1b[1;92m00 \x1b[0m") != null);
     _ = machine.step();
     const after_store = output_buf[0..renderText()];
-    try std.testing.expect(std.mem.indexOf(u8, after_store, "\x1b[92m44 \x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, after_store, "\x1b[1;4;92m44\x1b[0m ") != null);
     machine.continueFor(100);
-    try std.testing.expectEqual(debug.Status.halted, machine.status);
-    try std.testing.expectEqual(debug.MemoryAccessKind.read, machine.last_access_kind);
+    try std.testing.expectEqual(interpreter.Status.halted, machine.status);
+    try std.testing.expectEqual(interpreter.MemoryAccessKind.read, machine.last_access_kind);
     try std.testing.expectEqual(@as(u32, 16), machine.last_access.address);
     try std.testing.expectEqual(@as(u32, 1), machine.last_access.width);
     try std.testing.expectEqual(@as(u32, 16), machine.last_read_access.address);
@@ -2005,6 +2982,7 @@ test "retains the most recent memory access" {
 
     const screen = output_buf[0..renderText()];
     try std.testing.expect(std.mem.indexOf(u8, screen, "last read \x1b[0m\x1b[94m0x00000010") == null);
-    try std.testing.expect(std.mem.indexOf(u8, screen, "\x1b[92m44 \x1b[0m") != null);
-    try std.testing.expect(std.mem.indexOf(u8, screen, "^^") != null);
+    try std.testing.expect(std.mem.indexOf(u8, screen, "\x1b[4;95m44\x1b[0m ") != null);
+    try std.testing.expect(std.mem.indexOf(u8, screen, "\x1b[4;95mD\x1b[0m") != null);
+    try std.testing.expect(std.mem.indexOf(u8, screen, "^^") == null);
 }

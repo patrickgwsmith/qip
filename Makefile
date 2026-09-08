@@ -311,10 +311,14 @@ components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.was
 components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/interactive/wasm-debugger.wasm: components/interactive/wasm-debugger.zig components/application/wasm/lib/wasm-debug.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_debug -Mroot=$< -Mwasm_debug=components/application/wasm/lib/wasm-debug.zig -femit-bin=$@
+components/interactive/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+components/interactive/qipdb.wasm: components/interactive/qipdb.zig components/application/wasm/lib/wasm-interpreter.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
 test/fixtures/wasm-debugger-bulk-memory.wasm: test/fixtures/wasm-debugger-bulk-memory.wat
+	wat2wasm $< -o $@
+
+test/fixtures/wasm-debugger-call-indirect.wasm: test/fixtures/wasm-debugger-call-indirect.wat
 	wat2wasm $< -o $@
 
 components/interactive/cover-flow.wasm: components/interactive/cover-flow.zig components/image/lib/ktx2-rgba8-srgb.zig
@@ -359,7 +363,7 @@ components/application/wasm/wasm-bounded-output.wasm: components/application/was
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
 components/application/wasm/wasm-counts.wasm: ZIG_WASM_MAX_MEMORY = 12582912
-components/application/wasm/wasm-counts.wasm: components/application/wasm/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
+components/application/wasm/wasm-counts.wasm: components/application/wasm/wasm-counts.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
 components/application/wasm/render-cyclomatic-complexity.wasm: ZIG_WASM_MAX_MEMORY = 12582912
@@ -903,7 +907,7 @@ test-warc-libs:
 test-qip-router-help: qip
 	QIP_BIN=$(QIP_BIN) sh test/qip-router-help.sh
 
-test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm
+test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm test/fixtures/wasm-debugger-call-indirect.wasm
 	node --check site/qip-runner.js
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs
@@ -925,7 +929,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-rasterizer-thorvg.mjs
 	node --test test/qip-play-debug-stats.mjs
 	node --test test/qip-play-steps.mjs
-	node --test test/wasm-debugger.mjs
+	node --test test/qipdb.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
 	node --test test/ktx2-resize-simd.mjs
@@ -1168,8 +1172,8 @@ test-zig: $(ZIG_TEST_FILES)
 		echo "zig test $$f"; \
 		if [ "$$f" = "components/application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "components/application/pdf/pdf-extract-text.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=components/bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "components/interactive/wasm-debugger.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_debug -Mroot="$$f" -Mwasm_debug=components/application/wasm/lib/wasm-debug.zig || status=1; \
+		elif [ "$$f" = "components/interactive/qipdb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig || status=1; \
 		elif [ "$$f" = "components/text/html/html-to-svg-inter-paths.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=components/text/lib/inter_display_latin_paths.zig -Minter_bold=components/text/lib/inter_display_bold_latin_paths.zig || status=1; \
 		elif [ "$$f" = "components/image/svg+xml/svg-to-pdf-inter-font.zig" ]; then \

@@ -1,9 +1,10 @@
 //! Deterministic, instruction-stepped interpreter for a small QIP Wasm profile.
 //!
 //! The first profile is deliberately scalar. It accepts one
-//! fixed wasm32 memory, no imports, direct calls, structured control flow,
-//! active data segments, numeric locals and globals, scalar loads/stores, and
-//! `memory.copy`/`memory.fill`.
+//! fixed wasm32 memory, no imports, direct calls, one fixed `funcref` table,
+//! active function-index element segments, `call_indirect`, structured control
+//! flow, active data segments, numeric locals and globals, scalar loads/stores,
+//! and `memory.copy`/`memory.fill`.
 //! Integer execution is substantially complete; unsupported floating-point
 //! operations trap after their operands and types have been decoded.
 //! A caller supplies the module bytes and asks the machine to enter the
@@ -13,13 +14,20 @@
 const std = @import("std");
 
 pub const MAX_MODULE_BYTES: usize = 1024 * 1024;
-pub const MAX_TARGET_MEMORY_BYTES: usize = 8 * 1024 * 1024;
+pub const MAX_TARGET_MEMORY_BYTES: usize = 128 * 1024 * 1024;
+pub const WASM_PAGE_BYTES: usize = 65536;
+pub const MAX_TARGET_MEMORY_PAGES: usize = MAX_TARGET_MEMORY_BYTES / WASM_PAGE_BYTES;
+const MEMORY_PAGE_WORD_BITS: usize = @bitSizeOf(u64);
+const MEMORY_PAGE_WORDS: usize = std.math.divCeil(usize, MAX_TARGET_MEMORY_PAGES, MEMORY_PAGE_WORD_BITS) catch unreachable;
 pub const MAX_TYPES: usize = 2048;
 pub const MAX_FUNCTIONS: usize = 4096;
+pub const MAX_TABLE_ENTRIES: usize = 4096;
 pub const MAX_GLOBALS: usize = 2048;
 pub const MAX_EXPORTS: usize = 1024;
+pub const MAX_ELEMENT_SEGMENTS: usize = 512;
 pub const MAX_DATA_SEGMENTS: usize = 512;
 pub const MAX_INSTRUCTIONS: usize = 131072;
+pub const MAX_BRANCH_TABLE_TARGETS: usize = 65536;
 pub const MAX_VALUES: usize = 32768;
 pub const MAX_LOCALS: usize = 32768;
 pub const MAX_LOCAL_TYPES: usize = 131072;
@@ -27,6 +35,7 @@ pub const MAX_FRAMES: usize = 256;
 pub const MAX_CONTROLS: usize = 4096;
 pub const MAX_FUNCTION_PARAMETERS: usize = 64;
 const NO_INSTRUCTION: u32 = std.math.maxInt(u32);
+const NO_FUNCTION: u32 = std.math.maxInt(u32);
 
 pub const Error = error{
     InvalidWasm,
@@ -63,6 +72,9 @@ pub const Trap = enum {
     none,
     explicit_unreachable,
     out_of_bounds_memory,
+    out_of_bounds_table,
+    uninitialized_element,
+    indirect_call_type_mismatch,
     divide_by_zero,
     integer_overflow,
     invalid_control,
@@ -72,6 +84,7 @@ pub const Trap = enum {
 pub const Counters = struct {
     instructions: u64 = 0,
     calls: u64 = 0,
+    indirect_calls: u64 = 0,
     returns: u64 = 0,
     branches: u64 = 0,
     loop_iterations: u64 = 0,
@@ -88,6 +101,8 @@ pub const MemoryEvent = struct {
 pub const MemoryAccessKind = enum { none, read, write };
 
 pub const MemoryByteProvenance = enum { untouched, data, input, written };
+
+pub const MemoryPageActivity = enum { untouched, read, written, read_written };
 
 pub const ValType = enum(u8) {
     i32 = 0x7f,
@@ -106,6 +121,11 @@ const FuncType = struct {
 pub const FunctionSignature = struct {
     parameters: []const ValType,
     result: ?ValType,
+};
+
+pub const InstructionRange = struct {
+    first: u32,
+    end: u32,
 };
 
 const Function = struct {
@@ -258,6 +278,9 @@ pub const Machine = struct {
     type_count: usize = 0,
     functions: [MAX_FUNCTIONS]Function = undefined,
     function_count: usize = 0,
+    table: [MAX_TABLE_ENTRIES]u32 = undefined,
+    table_defined: bool = false,
+    table_size: usize = 0,
     globals: [MAX_GLOBALS]Global = undefined,
     global_count: usize = 0,
     exports: [MAX_EXPORTS]Export = undefined,
@@ -266,9 +289,15 @@ pub const Machine = struct {
     data_segment_count: usize = 0,
     instructions: [MAX_INSTRUCTIONS]Instruction = undefined,
     instruction_count: usize = 0,
+    branch_table_targets: [MAX_BRANCH_TABLE_TARGETS]u32 = undefined,
+    branch_table_target_count: usize = 0,
     loop_counts: [MAX_INSTRUCTIONS]u64 = undefined,
+    function_invocations: [MAX_FUNCTIONS]u64 = undefined,
     memory: [MAX_TARGET_MEMORY_BYTES]u8 = undefined,
     memory_written: [MAX_TARGET_MEMORY_BYTES / 8]u8 = undefined,
+    memory_pages_read: [MEMORY_PAGE_WORDS]u64 = undefined,
+    memory_pages_written: [MEMORY_PAGE_WORDS]u64 = undefined,
+    memory_initialized: bool = false,
     memory_size: usize = 0,
     memory_pages: u32 = 0,
     stack: [MAX_VALUES]u64 = undefined,
@@ -309,10 +338,14 @@ pub const Machine = struct {
         self.target_input_ptr = 0;
         self.type_count = 0;
         self.function_count = 0;
+        self.table_defined = false;
+        self.table_size = 0;
         self.global_count = 0;
         self.export_count = 0;
         self.data_segment_count = 0;
         self.instruction_count = 0;
+        self.branch_table_target_count = 0;
+        self.memory_initialized = false;
         self.memory_size = 0;
         self.memory_pages = 0;
         self.stack_count = 0;
@@ -337,8 +370,7 @@ pub const Machine = struct {
     }
 
     pub fn restart(self: *Machine) Error!void {
-        @memset(self.memory[0..self.memory_size], 0);
-        @memset(self.memory_written[0 .. std.math.divCeil(usize, self.memory_size, 8) catch unreachable], 0);
+        self.resetMemory();
         for (self.globals[0..self.global_count]) |*global| global.value = global.initial;
         for (self.data_segments[0..self.data_segment_count]) |segment| {
             const start: usize = segment.offset;
@@ -351,6 +383,7 @@ pub const Machine = struct {
             @memcpy(self.memory[start .. start + self.target_input.len], self.target_input);
         }
         @memset(self.loop_counts[0..self.instruction_count], 0);
+        @memset(self.function_invocations[0..self.function_count], 0);
         self.stack_count = 0;
         self.locals_count = 0;
         self.frame_count = 0;
@@ -369,6 +402,30 @@ pub const Machine = struct {
         try self.enterFunction(self.render_function, 0, &.{@as(u64, self.target_input.len)});
     }
 
+    fn resetMemory(self: *Machine) void {
+        const page_words = std.math.divCeil(usize, self.memory_pages, MEMORY_PAGE_WORD_BITS) catch unreachable;
+        if (!self.memory_initialized) {
+            @memset(self.memory[0..self.memory_size], 0);
+            @memset(self.memory_written[0 .. std.math.divCeil(usize, self.memory_size, 8) catch unreachable], 0);
+            @memset(self.memory_pages_read[0..page_words], 0);
+            @memset(self.memory_pages_written[0..page_words], 0);
+            self.memory_initialized = true;
+            return;
+        }
+
+        var page: usize = 0;
+        while (page < self.memory_pages) : (page += 1) {
+            const mask = @as(u64, 1) << @intCast(page % MEMORY_PAGE_WORD_BITS);
+            if ((self.memory_pages_written[page / MEMORY_PAGE_WORD_BITS] & mask) == 0) continue;
+            const start = page * WASM_PAGE_BYTES;
+            const end = @min(start + WASM_PAGE_BYTES, self.memory_size);
+            @memset(self.memory[start..end], 0);
+            @memset(self.memory_written[start / 8 .. std.math.divCeil(usize, end, 8) catch unreachable], 0);
+        }
+        @memset(self.memory_pages_read[0..page_words], 0);
+        @memset(self.memory_pages_written[0..page_words], 0);
+    }
+
     pub fn memoryByteProvenance(self: *const Machine, address: usize) MemoryByteProvenance {
         if (address >= self.memory_size) return .untouched;
         if ((self.memory_written[address / 8] & (@as(u8, 1) << @intCast(address % 8))) != 0) return .written;
@@ -378,6 +435,17 @@ pub const Machine = struct {
             const start: usize = segment.offset;
             if (address >= start and address - start < segment.bytes_length) return .data;
         }
+        return .untouched;
+    }
+
+    pub fn memoryPageActivity(self: *const Machine, page: usize) MemoryPageActivity {
+        if (page >= @as(usize, self.memory_pages)) return .untouched;
+        const mask = @as(u64, 1) << @intCast(page % MEMORY_PAGE_WORD_BITS);
+        const read = (self.memory_pages_read[page / MEMORY_PAGE_WORD_BITS] & mask) != 0;
+        const written = (self.memory_pages_written[page / MEMORY_PAGE_WORD_BITS] & mask) != 0;
+        if (read and written) return .read_written;
+        if (read) return .read;
+        if (written) return .written;
         return .untouched;
     }
 
@@ -400,7 +468,7 @@ pub const Machine = struct {
     pub fn stepOver(self: *Machine, budget: usize) void {
         if (self.status != .ready) return;
         const depth = self.frame_count;
-        const is_call = self.instructions[self.current_instruction].op == 0x10;
+        const is_call = isCallInstruction(self.instructions[self.current_instruction].op);
         _ = self.step();
         if (!is_call) return;
         var count: usize = 1;
@@ -459,6 +527,10 @@ pub const Machine = struct {
                 self.branchStackInputCount(@intCast(instruction.immediate))
             else
                 0,
+            0x0e => if (self.branchTableDepth(instruction)) |depth|
+                1 + self.branchStackInputCount(depth)
+            else
+                1,
             0x0f => if (self.frame_count == 0)
                 0
             else blk: {
@@ -471,6 +543,10 @@ pub const Machine = struct {
                 const function = self.functions[@intCast(instruction.immediate)];
                 break :blk self.types[function.type_index].params;
             },
+            0x11 => if (indirectTypeIndex(instruction) >= self.type_count)
+                0
+            else
+                self.types[indirectTypeIndex(instruction)].params + 1,
             else => 0,
         };
     }
@@ -489,7 +565,7 @@ pub const Machine = struct {
         const into = self.singleStepTarget(instruction);
         return .{
             .into = into,
-            .over = if (instruction.op == 0x10) self.sequentialTarget(instruction) else into,
+            .over = if (isCallInstruction(instruction.op)) self.sequentialTarget(instruction) else into,
             .out = self.frameReturnTarget(),
         };
     }
@@ -513,8 +589,72 @@ pub const Machine = struct {
         };
     }
 
-    pub fn inputPointer(self: *Machine) Error!?u32 {
+    pub fn functionInstructionRange(self: *const Machine, function_index: u32) ?InstructionRange {
+        if (function_index >= self.function_count) return null;
+        const function = self.functions[function_index];
+        if (function.first_instruction == NO_INSTRUCTION or function.final_instruction == NO_INSTRUCTION) return null;
+        return .{ .first = function.first_instruction, .end = function.final_instruction + 1 };
+    }
+
+    pub fn indirectCallMayTarget(self: *const Machine, instruction: Instruction, function_index: u32) bool {
+        if (instruction.op != 0x11 or function_index >= self.function_count) return false;
+        if (!self.sameFunctionType(indirectTypeIndex(instruction), self.functions[function_index].type_index)) return false;
+        for (self.table[0..self.table_size]) |table_function| {
+            if (table_function == function_index) return true;
+        }
+        return false;
+    }
+
+    pub fn typeSignature(self: *const Machine, type_index: u32) ?FunctionSignature {
+        if (type_index >= self.type_count) return null;
+        const function_type = &self.types[type_index];
+        return .{
+            .parameters = function_type.parameter_types[0..function_type.params],
+            .result = function_type.result_type,
+        };
+    }
+
+    pub fn callTarget(self: *const Machine, instruction: Instruction) ?u32 {
+        return switch (instruction.op) {
+            0x10 => if (instruction.immediate < self.function_count) @intCast(instruction.immediate) else null,
+            0x11 => self.indirectTarget(instruction),
+            else => null,
+        };
+    }
+
+    pub fn hasFunctionExport(self: *const Machine, name: []const u8) bool {
+        for (self.exports[0..self.export_count]) |exp| {
+            if (exp.kind == 0 and std.mem.eql(u8, self.module[exp.name_offset .. exp.name_offset + exp.name_length], name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn staticExportedBytes(
+        self: *const Machine,
+        pointer_export: []const u8,
+        size_export: []const u8,
+    ) Error!?[]const u8 {
+        const pointer = try self.staticI32Getter(pointer_export);
+        const size = try self.staticI32Getter(size_export);
+        if ((pointer == null) != (size == null)) return Error.InvalidInputContract;
+        if (pointer == null) return null;
+        const end = @as(u64, pointer.?) + size.?;
+        if (end > self.memory_size) return Error.InvalidInputContract;
+        return self.memory[pointer.?..@intCast(end)];
+    }
+
+    pub fn inputPointer(self: *const Machine) Error!?u32 {
         return self.staticI32Getter("input_ptr");
+    }
+
+    pub fn inputCapacity(self: *const Machine) Error!?u32 {
+        return self.staticCapacity("input_utf8_cap", "input_bytes_cap");
+    }
+
+    pub fn outputCapacity(self: *const Machine) Error!?u32 {
+        return self.staticCapacity("output_utf8_cap", "output_bytes_cap");
     }
 
     pub fn frameParameters(self: *const Machine, frame_index: usize) []const u64 {
@@ -560,9 +700,10 @@ pub const Machine = struct {
                 self.branchTarget(@intCast(instruction.immediate))
             else
                 sequential,
+            0x0e => if (self.branchTableDepth(instruction)) |depth| self.branchTarget(depth) else NO_INSTRUCTION,
             0x0f => self.functionEndTarget(),
-            0x10 => if (instruction.immediate < self.function_count)
-                self.functions[@intCast(instruction.immediate)].first_instruction
+            0x10, 0x11 => if (self.callTarget(instruction)) |function_index|
+                self.functions[function_index].first_instruction
             else
                 NO_INSTRUCTION,
             else => sequential,
@@ -612,11 +753,12 @@ pub const Machine = struct {
                 1 => try self.parseTypes(&section),
                 2 => if (try section.varU32() != 0) return Error.UnsupportedFeature,
                 3 => try self.parseFunctions(&section),
-                4 => return Error.UnsupportedFeature,
+                4 => try self.parseTable(&section),
                 5 => try self.parseMemory(&section),
                 6 => try self.parseGlobals(&section),
                 7 => try self.parseExports(&section),
-                8, 9 => return Error.UnsupportedFeature,
+                8 => return Error.UnsupportedFeature,
+                9 => try self.parseElements(&section),
                 10 => try self.parseCode(&section),
                 11 => try self.parseData(&section),
                 12 => _ = try section.varU32(),
@@ -658,6 +800,45 @@ pub const Machine = struct {
             self.functions[i] = .{ .type_index = type_index };
         }
         self.function_count = count;
+    }
+
+    fn parseTable(self: *Machine, reader: *Reader) Error!void {
+        if (try reader.varU32() != 1) return Error.UnsupportedFeature;
+        if (try reader.byte() != 0x70) return Error.UnsupportedFeature;
+        const flags = try reader.varU32();
+        if (flags != 1) return Error.UnsupportedFeature;
+        const minimum = try reader.varU32();
+        const maximum = try reader.varU32();
+        if (minimum != maximum) return Error.UnsupportedFeature;
+        if (minimum > MAX_TABLE_ENTRIES) return Error.TooManyItems;
+        self.table_defined = true;
+        self.table_size = minimum;
+        @memset(self.table[0..self.table_size], NO_FUNCTION);
+    }
+
+    fn parseElements(self: *Machine, reader: *Reader) Error!void {
+        if (!self.table_defined) return Error.InvalidSection;
+        const count = try reader.varU32();
+        if (count > MAX_ELEMENT_SEGMENTS) return Error.TooManyItems;
+        var segment_index: u32 = 0;
+        while (segment_index < count) : (segment_index += 1) {
+            const flags = try reader.varU32();
+            if (flags == 2 and try reader.varU32() != 0) return Error.InvalidIndex;
+            if (flags != 0 and flags != 2) return Error.UnsupportedFeature;
+            if (try reader.byte() != 0x41) return Error.UnsupportedFeature;
+            const offset: u32 = @bitCast(try reader.s32());
+            if (try reader.byte() != 0x0b) return Error.InvalidSection;
+            if (flags == 2 and try reader.byte() != 0) return Error.UnsupportedFeature;
+            const function_count = try reader.varU32();
+            const end = @as(u64, offset) + function_count;
+            if (end > self.table_size) return Error.InvalidSection;
+            var item: u32 = 0;
+            while (item < function_count) : (item += 1) {
+                const function_index = try reader.varU32();
+                if (function_index >= self.function_count) return Error.InvalidIndex;
+                self.table[offset + item] = function_index;
+            }
+        }
     }
 
     fn parseMemory(self: *Machine, reader: *Reader) Error!void {
@@ -805,6 +986,24 @@ pub const Machine = struct {
                         self.instructions[self.instructions[opening].else_instruction].match = index;
                 },
                 0x0c, 0x0d, 0x10, 0x20...0x24 => instruction.immediate = try reader.varU32(),
+                0x0e => {
+                    const target_count = try reader.varU32();
+                    const stored_count = std.math.add(u32, target_count, 1) catch return Error.TooManyItems;
+                    if (self.branch_table_target_count + stored_count > MAX_BRANCH_TABLE_TARGETS) return Error.TooManyItems;
+                    const offset: u32 = @intCast(self.branch_table_target_count);
+                    var target_index: u32 = 0;
+                    while (target_index < stored_count) : (target_index += 1) {
+                        self.branch_table_targets[self.branch_table_target_count] = try reader.varU32();
+                        self.branch_table_target_count += 1;
+                    }
+                    instruction.immediate = offset | (@as(u64, target_count) << 32);
+                },
+                0x11 => {
+                    const type_index = try reader.varU32();
+                    const table_index = try reader.varU32();
+                    if (type_index >= self.type_count or table_index != 0 or !self.table_defined) return Error.InvalidIndex;
+                    instruction.immediate = type_index | (@as(u64, table_index) << 32);
+                },
                 0x28...0x3e => {
                     _ = try reader.varU32();
                     instruction.immediate = try reader.varU32();
@@ -877,7 +1076,7 @@ pub const Machine = struct {
         return pointer;
     }
 
-    fn staticI32Getter(self: *Machine, name: []const u8) Error!?u32 {
+    fn staticI32Getter(self: *const Machine, name: []const u8) Error!?u32 {
         var function_index: ?u32 = null;
         for (self.exports[0..self.export_count]) |exp| {
             if (!std.mem.eql(u8, self.module[exp.name_offset .. exp.name_offset + exp.name_length], name)) continue;
@@ -903,6 +1102,13 @@ pub const Machine = struct {
             },
             else => Error.InvalidInputContract,
         };
+    }
+
+    fn staticCapacity(self: *const Machine, utf8_name: []const u8, bytes_name: []const u8) Error!?u32 {
+        const utf8_capacity = try self.staticI32Getter(utf8_name);
+        const bytes_capacity = try self.staticI32Getter(bytes_name);
+        if (utf8_capacity != null and bytes_capacity != null) return Error.InvalidInputContract;
+        return utf8_capacity orelse bytes_capacity;
     }
 
     fn enterFunction(self: *Machine, function_index: u32, return_instruction: u32, arguments: []const u64) Error!void {
@@ -941,6 +1147,37 @@ pub const Machine = struct {
         };
         self.control_count += 1;
         self.current_instruction = function.first_instruction;
+        self.function_invocations[function_index] += 1;
+    }
+
+    fn indirectTarget(self: *const Machine, instruction: Instruction) ?u32 {
+        if (instruction.op != 0x11 or indirectTableIndex(instruction) != 0 or self.stack_count == 0) return null;
+        const element_index: u32 = @truncate(self.stack[self.stack_count - 1]);
+        if (element_index >= self.table_size) return null;
+        const function_index = self.table[element_index];
+        if (function_index == NO_FUNCTION or function_index >= self.function_count) return null;
+        if (!self.sameFunctionType(indirectTypeIndex(instruction), self.functions[function_index].type_index)) return null;
+        return function_index;
+    }
+
+    fn sameFunctionType(self: *const Machine, left_index: u32, right_index: u32) bool {
+        if (left_index >= self.type_count or right_index >= self.type_count) return false;
+        const left = self.types[left_index];
+        const right = self.types[right_index];
+        if (left.params != right.params or left.results != right.results or left.result_type != right.result_type) return false;
+        return std.mem.eql(ValType, left.parameter_types[0..left.params], right.parameter_types[0..right.params]);
+    }
+
+    fn callFunction(self: *Machine, function_index: u32, return_instruction: u32) Error!void {
+        if (function_index >= self.function_count) return Error.InvalidIndex;
+        const ft = self.types[self.functions[function_index].type_index];
+        if (self.stack_count < ft.params) return Error.StackUnderflow;
+        var arguments: [MAX_FUNCTION_PARAMETERS]u64 = undefined;
+        const start = self.stack_count - ft.params;
+        @memcpy(arguments[0..ft.params], self.stack[start..self.stack_count]);
+        self.stack_count = start;
+        self.counters.calls += 1;
+        try self.enterFunction(function_index, return_instruction, arguments[0..ft.params]);
     }
 
     fn push(self: *Machine, value: u64, value_type: ValType) Error!void {
@@ -1015,6 +1252,17 @@ pub const Machine = struct {
         }
     }
 
+    fn branchTableDepth(self: *const Machine, instruction: Instruction) ?u32 {
+        if (instruction.op != 0x0e or self.stack_count == 0) return null;
+        const offset: u32 = @truncate(instruction.immediate);
+        const target_count: u32 = @truncate(instruction.immediate >> 32);
+        const selector: u32 = @truncate(self.stack[self.stack_count - 1]);
+        const selected = if (selector < target_count) selector else target_count;
+        const index = @as(u64, offset) + selected;
+        if (index >= self.branch_table_target_count) return null;
+        return self.branch_table_targets[@intCast(index)];
+    }
+
     fn readMemory(self: *Machine, address: u32, offset: u64, width: u8) Error!u64 {
         const effective = @as(u64, address) + offset;
         if (effective + width > self.memory_size) return self.trapWith(.out_of_bounds_memory);
@@ -1022,6 +1270,7 @@ pub const Machine = struct {
         self.last_access = .{ .valid = true, .address = @intCast(effective), .width = width };
         self.last_read_access = self.last_access;
         self.last_access_kind = .read;
+        markMemoryPages(&self.memory_pages_read, @intCast(effective), width);
         var value: u64 = 0;
         var i: u8 = 0;
         while (i < width) : (i += 1) value |= @as(u64, self.memory[@as(usize, @intCast(effective)) + i]) << @intCast(i * 8);
@@ -1039,12 +1288,24 @@ pub const Machine = struct {
         while (i < width) : (i += 1) {
             const byte_address = @as(usize, @intCast(effective)) + i;
             self.memory[byte_address] = @truncate(value >> @intCast(i * 8));
-            self.memory_written[byte_address / 8] |= @as(u8, 1) << @intCast(byte_address % 8);
+        }
+        self.markMemoryWritten(@intCast(effective), width);
+    }
+
+    fn markMemoryPages(pages: *[MEMORY_PAGE_WORDS]u64, start: usize, length: usize) void {
+        if (length == 0) return;
+        const first = start / WASM_PAGE_BYTES;
+        const last = (start + length - 1) / WASM_PAGE_BYTES;
+        var page = first;
+        while (true) : (page += 1) {
+            pages[page / MEMORY_PAGE_WORD_BITS] |= @as(u64, 1) << @intCast(page % MEMORY_PAGE_WORD_BITS);
+            if (page == last) break;
         }
     }
 
     fn markMemoryWritten(self: *Machine, start: usize, length: usize) void {
         if (length == 0) return;
+        markMemoryPages(&self.memory_pages_written, start, length);
         const end = start + length;
         var address = start;
         while (address < end and address % 8 != 0) : (address += 1)
@@ -1090,6 +1351,7 @@ pub const Machine = struct {
         self.last_write_access = .{ .valid = true, .address = destination, .width = length };
         self.last_access = self.last_write_access;
         self.last_access_kind = .write;
+        markMemoryPages(&self.memory_pages_read, source_start, byte_count);
         self.markMemoryWritten(destination_start, byte_count);
     }
 
@@ -1171,22 +1433,32 @@ pub const Machine = struct {
                     return;
                 }
             },
+            0x0e => {
+                const depth = self.branchTableDepth(instruction) orelse return Error.InvalidIndex;
+                _ = try self.pop32();
+                try self.branch(depth);
+                return;
+            },
             0x0f => {
                 try self.branch(@intCast(self.control_count - 1 - self.currentFrame().control_base));
                 return;
             },
             0x10 => {
                 const function_index: u32 = @intCast(instruction.immediate);
+                try self.callFunction(function_index, next);
+                return;
+            },
+            0x11 => {
+                const expected_type = indirectTypeIndex(instruction);
+                const element_index = try self.pop32();
+                if (element_index >= self.table_size) return self.trapWith(.out_of_bounds_table);
+                const function_index = self.table[element_index];
+                if (function_index == NO_FUNCTION) return self.trapWith(.uninitialized_element);
                 if (function_index >= self.function_count) return Error.InvalidIndex;
-                const ft = self.types[self.functions[function_index].type_index];
-                if (self.stack_count < ft.params) return Error.StackUnderflow;
-                var arguments: [64]u64 = undefined;
-                if (ft.params > arguments.len) return Error.TooManyItems;
-                const start = self.stack_count - ft.params;
-                @memcpy(arguments[0..ft.params], self.stack[start..self.stack_count]);
-                self.stack_count = start;
-                self.counters.calls += 1;
-                try self.enterFunction(function_index, next, arguments[0..ft.params]);
+                if (!self.sameFunctionType(expected_type, self.functions[function_index].type_index))
+                    return self.trapWith(.indirect_call_type_mismatch);
+                self.counters.indirect_calls += 1;
+                try self.callFunction(function_index, next);
                 return;
             },
             0x1a => _ = try self.pop(),
@@ -1591,6 +1863,18 @@ fn valueType(byte: u8) Error!ValType {
     };
 }
 
+pub fn indirectTypeIndex(instruction: Instruction) u32 {
+    return @truncate(instruction.immediate);
+}
+
+pub fn indirectTableIndex(instruction: Instruction) u32 {
+    return @truncate(instruction.immediate >> 32);
+}
+
+fn isCallInstruction(op: u8) bool {
+    return op == 0x10 or op == 0x11;
+}
+
 fn blockArity(reader: *Reader) Error!u1 {
     return switch (try reader.byte()) {
         0x40 => 0,
@@ -1620,8 +1904,10 @@ pub fn opcodeName(op: u8) []const u8 {
         0x0b => "end",
         0x0c => "br",
         0x0d => "br_if",
+        0x0e => "br_table",
         0x0f => "return",
         0x10 => "call",
+        0x11 => "call_indirect",
         0x1a => "drop",
         0x1b => "select",
         0x20 => "local.get",
@@ -1741,6 +2027,9 @@ pub fn trapName(trap: Trap) []const u8 {
         .none => "none",
         .explicit_unreachable => "unreachable",
         .out_of_bounds_memory => "out-of-bounds memory",
+        .out_of_bounds_table => "out-of-bounds table access",
+        .uninitialized_element => "uninitialized table element",
+        .indirect_call_type_mismatch => "indirect call type mismatch",
         .divide_by_zero => "integer divide by zero",
         .integer_overflow => "integer overflow",
         .invalid_control => "invalid control flow",
@@ -1764,4 +2053,58 @@ test "operand stack retains every numeric value type" {
         &.{ .i32, .i64, .f32, .f64 },
         machine.stack_types[0..machine.stack_count],
     );
+}
+
+test "memory restart clears written pages and resets page activity" {
+    const machine = try std.testing.allocator.create(Machine);
+    defer std.testing.allocator.destroy(machine);
+    machine.* = undefined;
+    machine.memory_size = 2 * WASM_PAGE_BYTES;
+    machine.memory_pages = 2;
+    machine.memory_initialized = false;
+    machine.data_segment_count = 0;
+    machine.target_input = &.{};
+    machine.target_input_ptr = 0;
+    machine.memory[7] = 0xaa;
+    machine.memory[WASM_PAGE_BYTES + 7] = 0xbb;
+
+    machine.resetMemory();
+    try std.testing.expectEqual(@as(u8, 0), machine.memory[7]);
+    try std.testing.expectEqual(@as(u8, 0), machine.memory[WASM_PAGE_BYTES + 7]);
+
+    machine.memory[7] = 0xcc;
+    machine.markMemoryWritten(7, 1);
+    machine.memory[WASM_PAGE_BYTES + 7] = 0xdd;
+    Machine.markMemoryPages(&machine.memory_pages_read, WASM_PAGE_BYTES + 7, 1);
+    try std.testing.expectEqual(MemoryPageActivity.written, machine.memoryPageActivity(0));
+    try std.testing.expectEqual(MemoryPageActivity.read, machine.memoryPageActivity(1));
+    try std.testing.expectEqual(MemoryByteProvenance.written, machine.memoryByteProvenance(7));
+
+    machine.resetMemory();
+    try std.testing.expectEqual(@as(u8, 0), machine.memory[7]);
+    try std.testing.expectEqual(@as(u8, 0xdd), machine.memory[WASM_PAGE_BYTES + 7]);
+    try std.testing.expectEqual(MemoryPageActivity.untouched, machine.memoryPageActivity(0));
+    try std.testing.expectEqual(MemoryPageActivity.untouched, machine.memoryPageActivity(1));
+    try std.testing.expectEqual(MemoryByteProvenance.untouched, machine.memoryByteProvenance(7));
+}
+
+test "memory page activity records ranges that cross page boundaries" {
+    const machine = try std.testing.allocator.create(Machine);
+    defer std.testing.allocator.destroy(machine);
+    machine.* = undefined;
+    machine.memory_size = 2 * WASM_PAGE_BYTES;
+    machine.memory_pages = 2;
+    machine.memory_initialized = false;
+    machine.data_segment_count = 0;
+    machine.target_input = &.{};
+    machine.target_input_ptr = 0;
+    machine.resetMemory();
+
+    const start = WASM_PAGE_BYTES - 1;
+    Machine.markMemoryPages(&machine.memory_pages_read, start, 2);
+    machine.markMemoryWritten(start, 2);
+
+    try std.testing.expectEqual(MemoryPageActivity.read_written, machine.memoryPageActivity(0));
+    try std.testing.expectEqual(MemoryPageActivity.read_written, machine.memoryPageActivity(1));
+    try std.testing.expectEqual(MemoryPageActivity.untouched, machine.memoryPageActivity(2));
 }
