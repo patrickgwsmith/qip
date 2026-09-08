@@ -5,6 +5,14 @@
 //! bodies. It accepts exactly the Core 1.0 language: later instructions and
 //! section forms are rejected even when the host browser implements them.
 //! Specification: https://webassembly.github.io/spec/versions/core/WebAssembly-1.0.pdf
+//! Acceptance suite: official `wg-1.0` specification tests at commit
+//! 977f97014c962f7bd1291fcc6d28b41a924882bf. Run with
+//! `WASM_CORE_1_0_SPEC_DIR=/path/to/spec make test-wasm-core-1-spec`.
+//! The tag archive used for the recorded run has SHA-256
+//! bf5a27e64e25d1cdec045d1bb12e39873f717cd44b0c749b9483ecb31ccceb8f.
+//! TODO(wasmparser-differential): compare this independent implementation
+//! against `wasmparser` configured with `WasmFeatures::WASM1`, including
+//! generated and mutated modules beyond the official acceptance suite.
 //!
 //! Input and output are application/wasm. Valid input is accepted unchanged;
 //! `render` rejects malformed or ill-typed input.
