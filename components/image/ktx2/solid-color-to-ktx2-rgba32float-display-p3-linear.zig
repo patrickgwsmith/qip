@@ -83,12 +83,12 @@ test "renders the selected size and color" {
     _ = uniform_set_width(2);
     _ = uniform_set_height(1);
     _ = uniform_set_color_rgba(0xff000080);
-    const result = render(0);
-    try std.testing.expectEqual(@as(u32, ktx.HEADER_SIZE + 32), result.output_size);
-    const image = ktx.parse(buffer[0..result.output_size]).?;
+    const output_size = renderImpl();
+    try std.testing.expectEqual(@as(u32, ktx.HEADER_SIZE + 32), output_size);
+    const image = ktx.parse(buffer[0..output_size]).?;
     try std.testing.expectEqual(@as(usize, 2), image.width);
     try std.testing.expectEqual(@as(usize, 1), image.height);
     try std.testing.expectApproxEqAbs(@as(f32, 1.0), image.pixels[0], 0.0001);
     try std.testing.expectApproxEqAbs(@as(f32, 0.0), image.pixels[1], 0.0001);
-    try std.testing.expectApproxEqAbs(@as(f32, 0.5), image.pixels[3], 0.0001);
+    try std.testing.expectApproxEqAbs(@as(f32, 128.0 / 255.0), image.pixels[3], 0.0001);
 }
