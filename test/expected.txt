@@ -74,26 +74,23 @@ module: markdown-basic.wasm | html-page-wrap.wasm
                         aria-label="QIP"
                     >
                         <g fill="#0eafe0">
-                            <!-- q -->
-                            <rect x="1" y="6" width="4" height="1" />
-                            <rect x="1" y="7" width="1" height="2" />
-                            <rect x="4" y="7" width="1" height="2" />
-                            <rect x="1" y="9" width="4" height="1" />
-                            <rect x="4" y="10" width="1" height="2" />
+                            <!-- Q: a square counter with a centered tail. -->
+                            <rect x="0" y="5" width="5" height="1" />
+                            <rect x="0" y="6" width="1" height="3" />
+                            <rect x="4" y="6" width="1" height="3" />
+                            <rect x="0" y="8" width="5" height="1" />
+                            <rect x="2" y="9" width="1" height="2" />
 
-                            <!-- i -->
-                            <g fill="white">
-                                <rect x="7" y="4" width="1" height="1" />
-                            </g>
-                            <rect x="6" y="6" width="1" height="1" />
-                            <rect x="7" y="6" width="1" height="3" />
-                            <rect x="6" y="9" width="3" height="1" />
+                            <!-- I: capped vertical stroke. -->
+                            <rect x="6" y="5" width="3" height="1" />
+                            <rect x="7" y="6" width="1" height="2" />
+                            <rect x="6" y="8" width="3" height="1" />
 
-                            <!-- p -->
-                            <rect x="10" y="6" width="1" height="6" />
-                            <rect x="11" y="6" width="3" height="1" />
-                            <rect x="13" y="7" width="1" height="2" />
-                            <rect x="11" y="9" width="3" height="1" />
+                            <!-- P: square bowl, open below the middle bar. -->
+                            <rect x="10" y="5" width="1" height="6" />
+                            <rect x="10" y="5" width="5" height="1" />
+                            <rect x="14" y="6" width="1" height="3" />
+                            <rect x="10" y="8" width="5" height="1" />
                         </g>
                     </svg>
                 </a>

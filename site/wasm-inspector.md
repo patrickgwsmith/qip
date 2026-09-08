@@ -190,14 +190,10 @@ uploaded.
   font-variant-numeric: tabular-nums;
 }
 .wasm-shape {
-  width: 100%;
-  border-collapse: collapse;
   font-variant-numeric: tabular-nums;
 }
 .wasm-shape th,
 .wasm-shape td {
-  padding: 0.35rem 0.5rem;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   text-align: right;
 }
 .wasm-shape th:first-child {

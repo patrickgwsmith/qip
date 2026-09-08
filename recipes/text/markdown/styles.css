@@ -219,9 +219,28 @@ main {
         margin-left: 4em;
     }
     table {
+        width: 100%;
+        border-collapse: collapse;
+
         th,
         td {
-            padding: 0 0.5em;
+            padding: 0.5lh 0.75em;
+            text-align: left;
+            vertical-align: top;
+            border-bottom: 1px solid
+                color-mix(in srgb, currentColor 25%, transparent);
+        }
+
+        th {
+            font-weight: 700;
+        }
+
+        thead th {
+            border-bottom-color: currentColor;
+        }
+
+        tbody tr:last-child td {
+            border-bottom: 0;
         }
     }
 }

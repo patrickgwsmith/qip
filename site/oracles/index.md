@@ -1,25 +1,5 @@
 <title>QIP Oracles</title>
 
-<style>
-  main table {
-    width: 100%;
-    border-collapse: collapse;
-  }
-
-  main th,
-  main td {
-    border-bottom: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-    padding: 0.45rem 0.6rem 0.45rem 0;
-    text-align: left;
-    vertical-align: top;
-  }
-
-  main th:last-child,
-  main td:last-child {
-    padding-right: 0;
-  }
-</style>
-
 # QIP Oracles
 
 Compliance oracles are executable test assets packaged as Wasm. An oracle owns
