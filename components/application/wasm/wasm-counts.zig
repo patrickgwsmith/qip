@@ -6,82 +6,131 @@
 //! their own CI analysis.
 
 const std = @import("std");
+const wasm_counts = @import("lib/wasm-counts.zig");
 const wasm_reader = @import("lib/wasm-reader.zig");
 
-const Reader = wasm_reader.Reader;
-const Instr = wasm_reader.Instr;
-
 const INPUT_CAP: usize = 8 * 1024 * 1024;
-const OUTPUT_CAP: usize = 32 * 1024;
 const INPUT_CONTENT_TYPE = "application/wasm";
 const OUTPUT_CONTENT_TYPE = "text/csv";
+const CSV_HEADER = "metric,value\n";
+const MAX_U64_DECIMAL_DIGITS = 20;
+
+const METRIC_NAMES = .{
+    "module_bytes",
+    "sections",
+    "custom_sections",
+    "types",
+    "v128_types",
+    "exports",
+    "functions_exported",
+    "tables_exported",
+    "memories_exported",
+    "globals_exported",
+    "tags_exported",
+    "functions_defined",
+    "functions_imported",
+    "tables_defined",
+    "tables_imported",
+    "tables_funcref",
+    "tables_externref",
+    "tables_typed_reference",
+    "tables_table64",
+    "tables_with_maximum",
+    "tables_fixed_size",
+    "table_initial_slots",
+    "table_maximum_slots",
+    "element_segments",
+    "active_element_segments",
+    "passive_element_segments",
+    "declarative_element_segments",
+    "active_element_segments_table_zero",
+    "active_element_segments_nonzero_table",
+    "active_element_offsets_i32_const_zero",
+    "active_element_offsets_i32_const_one",
+    "active_element_offsets_i32_const_other",
+    "active_element_offsets_global_get",
+    "active_element_offsets_other",
+    "element_initializers",
+    "active_element_initializers",
+    "element_function_index_initializers",
+    "element_expression_initializers",
+    "globals_defined",
+    "globals_imported",
+    "memories_defined",
+    "memories_imported",
+    "memories_memory64",
+    "memories_shared",
+    "memories_with_maximum",
+    "memory_initial_pages",
+    "memory_initial_bytes",
+    "memory_maximum_pages",
+    "memory_maximum_bytes",
+    "data_segments",
+    "active_data_segments",
+    "data_bytes",
+    "active_data_bytes",
+    "instructions",
+    "function_instructions",
+    "loops",
+    "branches",
+    "conditional_branches",
+    "br_table_targets",
+    "calls_direct_local",
+    "calls_direct_imported",
+    "calls_indirect",
+    "call_indirect",
+    "return_call_indirect",
+    "call_ref",
+    "indirect_calls_table_zero",
+    "indirect_calls_nonzero_table",
+    "table_get",
+    "table_set",
+    "table_init",
+    "elem_drop",
+    "table_copy",
+    "table_grow",
+    "table_size",
+    "table_fill",
+    "ref_null",
+    "ref_is_null",
+    "ref_func",
+    "simd_instructions",
+    "memory_loads",
+    "memory_stores",
+    "memory_copies",
+    "memory_fills",
+    "explicit_traps",
+    "integer_divisions",
+    "integer_remainders",
+    "trapping_float_to_int",
+    "potentially_trapping_memory",
+    "potentially_trapping_table",
+    "potentially_trapping_instructions",
+};
+
+const OUTPUT_CAP: usize = blk: {
+    var capacity = CSV_HEADER.len;
+    for (METRIC_NAMES) |name| {
+        capacity += name.len + 1 + MAX_U64_DECIMAL_DIGITS + 1;
+    }
+    break :blk capacity;
+};
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
 
-const CountError = wasm_reader.Error || error{
-    UnsupportedImportKind,
-    UnsupportedType,
-    InvalidSection,
-    FunctionCodeMismatch,
-    OutputOverflow,
-};
-
-const Counts = struct {
-    module_bytes: u64 = 0,
-    sections: u64 = 0,
-    custom_sections: u64 = 0,
-    types: u64 = 0,
-    v128_types: u64 = 0,
-    functions_defined: u64 = 0,
-    functions_imported: u64 = 0,
-    tables_defined: u64 = 0,
-    tables_imported: u64 = 0,
-    globals_defined: u64 = 0,
-    globals_imported: u64 = 0,
-    memories_defined: u64 = 0,
-    memories_imported: u64 = 0,
-    memories_memory64: u64 = 0,
-    memories_shared: u64 = 0,
-    memories_with_maximum: u64 = 0,
-    memory_initial_pages: u64 = 0,
-    memory_maximum_pages: u64 = 0,
-    data_segments: u64 = 0,
-    active_data_segments: u64 = 0,
-    data_bytes: u64 = 0,
-    active_data_bytes: u64 = 0,
-    instructions: u64 = 0,
-    loops: u64 = 0,
-    branches: u64 = 0,
-    conditional_branches: u64 = 0,
-    br_table_targets: u64 = 0,
-    calls_direct_local: u64 = 0,
-    calls_direct_imported: u64 = 0,
-    calls_indirect: u64 = 0,
-    simd_instructions: u64 = 0,
-    explicit_traps: u64 = 0,
-    integer_divisions: u64 = 0,
-    integer_remainders: u64 = 0,
-    trapping_float_to_int: u64 = 0,
-    potentially_trapping_memory: u64 = 0,
-    potentially_trapping_table: u64 = 0,
-    potentially_trapping_instructions: u64 = 0,
-};
-
 const Writer = struct {
     off: usize = 0,
 
-    fn write(self: *Writer, bytes: []const u8) CountError!void {
-        if (bytes.len > output_buf.len - self.off) return CountError.OutputOverflow;
+    fn write(self: *Writer, bytes: []const u8) void {
         @memcpy(output_buf[self.off..][0..bytes.len], bytes);
         self.off += bytes.len;
     }
 
-    fn writeU64(self: *Writer, value: u64) CountError!void {
-        var decimal: [20]u8 = undefined;
+    fn writeU64(self: *Writer, value: u64) void {
+        var decimal: [MAX_U64_DECIMAL_DIGITS]u8 = undefined;
         var remaining = value;
         var start = decimal.len;
-
         if (remaining == 0) {
             start -= 1;
             decimal[start] = '0';
@@ -93,14 +142,13 @@ const Writer = struct {
                 remaining /= 10;
             }
         }
-
-        try self.write(decimal[start..]);
+        self.write(decimal[start..]);
     }
 
-    fn row(self: *Writer, comptime name: []const u8, value: u64) CountError!void {
-        try self.write(name ++ ",");
-        try self.writeU64(value);
-        try self.write("\n");
+    fn row(self: *Writer, comptime name: []const u8, value: u64) void {
+        self.write(name ++ ",");
+        self.writeU64(value);
+        self.write("\n");
     }
 };
 
@@ -132,386 +180,27 @@ export fn output_content_type_size() u32 {
     return OUTPUT_CONTENT_TYPE.len;
 }
 
-fn readName(r: *Reader) CountError!void {
-    _ = try r.readN(try r.readVarU32());
+fn metricValue(counts: wasm_counts.Counts, comptime name: []const u8) u64 {
+    if (comptime std.mem.eql(u8, name, "memory_initial_bytes"))
+        return counts.memory_initial_pages *| 65536;
+    if (comptime std.mem.eql(u8, name, "memory_maximum_bytes"))
+        return counts.memory_maximum_pages *| 65536;
+    return @field(counts, name);
 }
 
-fn countValueType(counts: *Counts, value_type: u8) CountError!void {
-    switch (value_type) {
-        0x7f, 0x7e, 0x7d, 0x7c, 0x70, 0x6f => {},
-        0x7b => counts.v128_types += 1,
-        else => return CountError.UnsupportedType,
-    }
-}
-
-fn readRefType(r: *Reader) CountError!void {
-    const kind = try r.readByte();
-    switch (kind) {
-        0x70, 0x6f => {},
-        0x63, 0x64 => _ = try r.readVarS64(5),
-        else => return CountError.UnsupportedType,
-    }
-}
-
-fn addLimits(counts: *Counts, limits: wasm_reader.Limits) void {
-    if (limits.memory64) counts.memories_memory64 += 1;
-    if (limits.shared) counts.memories_shared += 1;
-    counts.memory_initial_pages +|= limits.min;
-    if (limits.has_max) {
-        counts.memories_with_maximum += 1;
-        counts.memory_maximum_pages +|= limits.max;
-    }
-}
-
-fn parseTypeSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.types += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        if (try r.readByte() != 0x60) return CountError.UnsupportedType;
-        const params = try r.readVarU32();
-        var p: u32 = 0;
-        while (p < params) : (p += 1) try countValueType(counts, try r.readByte());
-        const results = try r.readVarU32();
-        var q: u32 = 0;
-        while (q < results) : (q += 1) try countValueType(counts, try r.readByte());
-    }
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn parseTableType(r: *Reader) CountError!void {
-    try readRefType(r);
-    _ = try wasm_reader.readLimits(r);
-}
-
-fn parseImportSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        try readName(&r);
-        try readName(&r);
-        switch (try r.readByte()) {
-            0 => {
-                _ = try r.readVarU32();
-                counts.functions_imported += 1;
-            },
-            1 => {
-                try parseTableType(&r);
-                counts.tables_imported += 1;
-            },
-            2 => {
-                const limits = try wasm_reader.readLimits(&r);
-                counts.memories_imported += 1;
-                addLimits(counts, limits);
-            },
-            3 => {
-                try countValueType(counts, try r.readByte());
-                _ = try r.readByte();
-                counts.globals_imported += 1;
-            },
-            4 => {
-                _ = try r.readByte();
-                _ = try r.readVarU32();
-            },
-            else => return CountError.UnsupportedImportKind,
-        }
-    }
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn parseFunctionSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.functions_defined += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) _ = try r.readVarU32();
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn parseTableSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.tables_defined += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) try parseTableType(&r);
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn parseMemorySection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.memories_defined += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) addLimits(counts, try wasm_reader.readLimits(&r));
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn skipConstExpr(r: *Reader, counts: *Counts) CountError!void {
-    while (true) {
-        const op = try r.readByte();
-        counts.instructions += 1;
-        switch (op) {
-            0x0b => return,
-            0x23, 0xd2 => _ = try r.readVarU32(),
-            0x41 => _ = try r.readVarS32(),
-            0x42 => _ = try r.readVarS64(10),
-            0x43 => _ = try r.readN(4),
-            0x44 => _ = try r.readN(8),
-            0xd0 => _ = try r.readVarS64(5),
-            0xfd => {
-                if (try r.readVarU32() != 12) return CountError.InvalidSection;
-                _ = try r.readN(16);
-                counts.simd_instructions += 1;
-            },
-            // Extended constant expressions use ordinary numeric operators.
-            0x45...0xc4 => {},
-            else => return CountError.InvalidSection,
-        }
-    }
-}
-
-fn parseGlobalSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.globals_defined += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        try countValueType(counts, try r.readByte());
-        _ = try r.readByte();
-        try skipConstExpr(&r, counts);
-    }
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn parseDataSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    counts.data_segments += count;
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        const flags = try r.readVarU32();
-        const active = switch (flags) {
-            0 => blk: {
-                try skipConstExpr(&r, counts);
-                break :blk true;
-            },
-            1 => false,
-            2 => blk: {
-                _ = try r.readVarU32();
-                try skipConstExpr(&r, counts);
-                break :blk true;
-            },
-            else => return CountError.InvalidSection,
-        };
-        const size = try r.readVarU32();
-        _ = try r.readN(size);
-        counts.data_bytes += size;
-        if (active) {
-            counts.active_data_segments += 1;
-            counts.active_data_bytes += size;
-        }
-    }
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-const InstructionCounter = struct {
-    counts: *Counts,
-    imported_functions: u64,
-
-    pub fn onInstr(self: *InstructionCounter, instr: Instr) CountError!void {
-        const c = self.counts;
-        c.instructions += 1;
-
-        switch (instr.op) {
-            0x00 => {
-                c.explicit_traps += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x03 => c.loops += 1,
-            0x04 => c.conditional_branches += 1,
-            0x0c => c.branches += 1,
-            0x0d => {
-                c.branches += 1;
-                c.conditional_branches += 1;
-            },
-            0x0e => {
-                c.branches += 1;
-                c.conditional_branches += 1;
-            },
-            0x10, 0x12 => {
-                if (@as(u64, @intCast(instr.imm)) < self.imported_functions) {
-                    c.calls_direct_imported += 1;
-                } else {
-                    c.calls_direct_local += 1;
-                }
-            },
-            0x11, 0x13 => {
-                c.calls_indirect += 1;
-                c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x14 => {
-                c.calls_indirect += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x25, 0x26 => {
-                c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x28...0x3e => {
-                c.potentially_trapping_memory += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x6d, 0x6e, 0x7f, 0x80 => {
-                c.integer_divisions += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x6f, 0x70, 0x81, 0x82 => {
-                c.integer_remainders += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0xa8...0xab, 0xae...0xb1 => {
-                c.trapping_float_to_int += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0xfc => switch (instr.subop) {
-                8, 10, 11 => {
-                    c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
-                },
-                12, 14, 17 => {
-                    c.potentially_trapping_table += 1;
-                    c.potentially_trapping_instructions += 1;
-                },
-                else => {},
-            },
-            0xfd => {
-                c.simd_instructions += 1;
-                if (instr.subop <= 11 or (instr.subop >= 84 and instr.subop <= 93)) {
-                    c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
-                }
-            },
-            0xfe => if (instr.subop != 3) {
-                c.potentially_trapping_memory += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            else => {},
-        }
-    }
-
-    pub fn onBrTableTarget(self: *InstructionCounter, depth: u32) CountError!void {
-        _ = depth;
-        self.counts.br_table_targets += 1;
-    }
-};
-
-fn parseCodeSection(counts: *Counts, payload: []const u8) CountError!void {
-    var r = Reader.init(payload);
-    const count = try r.readVarU32();
-    if (count != counts.functions_defined) return CountError.FunctionCodeMismatch;
-    var counter = InstructionCounter{
-        .counts = counts,
-        .imported_functions = counts.functions_imported,
-    };
-    var i: u32 = 0;
-    while (i < count) : (i += 1) {
-        const body = try r.readN(try r.readVarU32());
-        var locals = Reader.init(body);
-        const local_groups = try locals.readVarU32();
-        var group: u32 = 0;
-        while (group < local_groups) : (group += 1) {
-            const local_count = try locals.readVarU32();
-            const value_type = try locals.readByte();
-            if (value_type == 0x7b) {
-                counts.v128_types += local_count;
-            } else {
-                try countValueType(counts, value_type);
-            }
-        }
-        try wasm_reader.walkFunctionBody(&counter, body);
-        // walkFunctionBody omits the final end that closes the function.
-        counts.instructions += 1;
-    }
-    if (r.remaining() != 0) return CountError.TrailingBytes;
-}
-
-fn analyze(wasm: []const u8) CountError!Counts {
-    try wasm_reader.checkHeader(wasm);
-    var counts = Counts{ .module_bytes = wasm.len };
-    var r = Reader.init(wasm[8..]);
-    while (r.remaining() > 0) {
-        const section_id = try r.readByte();
-        const payload = try r.readN(try r.readVarU32());
-        counts.sections += 1;
-        switch (section_id) {
-            0 => counts.custom_sections += 1,
-            1 => try parseTypeSection(&counts, payload),
-            2 => try parseImportSection(&counts, payload),
-            3 => try parseFunctionSection(&counts, payload),
-            4 => try parseTableSection(&counts, payload),
-            5 => try parseMemorySection(&counts, payload),
-            6 => try parseGlobalSection(&counts, payload),
-            10 => try parseCodeSection(&counts, payload),
-            11 => try parseDataSection(&counts, payload),
-            else => {},
-        }
-    }
-    return counts;
-}
-
-fn renderCsv(counts: Counts) CountError!usize {
+fn renderCsv(counts: wasm_counts.Counts) usize {
     var w = Writer{};
-    try w.write("metric,value\n");
-    try w.row("module_bytes", counts.module_bytes);
-    try w.row("sections", counts.sections);
-    try w.row("custom_sections", counts.custom_sections);
-    try w.row("types", counts.types);
-    try w.row("v128_types", counts.v128_types);
-    try w.row("functions_defined", counts.functions_defined);
-    try w.row("functions_imported", counts.functions_imported);
-    try w.row("tables_defined", counts.tables_defined);
-    try w.row("tables_imported", counts.tables_imported);
-    try w.row("globals_defined", counts.globals_defined);
-    try w.row("globals_imported", counts.globals_imported);
-    try w.row("memories_defined", counts.memories_defined);
-    try w.row("memories_imported", counts.memories_imported);
-    try w.row("memories_memory64", counts.memories_memory64);
-    try w.row("memories_shared", counts.memories_shared);
-    try w.row("memories_with_maximum", counts.memories_with_maximum);
-    try w.row("memory_initial_pages", counts.memory_initial_pages);
-    try w.row("memory_initial_bytes", counts.memory_initial_pages *| 65536);
-    try w.row("memory_maximum_pages", counts.memory_maximum_pages);
-    try w.row("memory_maximum_bytes", counts.memory_maximum_pages *| 65536);
-    try w.row("data_segments", counts.data_segments);
-    try w.row("active_data_segments", counts.active_data_segments);
-    try w.row("data_bytes", counts.data_bytes);
-    try w.row("active_data_bytes", counts.active_data_bytes);
-    try w.row("instructions", counts.instructions);
-    try w.row("loops", counts.loops);
-    try w.row("branches", counts.branches);
-    try w.row("conditional_branches", counts.conditional_branches);
-    try w.row("br_table_targets", counts.br_table_targets);
-    try w.row("calls_direct_local", counts.calls_direct_local);
-    try w.row("calls_direct_imported", counts.calls_direct_imported);
-    try w.row("calls_indirect", counts.calls_indirect);
-    try w.row("simd_instructions", counts.simd_instructions);
-    try w.row("explicit_traps", counts.explicit_traps);
-    try w.row("integer_divisions", counts.integer_divisions);
-    try w.row("integer_remainders", counts.integer_remainders);
-    try w.row("trapping_float_to_int", counts.trapping_float_to_int);
-    try w.row("potentially_trapping_memory", counts.potentially_trapping_memory);
-    try w.row("potentially_trapping_table", counts.potentially_trapping_table);
-    try w.row("potentially_trapping_instructions", counts.potentially_trapping_instructions);
+    w.write(CSV_HEADER);
+    inline for (METRIC_NAMES) |name| {
+        w.row(name, metricValue(counts, name));
+    }
     return w.off;
 }
 
 fn renderImpl(input_size: u32) u32 {
     if (input_size > INPUT_CAP) @trap();
-    const counts = analyze(input_buf[0..input_size]) catch @trap();
-    return @intCast(renderCsv(counts) catch @trap());
+    const counts = wasm_counts.analyze(input_buf[0..input_size]) catch @trap();
+    return @intCast(renderCsv(counts));
 }
 
 export fn render(input_size: u32) packed struct(u64) {
@@ -526,26 +215,156 @@ export fn render(input_size: u32) packed struct(u64) {
     };
 }
 
-test "reports semantic, SIMD, trapping, and memory counts as CSV" {
+test "reports semantic, SIMD, trapping, memory, and table counts as CSV" {
     const body = [_]u8{
         0x03, 0x40, // loop
         0x41, 0x08, 0x41, 0x02, 0x6d, 0x1a, // i32.div_s; drop
+        0x41, 0x00, 0x28, 0x02, 0x00, 0x1a, // i32.load; drop
+        0x41, 0x00, 0x41, 0x01, 0x36, 0x02, 0x00, // i32.store
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x01, 0xfc, 0x0a, 0x00, 0x00, // memory.copy
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x01, 0xfc, 0x0b, 0x00, // memory.fill
         0xfd, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // v128.const
         0x1a, 0x0b, 0x0b, // drop; end loop; end function
     };
     const module = wasm_reader.moduleWithBody(&body);
-    const counts = try analyze(&module);
+    const counts = try wasm_counts.analyze(&module);
     try std.testing.expectEqual(@as(u64, 1), counts.functions_defined);
     try std.testing.expectEqual(@as(u64, 1), counts.memories_defined);
     try std.testing.expectEqual(@as(u64, 1), counts.memory_initial_pages);
     try std.testing.expectEqual(@as(u64, 1), counts.loops);
     try std.testing.expectEqual(@as(u64, 1), counts.simd_instructions);
-    try std.testing.expectEqual(@as(u64, 1), counts.integer_divisions);
-    try std.testing.expectEqual(@as(u64, 1), counts.potentially_trapping_instructions);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_loads);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_stores);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_copies);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_fills);
+    try std.testing.expectEqual(@as(u64, 5), counts.potentially_trapping_instructions);
 
-    const out_len = try renderCsv(counts);
+    const out_len = renderCsv(counts);
     const csv = output_buf[0..out_len];
     try std.testing.expect(std.mem.indexOf(u8, csv, "metric,value\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "function_instructions,") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "simd_instructions,1\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "memory_loads,1\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "element_initializers,0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "explicit_traps,0\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "integer_divisions,1\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "integer_remainders,0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "trapping_float_to_int,0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "potentially_trapping_memory,4\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "potentially_trapping_table,0\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "potentially_trapping_instructions,5\n") != null);
+}
+
+test "comptime output capacity fits maximum decimal values exactly" {
+    var counts = wasm_counts.Counts{};
+    inline for (std.meta.fields(wasm_counts.Counts)) |field| {
+        @field(counts, field.name) = std.math.maxInt(u64);
+    }
+    try std.testing.expectEqual(OUTPUT_CAP, renderCsv(counts));
+}
+
+test "counts declared table capacity and active element initializers" {
+    const module = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x04, 0x01, 0x60, 0x00, 0x00, // () -> () type
+        0x03, 0x02, 0x01, 0x00, // one function
+        0x04, 0x05, 0x01, 0x70, 0x01, 0x02, 0x04, // funcref table min 2, max 4
+        0x09, 0x07, 0x01, 0x00, 0x41, 0x00, 0x0b, 0x01, 0x00, // active element[0] = function 0
+        0x0a, 0x04, 0x01, 0x02, 0x00, 0x0b, // empty function body
+    };
+    const counts = try wasm_counts.analyze(&module);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_defined);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_funcref);
+    try std.testing.expectEqual(@as(u64, 0), counts.tables_externref);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_with_maximum);
+    try std.testing.expectEqual(@as(u64, 0), counts.tables_fixed_size);
+    try std.testing.expectEqual(@as(u64, 2), counts.table_initial_slots);
+    try std.testing.expectEqual(@as(u64, 4), counts.table_maximum_slots);
+    try std.testing.expectEqual(@as(u64, 1), counts.element_segments);
+    try std.testing.expectEqual(@as(u64, 1), counts.active_element_segments);
+    try std.testing.expectEqual(@as(u64, 1), counts.active_element_segments_table_zero);
+    try std.testing.expectEqual(@as(u64, 1), counts.element_initializers);
+    try std.testing.expectEqual(@as(u64, 1), counts.active_element_initializers);
+    try std.testing.expectEqual(@as(u64, 1), counts.element_function_index_initializers);
+}
+
+test "counts table reference types and fixed limits" {
+    const module = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x04, 0x09, 0x02,
+        0x70, 0x01, 0x02, 0x04, // funcref, min 2, max 4
+        0x6f, 0x01, 0x03, 0x03, // externref, fixed at 3
+    };
+    const counts = try wasm_counts.analyze(&module);
+    try std.testing.expectEqual(@as(u64, 2), counts.tables_defined);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_funcref);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_externref);
+    try std.testing.expectEqual(@as(u64, 0), counts.tables_typed_reference);
+    try std.testing.expectEqual(@as(u64, 2), counts.tables_with_maximum);
+    try std.testing.expectEqual(@as(u64, 1), counts.tables_fixed_size);
+    try std.testing.expectEqual(@as(u64, 5), counts.table_initial_slots);
+    try std.testing.expectEqual(@as(u64, 7), counts.table_maximum_slots);
+}
+
+test "counts element segment modes, targets, and initializer encodings" {
+    const module = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x09, 0x17, 0x04,
+        0x00, 0x41, 0x00, 0x0b, 0x01, 0x00, // active, implicit table 0
+        0x01, 0x00, 0x01, 0x00, // passive
+        0x03, 0x00, 0x01, 0x00, // declarative
+        0x02, 0x01, 0x41, 0x00, 0x0b, 0x00, 0x01, 0x00, // active, table 1
+    };
+    const counts = try wasm_counts.analyze(&module);
+    try std.testing.expectEqual(@as(u64, 4), counts.element_segments);
+    try std.testing.expectEqual(@as(u64, 2), counts.active_element_segments);
+    try std.testing.expectEqual(@as(u64, 1), counts.passive_element_segments);
+    try std.testing.expectEqual(@as(u64, 1), counts.declarative_element_segments);
+    try std.testing.expectEqual(@as(u64, 1), counts.active_element_segments_table_zero);
+    try std.testing.expectEqual(@as(u64, 1), counts.active_element_segments_nonzero_table);
+    try std.testing.expectEqual(@as(u64, 2), counts.active_element_offsets_i32_const_zero);
+    try std.testing.expectEqual(@as(u64, 0), counts.active_element_offsets_i32_const_one);
+    try std.testing.expectEqual(@as(u64, 4), counts.element_initializers);
+    try std.testing.expectEqual(@as(u64, 2), counts.active_element_initializers);
+    try std.testing.expectEqual(@as(u64, 4), counts.element_function_index_initializers);
+    try std.testing.expectEqual(@as(u64, 0), counts.element_expression_initializers);
+}
+
+test "counts indirect calls, table instructions, and reference instructions separately" {
+    const body = [_]u8{
+        0x11, 0x00, 0x00, // call_indirect type 0 table 0
+        0x13, 0x00, 0x01, // return_call_indirect type 0 table 1
+        0x14, 0x00, // call_ref type 0
+        0x25, 0x00, // table.get 0
+        0x26, 0x00, // table.set 0
+        0xd0, 0x70, // ref.null func
+        0xd1, // ref.is_null
+        0xd2, 0x00, // ref.func 0
+        0xfc, 0x0c, 0x00, 0x00, // table.init 0 0
+        0xfc, 0x0d, 0x00, // elem.drop 0
+        0xfc, 0x0e, 0x00, 0x00, // table.copy 0 0
+        0xfc, 0x0f, 0x00, // table.grow 0
+        0xfc, 0x10, 0x00, // table.size 0
+        0xfc, 0x11, 0x00, // table.fill 0
+        0x0b,
+    };
+    const module = wasm_reader.moduleWithBody(&body);
+    const counts = try wasm_counts.analyze(&module);
+    try std.testing.expectEqual(@as(u64, 3), counts.calls_indirect);
+    try std.testing.expectEqual(@as(u64, 1), counts.call_indirect);
+    try std.testing.expectEqual(@as(u64, 1), counts.return_call_indirect);
+    try std.testing.expectEqual(@as(u64, 1), counts.call_ref);
+    try std.testing.expectEqual(@as(u64, 1), counts.indirect_calls_table_zero);
+    try std.testing.expectEqual(@as(u64, 1), counts.indirect_calls_nonzero_table);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_get);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_set);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_init);
+    try std.testing.expectEqual(@as(u64, 1), counts.elem_drop);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_copy);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_grow);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_size);
+    try std.testing.expectEqual(@as(u64, 1), counts.table_fill);
+    try std.testing.expectEqual(@as(u64, 1), counts.ref_null);
+    try std.testing.expectEqual(@as(u64, 1), counts.ref_is_null);
+    try std.testing.expectEqual(@as(u64, 1), counts.ref_func);
 }

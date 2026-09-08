@@ -44,6 +44,9 @@ const helloNaive = fileURLToPath(new URL("../components/text/hello-naive.wasm", 
 const bmpColorPalette = fileURLToPath(
   new URL("../components/image/bmp/bmp-color-palette.wasm", import.meta.url),
 );
+const indirectFixture = fileURLToPath(
+  new URL("fixtures/qip-component-to-zig-indirect.wasm", import.meta.url),
+);
 
 async function ensurePrerequisites(t) {
   try {
@@ -61,6 +64,7 @@ async function ensurePrerequisites(t) {
     await access(infiniteLoop, constants.R_OK);
     await access(helloNaive, constants.R_OK);
     await access(bmpColorPalette, constants.R_OK);
+    await access(indirectFixture, constants.R_OK);
   } catch {
     t.skip("build ./qip and components first");
   }
@@ -113,13 +117,8 @@ async function runQip(args) {
   }
 }
 
-test("wasm-counts emits stable long-form integer CSV", async (t) => {
-  await ensurePrerequisites(t);
-
-  const result = await runQip(["run", "-i", e164, "--", wasmCounts]);
-  assert.equal(result.code, 0, result.stderr.toString("utf8"));
-
-  const lines = result.stdout.toString("utf8").trimEnd().split("\n");
+function parseCountRows(output) {
+  const lines = output.toString("utf8").trimEnd().split("\n");
   assert.equal(lines[0], "metric,value");
   const rows = new Map(
     lines.slice(1).map((line) => {
@@ -131,10 +130,48 @@ test("wasm-counts emits stable long-form integer CSV", async (t) => {
     }),
   );
   assert.equal(rows.size, lines.length - 1, "metric names must be unique");
+  return rows;
+}
+
+test("wasm-counts emits stable long-form integer CSV", async (t) => {
+  await ensurePrerequisites(t);
+
+  const result = await runQip(["run", "-i", e164, "--", wasmCounts]);
+  assert.equal(result.code, 0, result.stderr.toString("utf8"));
+
+  const rows = parseCountRows(result.stdout);
+  assert.equal(rows.get("exports"), 5);
+  assert.equal(rows.get("functions_exported"), 4);
+  assert.equal(rows.get("memories_exported"), 1);
   assert.equal(rows.get("functions_defined"), 4);
+  assert.equal(rows.get("function_instructions"), 73);
   assert.equal(rows.get("loops"), 1);
   assert.equal(rows.get("simd_instructions"), 0);
+  assert.equal(rows.get("memory_loads"), 1);
+  assert.equal(rows.get("memory_stores"), 2);
+  assert.equal(rows.get("memory_copies"), 0);
+  assert.equal(rows.get("memory_fills"), 0);
   assert.ok(rows.get("potentially_trapping_instructions") > 0);
+});
+
+test("wasm-counts reports table shape and exact indirect-call opcodes", async (t) => {
+  await ensurePrerequisites(t);
+
+  const result = await runQip(["run", "-i", indirectFixture, "--", wasmCounts]);
+  assert.equal(result.code, 0, result.stderr.toString("utf8"));
+  const rows = parseCountRows(result.stdout);
+  assert.equal(rows.get("tables_defined"), 1);
+  assert.equal(rows.get("tables_funcref"), 1);
+  assert.equal(rows.get("tables_fixed_size"), 1);
+  assert.equal(rows.get("active_element_segments_table_zero"), 2);
+  assert.equal(rows.get("element_function_index_initializers"), 2);
+  assert.equal(rows.get("calls_indirect"), 6);
+  assert.equal(rows.get("call_indirect"), 6);
+  assert.equal(rows.get("return_call_indirect"), 0);
+  assert.equal(rows.get("call_ref"), 0);
+  assert.equal(rows.get("indirect_calls_table_zero"), 6);
+  assert.equal(rows.get("indirect_calls_nonzero_table"), 0);
+  assert.equal(rows.get("table_set"), 0);
 });
 
 test("wasm-counts has no indirect calls", async (t) => {

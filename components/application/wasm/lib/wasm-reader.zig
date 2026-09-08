@@ -10,8 +10,10 @@
 //! instruction of a function body. The handler sees each instruction once,
 //! after its immediates are consumed, as an `Instr` carrying the immediate
 //! values the analyses care about (local/global indices, constants, branch
-//! depths, call targets). `br_table` targets arrive as separate
-//! `onBrTableTarget` calls after the instruction itself. The final `end`
+//! depths, call targets). For `call_indirect` and `return_call_indirect`,
+//! `imm` is the type index and `imm2` is the table index. `br_table` targets
+//! arrive as separate `onBrTableTarget` calls after the instruction itself.
+//! The final `end`
 //! closing the function is not emitted.
 
 pub const Error = error{
@@ -27,6 +29,8 @@ pub const Instr = struct {
     op: u8 = 0,
     imm: i64 = 0,
     has_imm: bool = false,
+    imm2: i64 = 0,
+    has_imm2: bool = false,
     subop: u32 = 0,
     has_subop: bool = false,
 };
@@ -294,8 +298,10 @@ pub fn walkFunctionBody(handler: anytype, body: []const u8) !void {
             },
             // call_indirect, return_call_indirect
             0x11, 0x13 => {
-                _ = try r.readVarU32();
-                _ = try r.readVarU32();
+                instr.imm = try r.readVarU32(); // type index
+                instr.has_imm = true;
+                instr.imm2 = try r.readVarU32(); // table index
+                instr.has_imm2 = true;
             },
             // call_ref
             0x14 => _ = try r.readVarU32(),
