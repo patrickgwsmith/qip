@@ -15,7 +15,7 @@ Make a recipe you like? You can be confident it will work identically on mobile,
 
 Modern software never stops moving. QIP components are self-contained, so you can worry less about supply-chain attacks, outdated libraries, remote-code execution, and environment drift.
 
-QIP is built around a strict contract: same component with the same input results in the same output. It does not read the clock, locale, filesystem, package graph, environment variables, OS, device, chipset, or network — unless you deliberately pass it in. Every input is explicit. This determinism means if it works today, it’ll continue to work tomorrow.
+QIP is built around a strict contract: same component with the same input results in the same output. It does not read the clock, locale, filesystem, package graph, environment variables, OS, device, config, or network — unless you deliberately pass it in. Every input is explicit. This determinism means if it works today, it’ll continue to work tomorrow.
 
 Components, AI coding, security: you can pick all three.
 
