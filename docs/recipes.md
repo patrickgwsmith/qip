@@ -34,7 +34,14 @@ Given MIME `type/subtype`, recipe directory is:
 
 ### Debugging broken links
 
-`warc-check-broken-links.wasm` traps when an internal HTML link does not resolve. To inspect the failures, run the same archive through `warc-extract-broken-links.wasm`:
+`warc-check-broken-links.wasm` traps when an internal HTML link does not
+resolve. For links to HTML pages, it also checks that a URL fragment matches an
+`id` attribute or an `<a name>` target. It decodes percent-encoded fragments
+before matching them. Fragments on non-HTML resources are left to the client
+that handles that format.
+
+To inspect missing paths, run the same archive through
+`warc-extract-broken-links.wasm`:
 
 ```sh
 qip router warc ./site --view-source \

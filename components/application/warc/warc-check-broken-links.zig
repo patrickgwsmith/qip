@@ -5,16 +5,26 @@ const INPUT_CONTENT_TYPE = "application/warc";
 const OUTPUT_CONTENT_TYPE = "application/warc";
 
 const PATH_TABLE_CAP: usize = 65536;
+const FRAGMENT_TABLE_CAP: usize = 65536;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 
 const PathEntry = struct {
     used: bool = false,
-    path: []const u8 = "",
+    path: []const u8 = undefined,
     status: u16 = 0,
+    is_html: bool = false,
 };
 
 var path_table: [PATH_TABLE_CAP]PathEntry = [_]PathEntry{.{}} ** PATH_TABLE_CAP;
+
+const FragmentEntry = struct {
+    used: bool = false,
+    path: []const u8 = undefined,
+    fragment: []const u8 = undefined,
+};
+
+var fragment_table: [FRAGMENT_TABLE_CAP]FragmentEntry = [_]FragmentEntry{.{}} ** FRAGMENT_TABLE_CAP;
 
 export fn input_ptr() u32 {
     return @as(u32, @intCast(@intFromPtr(&input_buf)));
@@ -60,7 +70,10 @@ const HTTPMeta = struct {
 const ResolveResult = union(enum) {
     ignore,
     invalid,
-    ok: []const u8,
+    ok: struct {
+        path: []const u8,
+        fragment: ?[]const u8,
+    },
 };
 
 fn asciiLower(c: u8) u8 {
@@ -360,10 +373,16 @@ fn cutPathPart(raw: []const u8) []const u8 {
     return raw[0..end];
 }
 
+fn fragmentPart(raw: []const u8) ?[]const u8 {
+    const hash = std.mem.indexOfScalar(u8, raw, '#') orelse return null;
+    const fragment = raw[hash + 1 ..];
+    if (fragment.len == 0) return null;
+    return fragment;
+}
+
 fn resolveInternalLinkPath(source_path: []const u8, href_raw: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8) ResolveResult {
     const href = trimASCIIWhitespace(href_raw);
     if (href.len == 0) return .ignore;
-    if (href[0] == '#') return .ignore;
 
     var reference = href;
     var empty_path_base = source_path;
@@ -421,7 +440,10 @@ fn resolveInternalLinkPath(source_path: []const u8, href_raw: []const u8, intern
     }
 
     const canonical = canonicalizePath(candidate_path, canonical_buf) orelse return .invalid;
-    return .{ .ok = canonical };
+    return .{ .ok = .{
+        .path = canonical,
+        .fragment = fragmentPart(reference),
+    } };
 }
 
 fn pathHash(path: []const u8) u64 {
@@ -439,7 +461,7 @@ fn clearPathTable() void {
     }
 }
 
-fn pathTableInsert(path: []const u8, status: u16) bool {
+fn pathTableInsert(path: []const u8, status: u16, is_html: bool) bool {
     if (path.len == 0) return false;
     var idx: usize = @as(usize, @intCast(pathHash(path) % PATH_TABLE_CAP));
     var probes: usize = 0;
@@ -449,10 +471,12 @@ fn pathTableInsert(path: []const u8, status: u16) bool {
             entry.used = true;
             entry.path = path;
             entry.status = status;
+            entry.is_html = is_html;
             return true;
         }
         if (std.mem.eql(u8, entry.path, path)) {
             entry.status = status;
+            entry.is_html = is_html;
             return true;
         }
         idx = (idx + 1) % PATH_TABLE_CAP;
@@ -460,17 +484,189 @@ fn pathTableInsert(path: []const u8, status: u16) bool {
     return false;
 }
 
-fn pathTableLookup(path: []const u8) ?u16 {
+fn pathTableLookup(path: []const u8) ?PathEntry {
     if (path.len == 0) return null;
     var idx: usize = @as(usize, @intCast(pathHash(path) % PATH_TABLE_CAP));
     var probes: usize = 0;
     while (probes < PATH_TABLE_CAP) : (probes += 1) {
         const entry = path_table[idx];
         if (!entry.used) return null;
-        if (std.mem.eql(u8, entry.path, path)) return entry.status;
+        if (std.mem.eql(u8, entry.path, path)) return entry;
         idx = (idx + 1) % PATH_TABLE_CAP;
     }
     return null;
+}
+
+fn fragmentHash(path: []const u8, fragment: []const u8) u64 {
+    var h = pathHash(path);
+    h ^= 0xff;
+    h *%= 1099511628211;
+    for (fragment) |b| {
+        h ^= b;
+        h *%= 1099511628211;
+    }
+    return h;
+}
+
+fn clearFragmentTable() void {
+    for (&fragment_table) |*entry| {
+        entry.* = .{};
+    }
+}
+
+fn fragmentTableInsert(path: []const u8, fragment: []const u8) bool {
+    if (path.len == 0 or fragment.len == 0) return false;
+    var idx: usize = @intCast(fragmentHash(path, fragment) % FRAGMENT_TABLE_CAP);
+    var probes: usize = 0;
+    while (probes < FRAGMENT_TABLE_CAP) : (probes += 1) {
+        const entry = &fragment_table[idx];
+        if (!entry.used) {
+            entry.used = true;
+            entry.path = path;
+            entry.fragment = fragment;
+            return true;
+        }
+        if (std.mem.eql(u8, entry.path, path) and std.mem.eql(u8, entry.fragment, fragment)) {
+            return true;
+        }
+        idx = (idx + 1) % FRAGMENT_TABLE_CAP;
+    }
+    return false;
+}
+
+fn fragmentTableLookup(path: []const u8, fragment: []const u8) bool {
+    if (path.len == 0 or fragment.len == 0) return false;
+    var idx: usize = @intCast(fragmentHash(path, fragment) % FRAGMENT_TABLE_CAP);
+    var probes: usize = 0;
+    while (probes < FRAGMENT_TABLE_CAP) : (probes += 1) {
+        const entry = fragment_table[idx];
+        if (!entry.used) return false;
+        if (std.mem.eql(u8, entry.path, path) and std.mem.eql(u8, entry.fragment, fragment)) {
+            return true;
+        }
+        idx = (idx + 1) % FRAGMENT_TABLE_CAP;
+    }
+    return false;
+}
+
+fn hexValue(c: u8) ?u8 {
+    if (c >= '0' and c <= '9') return c - '0';
+    if (c >= 'a' and c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' and c <= 'F') return c - 'A' + 10;
+    return null;
+}
+
+fn decodeFragment(raw: []const u8, out: []u8) ?[]const u8 {
+    if (raw.len > out.len) return null;
+    var input_offset: usize = 0;
+    var output_offset: usize = 0;
+    while (input_offset < raw.len) {
+        if (raw[input_offset] == '%' and input_offset + 2 < raw.len) {
+            const high = hexValue(raw[input_offset + 1]);
+            const low = hexValue(raw[input_offset + 2]);
+            if (high != null and low != null) {
+                out[output_offset] = high.? * 16 + low.?;
+                output_offset += 1;
+                input_offset += 3;
+                continue;
+            }
+        }
+        out[output_offset] = raw[input_offset];
+        output_offset += 1;
+        input_offset += 1;
+    }
+    return out[0..output_offset];
+}
+
+fn indexHTMLFragments(path: []const u8, html: []const u8) bool {
+    var i: usize = 0;
+    while (i < html.len) {
+        if (html[i] != '<') {
+            i += 1;
+            continue;
+        }
+        if (std.mem.startsWith(u8, html[i..], "<!--")) {
+            const end = std.mem.indexOfPos(u8, html, i + 4, "-->") orelse return true;
+            i = end + 3;
+            continue;
+        }
+
+        var j = i + 1;
+        if (j >= html.len) break;
+        if (html[j] == '/' or html[j] == '!' or html[j] == '?') {
+            const end = std.mem.indexOfPos(u8, html, j, ">") orelse break;
+            i = end + 1;
+            continue;
+        }
+
+        const tag_start = j;
+        while (j < html.len and isTagNameChar(html[j])) : (j += 1) {}
+        if (j == tag_start) {
+            i += 1;
+            continue;
+        }
+        const tag = html[tag_start..j];
+        const is_text_container = eqlIgnoreCase(tag, "script") or eqlIgnoreCase(tag, "style") or
+            eqlIgnoreCase(tag, "textarea") or eqlIgnoreCase(tag, "title");
+        var is_self_closing = false;
+
+        while (j < html.len) {
+            while (j < html.len and isSpace(html[j])) : (j += 1) {}
+            if (j >= html.len) break;
+            if (html[j] == '>') {
+                j += 1;
+                break;
+            }
+            if (html[j] == '/') {
+                is_self_closing = true;
+                j += 1;
+                continue;
+            }
+
+            const attr_start = j;
+            while (j < html.len and isTagNameChar(html[j])) : (j += 1) {}
+            if (j == attr_start) {
+                j += 1;
+                continue;
+            }
+            const attr = html[attr_start..j];
+            while (j < html.len and isSpace(html[j])) : (j += 1) {}
+
+            var value: []const u8 = "";
+            if (j < html.len and html[j] == '=') {
+                j += 1;
+                while (j < html.len and isSpace(html[j])) : (j += 1) {}
+                if (j < html.len and (html[j] == '"' or html[j] == '\'')) {
+                    const quote = html[j];
+                    j += 1;
+                    const value_start = j;
+                    while (j < html.len and html[j] != quote) : (j += 1) {}
+                    value = html[value_start..@min(j, html.len)];
+                    if (j < html.len) j += 1;
+                } else {
+                    const value_start = j;
+                    while (j < html.len and !isSpace(html[j]) and html[j] != '>') : (j += 1) {}
+                    value = html[value_start..j];
+                }
+            }
+
+            const is_id = eqlIgnoreCase(attr, "id");
+            const is_anchor_name = eqlIgnoreCase(tag, "a") and eqlIgnoreCase(attr, "name");
+            if (value.len != 0 and (is_id or is_anchor_name)) {
+                if (!fragmentTableInsert(path, value)) return false;
+            }
+        }
+
+        i = j;
+        if (is_text_container and !is_self_closing) {
+            if (indexOfCloseTagIgnoreCase(html, i, tag)) |close_start| {
+                if (std.mem.indexOfPos(u8, html, close_start, ">")) |close_end| {
+                    i = close_end + 1;
+                } else return true;
+            } else return true;
+        }
+    }
+    return true;
 }
 
 fn indexOfCloseTagIgnoreCase(body: []const u8, start: usize, tag_name: []const u8) ?usize {
@@ -486,7 +682,7 @@ fn indexOfCloseTagIgnoreCase(body: []const u8, start: usize, tag_name: []const u
     return null;
 }
 
-fn checkLink(source_path: []const u8, href: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, checked_links: *usize, broken_links: *usize) void {
+fn checkLink(source_path: []const u8, href: []const u8, validate_fragment: bool, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, fragment_buf: []u8, checked_links: *usize, broken_links: *usize) void {
     const resolved = resolveInternalLinkPath(source_path, href, internal_host, join_buf, canonical_buf);
     switch (resolved) {
         .ignore => return,
@@ -496,18 +692,29 @@ fn checkLink(source_path: []const u8, href: []const u8, internal_host: []const u
         },
         .ok => |target| {
             checked_links.* += 1;
-            const status = pathTableLookup(target) orelse {
+            const resource = pathTableLookup(target.path) orelse {
                 broken_links.* += 1;
                 return;
             };
-            if (status >= 400) {
+            if (resource.status >= 400) {
                 broken_links.* += 1;
+                return;
+            }
+            if (validate_fragment and resource.is_html) {
+                const raw_fragment = target.fragment orelse return;
+                const fragment = decodeFragment(raw_fragment, fragment_buf) orelse {
+                    broken_links.* += 1;
+                    return;
+                };
+                if (!eqlIgnoreCase(fragment, "top") and !fragmentTableLookup(target.path, fragment)) {
+                    broken_links.* += 1;
+                }
             }
         },
     }
 }
 
-fn processSrcSet(source_path: []const u8, value: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, checked_links: *usize, broken_links: *usize) void {
+fn processSrcSet(source_path: []const u8, value: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, fragment_buf: []u8, checked_links: *usize, broken_links: *usize) void {
     var i: usize = 0;
     while (i < value.len) {
         while (i < value.len and (isSpace(value[i]) or value[i] == ',')) : (i += 1) {}
@@ -525,39 +732,39 @@ fn processSrcSet(source_path: []const u8, value: []const u8, internal_host: []co
             }
         }
         const url = item_raw[0..url_end];
-        checkLink(source_path, url, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+        checkLink(source_path, url, false, internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
     }
 }
 
-fn processTagLinkAttr(tag: []const u8, attr: []const u8, value: []const u8, source_path: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, checked_links: *usize, broken_links: *usize) void {
+fn processTagLinkAttr(tag: []const u8, attr: []const u8, value: []const u8, source_path: []const u8, internal_host: []const u8, join_buf: []u8, canonical_buf: []u8, fragment_buf: []u8, checked_links: *usize, broken_links: *usize) void {
     if (value.len == 0) return;
     if (eqlIgnoreCase(attr, "href")) {
         if (eqlIgnoreCase(tag, "a") or eqlIgnoreCase(tag, "area") or eqlIgnoreCase(tag, "link")) {
-            checkLink(source_path, value, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+            checkLink(source_path, value, eqlIgnoreCase(tag, "a") or eqlIgnoreCase(tag, "area"), internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
         }
         return;
     }
     if (eqlIgnoreCase(attr, "src")) {
         if (eqlIgnoreCase(tag, "img") or eqlIgnoreCase(tag, "script") or eqlIgnoreCase(tag, "iframe") or eqlIgnoreCase(tag, "source") or eqlIgnoreCase(tag, "audio") or eqlIgnoreCase(tag, "video") or eqlIgnoreCase(tag, "track") or eqlIgnoreCase(tag, "embed")) {
-            checkLink(source_path, value, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+            checkLink(source_path, value, false, internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
         }
         return;
     }
     if (eqlIgnoreCase(attr, "action")) {
         if (eqlIgnoreCase(tag, "form")) {
-            checkLink(source_path, value, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+            checkLink(source_path, value, false, internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
         }
         return;
     }
     if (eqlIgnoreCase(attr, "data")) {
         if (eqlIgnoreCase(tag, "object")) {
-            checkLink(source_path, value, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+            checkLink(source_path, value, false, internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
         }
         return;
     }
     if (eqlIgnoreCase(attr, "srcset")) {
         if (eqlIgnoreCase(tag, "img") or eqlIgnoreCase(tag, "source")) {
-            processSrcSet(source_path, value, internal_host, join_buf, canonical_buf, checked_links, broken_links);
+            processSrcSet(source_path, value, internal_host, join_buf, canonical_buf, fragment_buf, checked_links, broken_links);
         }
     }
 }
@@ -565,6 +772,7 @@ fn processTagLinkAttr(tag: []const u8, attr: []const u8, value: []const u8, sour
 fn parseHTMLLinks(source_path: []const u8, html: []const u8, internal_host: []const u8, checked_links: *usize, broken_links: *usize) void {
     var join_buf: [4096]u8 = undefined;
     var canonical_buf: [4096]u8 = undefined;
+    var fragment_buf: [4096]u8 = undefined;
 
     var i: usize = 0;
     while (i < html.len) {
@@ -644,7 +852,7 @@ fn parseHTMLLinks(source_path: []const u8, html: []const u8, internal_host: []co
                 }
             }
 
-            processTagLinkAttr(tag, attr, value, source_path, internal_host, join_buf[0..], canonical_buf[0..], checked_links, broken_links);
+            processTagLinkAttr(tag, attr, value, source_path, internal_host, join_buf[0..], canonical_buf[0..], fragment_buf[0..], checked_links, broken_links);
         }
 
         i = j;
@@ -670,6 +878,7 @@ const ValidationSummary = struct {
 
 fn validateInternalLinks(input: []const u8) ValidationSummary {
     clearPathTable();
+    clearFragmentTable();
 
     var internal_host: []const u8 = "";
     var cursor: usize = 0;
@@ -683,7 +892,9 @@ fn validateInternalLinks(input: []const u8) ValidationSummary {
         if (!eqlIgnoreCase(rec.warc_type, "response")) continue;
         const http = parseHTTPMeta(rec.payload) orelse continue;
         const target_path = pathFromTargetURI(rec.target_uri);
-        if (!pathTableInsert(target_path, http.status)) @trap();
+        const is_html = isHTMLContentType(http.content_type);
+        if (!pathTableInsert(target_path, http.status, is_html)) @trap();
+        if (http.status == 200 and is_html and !indexHTMLFragments(target_path, http.body)) @trap();
         if (internal_host.len == 0) {
             internal_host = authorityFromTargetURI(rec.target_uri);
         }
@@ -822,6 +1033,63 @@ test "detects broken internal links" {
 
     const summary = validateInternalLinks(build_buf[0..n]);
     try std.testing.expectEqual(@as(usize, 4), summary.checked_links);
+    try std.testing.expectEqual(@as(usize, 2), summary.broken_links);
+    try std.testing.expectEqual(@as(usize, 2), summary.page_count);
+}
+
+test "validates internal HTML fragments" {
+    var build_buf: [16384]u8 = undefined;
+    var n: usize = 0;
+
+    try appendWARCRecord(
+        build_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<h1 id=home>Home</h1><a href=\"#home\">Top</a><a href=\"/about#team\">Team</a><a href=\"/about#hello%20world\">Encoded</a><a href=\"/about#legacy\">Legacy</a><a href=\"/about#top\">Top keyword</a><a href=\"/manual.pdf#page=2\">PDF page</a><a href=\"https://example.com/#missing\">External</a>",
+    );
+    try appendWARCRecord(
+        build_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/about",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<section id=team></section><p id=\"hello world\"></p><a name=legacy></a>",
+    );
+    try appendWARCRecord(
+        build_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/manual.pdf",
+        "HTTP/1.1 200 OK\r\nContent-Type: application/pdf\r\n\r\npdf",
+    );
+
+    const summary = validateInternalLinks(build_buf[0..n]);
+    try std.testing.expectEqual(@as(usize, 6), summary.checked_links);
+    try std.testing.expectEqual(@as(usize, 0), summary.broken_links);
+    try std.testing.expectEqual(@as(usize, 2), summary.page_count);
+}
+
+test "detects missing internal HTML fragments" {
+    var build_buf: [8192]u8 = undefined;
+    var n: usize = 0;
+
+    try appendWARCRecord(
+        build_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<a href=\"#missing-local\">Local</a><a href=\"/about#missing-remote\">Remote</a>",
+    );
+    try appendWARCRecord(
+        build_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/about",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<h1 id=present>About</h1>",
+    );
+
+    const summary = validateInternalLinks(build_buf[0..n]);
+    try std.testing.expectEqual(@as(usize, 2), summary.checked_links);
     try std.testing.expectEqual(@as(usize, 2), summary.broken_links);
     try std.testing.expectEqual(@as(usize, 2), summary.page_count);
 }
