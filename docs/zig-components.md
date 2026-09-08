@@ -28,7 +28,7 @@ When not to use a tight cap:
 
 - Early prototyping, when buffer sizes are still moving.
 - Large static tables, where the right cap is easier to choose after the first successful build.
-- Interactive components with frame buffers, where width, height, and scratch space should be budgeted together.
+- GUI components with frame buffers, where width, height, and scratch space should be budgeted together.
 
 Even then, add the cap before checking in the module.
 
@@ -219,6 +219,110 @@ Avoid these by default:
 - Recursion in modules intended to pass strict safety checks.
 
 This does not mean every useful component must be tiny. It means the cost of a component should be visible in constants and exports instead of discovered at runtime.
+
+## Format Directly Into Fixed Output Memory
+
+A QIP content component writes synchronously into its own linear memory. It does
+not need a stream abstraction for flushing, backpressure, files, or network
+output. Components intended to have no indirect calls should therefore format
+directly into their fixed output buffer.
+
+In Zig 0.15.2, `std.fmt.bufPrint` creates a `std.Io.Writer.fixed`. That writer
+stores four function pointers for `drain`, `sendFile`, `flush`, and `rebase`.
+The resulting Wasm has a five-slot function table and calls `drain` with
+`call_indirect`, even though the component only writes to memory. `ReleaseFast`
+and LTO do not remove this dispatch. `std.fmt.printInt` uses the same writer and
+has the same binary shape.
+
+Use small slice helpers for literals, decimal integers, and hexadecimal values:
+
+```zig
+const OutputError = error{OutputOverflow};
+
+fn append(output: []u8, offset: *usize, bytes: []const u8) OutputError!void {
+    if (offset.* > output.len or bytes.len > output.len - offset.*)
+        return error.OutputOverflow;
+    @memcpy(output[offset.*..][0..bytes.len], bytes);
+    offset.* += bytes.len;
+}
+
+fn appendByte(output: []u8, offset: *usize, byte: u8) OutputError!void {
+    if (offset.* >= output.len) return error.OutputOverflow;
+    output[offset.*] = byte;
+    offset.* += 1;
+}
+
+fn appendDecimal(output: []u8, offset: *usize, value: u64) OutputError!void {
+    var digits: [20]u8 = undefined;
+    var start = digits.len;
+    var remaining = value;
+    while (true) {
+        start -= 1;
+        digits[start] = '0' + @as(u8, @intCast(remaining % 10));
+        remaining /= 10;
+        if (remaining == 0) break;
+    }
+    try append(output, offset, digits[start..]);
+}
+
+fn appendSignedDecimal(output: []u8, offset: *usize, value: i64) OutputError!void {
+    if (value < 0) try appendByte(output, offset, '-');
+    const magnitude: u64 = if (value < 0)
+        @as(u64, @intCast(-(value + 1))) + 1
+    else
+        @intCast(value);
+    try appendDecimal(output, offset, magnitude);
+}
+
+fn appendHex(
+    output: []u8,
+    offset: *usize,
+    value: u64,
+    minimum_digits: usize,
+    uppercase: bool,
+) OutputError!void {
+    if (minimum_digits > 16) return error.OutputOverflow;
+    const alphabet = if (uppercase) "0123456789ABCDEF" else "0123456789abcdef";
+    var digits: [16]u8 = undefined;
+    var start = digits.len;
+    var remaining = value;
+    const wanted = @max(minimum_digits, 1);
+    while (remaining != 0 or digits.len - start < wanted) {
+        start -= 1;
+        digits[start] = alphabet[@as(u4, @truncate(remaining))];
+        remaining >>= 4;
+    }
+    try append(output, offset, digits[start..]);
+}
+```
+
+These helpers have no hidden output destination and no flush step. Every write
+checks the same buffer and advances one explicit offset. Convert an impossible
+`OutputOverflow` to `@trap()` at the component boundary. Preserve it as a
+recoverable internal error when valid input can exceed the advertised output
+capacity.
+
+A fixed output schema can remove `OutputOverflow` too. Compute the capacity at
+comptime from the complete field-name list, separators, and the maximum encoded
+width of each value. Use that same list to render the fields so the capacity
+and output cannot drift apart. `components/application/wasm/wasm-counts.zig`
+uses this pattern for its CSV header, metric names, and 20-digit `u64` values.
+
+For floating-point text, `std.fmt.float.render` accepts a buffer directly and
+does not currently require `std.Io.Writer`. Confirm the final Wasm shape after
+every Zig upgrade. A general format string can still be useful when indirect
+calls are acceptable; this guidance is for components intended to satisfy the
+no-indirect-call profile.
+
+The repository already uses this direct decimal pattern in
+`components/application/zip/zip-to-tar.zig`.
+After changing formatting code, inspect the binary rather than assuming that a
+source-level direct call remained direct:
+
+```bash
+wasm-objdump -x component.wasm
+wasm-objdump -d component.wasm | rg call_indirect
+```
 
 ## Choose The Right Buffers
 
@@ -477,12 +581,12 @@ Review the binary shape before trusting the source shape:
 ```bash
 wasm-objdump -x components/bytes/your-module.wasm
 qip run -i components/application/wasm/your-module.wasm -- \
-  components/application/wasm/wasm-validate-core-1.0.wasm \
+  components/application/wasm/wasm-validate-core-2.0.wasm \
   components/application/wasm/wasm-strict-profile.wasm \
   components/application/wasm/wasm-bounded-loops.wasm
 ```
 
-`qip score` is deprecated. Use `components/application/wasm/wasm-validate-core-1.0.wasm` for WebAssembly Core 1.0 validation. Use `components/application/wasm/wasm-strict-profile.wasm` for fixed memory, no imports, no banned instructions, no recursion, and static content-type metadata. Add `components/application/wasm/wasm-bounded-loops.wasm` to prove fixed loop bounds. Use `components/application/wasm/wasm-bounded-output.wasm` when `render` carries the recognized proof that its successful result does not exceed the static output capacity. Use `components/application/wasm/wasm-counts.wasm` for factual CSV metrics.
+`qip score` is deprecated. Use `components/application/wasm/wasm-validate-core-2.0.wasm` for complete WebAssembly Core 2.0 validation. The Core 1.0 validator remains available for pipelines that must reject later features. Use `components/application/wasm/wasm-strict-profile.wasm` for fixed memory, no imports, no banned instructions, no recursion, and static content-type metadata. Add `components/application/wasm/wasm-bounded-loops.wasm` to prove fixed loop bounds. Use `components/application/wasm/wasm-bounded-output.wasm` when `render` carries the recognized proof that its successful result does not exceed the static output capacity. Use `components/application/wasm/wasm-counts.wasm` for factual CSV metrics.
 
 The QIP ABI can be expressed in WebAssembly Core 1.0, while the standard
 component build targets Core 2.0 features such as bulk memory. Current Chrome,
