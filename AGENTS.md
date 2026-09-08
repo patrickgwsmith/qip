@@ -13,6 +13,8 @@ page before changing a contract or workflow; do not repeat protocols here.
   shared code, build or test wiring, or multiple components.
 - Run `make -j site-static` after changing docs navigation, routes, links, or
   referenced modules. It checks for broken links and missing module imports.
+- Use `agent-browser` for interactive browser checks, including page console
+  output. Prefer it to launching a headless browser directly.
 
 ## Project References
 
