@@ -5,7 +5,7 @@
 
 QIP Components are Quick to run/make/maintain, Isolated from network/disk/dependencies, and Portable across browser/server/native.
 
-QIP Components are fast for you to create with coding agents and fast for users to run. Your users get small `.wasm` modules that load fast. You get small amounts of code that are easy to review.
+QIP Components are fast for you to create with coding agents and fast for users to run. Your users get small `.wasm` modules that load fast. You get small amounts of code that is easy to review.
 
 We believe small functions should not need a massive application environment to run. QIP is for small pieces of software. Write or vibe Zig/C then compile to WebAssembly, and you get a deterministic puzzle piece that runs the same everywhere.
 
