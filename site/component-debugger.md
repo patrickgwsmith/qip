@@ -61,7 +61,7 @@ Everything runs locally in your browser.
   border-radius: 0.5rem;
   background: #111;
   color: #e8e8e8;
-  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: 13px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   white-space: pre;
   tab-size: 2;
 }
@@ -121,23 +121,34 @@ Everything runs locally in your browser.
     <button type="button" data-debug-key="102">Step out <kbd>F</kbd> <kbd>Shift-F11</kbd></button>
     <button type="button" data-debug-key="114">Restart <kbd>R</kbd></button>
     <button type="button" data-debug-key="120">Examine memory <kbd>X</kbd></button>
+    <button type="button" data-debug-key="109">Memory map <kbd>M</kbd></button>
     <button type="button" data-debug-prefix="120" data-debug-key="65362">Previous memory page <kbd>X</kbd> <kbd>↑</kbd></button>
     <button type="button" data-debug-prefix="120" data-debug-key="65364">Next memory page <kbd>X</kbd> <kbd>↓</kbd></button>
+    <button type="button" data-debug-key="105">Counters <kbd>I</kbd></button>
+    <button type="button" data-debug-key="118">Variable format <kbd>V</kbd></button>
+    <button type="button" data-debug-key="63">Help <kbd>?</kbd></button>
   </div>
 </div>
 
 Choose a published component or a local `.wasm` file. For text components,
 type in the text box or paste while the debugger screen has focus. Use `X I`
 for input memory, `X O` for output memory, `X R` for the last read, and `X W`
-for the last write. While examine mode is active, Up and Down Arrow page
-through memory.
+for the last write. Press `M` to switch between memory bytes and the page map.
+While examine mode is active, Up and Down Arrow page through memory.
+
+Open the browser console and press a debugger key to see render timings. The
+page reports the complete synchronous update, the `innerHTML` assignment, a
+forced style and layout pass, and the wait for the next animation frame. To
+measure paint and compositing, record the keypress in the browser's Performance
+panel. The page adds timestamp markers to that recording. Developer Tools and
+console logging add some overhead, so compare several keypresses.
 
 <script type="module">
 import { parseCSV } from "/elements/qip-search.js";
 import { contentComponent, contentTypeUTF8 } from "/qip-runner.js";
 
 const debuggerModulePromise = WebAssembly.compileStreaming(
-  fetch("/interactive/wasm-debugger.wasm"),
+  fetch("/interactive/qipdb.wasm"),
 );
 const plainText = contentTypeUTF8("text/plain");
 const htmlText = contentTypeUTF8("text/html");
@@ -163,9 +174,65 @@ let updateTime = 1n;
 let currentComponent = null;
 let currentInput = null;
 let textInputTimer = 0;
+let renderMeasurementNumber = 0;
 const qipBoundary = "uuid-00000000-0000-0000-0000-000000000000";
 const textEncoder = new TextEncoder();
 const defaultWCInput = "The quick brown fox jumps over the lazy dog";
+
+function elapsedMilliseconds(start, end) {
+  return (end - start).toFixed(3) + " ms";
+}
+
+function beginRenderMeasurement(key) {
+  const number = ++renderMeasurementNumber;
+  const label = "QIP debugger keypress #" + number + " (" + JSON.stringify(key) + ")";
+  const measurement = {
+    label,
+    start: performance.now(),
+    innerHTMLStart: 0,
+    innerHTMLEnd: 0,
+  };
+  console.time(label + ": synchronous update");
+  console.timeStamp(label + ": start");
+  return measurement;
+}
+
+function finishRenderMeasurement(measurement) {
+  const synchronousEnd = performance.now();
+  console.timeEnd(measurement.label + ": synchronous update");
+
+  const layoutStart = performance.now();
+  // Reading scrollHeight makes the browser resolve pending style and layout.
+  // Keep this read inside the measurement: it changes the work being measured.
+  void screen.scrollHeight;
+  const layoutEnd = performance.now();
+
+  console.log(measurement.label, {
+    "keypress handler through innerHTML": elapsedMilliseconds(
+      measurement.start,
+      synchronousEnd,
+    ),
+    "innerHTML assignment": elapsedMilliseconds(
+      measurement.innerHTMLStart,
+      measurement.innerHTMLEnd,
+    ),
+    "forced style and layout": elapsedMilliseconds(layoutStart, layoutEnd),
+    "keypress handler through layout": elapsedMilliseconds(
+      measurement.start,
+      layoutEnd,
+    ),
+  });
+  console.timeStamp(measurement.label + ": DOM and layout complete");
+
+  requestAnimationFrame(() => {
+    console.log(
+      measurement.label + ": next animation frame after " +
+      elapsedMilliseconds(measurement.start, performance.now()) +
+      " (paint follows this callback)",
+    );
+    console.timeStamp(measurement.label + ": next animation frame");
+  });
+}
 
 function componentName(path) {
   return path.slice(path.lastIndexOf("/") + 1);
@@ -213,7 +280,7 @@ function readI32Export(exports, name) {
   return value;
 }
 
-function renderText(inputSize) {
+function renderText(inputSize, measurement = null) {
   const bits = BigInt.asUintN(64, instance.exports.render(inputSize));
   if ((bits & (1n << 63n)) !== 0n) throw Error("Debugger rejected its input");
   const size = Number(bits & 0xffff_ffffn);
@@ -229,7 +296,9 @@ function renderText(inputSize) {
   if (!document.startsWith(ansiHTMLPrefix) || !document.endsWith(ansiHTMLSuffix)) {
     throw Error("ANSI renderer returned an unexpected HTML document");
   }
+  if (measurement) measurement.innerHTMLStart = performance.now();
   screen.innerHTML = document.slice(ansiHTMLPrefix.length, -ansiHTMLSuffix.length);
+  if (measurement) measurement.innerHTMLEnd = performance.now();
 }
 
 function replacedBoundary(body, from, to) {
@@ -270,7 +339,8 @@ function replacedBoundary(body, from, to) {
 
 async function debuggerForm(component, input) {
   const form = new FormData();
-  form.append("component", new Blob([component.bytes], { type: "application/wasm" }), component.name);
+  const componentPath = component.path ? "components" + component.path : component.name;
+  form.append("component", new Blob([component.bytes], { type: "application/wasm" }), componentPath);
   if (input) {
     form.append("input", new Blob([input.bytes], { type: "application/octet-stream" }), input.name);
   }
@@ -302,7 +372,7 @@ async function loadTarget(component, input = null, focusScreen = true) {
   textInputPanel.hidden = !component.acceptsText;
   textInputPointer.textContent = "";
   if (bytes.byteLength > 1024 * 1024) throw Error("Component exceeds the debugger's 1 MiB module limit");
-  if (input && input.bytes.byteLength > 8 * 1024 * 1024) throw Error("Input exceeds the debugger's 8 MiB target-memory limit");
+  if (input && input.bytes.byteLength > 8 * 1024 * 1024) throw Error("Input exceeds the debugger's 8 MiB component-input limit");
   const [module, ansiRenderer] = await Promise.all([debuggerModulePromise, ansiHTMLPromise]);
   ansiToHTML = ansiRenderer;
   instance = (await WebAssembly.instantiate(module, {}));
@@ -329,14 +399,15 @@ async function loadTarget(component, input = null, focusScreen = true) {
   if (focusScreen) screen.focus();
 }
 
-function dispatch(keysym, shift = false, alt = false) {
+function dispatch(keysym, shift = false, alt = false, measurement = null) {
   if (!instance) return;
   instance.exports.begin_update_at(updateTime++);
   const appliedBudget = instance.exports.uniform_set_instruction_budget(instructionBudget.valueAsNumber);
   if (appliedBudget !== instructionBudget.valueAsNumber) instructionBudget.value = appliedBudget;
   instance.exports.key_event(keysym, 1 | (shift ? 1 << 2 : 0) | (alt ? 1 << 4 : 0));
   instance.exports.finish_update();
-  renderText(0);
+  renderText(0, measurement);
+  if (measurement) finishRenderMeasurement(measurement);
 }
 
 function showTextInputBytes(input) {
@@ -366,7 +437,8 @@ function keyboardCommand(event) {
   if (event.key === "Enter") return [0xff0d, false];
   if (event.key === "Escape") return [0xff1b, false];
   if (event.key === "Backspace") return [0xff08, false];
-  if (/^[0-9a-fA-FxXiIoOwW]$/.test(event.key) || ["n", "N", "s", "S", "r", "R"].includes(event.key)) {
+  if (event.key === "?") return [0x3f, false];
+  if (/^[0-9a-fA-FxXiIoOwWmM]$/.test(event.key) || ["n", "N", "s", "S", "r", "R"].includes(event.key)) {
     return [event.key.codePointAt(0), false];
   }
   return null;
@@ -376,7 +448,7 @@ screen.addEventListener("keydown", (event) => {
   const command = keyboardCommand(event);
   if (!command) return;
   event.preventDefault();
-  dispatch(...command);
+  dispatch(command[0], command[1], command[2], beginRenderMeasurement(event.key));
 });
 
 for (const button of document.querySelectorAll("[data-debug-key]")) {
@@ -495,9 +567,11 @@ populateComponentCatalog().catch((error) => {
 document.getElementById("debugger-sample").click();
 </script>
 
-Not every QIP component is supported yet. The current interpreter accepts
-modules up to 1 MiB with no imports or tables and one memory up to 8 MiB. An
-unsupported component shows the reason in the debugger screen.
+Not every QIP component is supported yet. The interpreter accepts modules up
+to 1 MiB with no imports, one memory up to 128 MiB, and one fixed `funcref`
+table with up to 4,096 entries. It supports active function-index element
+segments and typed `call_indirect`, but not table mutation. An unsupported
+component shows the reason in the debugger screen.
 
-Download: <a href="/interactive/wasm-debugger.wasm" download>wasm-debugger.wasm</a>
-(<qip-content-size src="/interactive/wasm-debugger.wasm"></qip-content-size>).
+Download: <a href="/interactive/qipdb.wasm" download>qipdb.wasm</a>
+(<qip-content-size src="/interactive/qipdb.wasm"></qip-content-size>).

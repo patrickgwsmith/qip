@@ -31,11 +31,11 @@ const ansiHTMLHost = new ContentComponentHost(ansiHTMLBytes, { label: "ANSI to H
 
 function multipart(parts) {
   const chunks = [];
-  for (const [name, body] of parts) {
+  for (const [name, body, filename = name] of parts) {
     chunks.push(
       Buffer.from(
         `--${boundary}\r\n` +
-        `Content-Disposition: form-data; name="${name}"; filename="${name}"\r\n` +
+        `Content-Disposition: form-data; name="${name}"; filename="${filename}"\r\n` +
         `Content-Type: application/octet-stream\r\n\r\n`,
       ),
       Buffer.from(body),
@@ -127,6 +127,69 @@ test("interactive Wasm debugger fits its terminal viewport", async () => {
   assert.ok(!output.endsWith("\n"));
 });
 
+test("memory minimap packs two Wasm pages into each quadrant cell", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(targetPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  renderedText(instance, debuggerInput.length);
+
+  sendKey(instance, 2n, 0x6d); // m: byte view to page map.
+  const mapANSI = renderedANSI(instance, 0);
+  const map = stripANSI(mapANSI);
+  assertTerminalWidth(map);
+  assert.match(map, /MEMORY  192 KiB  pages=3  reads=0 writes=0  x examine  m bytes/);
+  assert.match(map, /^  KEY  ▘\/▝ top read\/write  ▖\/▗ bottom read\/write  ▀\/▄ both  █ all  ░ untouched$/m);
+  assert.match(map, /^  00000000  ░░$/m);
+  assert.match(mapANSI, /\x1b\[4m\x1b\[2m░\x1b\[0m\x1b\[2m░\x1b\[0m/);
+
+  sendKey(instance, 3n, 0x6d); // m: page map to byte view.
+  assert.match(renderedText(instance, 0), /^  00010000  00 00 /m);
+});
+
+test("memory minimap combines page read and write activity", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(bulkMemoryPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  renderedText(instance, debuggerInput.length);
+
+  sendKey(instance, 2n, 0x63); // c: run memory.copy and memory.fill.
+  sendKey(instance, 3n, 0x6d); // m: show page activity.
+  const mapANSI = renderedANSI(instance, 0);
+  assert.match(stripANSI(mapANSI), /^  00000000  ▀$/m);
+  assert.match(mapANSI, /\x1b\[4m▀\x1b\[0m/);
+  const mapHTML = runTextComponent(ansiHTMLHost, mapANSI);
+  assert.match(mapHTML, /<u>▀<\/u>/);
+});
+
+test("initial and expanded summaries identify the component path", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(targetPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([
+    ["component", targetBytes, "components/text/hello.wasm"],
+  ]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+
+  const initial = renderedText(instance, debuggerInput.length);
+  assert.match(initial, /^qipdb  ●  i expand  \? help  components\/text\/hello\.wasm utf-8 → utf-8 274B$/m);
+  assert.doesNotMatch(initial, /QIP content component/);
+
+  sendKey(instance, 2n, 0x69);
+  const expanded = renderedText(instance, 0);
+  assert.match(expanded, /^  WASM     components\/text\/hello\.wasm  274 B$/m);
+  assert.match(expanded, /^  QIP      UTF-8 → UTF-8 /m);
+});
+
 test("question mark toggles the keyboard cheatsheet", async () => {
   const [debuggerBytes, targetBytes] = await Promise.all([
     readFile(debuggerPath),
@@ -155,6 +218,10 @@ test("question mark toggles the keyboard cheatsheet", async () => {
   assert.match(helpANSI, /\x1b\[36mif\/select\x1b\[0m/);
   assert.match(helpANSI, /\x1b\[96mloop\/call\x1b\[0m/);
   assert.match(helpANSI, /\x1b\[94m0x00000000\x1b\[0m/);
+  assert.match(help, /VARIABLES\n    v cycle hex\/decimal\/ASCII/);
+  assert.match(help, /MEMORY\n    M map\/bytes\n    MAP CELL  ▘\/▝ top read\/write  ▖\/▗ bottom read\/write  ░ untouched/);
+  assert.match(help, /▀\/▄ page read\+written  █ both pages read\+written/);
+  assert.match(helpANSI, /\x1b\[2m░\x1b\[0m untouched/);
   assert.match(help, /↓ \/ S \/ F11.*step into.*N \/ F10.*step over/);
   assert.match(help, /↑ \/ Alt-\[.*step back.*F \/ Shift-F11.*finish function/);
   assert.match(help, /Space \/ C \/ F5.*continue.*R.*restart/);
@@ -178,6 +245,47 @@ test("question mark toggles the keyboard cheatsheet", async () => {
   assert.match(counters, /FUNCTIONS reachable=2\/5  → direct  ⇢ possible indirect\n    f4 render  calls=1  → f3\n    f3  calls=0\n      loop 0x0000d4  iterations=0/);
   sendKey(instance, 5n, 0x49); // I: collapse counters.
   assert.doesNotMatch(renderedText(instance, 0), /CODE     instructions=/);
+});
+
+test("v cycles variable values through hexadecimal, signed decimal, and ASCII", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(targetPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes]]);
+  const inputPointer = instance.exports.input_ptr();
+  new Uint8Array(instance.exports.memory.buffer, inputPointer, debuggerInput.length).set(debuggerInput);
+
+  const hexadecimal = renderedText(instance, debuggerInput.length);
+  assert.match(hexadecimal, /STACKS\/LOCALS  v decimal/);
+  assert.match(hexadecimal, /global\[0\] 0x0000000000010000/);
+
+  sendKey(instance, 2n, 0x76); // v: show signed decimal values.
+  const decimal = renderedText(instance, 0);
+  assert.match(decimal, /STACKS\/LOCALS  v ASCII/);
+  assert.match(decimal, /global\[0\] 65536/);
+  assert.match(decimal, /param\[0\] 0/);
+  assert.doesNotMatch(decimal, /global\[0\] 0x/);
+
+  sendKey(instance, 3n, 0x73); // s: push global[2] onto the operand stack.
+  assert.match(renderedText(instance, 0), /stack\[0\] i32 131072/);
+
+  sendKey(instance, 4n, 0x76); // v: show little-endian ASCII bytes.
+  let nextTime = 5n;
+  let ascii = renderedText(instance, 0);
+  while (!/i64 \|Hello, W\|/.test(ascii) && nextTime < 40n) {
+    sendKey(instance, nextTime++, 0x73);
+    ascii = renderedText(instance, 0);
+  }
+  assert.match(ascii, /STACKS\/LOCALS  v hex/);
+  assert.match(ascii, /i64 \|Hello, W\|/);
+
+  sendKey(instance, nextTime, 0x76); // v: return to hexadecimal values.
+  const restored = renderedText(instance, 0);
+  assert.match(restored, /STACKS\/LOCALS  v decimal/);
+  assert.match(restored, /global\[0\] 0x0000000000010000/);
+  assert.match(restored, /i64 0x57202c6f6c6c6548/);
 });
 
 test("table-using repository components match native Wasm SHA-256 output", async () => {
@@ -234,8 +342,36 @@ test("table-using repository components match native Wasm SHA-256 output", async
       assert.match(counters, /CODE     instructions=22092/);
       assert.match(counters, /CALLS    direct=\d+  call_indirect=2  return_call_indirect=0  call_ref=0/);
       assert.match(counters, /TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5/);
+      const pages = Number(counters.match(/^MEMORY[^\n]*pages=(\d+)/m)?.[1]);
+      sendKey(instance, 13n, 0x6d); // m
+      const map = renderedText(instance, 0);
+      const rows = map.split("\n").filter((line) => /^  [0-9a-f]{8}  [░▘▝▀▖▌▞▛▗▚▐▜▄▙▟█]+$/u.test(line));
+      const blocks = rows.join("").match(/[░▘▝▀▖▌▞▛▗▚▐▜▄▙▟█]/gu) ?? [];
+      assert.equal(blocks.length, Math.ceil(pages / 2));
+      assert.equal(rows.length, Math.ceil(pages / (2 * (80 - 12))));
+      assert.equal(rows[0].length, 80);
     }
   }
+});
+
+test("deep CommonMark control flow stays inside the instruction column", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(commonmarkPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const input = Buffer.from("The quick brown fox jumps over the lazy dog");
+  const debuggerInput = multipart([["component", targetBytes], ["input", input]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  const initial = renderedText(instance, debuggerInput.length);
+  assert.match(initial, /^qipdb[^\n]*WASM  \d+ B  QIP  text\/markdown → text\/html$/m);
+  assert.doesNotMatch(initial, /content component/);
+
+  sendKeyWithBudget(instance, 2n, 0x20, 5_572);
+  const paused = renderedText(instance, 0);
+  assert.match(paused, /executed=5572/);
+  assertTerminalWidth(paused);
+  assert.match(paused, /^=> {1,5}f\d+ /m);
 });
 
 test("SIMD component matches native Wasm SHA-256 output", async () => {
@@ -332,7 +468,7 @@ test("steps through a typed table dispatch and retains it across restart", async
   new Uint8Array(instance.exports.memory.buffer, inputPointer, debuggerInput.length).set(debuggerInput);
   renderedText(instance, debuggerInput.length);
 
-  for (let time = 2n; time <= 5n; time++) sendKey(instance, time, 0x73);
+  for (let time = 2n; time <= 6n; time++) sendKey(instance, time, 0x73);
   const callScreen = renderedText(instance, 0);
   assertTerminalWidth(callScreen);
   assert.match(callScreen, /^=> f\d+ .* call_indirect \(type 0\)/m);
@@ -340,18 +476,18 @@ test("steps through a typed table dispatch and retains it across restart", async
   assert.match(callScreen, /^↓ {4}f\d+ .* local\.get 0/m);
   assert.match(callScreen, /stack\[3\] i32 0x00000001/);
 
-  sendKey(instance, 6n, 0x63); // c
+  sendKey(instance, 7n, 0x63); // c
   const completed = renderedText(instance, 0);
   assert.match(completed, /INSTRUCTIONS  r restart/);
   assert.match(completed, /OUTPUT succeeded size=4 ptr=0x00000020/);
   assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
-  sendKey(instance, 7n, 0x69); // i
+  sendKey(instance, 8n, 0x69); // i
   const info = renderedText(instance, 0);
   assert.match(info, /RUNTIME[^\n]*indirect=1/);
   assert.match(info, /FUNCTIONS reachable=2\/5  → direct  ⇢ possible indirect\n    f4 render  calls=1  ⇢ f2\n    f2  calls=1/);
 
-  sendKey(instance, 8n, 0x72); // r
-  sendKey(instance, 9n, 0x63); // c
+  sendKey(instance, 9n, 0x72); // r
+  sendKey(instance, 10n, 0x63); // c
   assert.match(renderedText(instance, 0), new RegExp(`sha256=${expectedDigest}`));
 
   for (const [size, trap] of [
@@ -384,7 +520,7 @@ test("local transfers connect their source and destination stack slots", async (
   new Uint8Array(instance.exports.memory.buffer, inputPointer, debuggerInput.length).set(debuggerInput);
   renderedText(instance, debuggerInput.length);
 
-  for (let time = 2n; time <= 5n; time++) sendKey(instance, time, 0x73);
+  for (let time = 2n; time <= 6n; time++) sendKey(instance, time, 0x73);
   const getScreen = renderedText(instance, 0);
   assertTerminalWidth(getScreen);
   assert.match(getScreen, /^=> f\d+ .* local\.get 0/m);
@@ -392,7 +528,7 @@ test("local transfers connect their source and destination stack slots", async (
   assert.match(getScreen, /│   stack\[0\][^\n]*\n[^\n]*└─▶ next stack\[1\] i32 0x00000000/);
 
   let setScreen = "";
-  for (let time = 6n; time < 80n; time++) {
+  for (let time = 7n; time < 80n; time++) {
     const screen = renderedText(instance, 0);
     if (/^=> f\d+ .* local\.set 2/m.test(screen)) {
       setScreen = screen;
@@ -401,11 +537,17 @@ test("local transfers connect their source and destination stack slots", async (
     sendKey(instance, time, 0x73);
   }
   assert.notEqual(setScreen, "", "expected to reach hello.wasm local.set 2");
+  const setScreenANSI = renderedANSI(instance, 0);
   assertTerminalWidth(setScreen);
   assert.match(setScreen, /local\[1\] 0x0000000000000000\n[^\n]*┌─▶ next local\[1\] i32 0x0000000c/);
-  assert.match(setScreen, /│ #1 f\d+ render/);
   assert.match(setScreen, /└─  stack\[1\] i32 0x0000000c/);
-  assert.match(setScreen, /^  f finish/m);
+  assert.match(setScreen, /  #1 f\d+ render\n[^\n]*stack\[0\] i64 0x0002000000000000/);
+  assert.match(setScreenANSI, /  \x1b\[2m#1 f\d+ render\x1b\[0m\n/);
+  assert.match(setScreenANSI, /    \x1b\[2mstack\[0\] i64 \x1b\[94m0x0002000000000000\x1b\[0m/);
+  assert.ok(setScreen.indexOf("stack[1]") < setScreen.indexOf("#1"));
+  assert.ok(setScreen.indexOf("#1") < setScreen.indexOf("stack[0]"));
+  assert.doesNotMatch(setScreen, /^  f finish/m);
+  assert.match(setScreen, /^f\s+f\d+ /m);
 });
 
 test("interactive Wasm debugger steps and restarts a target component", async () => {
@@ -446,14 +588,14 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
   assert.match(initialHTML, /<span style="opacity:\.65;">0x[0-9a-f]{6}<\/span>/);
   const initial = stripANSI(initialANSI);
   assert.doesNotMatch(initial, /\x1b\[/);
-  assert.match(initial, /^qipdb[^\n]*WASM  274 B  QIP content component  UTF-8 → UTF-8\nMEMORY/m);
+  assert.match(initial, /^qipdb[^\n]*WASM  274 B  QIP  UTF-8 → UTF-8\nMEMORY/m);
   assert.equal(instance.exports.target_input_ptr(), 0x10000);
   assertTerminalWidth(initial);
   assert.match(initial, /^qipdb  ●  i expand  \? help/);
   assert.match(initial, /^MEMORY  /m);
   assert.match(initial, /^INSTRUCTIONS  Space run +STACKS\/LOCALS/m);
   assert.doesNotMatch(initial, /INSTRUCTIONS  ready/);
-  assert.match(initial, /WASM  274 B  QIP content component  UTF-8 → UTF-8$/m);
+  assert.match(initial, /WASM  274 B  QIP  UTF-8 → UTF-8$/m);
   assert.match(initial, /^=> host wrote 0 B input at 0x00010000[^\n]*\n↓ {2}f\d+/m);
   assert.match(initial, /WASM  274 B/);
   assert.doesNotMatch(initial, /input=0 B/);
@@ -461,16 +603,16 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
   assert.doesNotMatch(initial, /^  f finish/m);
   assert.doesNotMatch(initial, /r restart/);
   assert.doesNotMatch(initial, /n\/F10 next  s\/F11 step/);
-  assert.match(initial, /STACKS\/LOCALS\n/);
+  assert.match(initial, /STACKS\/LOCALS  v decimal\n/);
   assert.match(initial, /global\[0\] 0x[0-9a-f]{16}/);
   assert.match(initial, /global\[2\] 0x0000000000020000/);
   assert.doesNotMatch(initial, /stack pointer/);
   assert.match(initial, /#0 f4 render/);
   assert.match(initial, /param\[0\] 0x0000000000000000/);
   assert.match(initial, /#0 f4 render[\s\S]*stack empty/);
-  assert.match(initial, /qipdb  ●  i expand  \? help  WASM  274 B  QIP content component/);
+  assert.match(initial, /qipdb  ●  i expand  \? help  WASM  274 B  QIP  UTF-8 → UTF-8/);
   assert.doesNotMatch(initial, /loop f\d+ 0x[0-9a-f]+ iterations=/);
-  assert.match(initial, /MEMORY  192 KiB  pages=3  reads=0 writes=0  x examine\n  00010000  /);
+  assert.match(initial, /MEMORY  192 KiB  pages=3  reads=0 writes=0  x examine  m map\n  00010000  /);
 
   instance.exports.begin_update_at(1n);
   assert.equal(instance.exports.key_event(0xff51, 1), 0); // Left Arrow is not an execution command.
@@ -479,11 +621,20 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
 
   // Down Arrow is the visible step-in control; s remains a debugger-style alias.
   sendKey(instance, 2n, 0xff54);
+  const firstInstruction = renderedText(instance, 0);
+  assert.doesNotMatch(firstInstruction, /^=> host /m);
+  assert.match(firstInstruction, /^=> f4 .* global\.get 2/m);
+  assert.doesNotMatch(firstInstruction, /executed=1/);
+  sendKey(instance, 3n, 0xff54);
   const extendPreview = renderedText(instance, 0);
   assert.doesNotMatch(renderedANSI(instance, 0), /\x1b\[1;97mr\x1b\[0m/);
   assert.match(extendPreview, /stack\[0\] i32 0x00020000/);
   assert.match(extendPreview, /┌─ {2}stack\[0\][^\n]*\n[^\n]*├─ {2}i64\.extend_i32_u\n[^\n]*└─▶ next stack\[0\] i64 0x0000000000020000/);
-  for (let time = 3n; time <= 4n; time++) sendKey(instance, time, 0x73); // s
+  sendKey(instance, 4n, 0x73); // s: i64.const
+  const constantPreviewANSI = renderedANSI(instance, 0);
+  assert.match(constantPreviewANSI, /\x1b\[93m {3}──▶ \x1b\[0mnext stack\[1\]/);
+  assert.doesNotMatch(constantPreviewANSI, /\x1b\[2m {3}──▶/);
+  sendKey(instance, 5n, 0x73); // s: i64.shl
   const beforeShift = renderedText(instance, 0);
   const beforeShiftANSI = renderedANSI(instance, 0);
   assert.doesNotMatch(beforeShift, /WASM  274 B/);
@@ -497,20 +648,22 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
   assert.match(beforeShift, /┌─ {2}stack\[0\][^\n]*\n[^\n]*├─ {2}stack\[1\][^\n]*\n[^\n]*├─ {2}i64\.shl[^\n]*\n[^\n]*└─▶ next stack\[0\] i64 0x0002000000000000/);
   assert.doesNotMatch(beforeShift, /;; 0x[0-9a-f]+ <</);
   assert.doesNotMatch(beforeShift, /value\[/);
-  for (let time = 5n; time <= 6n; time++) sendKey(instance, time, 0x73); // s
+  for (let time = 6n; time <= 7n; time++) sendKey(instance, time, 0x73); // s
   assert.match(renderedANSI(instance, 0), / {4}\x1b\[96mstack\[1\] i32 0x00000000\x1b\[0m/);
   assert.match(renderedText(instance, 0), /^=> f4 .* call f3[^\n]*\n {4};; \(param i32\) \(result i32\)[^\n]*\n↓ {4}f3 .*\n {4}…[^\n]*\nn {2}f4 .*i64\.extend_i32_u/m);
   assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  executed=5/);
-  sendKey(instance, 7n, 0x6e); // n: step over the call.
+  sendKey(instance, 8n, 0x6e); // n: step over the call.
   assert.match(renderedText(instance, 0), /^qipdb[^\n]*calls=1[\s\S]*^=> f\d+ 0x[0-9a-f]+ i64\.extend_i32_u/m);
 
-  sendKey(instance, 8n, 0x72); // r: restart.
+  sendKey(instance, 9n, 0x72); // r: restart.
   assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  WASM  274 B/);
-  assert.match(renderedText(instance, 0), /WASM  274 B  QIP content component  UTF-8 → UTF-8$/m);
-  sendKey(instance, 9n, 0x6e); // n: step over an ordinary instruction.
+  assert.match(renderedText(instance, 0), /WASM  274 B  QIP  UTF-8 → UTF-8$/m);
+  sendKey(instance, 10n, 0x6e); // n: move from the host stop to instruction 0.
+  assert.match(renderedText(instance, 0), /^=> f4 .* global\.get 2/m);
+  sendKey(instance, 11n, 0x6e); // n: step over instruction 0.
   assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  executed=1/);
-  sendKey(instance, 10n, 0x72); // r
-  sendKey(instance, 11n, 0x66); // f: finish the current frame.
+  sendKey(instance, 12n, 0x72); // r
+  sendKey(instance, 13n, 0x66); // f: finish the current frame.
   const normallyFinishedANSI = renderedANSI(instance, 0);
   const normallyFinished = stripANSI(normallyFinishedANSI);
   assertTerminalWidth(normallyFinished);
@@ -521,16 +674,16 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
   assert.match(normallyFinishedANSI, /\x1b\[1;4;92m6f\x1b\[0m \x1b\[1;4;92m72\x1b\[0m \x1b\[1;4;92m6c\x1b\[0m \x1b\[1;4;92m64\x1b\[0m /);
   assert.match(normallyFinishedANSI, /\x1b\[1;4;92morld\x1b\[0m/);
   assert.match(normallyFinished, /^  00020000  .*Hello, World/m);
-  sendKey(instance, 12n, 0x72); // r
-  sendKey(instance, 13n, 0x63); // c
+  sendKey(instance, 14n, 0x72); // r
+  sendKey(instance, 15n, 0x63); // c
   assert.match(renderedText(instance, 0), /INSTRUCTIONS  r restart/);
 
   // Visual Studio-style function keys remain aliases.
-  sendKey(instance, 14n, 0x72); // r
-  sendKey(instance, 15n, 0xffc8); // F11: step into.
-  sendKey(instance, 16n, 0xffc7); // F10: step over.
-  assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  executed=2/);
-  sendKey(instance, 17n, 0xffc8, 1 | (1 << 2)); // Shift-F11: step out.
+  sendKey(instance, 16n, 0x72); // r
+  sendKey(instance, 17n, 0xffc8); // F11: move to instruction 0.
+  sendKey(instance, 18n, 0xffc7); // F10: step over instruction 0.
+  assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  executed=1/);
+  sendKey(instance, 19n, 0xffc8, 1 | (1 << 2)); // Shift-F11: step out.
   assert.match(renderedText(instance, 0), /INSTRUCTIONS  r restart/);
 
   const nativeTarget = (await WebAssembly.instantiate(targetBytes, {})).instance;
@@ -542,49 +695,49 @@ test("interactive Wasm debugger steps and restarts a target component", async ()
     expectedPointerForDigest,
     expectedSize,
   )).digest("hex");
-  sendKey(instance, 18n, 0x72); // r
-  sendKey(instance, 19n, 0xffc2); // F5: continue.
+  sendKey(instance, 20n, 0x72); // r
+  sendKey(instance, 21n, 0xffc2); // F5: continue.
   const completed = renderedText(instance, 0);
   assert.match(completed, /INSTRUCTIONS  r restart/);
   assert.match(completed, /OUTPUT succeeded size=12 ptr=0x00020000 packed=/);
   assert.match(completed, new RegExp("packed=0x" + expectedResult.toString(16).padStart(16, "0")));
   assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
 
-  sendKey(instance, 20n, 0x78); // x: enter a memory address.
+  sendKey(instance, 22n, 0x78); // x: enter a memory address.
   assert.match(renderedText(instance, 0), /x address 0x00000000 \(0\/8\)  i input  o output  w last-write\n  ↑\/↓ page  0-9\/a-f hex  Backspace edit  Enter accept  Esc cancel/);
-  sendKey(instance, 21n, 0x69); // i: input_ptr.
+  sendKey(instance, 23n, 0x69); // i: input_ptr.
   assert.match(renderedText(instance, 0), /^  00010000  /m);
-  sendKey(instance, 22n, 0x78); // x
-  sendKey(instance, 23n, 0x6f); // o: completed output pointer.
+  sendKey(instance, 24n, 0x78); // x
+  sendKey(instance, 25n, 0x6f); // o: completed output pointer.
   const expectedPointer = Number((expectedResult >> 32n) & 0x7fff_ffffn);
   assert.match(renderedText(instance, 0), new RegExp(`^  ${expectedPointer.toString(16).padStart(8, "0")}  `, "m"));
 
-  sendKey(instance, 24n, 0x78); // x: enter a hexadecimal address.
-  for (const [time, digit] of [[25n, "2"], [26n, "0"], [27n, "0"], [28n, "0"], [29n, "8"]]) {
+  sendKey(instance, 26n, 0x78); // x: enter a hexadecimal address.
+  for (const [time, digit] of [[27n, "2"], [28n, "0"], [29n, "0"], [30n, "0"], [31n, "8"]]) {
     sendKey(instance, time, digit.codePointAt(0));
   }
-  sendKey(instance, 30n, 0xff0d); // Enter.
+  sendKey(instance, 32n, 0xff0d); // Enter.
   assert.match(renderedText(instance, 0), /^  00020008  /m);
-  sendKey(instance, 31n, 0x78); // x: memory examine mode.
-  sendKey(instance, 32n, 0xff54); // Down Arrow: next 128-byte page.
+  sendKey(instance, 33n, 0x78); // x: memory examine mode.
+  sendKey(instance, 34n, 0xff54); // Down Arrow: next 128-byte page.
   assert.match(renderedText(instance, 0), /^  00020088  /m);
-  sendKey(instance, 33n, 0xff52); // Up Arrow: previous page.
+  sendKey(instance, 35n, 0xff52); // Up Arrow: previous page.
   assert.match(renderedText(instance, 0), /^  00020008  /m);
-  sendKey(instance, 34n, 0xff1b); // Escape: leave memory examine mode.
+  sendKey(instance, 36n, 0xff1b); // Escape: leave memory examine mode.
 
-  sendKey(instance, 35n, 0x72); // r
-  for (let time = 36n; time <= 40n; time++) sendKey(instance, time, 0x73); // s to call.
-  sendKey(instance, 41n, 0x73); // s into the callee.
+  sendKey(instance, 37n, 0x72); // r
+  for (let time = 38n; time <= 43n; time++) sendKey(instance, time, 0x73); // s to call.
+  sendKey(instance, 44n, 0x73); // s into the callee.
   const insideCallee = renderedText(instance, 0);
   assert.match(insideCallee, /^=> f3 .*\n↓ {2}f3/m);
   assert.match(insideCallee, /^f {2}f4 /m);
   assert.ok(insideCallee.indexOf("\n↓  f3 ") < insideCallee.indexOf("\nf  f4 "));
 
-  instance.exports.begin_update_at(42n);
+  instance.exports.begin_update_at(45n);
   assert.equal(instance.exports.key_event(0x6f, 1), 0); // o is not an alias for n.
   assert.equal(instance.exports.key_event(0x69, 1), 1); // i expands counters; it does not step.
   assert.equal(instance.exports.key_event(0x20, 1), 1); // Space continues to the end.
-  assert.equal(instance.exports.finish_update(), 42n);
+  assert.equal(instance.exports.finish_update(), 45n);
   assert.match(renderedText(instance, 0), /INSTRUCTIONS  r restart/);
 });
 
@@ -608,6 +761,7 @@ test("steps memory.copy and memory.fill with memory provenance", async () => {
   sendKey(instance, 2n, 0x73);
   sendKey(instance, 3n, 0x73);
   sendKey(instance, 4n, 0x73);
+  sendKey(instance, 5n, 0x73);
   const beforeCopyANSI = renderedANSI(instance, 0);
   const beforeCopy = stripANSI(beforeCopyANSI);
   assertTerminalWidth(beforeCopy);
@@ -618,16 +772,16 @@ test("steps memory.copy and memory.fill with memory provenance", async () => {
   assert.match(beforeCopy, /stack\[0\] i32 0x00000012/);
   assert.match(beforeCopy, /memory\.copy[\s\S]*──▶ dst 00000012\+6[\s\S]*src 00000010/);
 
-  sendKey(instance, 5n, 0x73);
   sendKey(instance, 6n, 0x73);
   sendKey(instance, 7n, 0x73);
   sendKey(instance, 8n, 0x73);
+  sendKey(instance, 9n, 0x73);
   const beforeFill = renderedText(instance, 0);
   assert.match(beforeFill, /^=> f\d+ .* memory\.fill/m);
   assert.match(beforeFill, /memory\.fill[\s\S]*──▶ dst 00000020\+4[\s\S]*byte 34/);
 
-  sendKey(instance, 9n, 0x73);
-  sendKey(instance, 10n, 0x63);
+  sendKey(instance, 10n, 0x73);
+  sendKey(instance, 11n, 0x63);
   const completedANSI = renderedANSI(instance, 0);
   const completed = stripANSI(completedANSI);
   assert.match(completedANSI, /^\x1b\[1mqipdb\x1b\[0m  \x1b\[92m●\x1b\[0m/);
@@ -638,17 +792,17 @@ test("steps memory.copy and memory.fill with memory provenance", async () => {
   assert.match(completed, /^  00000020  /m);
   assert.match(completedANSI, /\x1b\[1;4;92m34\x1b\[0m \x1b\[1;4;92m34\x1b\[0m \x1b\[1;4;92m34\x1b\[0m \x1b\[1;4;92m34\x1b\[0m /);
 
-  sendKey(instance, 11n, 0x78);
-  sendKey(instance, 12n, 0x72);
+  sendKey(instance, 12n, 0x78);
+  sendKey(instance, 13n, 0x72);
   const copiedMemory = renderedText(instance, 0);
   assert.match(copiedMemory, /^  00000010  /m);
   assert.match(copiedMemory, /00000010  61 62 61 62 63 64 65 66/);
 
-  sendKey(instance, 13n, 0x78);
-  sendKey(instance, 14n, 0x77);
+  sendKey(instance, 14n, 0x78);
+  sendKey(instance, 15n, 0x77);
   assert.match(renderedText(instance, 0), /^  00000020  /m);
 
-  sendKey(instance, 15n, 0x72);
+  sendKey(instance, 16n, 0x72);
   const restarted = renderedText(instance, 0);
   assert.match(restarted, /MEMORY  64 KiB  pages=1  reads=0 writes=0/);
   assert.match(restarted, /00000010  61 62 63 64 65 66 00 00/);
@@ -669,41 +823,45 @@ test("step backward replays an uninterrupted step-into history", async () => {
 
   sendKey(instance, 2n, 0xff54); // Down Arrow
   sendKey(instance, 3n, 0xff54); // Down Arrow
+  sendKey(instance, 4n, 0xff54); // Down Arrow
   const afterTwoStepsANSI = renderedANSI(instance, 0);
   assert.match(afterTwoStepsANSI, /\x1b\[1;97m↑\x1b\[0m/);
   assert.match(afterTwoStepsANSI, /\x1b\[1;97mr\x1b\[0m/);
   const afterTwoSteps = stripANSI(afterTwoStepsANSI);
   assert.match(afterTwoSteps, /^↑ {2}f\d+ .+\n=> f\d+/m);
   assert.doesNotMatch(afterTwoSteps, /Alt-\[ back/);
-  sendKey(instance, 4n, 0xff54); // Down Arrow
-  sendKey(instance, 5n, 0xff52); // Up Arrow: step backward.
+  sendKey(instance, 5n, 0xff54); // Down Arrow
+  sendKey(instance, 6n, 0xff52); // Up Arrow: step backward.
   assert.equal(renderedText(instance, 0), afterTwoSteps);
 
-  sendKey(instance, 6n, 0x6e); // n disables the s-only replay history.
+  sendKey(instance, 7n, 0x6e); // n disables the s-only replay history.
   const afterNext = renderedText(instance, 0);
   assert.doesNotMatch(afterNext, /^↑/m);
-  sendKey(instance, 7n, 0x5b, 1 | (1 << 4));
+  sendKey(instance, 8n, 0x5b, 1 | (1 << 4));
   assert.equal(renderedText(instance, 0), afterNext);
 
-  sendKey(instance, 8n, 0x72); // r starts a fresh history.
-  sendKey(instance, 9n, 0x73); // s
-  sendKey(instance, 10n, 0x5b, 1 | (1 << 4));
+  sendKey(instance, 9n, 0x72); // r starts a fresh history.
+  sendKey(instance, 10n, 0x73); // s moves to instruction 0.
+  sendKey(instance, 11n, 0x5b, 1 | (1 << 4));
   assert.match(renderedText(instance, 0), /qipdb  ●  i expand  \? help  WASM  274 B/);
 
-  sendKey(instance, 11n, 0x66); // f
+  sendKey(instance, 12n, 0x66); // f
   const afterFinish = renderedText(instance, 0);
   const finishCount = Number(afterFinish.match(/qipdb  ●  i expand  \? help  executed=(\d+)/)?.[1]);
   assert.match(afterFinish, /INSTRUCTIONS  r restart/);
   assert.match(afterFinish, /^↑ {2}f\d+ .* end/m);
-  sendKey(instance, 12n, 0x5b, 1 | (1 << 4)); // Alt/Option-[: undo the final instruction.
+  sendKey(instance, 13n, 0x20); // Space at completion is a no-op and preserves replay.
+  assert.equal(renderedText(instance, 0), afterFinish);
+  assert.doesNotMatch(afterFinish, /execution complete/);
+  sendKey(instance, 14n, 0x5b, 1 | (1 << 4)); // Alt/Option-[: undo the final instruction.
   const beforeFinish = renderedText(instance, 0);
   assert.match(beforeFinish, /^INSTRUCTIONS  Space run +STACKS\/LOCALS/m);
   assert.match(beforeFinish, new RegExp(`qipdb  ●  i expand  \\? help  executed=${finishCount - 1}`));
 
-  sendKey(instance, 13n, 0x72); // r
-  sendKey(instance, 14n, 0x63); // c reaches the same initial-frame result.
+  sendKey(instance, 15n, 0x72); // r
+  sendKey(instance, 16n, 0x63); // c reaches the same initial-frame result.
   assert.equal(renderedText(instance, 0), afterFinish);
-  sendKey(instance, 15n, 0x5b, 1 | (1 << 4));
+  sendKey(instance, 17n, 0x5b, 1 | (1 << 4));
   assert.equal(renderedText(instance, 0), beforeFinish);
 });
 
@@ -722,7 +880,7 @@ test("continue pauses and resumes an infinite component at command budgets", asy
 
   instance.exports.begin_update_at(2n);
   assert.equal(instance.exports.uniform_set_instruction_budget(0), 1);
-  assert.equal(instance.exports.uniform_set_instruction_budget(0xffff_ffff), 1_000_000);
+  assert.equal(instance.exports.uniform_set_instruction_budget(0xffff_ffff), 100_000_000);
   assert.equal(instance.exports.finish_update(), 2n);
 
   sendKeyWithBudget(instance, 3n, 0x63, 7); // c
@@ -810,10 +968,10 @@ test("multipart input reaches the target component and survives restart", async 
   const initial = stripANSI(initialANSI);
   assert.equal(instance.exports.target_input_ptr(), 0x100000);
   assert.match(initial, /param\[0\] 0x0000000000000008/);
-  assert.match(initial, /WASM  645 B  QIP content component  UTF-8 → UTF-8$/m);
+  assert.match(initial, /WASM  645 B  QIP  UTF-8 → UTF-8$/m);
   assert.doesNotMatch(initial, /input=8 B/);
   assert.match(initial, /^=> host wrote 8 B input at 0x00100000/m);
-  assert.match(initial, /qipdb  ●  i expand  \? help  WASM  645 B  QIP content component/);
+  assert.match(initial, /qipdb  ●  i expand  \? help  WASM  645 B  QIP  UTF-8 → UTF-8/);
   assert.match(initial, /^  00100000  /m);
   assert.match(initial, /\|one two\.\.{8}\|/);
   assert.match(initialANSI, /\x1b\[4;34m6f\x1b\[0m \x1b\[4;34m6e\x1b\[0m /);
@@ -825,13 +983,15 @@ test("multipart input reaches the target component and survives restart", async 
   assert.match(initial, /global\.set 0  allocate 16 B/);
   assert.equal(executionRowCount(initial), 11);
 
-  sendKey(instance, 2n, 0x73); // s: global.get
+  sendKey(instance, 2n, 0x73); // s: move from the host stop to global.get.
+  assert.match(renderedText(instance, 0), /^=> f\d+ .* global\.get 0/m);
+  sendKey(instance, 3n, 0x73); // s: execute global.get.
   const afterFirstStepANSI = renderedANSI(instance, 0);
   assert.equal(executionRowCount(stripANSI(afterFirstStepANSI)), 11);
   assert.match(afterFirstStepANSI, /\x1b\[34m6f 6e 65 20 74 77 6f 0a /);
   assert.doesNotMatch(afterFirstStepANSI, /\x1b\[4;34m/);
-  sendKey(instance, 3n, 0x73); // s: i32.const
-  sendKey(instance, 4n, 0x73); // s: i32.sub, landing on local.tee
+  sendKey(instance, 4n, 0x73); // s: i32.const
+  sendKey(instance, 5n, 0x73); // s: i32.sub, landing on local.tee
   const teeANSI = renderedANSI(instance, 0);
   assert.match(teeANSI, /\x1b\[34mlocal\x1b\[92m\.tee\x1b\[0m\x1b\[4m 1\x1b\[0m/);
   assert.match(teeANSI, /\x1b\[34mglobal\x1b\[92m\.set\x1b\[0m 0\x1b\[0m/);
@@ -839,18 +999,18 @@ test("multipart input reaches the target component and survives restart", async 
   assert.match(teeANSI, /\x1b\[92m┌─▶ \x1b\[0m\x1b\[92mnext local\[0\] i32 \x1b\[94m0x000ffff0\x1b\[0m/);
   assert.match(teeANSI, /\x1b\[92m└─ {2}\x1b\[0m\x1b\[92mstack\[0\] i32 0x000ffff0\x1b\[0m/);
   assertTerminalWidth(stripANSI(teeANSI));
-  sendKey(instance, 5n, 0x73); // s: write local[0]
+  sendKey(instance, 6n, 0x73); // s: write local[0]
   const globalSetANSI = renderedANSI(instance, 0);
   assert.match(globalSetANSI, /\x1b\[1;92mlocal\[0\] 0x00000000000ffff0\x1b\[0m/);
   assert.match(globalSetANSI, /global\[0\] \x1b\[94m0x0000000000100000\x1b\[0m/);
   assert.match(globalSetANSI, /\x1b\[92m┌▶\x1b\[0m\x1b\[92mnext global\[0\] i32 \x1b\[94m0x000ffff0\x1b\[0m/);
   assert.match(globalSetANSI, /\x1b\[92m└─ {2}\x1b\[0m\x1b\[92mstack\[0\] i32 0x000ffff0\x1b\[0m/);
   assertTerminalWidth(stripANSI(globalSetANSI));
-  sendKey(instance, 6n, 0x73); // s: write global[0]
+  sendKey(instance, 7n, 0x73); // s: write global[0]
   assert.match(renderedANSI(instance, 0), /\x1b\[1;92mglobal\[0\] 0x00000000000ffff0\x1b\[0m/);
-  sendKey(instance, 7n, 0x72); // r
+  sendKey(instance, 8n, 0x72); // r
 
-  for (let time = 8n; time <= 17n; time++) sendKey(instance, time, 0x73); // s to select.
+  for (let time = 9n; time <= 19n; time++) sendKey(instance, time, 0x73); // s to select.
   const selectANSI = renderedANSI(instance, 0);
   const selectText = stripANSI(selectANSI);
   assert.match(selectANSI, /\x1b\[36mselect\x1b\[0m/);
@@ -871,24 +1031,24 @@ test("multipart input reaches the target component and survives restart", async 
   const expectedPointer = Number((expectedResult >> 32n) & 0x7fff_ffffn);
   const expectedMemoryView = new RegExp(`^  ${expectedPointer.toString(16).padStart(8, "0")}  `, "m");
 
-  sendKey(instance, 18n, 0x72); // r
-  sendKey(instance, 19n, 0x63); // c
+  sendKey(instance, 20n, 0x72); // r
+  sendKey(instance, 21n, 0x63); // c
   const firstCompleted = renderedText(instance, 0);
   assert.match(firstCompleted, new RegExp(`packed=0x${expectedPacked}`));
   assert.match(firstCompleted, expectedMemoryView);
-  sendKey(instance, 20n, 0x72); // r
+  sendKey(instance, 22n, 0x72); // r
   assert.match(renderedText(instance, 0), /param\[0\] 0x0000000000000008/);
-  sendKey(instance, 21n, 0x63); // c
+  sendKey(instance, 23n, 0x63); // c
   const secondCompleted = renderedText(instance, 0);
   assert.match(secondCompleted, new RegExp(`packed=0x${expectedPacked}`));
   assert.match(secondCompleted, expectedMemoryView);
 
-  sendKey(instance, 22n, 0x72); // r
+  sendKey(instance, 24n, 0x72); // r
   let restoration = "";
   for (let step = 0; step < 500; step++) {
     restoration = renderedText(instance, 0);
     if (restoration.includes("restore 16 B")) break;
-    sendKey(instance, BigInt(23 + step), 0x6e); // n: keep calls collapsed.
+    sendKey(instance, BigInt(25 + step), 0x6e); // n: keep calls collapsed.
   }
   assert.match(restoration, /global\.set 0  restore 16 B/);
 });
