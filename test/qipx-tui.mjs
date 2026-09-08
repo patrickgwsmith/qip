@@ -16,6 +16,7 @@ const ALT = 1 << 4;
 const cases = [
   ["lowercase", [0x61], 0x61, 0],
   ["uppercase", [0x41], 0x41, SHIFT],
+  ["question mark", [0x3f], 0x3f, 0],
   ["tab", [0x09], 0xff09, 0],
   ["backspace control-H", [0x08], 0xff08, 0],
   ["backspace DEL", [0x7f], 0xff08, 0],

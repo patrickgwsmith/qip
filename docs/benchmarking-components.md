@@ -47,7 +47,7 @@ every sample:
 ./qip bench \
   -F component=@components/text/hello.wasm \
   -r 100 \
-  components/interactive/wasm-debugger.wasm
+  components/interactive/qipdb.wasm
 ```
 
 Use `-F name=value` for a text field, `-F name=@path` for file bytes, or

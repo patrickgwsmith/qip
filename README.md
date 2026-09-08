@@ -62,7 +62,7 @@ Then open the same component in the interactive debugger:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  interactive/wasm-debugger.wasm
+  interactive/qipdb.wasm
 ```
 
 Press `s` or ↓ to step into the next instruction, Space to continue, and
@@ -77,6 +77,47 @@ printf 'qip + wasm\n' \
       bytes/zlib-compress.wasm \
       bytes/base64-encode.wasm
 ```
+
+## qipdb
+
+qipdb runs a QIP Content component inside a small WebAssembly interpreter and
+shows its instructions, operand stack, locals, globals, linear memory, calls,
+loops, and counters. The final screen includes a SHA-256 digest of the output,
+which you can compare with the same component in a normal runtime.
+
+Start with the small `rgb-to-hex` parser:
+
+```sh
+npx @qip.dev/qipx qip.dev tui \
+  -F component=@text/rgb-to-hex.wasm \
+  -F 'input=rgb(101, 79, 240)' \
+  interactive/qipdb.wasm
+```
+
+Inspect a larger parser with tables and indirect calls:
+
+```sh
+npx @qip.dev/qipx qip.dev tui \
+  -F component=@text/markdown/commonmark.0.31.2.wasm \
+  -F 'input=# Hello from qipdb' \
+  interactive/qipdb.wasm
+```
+
+From this repository, inspect the SIMD PNG decoder with an image as its exact
+byte input:
+
+```sh
+npx @qip.dev/qipx qip.dev tui \
+  -F component=@image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm \
+  -F input=@qip-logo.png \
+  interactive/qipdb.wasm
+```
+
+Press ↓ or `s` to step, Space to continue, `i` to expand the program summary,
+`v` to cycle variable values through hexadecimal, decimal, and ASCII, and `?`
+for the complete key and color guide. qipdb deliberately supports a bounded
+WebAssembly profile rather than every WebAssembly feature; it rejects an
+unsupported target before execution.
 
 ## Module contract
 
@@ -477,7 +518,9 @@ ls ./site
 
 - [QIP Component Contracts](docs/component-contract.md)
 - [Content Component Contract](docs/content-component.md)
-- [Interactive Component Contract](docs/interactive-component.md)
+- [Time And Events](docs/time-and-events.md)
+- [GUI Components](docs/gui-components.md)
+- [TUI Components](docs/tui-components.md)
 - [Uniforms](docs/uniforms.md)
 - [QIP Component Patterns](docs/module-patterns.md)
 - [Writing QIP Components in Zig](docs/zig-components.md)
@@ -489,7 +532,6 @@ ls ./site
 - [Provable Loops](docs/provable-loops.md)
 - [Running In JavaScript](docs/running-in-javascript.md)
 - [qipx CLI](docs/qipx.md)
-- [Running Interactive Components In A Terminal](docs/terminal-interactive-components.md)
 - [QIP Component Compliance](docs/comply.md)
 
 ----
@@ -584,7 +626,16 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s component
 
 ## TODO
 
-- [ ] Add WebAssembly table support to the component debugger. Decide whether to show table entries alongside locals and globals.
+- [ ] Add a `--double` flag for `qipx bench` that doubles the input and plots the performance. So we should see if rendering is `O(n)` where n is the size of the input or not. It could keep doubling the input. I imagine it would only work for text input and uncompressed ktx2 input, as those should be trivial to “double”.
+- [ ] House keeping: drop `components` and match the qip.dev site paths:
+  - [ ] `components/text/text-to-path-svg-dejavu-sans-mono.wasm` -> `text/text-to-path-svg-dejavu-sans-mono.wasm`
+  - [ ] `components/image/png/png-to-ktx2-r8g8b8a8-srgb.zig` -> `image/png/png-to-ktx2-r8g8b8a8-srgb.zig`
+  - [ ] `components/interactive/calendar-gregorian.wasm` -> `tui/calendar-gregorian.wasm`
+  - [ ] `components/interactive/textedit.zig` -> `gui/textedit.zig`
+- [ ] Make TUI like `https://allweeks.exe.xyz/2026`
+- [ ] Decide whether to add a post-link pass that removes unused one-slot WebAssembly tables emitted by `zig cc`.
+- [ ] Decide whether the component debugger should show fixed table entries alongside locals and globals.
+- [ ] In debugger show instructions used by the current wasm: call_indirect, SIMD, etc.
 - [ ] Allow compiling TUIs into native code via `components/application/wasm/qip-component-to-c.wasm`. So you get the benefit of a sandbox but you get the fast performance of native.
 - [ ] Explore a consistent route hierarchy for interactive image tools, such as moving `/image-resize` to `/image/resize`. Consider all image tools together, preserve redirects for existing URLs, and decide how tool routes coexist with the `/image` component namespace.
 - [ ] Add `--view-source` to `npx qip-router warc`, including recipe source and view-source records.
@@ -595,8 +646,8 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s component
 - [ ] Decide whether qipx redirects may target any configured HTTPS host, not only the source origin. Keep the two-redirect limit and reject unconfigured origins; define whether a failed redirected request resumes the original fallback sequence and may request the target host twice.
 - [ ] Investigate if qip-component-to-c is affected by https://trustsig.eu/blog/wasm2c-tableflip-unchecked-calloc/
 - [ ] Remove `@memcpy(ktx_buf[ktx.HEADER_SIZE..], output_buf[0..]);` — just render directly to output_buf instead of ktx_buf.
-- [ ] For interactive components should we inline the ktx2 header write function into components?
-- [ ] For interactive components should we allow uniforms to be optional?
+- [ ] For GUI components should we inline the KTX2 header write function into components?
+- [ ] For GUI components should we allow uniforms to be optional?
 - [x] Return the dynamic output pointer, size, and rejection state from `render`.
 - [ ] Should uniforms return their previous value? This means we can bring a component back to its original state.
 - [ ] Ensure we always `new TextDecoder("utf-8", { fatal: true })`
@@ -635,7 +686,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s component
     - [ ] Input is either `application/x-www-form-urlencoded` or `multipart/form-data`
     - [ ] Have demo with `FormData` that works in client and on server
     - [ ] Will be like an uncontrolled form in React, where every keypress does NOT need a re-render. Only do this on submit.
-    - [ ] See how it could work with the Interactive component contract, and HTML-in-canvas
+    - [ ] See how it could work with Time and Events, and HTML-in-canvas
   - [ ] In favor of a future cross-host `Prompt` contract: sequential prompts with recoverable failure, `submit(input_size, now_ms)` for state changes, and `render(0)` for the current semantic projection/output.
 - [ ] Add Command Palette example, combining `<input>` and `<canvas>`
 - [ ] Add CSV to chart SVG example

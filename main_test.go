@@ -267,7 +267,7 @@ func TestNormalizeRunArgs(t *testing.T) {
 
 func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 	in := []string{
-		"components/interactive/wasm-debugger.wasm",
+		"components/interactive/qipdb.wasm",
 		"-F",
 		"component=@components/text/hello.wasm",
 		"--form",
@@ -283,7 +283,7 @@ func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 		"input=hello",
 		"-r",
 		"3",
-		"components/interactive/wasm-debugger.wasm",
+		"components/interactive/qipdb.wasm",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args=%v, want %v", got, want)

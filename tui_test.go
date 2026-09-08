@@ -19,6 +19,7 @@ func TestTUIKeyDecoder(t *testing.T) {
 	}{
 		{"lowercase", []byte("a"), 'a', 0},
 		{"uppercase", []byte("A"), 'A', tuiFlagShift},
+		{"question mark", []byte("?"), '?', 0},
 		{"tab", []byte{0x09}, tuiXKTab, 0},
 		{"backspace control-H", []byte{0x08}, tuiXKBackspace, 0},
 		{"backspace DEL", []byte{0x7f}, tuiXKBackspace, 0},
@@ -95,7 +96,7 @@ func TestWriteTUIFrameExpandsLineFeedsAfterRawMode(t *testing.T) {
 }
 
 func TestTUISessionRendersDebuggerThroughContentStep(t *testing.T) {
-	debugger, err := os.ReadFile("components/interactive/wasm-debugger.wasm")
+	debugger, err := os.ReadFile("components/interactive/qipdb.wasm")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +119,7 @@ func TestTUISessionRendersDebuggerThroughContentStep(t *testing.T) {
 		timeoutMS: 5000,
 	}
 	components := []ResolvedComponent{
-		{Name: "wasm-debugger.wasm", WASM: debugger, UniformValues: map[string]string{"instruction_budget": "1000"}},
+		{Name: "qipdb.wasm", WASM: debugger, UniformValues: map[string]string{"instruction_budget": "1000"}},
 		{Name: "strip-ansi-sgr.wasm", WASM: strip, UniformValues: map[string]string{}},
 	}
 	session, err := newTUISession(context.Background(), config, components, form, contentType)
