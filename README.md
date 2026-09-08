@@ -9,13 +9,13 @@ QIP Components are fast for you to create with coding agents and fast for users 
 
 We believe small functions should not need a massive application environment to run. QIP is for small pieces of software. Write or vibe Zig/C then compile to WebAssembly, and you get a deterministic puzzle piece that runs the same everywhere.
 
-Use it for text, images, documents, archives, interactive UI, or any format. Components pass content in and content out, with  an optional MIME type for each side. You can pipe component into another step-by-step like a recipe.
+Render text, images, documents, PDFs, zip files, or even interactive TUIs or GUIs. Components pass content in and content out, with  an optional MIME type for each side. You can combine components step-by-step like a recipe.
 
 Make a recipe you like? You can be confident it will work identically on mobile, in a browser, in your CI pipeline, on Windows, or whatever comes next. If it works here, it works there.
 
 Modern software never stops moving. QIP components are self-contained, so you can worry less about supply-chain attacks, outdated libraries, remote-code execution, and environment drift.
 
-QIP is built around a strict contract: same component, same input, same output. It does not read the clock, locale, filesystem, package graph, environment variables, OS, device, chipset, or network — unless you deliberately pass it in. Every input is explicit. This means if it works today, it’ll work tomorrow.
+QIP is built around a strict contract: same component with the same input results in the same output. It does not read the clock, locale, filesystem, package graph, environment variables, OS, device, chipset, or network — unless you deliberately pass it in. Every input is explicit. This determinism means if it works today, it’ll continue to work tomorrow.
 
 Components, AI coding, security: you can pick all three.
 
@@ -29,9 +29,7 @@ npm install --global @qip.dev/qipx
 
 ## Try It
 
-Use the same `rgb-to-hex.wasm` component to render, benchmark, test, and debug.
-Start by running it. qipx downloads the component from qip.dev and saves it at
-`text/rgb-to-hex.wasm`:
+Let's start by running `rgb-to-hex.wasm`. qipx downloads the component from qip.dev and saves it locally at `text/rgb-to-hex.wasm`:
 
 ```sh
 printf 'rgb(101, 79, 240)' \
@@ -40,7 +38,7 @@ printf 'rgb(101, 79, 240)' \
 
 It prints `#654ff0`.
 
-Benchmark that saved component on the same input:
+Now benchmark the same component with the same input:
 
 ```sh
 printf 'rgb(101, 79, 240)' \
@@ -48,7 +46,7 @@ printf 'rgb(101, 79, 240)' \
       -i - --runs 100 text/rgb-to-hex.wasm
 ```
 
-Test its declared behavior with a reusable Compliance oracle:
+Test behavior complies with a reusable oracle that checks a range of expected output or can even fuzz:
 
 ```sh
 npx @qip.dev/qipx qip.dev comply \
@@ -56,7 +54,7 @@ npx @qip.dev/qipx qip.dev comply \
   --with oracles/rgb-to-hex.comply.wasm
 ```
 
-Then open the same component in the interactive debugger:
+Then open the same component in the interactive qipdb debugger:
 
 ```sh
 npx @qip.dev/qipx qip.dev tui \
@@ -65,11 +63,9 @@ npx @qip.dev/qipx qip.dev tui \
   interactive/qipdb.wasm
 ```
 
-Press `s` or ↓ to step into the next instruction, Space to continue, and
-`Ctrl-C` to leave the debugger.
+Press ↓ to step instruction by instruction seeing state of memory and every variable. Press Space to continue to completion and `Ctrl-C` to exit.
 
-Multiple components run left to right. Hosts apply to every missing component
-in the pipeline:
+Multiple components run left to right like a unix pipeline:
 
 ```sh
 printf 'qip + wasm\n' \
