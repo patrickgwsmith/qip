@@ -311,6 +311,8 @@ components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.was
 components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
+components/interactive/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
+
 components/interactive/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 components/interactive/qipdb.wasm: components/interactive/qipdb.zig components/application/wasm/lib/wasm-interpreter.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig -femit-bin=$@
@@ -923,6 +925,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-multipart-form.mjs
 	node --test test/qipx-hosts.mjs
 	node --test test/qipx-tui.mjs
+	node --test test/calendar-gregorian-tui.mjs
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/time-series-polylines.mjs
 	node --test test/svg-to-pdf-inter-font.mjs

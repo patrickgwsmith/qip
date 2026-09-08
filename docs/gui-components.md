@@ -1,47 +1,54 @@
-# Interactive Component Contract
+# GUI Components
 
-An Interactive component is a Content component that retains state and accepts
-events over time. It uses the [Timed and Eventful Component
-Contract](/docs/timed-and-eventful-components): Content rendering creates the
-initial presentation, updates advance state, and a later render publishes that
-state.
+A GUI component renders graphical state as KTX2 Content. KTX2 is an image
+container commonly used to send texture data to GPUs. QIP uses a small,
+uncompressed set of [KTX2 profiles](/docs/formats#qip-ktx2-profiles), so pixels
+are directly addressable in WebAssembly memory while the file still records
+its dimensions, pixel layout, orientation, and colour information. The
+profiles support ordinary 8-bit sRGB and 32-bit floating-point (`f32`) RGBA for
+linear-light and wide-colour Display P3 rendering.
 
-All components in `components/interactive/` use this contract.
+A persistent GUI combines three small contracts: Content owns initialization
+and presentation, [Time and Events](/docs/time-and-events) owns state updates
+and input, and the KTX2 profile gives the browser host a predictable pixel
+buffer to display.
 
-Use the [Content Component Contract](/docs/content-component) when each call is
-a finite input-to-output transformation and no state must survive for a later
-event or time update.
+This composition is used by the applications and games in
+`components/interactive/`. It is also suitable for animation without user
+input. The GIF player accepts `image/gif` as fallible Content, adds time to
+select later frames, and omits event exports because playback needs no input.
 
-Time does not imply interaction. A Timed component can omit all event exports.
-The GIF player is the repository example: its initial `image/gif` render can
-reject invalid input, and later updates select frames at their GIF
-deadlines. Keyboard and pointer input would add no useful capability, so the
-player stops at Timed. Eventful applications and games add the event functions
-defined below.
+Use the [Content Component Contract](/docs/content-component) alone when each
+render is a finite input-to-output operation and no state must survive. A
+component that returns HTML or SVG is also Content, but it does not use this
+KTX2 GUI contract.
 
-## Required Shape
+## Contract Composition
 
-An Interactive component has the Content memory and output exports, plus:
+Every GUI component implements Content and declares `image/ktx2` output.
+Repository components normally use canonical `ktx2-r8g8b8a8-srgb` data.
+`<qip-play>` also accepts the repository's narrow linear and transfer-encoded
+Display P3 RGBA32F profiles.
+
+A GUI that retains state or changes over time also exports:
 
 ```text
 begin_update_at(now_ms: i64)
 finish_update() -> i64
 ```
 
-It also exports one or more event functions. The common input functions are:
+Add only the input functions the GUI needs. The common functions are:
 
 ```text
 key_event(x11_key: i32, flags: i32) -> i32
 pointer_event(button_mask: i32, x_px: i32, y_px: i32) -> i32
 ```
 
-The component declares its rendered format through Content metadata. Pixel
-components in this repository normally return `image/ktx2` with canonical
-`ktx2-r8g8b8a8-srgb` data. `<qip-play>` also accepts the repository's narrow
-linear and transfer-encoded Display P3 RGBA32F profiles. An Interactive
-component can instead render HTML, terminal data, or another declared format.
+Time does not imply input: a component can export the two update functions and
+no event function. A component with keyboard or pointer input uses the complete
+Time and Events lifecycle.
 
-## Lifecycle
+## Update And Presentation
 
 Initialize and present the component as Content at time zero:
 
@@ -81,30 +88,15 @@ An omitted uniform uses its authored default. `finish_update` resets update
 uniforms. `render` resets presentation uniforms, so an override never leaks
 into a later execution.
 
-See [Timed and Eventful Component
-Contract](/docs/timed-and-eventful-components) for the complete state machines,
-fixed-timestep choices, initialization failure, and uniform ordering.
+See [Time and Events](/docs/time-and-events) for the complete state machines,
+fixed-timestep choices, initialization failure, and uniform ordering. Those
+rules are independent of KTX2 and browser presentation.
 
-## Event Semantics
+## GUI Input
 
-Keyboard input uses X11 keysyms. `flags` is a bit field:
-
-- Bit 0: key down (`1`) or key up (`0`).
-- Bit 1: repeat.
-- Bit 2: shift.
-- Bit 3: control.
-- Bit 4: alt.
-- Bit 5: meta.
-
-Common keysyms include Left `0xFF51`, Up `0xFF52`, Right `0xFF53`, Down
-`0xFF54`, Escape `0xFF1B`, Enter `0xFF0D`, Tab `0xFF09`, and Backspace
-`0xFF08`. Pass printable Unicode or ASCII code points directly.
-
-Pointer input follows the Remote Framebuffer button-state model:
-
-- Bit 0 (`1`): primary button.
-- Bit 1 (`2`): middle button.
-- Bit 2 (`4`): secondary button.
+[Time and Events](/docs/time-and-events#event-semantics) defines keysyms,
+modifier flags, pointer button masks, and event return values. The GUI host
+maps browser input to those values.
 
 Coordinates are integer pixels in the current rendered presentation. When the
 pointer leaves the surface, send a zero button mask and coordinates `-1, -1`
@@ -115,17 +107,14 @@ previously reported as held. Queue key-up events for held keys and a zero-mask
 pointer event before the next update. Otherwise a game can continue moving or
 dragging after its view loses focus.
 
-An event returns `1` when it applies a change and `0` when it is ignored. The
-return value helps a host avoid an unnecessary presentation render. It does not
-open, finish, or reject the update.
-
 For pointer-heavy interfaces, compare semantic targets instead of raw movement.
 For example, two coordinates inside the same unchanged button can produce one
 accepted entry event followed by ignored moves.
 
-## Host Loop
+## Browser Host Loop
 
-A host owns event queues and presentation policy. A typical visible loop is:
+A browser host owns event queues and presentation policy. A typical visible
+loop for a stateful GUI is:
 
 1. Call `render(input_size)` once to initialize and present time zero.
 2. Perform a bootstrap update at the first positive time to discover a wake.
@@ -175,6 +164,13 @@ minimum or maximum exceeds that cap. A module without a declared maximum is
 also rejected. `memory.grow` is rejected unless `allow-memory-grow` is present
 with `max-memory`.
 
-See [Testing Interactive
-Components](/docs/testing-interactive-components) for direct Wasm, host-loop,
-output, and browser tests.
+See [Testing GUI Components](/docs/testing-gui-components) for direct Wasm,
+host-loop, output, and browser tests.
+
+## When Not To Use This Contract
+
+Use ordinary Content for a finite image render, HTML document, or SVG. Use the
+[TUI component contract](/docs/tui-components) when the presentation is a text
+grid and the host is a terminal. Use application-native UI when the interface
+needs platform controls, accessibility semantics, text input services, or
+layout behavior that a pixel surface would have to reproduce.

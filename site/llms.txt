@@ -11,7 +11,9 @@ qip favors explicit contracts and simple pipelines. QIP components are sandboxed
 - [Hard limits](/docs/hard-limits.md): Memory, fixed-memory, and host capability policy for QIP components.
 - [Component contracts](/docs/component-contract.md): Component types, maturity, execution models, and contract detection.
 - [Content component contract](/docs/content-component.md): Required exports, memory buffers, rendering, content types, and composition.
-- [Interactive component contract](/docs/interactive-component.md): Framebuffer, events, timing, sizing, and host-loop rules.
+- [Time and Events](/docs/time-and-events.md): Retained state, updates, input events, wake deadlines, and separate presentation.
+- [GUI components](/docs/gui-components.md): KTX2 presentation, pointer input, and browser-host rules.
+- [TUI components](/docs/tui-components.md): UTF-8 and ANSI presentation, keyboard input, and terminal-host rules.
 - [Uniforms](/docs/uniforms.md): Optional numeric configuration exports and host behavior.
 - [Module patterns](/docs/module-patterns.md): Practical implementation patterns for QIP components.
 - [Comply](/docs/comply.md): Compliance oracle bridge, reusable executable oracles, and ABI verification guidance.

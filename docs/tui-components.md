@@ -1,31 +1,39 @@
-# Running Interactive Components In A Terminal
+# TUI Components
 
-`qip tui` and `qipx tui` run an Interactive component and present the final
-pipeline output as UTF-8 text. The host owns terminal mode, screen redraws,
-timing, and key decoding. The component receives normal QIP key events and
-cannot issue general terminal commands.
+A TUI component renders retained state as UTF-8 text for a terminal host. The
+contract combines Content presentation, the
+[Time and Events](/docs/time-and-events) capability, a required keyboard event
+function, and an optional narrow ANSI SGR profile. `qipx tui` implements this
+composition.
 
-Run the component debugger with a multipart component and input:
+The host owns terminal mode, screen redraws, timing, and key decoding. The
+component produces complete text frames and cannot issue general terminal
+commands. A frame may be plain text or use the supported SGR styles.
 
-```sh
-qip tui \
-  -F component=@components/text/wc.wasm \
-  -F 'input=The quick brown fox jumps over the lazy dog' \
-  components/interactive/wasm-debugger.wasm
-```
-
-The Node.js host uses the same arguments:
+Run the calendar with no input or options:
 
 ```sh
-qipx tui \
-  -F component=@components/text/wc.wasm \
-  -F 'input=The quick brown fox jumps over the lazy dog' \
-  components/interactive/wasm-debugger.wasm
+qipx tui components/interactive/calendar-gregorian.wasm
 ```
 
-Both commands retain one instance of the first component. They call its initial
-Content render, deliver key events through timed updates, render accepted
-changes, and honor later wake times returned by `finish_update`.
+Press Up for the previous month and Down for the next month. Press `Ctrl-C` to
+exit. `qipx` retains one instance of the component, calls its initial Content
+render, delivers key events through Time and Events updates, renders accepted
+changes, and honors later wake times returned by `finish_update`.
+
+## Contract Composition
+
+The first component implements Content with UTF-8 output and exports:
+
+```text
+begin_update_at(now_ms: i64)
+key_event(x11_key: i32, flags: i32) -> i32
+finish_update() -> i64
+```
+
+It can also export uniforms such as `uniform_set_columns`,
+`uniform_set_lines`, or an authored option that enables ANSI SGR. The host
+validates every completed frame before writing it to the terminal.
 
 ## Input And Components
 
@@ -33,22 +41,30 @@ Use `-i path` for one initial byte input. Use repeatable `-F` or `--form`
 arguments to construct `multipart/form-data`. Terminal stdin carries key events,
 so `-i -` and `-F name=@-` are not available in TUI mode.
 
-Hosts can precede the command and apply to every missing component:
+For example, the component debugger needs a Wasm component and its input:
+
+```sh
+qipx tui \
+  -F component=@components/text/wc.wasm \
+  -F 'input=The quick brown fox jumps over the lazy dog' \
+  components/interactive/qipdb.wasm
+```
+
+Component hosts can precede the command and provide missing components:
 
 ```sh
 qipx qip.dev tui \
   -F component=@components/text/wc.wasm \
-  interactive/wasm-debugger.wasm
+  interactive/qipdb.wasm
 ```
 
-The first stage must implement the Interactive contract and export
-`key_event`. Later stages must be ordinary Content components. They transform
-every rendered frame from left to right:
+The first stage must implement the TUI contract. Later stages must be ordinary
+Content components. They transform every rendered frame from left to right:
 
 ```sh
-qip tui \
+qipx tui \
   -F component=@components/text/wc.wasm \
-  components/interactive/wasm-debugger.wasm \
+  components/interactive/qipdb.wasm \
   components/text/strip-ansi-sgr.wasm
 ```
 
@@ -64,9 +80,10 @@ value takes precedence. A resize updates the automatic values and redraws.
 ## Keyboard Mapping
 
 The host decodes traditional terminal input into the X11 keysyms and modifier
-flags used by the Interactive contract. It supports printable UTF-8, Tab,
-Backspace, Enter, Escape, arrows, Home, End, Insert, Delete, Page Up, Page Down,
-F1 through F12, and common Shift, Control, and Alt variants.
+flags defined by [Time and Events](/docs/time-and-events#event-semantics). It
+supports printable UTF-8, Tab, Backspace, Enter, Escape, arrows, Home, End,
+Insert, Delete, Page Up, Page Down, F1 through F12, and common Shift, Control,
+and Alt variants.
 
 Each terminal key press becomes a key-down event followed immediately by its
 key-up event in the same QIP update. Terminals do not normally report separate

@@ -23,8 +23,8 @@ Components, AI coding, security: you can pick all three.
 
 QIP is the portable standard of component contracts, documented in these pages.
 
-[`qipx`](/docs/qipx) is the focused Node.js command-line host for Content
-components, text-rendering Interactive components, and Compliance oracles. This
+[`qipx`](/docs/qipx) is the focused Node.js command-line host for Content and
+TUI components, and Compliance oracles. This
 repo also contains browser JavaScript hosts such as `<qip-edit>` and
 `<qip-play>`, a Go host for repository and router workflows, and native
 implementations such as Swift.
@@ -35,7 +35,9 @@ If you want to send someone the current QIP spec, send them these pages:
 
 - [QIP Component Contracts](/docs/component-contract): the component types, their execution models, maturity, and how hosts distinguish them.
 - [Content Component Contract](/docs/content-component): the memory ABI, render lifecycle, content types, and composition rules for finite transforms.
-- [Interactive Component Contract](/docs/interactive-component): the framebuffer, event codes, timing, sizing, and host loop for interactive components.
+- [Time and Events](/docs/time-and-events): retained state, update transactions, event ordering, wake deadlines, and separate presentation.
+- [GUI Components](/docs/gui-components): the composed KTX2 output and browser-host contract.
+- [TUI Components](/docs/tui-components): the composed UTF-8, ANSI SGR, keyboard-input, and terminal-host contract.
 - [`qip comply`](/docs/comply): the Compliance oracle bridge, ordered oracle calls, memory ownership, and executable conformance checks.
 - [Uniforms](/docs/uniforms): optional numeric component configuration and host application rules.
 - [Hard Limits](/docs/hard-limits): the constrained WebAssembly subset QIP components should stay inside.
@@ -45,10 +47,6 @@ The current Tile and Form interfaces are evolving:
 
 - The repository's `IMAGE.md` for Tile components.
 - [Form ABI](/docs/form_abi) for Form components.
-
-[Timed And Eventful Component Contract](/docs/timed-and-eventful-components)
-defines initialization, timed updates, events, presentation, scheduled wakes,
-and fixed-step simulation.
 
 [`qipx` CLI](/docs/qipx), [Router](/docs/router), [Recipes](/docs/recipes), and [Browser Elements](/docs/qip-elements) are reference implementation and tooling docs. They are useful when building with this repo, but they are not the core QIP component spec.
 
@@ -103,7 +101,6 @@ Server Component and Client Component example.
 <li><span class="docs-section">Running</span>
 <ol>
 <li><a href="/docs/qipx">qipx cli</a></li>
-<li><a href="/docs/terminal-interactive-components">Terminal Interactive Components</a></li>
 <li><a href="/docs/qip-elements">Browser Elements</a></li>
 <li><a hidden href="/docs/javascript-runner">JavaScript Renderer Annotated Source</a></li>
 <li><a href="/docs/running-in-javascript">Running In JavaScript</a></li>
@@ -119,8 +116,9 @@ Server Component and Client Component example.
 <ol>
 <li><a href="/docs/component-contract">Component Contracts</a></li>
 <li><a href="/docs/content-component">Content Component</a></li>
-<li><a href="/docs/interactive-component">Interactive Component</a></li>
-<li><a href="/docs/timed-and-eventful-components">Timed And Eventful Component Contract</a></li>
+<li><a href="/docs/time-and-events">Time And Events</a></li>
+<li><a href="/docs/gui-components">GUI Components</a></li>
+<li><a href="/docs/tui-components">TUI Components</a></li>
 <li><a href="/docs/uniforms">Uniforms</a></li>
 <li><a href="/docs/hard-limits">Hard Limits</a></li>
 <li><a href="/docs/formats">Formats and Encodings</a></li>
@@ -139,7 +137,7 @@ Server Component and Client Component example.
 <li><a href="/docs/render-cyclomatic-complexity">Render-Reachable WebAssembly Cyclomatic Complexity</a></li>
 <li><a href="/docs/nontrapping-divides">Proving Non-Trapping Divides</a></li>
 <li><a href="/docs/interactive-rendering-performance">Interactive Rendering Performance</a></li>
-<li><a href="/docs/testing-interactive-components">Testing Interactive Components</a></li>
+<li><a href="/docs/testing-gui-components">Testing GUI Components</a></li>
 </ol>
 </li>
 <li><span class="docs-section">Router</span>

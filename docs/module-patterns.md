@@ -286,8 +286,8 @@ and limits are stable.
 
 ## When Not To Use A Content Component
 
-Use [Interactive](/docs/interactive-component) when state must remain live
-across events and scheduled updates. Use Tile for host-managed image regions and
+Add [Time and Events](/docs/time-and-events) when state must remain live across
+events and scheduled updates. Use Tile for host-managed image regions and
 Form for prompt-driven multi-step input; both are indexed from
 [QIP Component Contracts](/docs/component-contract).
 

@@ -1,6 +1,9 @@
-# Testing Interactive Components
+# Testing GUI Components
 
-Interactive components are easiest to test at three boundaries: the Wasm module, the host loop, and a real browser. Keep each test at the lowest boundary that can prove the behavior. A module test should not need a browser, and every component should not repeat the host's event-queue tests.
+GUI components are easiest to test at three boundaries: the Wasm module, the
+host loop, and a real browser. Keep each test at the lowest boundary that can
+prove the behavior. A module test should not need a browser, and every
+component should not repeat the host's event-queue tests.
 
 ## Test The Wasm Contract Directly
 
@@ -228,7 +231,7 @@ that the previous image remains published. The PS2 test verifies renderless
 selection and its next-frame schedule. Reset restores the initial frame in
 both components.
 
-The final Interactive component test covers ten different application and game
+The final GUI component test covers ten different application and game
 shapes:
 
 ```sh
@@ -330,7 +333,7 @@ Take a screenshot when layout or visual hierarchy is under review. Pixel samples
 
 ## Keep The Suite Small
 
-A typical interactive component needs only a few durable tests:
+A typical GUI component needs only a few durable tests:
 
 - One initialization and primary-workflow smoke test.
 - One test for its highest-risk coordinate or state mapping.

@@ -11,10 +11,9 @@ Use this contract for converters, validators, formatters, document renderers,
 generators, and pipeline stages. A component can retain this Content interface
 while adding later capabilities. For example,
 `components/interactive/gif-player.wasm` accepts and renders `image/gif` as
-fallible Content, then adds Timed updates to select later frames. It needs no
-event exports. Use the [Interactive Component
-Contract](/docs/interactive-component) when retained state must also respond to
-user events.
+fallible Content, then adds Time to select later frames. It needs no event
+exports. Add [Time and Events](/docs/time-and-events) when retained state must
+respond to scheduled updates or user input.
 
 ## Required Exports
 

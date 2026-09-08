@@ -36,7 +36,7 @@ The caution is just as useful. A vector-looking source change is not automatical
 
 ## When To Build A GPU Twin
 
-We should not build a WebGL2 or WebGPU version for every QIP Interactive component. We should build one when it can teach us the grain of the work faster than staring at the software renderer.
+We should not build a WebGL2 or WebGPU version for every QIP GUI component. We should build one when it can teach us the grain of the work faster than staring at the software renderer.
 
 A GPU twin is useful when the component has at least two of these traits:
 

@@ -14,7 +14,7 @@ npx @qip.dev/qipx --help
 | --- | --- |
 | `qipx [host ...] run [options] <component.wasm> [...]` | Run one Content component or a left-to-right component pipeline. Input comes from stdin by default; output goes to stdout. |
 | `qipx [host ...] dry run [options] <component.wasm> [...]` | Show the complete source plan and validate locally available pipeline stages without network requests, input reads, or rendering. |
-| `qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]` | Run one text-rendering Interactive component in a terminal, with optional Content transforms after it. |
+| `qipx [host ...] tui [options] <tui.wasm> [content.wasm ...]` | Run one TUI component in a terminal, with optional Content transforms after it. |
 | `qipx [host ...] comply [options] <file-or-dir> [...]` | Check the Content ABI and strict WebAssembly subset, then run any Compliance oracles supplied with `--with`. |
 | `qipx [host ...] bench (-i <input> \| -F <name=value>) [options] <component.wasm> [...]` | Compare warmed Content components on Node/V8 or Bun/JavaScriptCore. Every candidate must return the same type and bytes as the first component. |
 
@@ -76,11 +76,10 @@ printf '# Hello from qipx\n' \
 
 See the [Content Component Contract](/docs/content-component) for the ABI, [Compliance oracles](/docs/comply) for portable behavior checks, and [Benchmarking Components](/docs/benchmarking-components) for benchmark interpretation.
 
-`qipx` deliberately focuses on Content components, text-rendering Interactive
-components, and Compliance oracles. It does not serve router projects or run
-Tile and Form components. See [Running Interactive Components In A
-Terminal](/docs/terminal-interactive-components) for the TUI lifecycle, input
-mapping, and terminal-output boundary.
+`qipx` deliberately focuses on Content components, TUI components, and
+Compliance oracles. It does not serve router projects or run Tile and Form
+components. See [TUI Components](/docs/tui-components) for the composed
+contract, input mapping, and terminal-output boundary.
 
 ## Multipart input
 

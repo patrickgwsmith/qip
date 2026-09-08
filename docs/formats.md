@@ -34,8 +34,6 @@ application boundary.
 
 | Format | Use it for | Tradeoff |
 | --- | --- | --- |
-| QIP RGBA8 `image/ktx2` | The usual 8-bit sRGB image between Content components. | Pixels are directly addressable, but the file is not compressed. |
-| QIP RGBA32F `image/ktx2` | Image operations that must preserve linear-light precision. | The profile uses 16 bytes per pixel. |
 | `image/bmp` | A simple uncompressed raster boundary. | Parsing is simple, but files are large and row order can vary. |
 | `image/svg+xml` | Editable or resolution-independent paths, diagrams, and text. | A raster consumer must render the SVG before processing pixels. |
 | PNG | Lossless storage and broad interoperability. | Decoding needs more code and CPU time than BMP or QIP KTX2. |
@@ -46,7 +44,22 @@ application boundary.
 QIP can convert PNG, JPEG, WebP, AVIF, JPEG 2000, and SVG to a working raster
 format. QIP can write PNG, JPEG, WebP, AVIF, and ICO. QIP can also process GIF.
 
-### QIP KTX2 profiles
+### Raster limits
+
+Raster converters accept no more than 25,000,000 decoded pixels. Neither
+dimension can be more than 8192 pixels. Compressed PNG, JPEG, JPEG 2000, and
+WebP input also has a 64 MiB byte limit. Both limits apply. A small compressed
+file is still invalid if its decoded image exceeds the pixel limit.
+
+The ICO component writes one BMP-backed image. The image can be no larger than
+256 by 256 pixels. See [Hard Limits](/docs/hard-limits) for host memory and
+execution controls.
+
+## QIP KTX2 profiles
+
+KTX2 is QIP's canonical raster container between Content image components. GUI
+components also use it for complete rendered frames. QIP supports a narrow,
+uncompressed subset so components can address pixels directly.
 
 QIP supports two payload layouts in a small subset of KTX2:
 
@@ -92,18 +105,9 @@ does not always identify sRGB. QIP treats an unprofiled BMP for this profile as
 sRGB. Use `bmp-b8g8r8a8-icc-to-srgb` first when a BMP has a different
 International Color Consortium (ICC) profile.
 
-### Raster limits
+## Text, markup, and structured data
 
-Raster converters accept no more than 25,000,000 decoded pixels. Neither
-dimension can be more than 8192 pixels. Compressed PNG, JPEG, JPEG 2000, and
-WebP input also has a 64 MiB byte limit. Both limits apply. A small compressed
-file is still invalid if its decoded image exceeds the pixel limit.
-
-The ICO component writes one BMP-backed image. The image can be no larger than
-256 by 256 pixels. See [Hard Limits](/docs/hard-limits) for host memory and
-execution controls.
-
-## Text and markup
+### Text and markup
 
 QIP uses UTF-8 for all text pipelines.
 
@@ -112,7 +116,6 @@ QIP uses UTF-8 for all text pipelines.
 | Plain UTF-8 text | Text that has no document structure. | The format cannot preserve structure that is not in the text itself. |
 | `text/markdown` | Documents that people must read and edit. | Markdown has fewer document semantics than HTML. |
 | `text/html` | Browser documents and structured document fragments. | A Document Object Model parser can allocate a large object tree. |
-| `text/csv` | Flat tables with a stable set of fields. | CSV does not represent nested data or independent field types. |
 | `text/css` and `text/javascript` | Web source transformations. | Treat source text as code when it crosses a trust boundary. |
 | `text/uri-list` | A sequence of resource identifiers. | The format carries a list, not resource metadata. |
 | `text/vnd.mermaid` | Diagrams that must remain text. | A presentation system must render the diagram. |
@@ -121,7 +124,7 @@ The repository also uses registered `text/*` types for C, Swift, and Zig source
 text. A streaming parser can process many text formats with bounded working
 memory. A Document Object Model (DOM) parser allocates a tree instead.
 
-## Structured data
+### Structured data and databases
 
 | Format | Use it for | Tradeoff |
 | --- | --- | --- |
@@ -138,13 +141,12 @@ Use SQLite when consumers need random access or relational operations. Do not
 convert indexed or relational data to CSV when consumers still need those
 features.
 
-## Archives, forms, and web snapshots
+## Archives and forms
 
 | Format | Use it for | Tradeoff |
 | --- | --- | --- |
 | `application/x-tar` | A file collection that a component reads or writes in order. | TAR does not include compression. |
 | `application/zip` | A compressed archive for users and desktop tools. | Some ZIP operations must read the central directory at the end of the file. |
-| `application/warc` | A website snapshot with web responses and metadata. | A consumer needs WARC support or a conversion step. |
 | `application/x-www-form-urlencoded` | Small named UTF-8 form fields. | The format is not suitable for file bodies. |
 | `multipart/form-data` | Forms with files or separate metadata for each part. | Boundary parsing is more complex than URL-encoded form parsing. |
 
@@ -153,26 +155,42 @@ boundaries. The ZIP-to-TAR component accepts bounded classic ZIP archives. It
 supports stored and DEFLATE entries. It rejects ZIP64, encryption, split
 archives, special file types, and unsafe extraction paths.
 
-Use WARC when a website snapshot must preserve routed output and response
-metadata. For example, `qip router warc ...` writes `application/warc`. A QIP
-component can convert WARC to TAR for static hosting.
+## WARC web snapshots
 
-## Documents, fonts, and executable modules
+`application/warc` carries a complete routed site between whole-site
+components. Each response record preserves its URI, status, headers, and body.
+This lets one component check links across pages while another adds routes or
+converts the finished site to a static TAR archive.
+
+Use `qip router warc ...` to produce the archive. WARC is larger and less
+widely supported than ZIP or TAR, so convert it at the boundary where another
+system needs ordinary files.
+
+## Documents and fonts
 
 | Format | Use it for | Tradeoff |
 | --- | --- | --- |
 | `application/pdf` | Fixed page layout and vector artwork. | PDF is harder to edit than the source document or SVG. |
 | `font/ttf` | SFNT fonts with TrueType `glyf` outlines. | Consumers need a font parser or an outline conversion step. |
-| `application/wasm` | A compiled QIP component. | Wasm is executable input, not a general data format. |
 
 QIP can extract text and images from PDF. QIP can also convert a strict SVG
 subset to PDF/A-2b. Font components can convert TrueType outlines to SVG paths
 or CSV data.
 
-Apply the validation and execution policies in
-[Hard Limits](/docs/hard-limits) before you run an untrusted Wasm module.
+## WebAssembly components
 
-## Formats and encodings are different layers
+`application/wasm` is both QIP's executable component format and a Content
+format that other components can process. Components such as validators,
+counters, translators, and instrumentation passes accept a Wasm module and
+return facts, source code, or another module. This higher-level boundary lets a
+component inspect or transform another component without adding that logic to
+the host.
+
+Wasm is executable input, not a general data format. Before you run an
+untrusted module, apply the validation and execution policies in
+[Hard Limits](/docs/hard-limits).
+
+## Encodings and pipeline compatibility
 
 A format defines file or container semantics. Examples include
 `image/svg+xml`, `application/warc`, and `image/bmp`. An encoding defines the
@@ -182,8 +200,8 @@ QIP supports these processing encodings:
 
 - UTF-8 for Content text through `input_utf8_cap` and `output_utf8_cap`.
 - `RGBA32Float` for image filter tiles through `tile_rgba32float_64x64`.
-- RGBA8 sRGB for interactive frame output. See the
-  [Interactive Component Contract](/docs/interactive-component).
+- RGBA8 sRGB in canonical KTX2 for GUI component output. See
+  [GUI Components](/docs/gui-components).
 
 Valid UTF-8 is also valid raw byte input. Therefore, UTF-8 Content output can
 feed a raw-byte Content input. Arbitrary raw bytes cannot feed a UTF-8 input
@@ -194,7 +212,9 @@ image bridge to cross this boundary. The host decodes Content image bytes to
 tiles before a contiguous Tile group. The host encodes the tiles as Content
 image bytes after the Tile group.
 
-## Validate data at an untrusted boundary
+## Validation and trade-offs
+
+### Validate data at an untrusted boundary
 
 A content type is a component precondition or guarantee. An `image/png`
 component can rely on its documented PNG profile. It does not have to repeat
@@ -211,7 +231,7 @@ untrusted bytes -> validate PNG -> valid image/png -> transform PNG
 A pass-through validator can reject malformed data and return accepted bytes
 as `image/png`. A recipe must not infer validation from a claimed content type.
 
-## When not to use these formats
+### When not to use these formats
 
 Use an application-specific format when the formats on this page cannot
 preserve the required semantics. Keep a simple format between QIP components,

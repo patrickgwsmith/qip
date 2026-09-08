@@ -212,7 +212,7 @@ Because components are self-contained, maintenance becomes a breeze. Don't worry
 
 ## Cross-platform `<canvas>` components
 
-QIP Interactive Components receive keyboard & pointer events and render out pixels.
+QIP GUI Components receive keyboard and pointer events and render pixels.
 
 Use `<qip-play>` to render them in the browser, or use our SDK to render them in Swift.
 

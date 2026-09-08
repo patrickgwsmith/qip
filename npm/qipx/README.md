@@ -5,7 +5,8 @@ zero-dependency CLI and library to compose pipelines and run interactive
 terminal apps.
 
 It supports [QIP Content components](https://qip.dev/docs/content-component),
-Interactive components, and [Compliance oracles](https://qip.dev/docs/comply).
+[TUI components](https://qip.dev/docs/tui-components), and
+[Compliance oracles](https://qip.dev/docs/comply).
 
 The package targets Node.js 22 or newer. Useful component and oracle
 downloads are available from [qip.dev/tools](https://qip.dev/tools) and
@@ -46,7 +47,7 @@ Then open the same component in the interactive debugger:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  interactive/wasm-debugger.wasm
+  interactive/qipdb.wasm
 ```
 
 Press `s` or ↓ to step into the next instruction, Space to continue, and
@@ -134,13 +135,13 @@ HTTPS origin, time out after 30 seconds, and have a 16 MiB decoded-byte limit.
 
 ## TUI
 
-Run a text-rendering Interactive component in the terminal:
+Run a TUI component in the terminal:
 
 ```sh
 qipx tui \
   -F component=@components/text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
-  components/interactive/wasm-debugger.wasm
+  components/interactive/qipdb.wasm
 ```
 
 The first component is retained across key events and scheduled updates.
@@ -154,8 +155,7 @@ rendered output. It rejects cursor movement, OSC, DCS, clipboard commands, and
 other terminal controls before writing a frame. `Ctrl-C` exits, `Ctrl-Z`
 suspends on Unix, and `Ctrl-S`/`Ctrl-Q` remain reserved.
 
-See [Running Interactive Components In A
-Terminal](https://qip.dev/docs/terminal-interactive-components) for the exact
+See [TUI Components](https://qip.dev/docs/tui-components) for the exact
 keyboard and output rules.
 
 ### Uniforms
@@ -251,7 +251,7 @@ Use repeatable `-F` or `--form` fields to benchmark a component that accepts
 qipx bench \
   -F component=@components/text/hello.wasm \
   --runs 100 \
-  components/interactive/wasm-debugger.wasm
+  components/interactive/qipdb.wasm
 ```
 
 Benchmark forms use the same canonical bytes as `qipx run` and Go `qip bench`.

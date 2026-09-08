@@ -27,7 +27,7 @@ The distinction is the overall user experience, not the presence of a particular
 - A published Markdown document with its source in a hidden input is a view.
 - A Markdown authoring interface is an edit.
 - An editor temporarily locked by permissions remains an edit: it is still fundamentally an authoring interface.
-- A game, simulation, or other persistent interactive component is a play experience.
+- A game, simulation, or other persistent GUI component is a play experience.
 
 ## `<qip-view>`
 
@@ -264,7 +264,7 @@ post-processing components:
 
 This example maps the light end of the image to HDR orange. Change the three
 `highlight` uniforms to author another linear Display P3 color without changing
-the Interactive component.
+the GUI component.
 
 The first step must implement Interactive. Later steps must implement finite
 Content, accept and emit `image/ktx2`, and must not export Timed or Eventful
@@ -308,13 +308,13 @@ source, latest render time, and render count for each named step.
 
 The distinction from `<qip-edit>` is not merely that both accept interaction. Editing changes declared source inputs and produces finite results; playing interacts with a running component whose state persists between events. A fallback, poster, or initial snapshot may be rendered ahead of time, but the experience requires client activation to become interactive.
 
-The element supports the [Timed and Eventful
-contract](/docs/timed-and-eventful-components): `begin_update_at`, complete
+The element supports [Time and Events](/docs/time-and-events):
+`begin_update_at`, complete
 update uniforms, timestamp-free events, `finish_update`, separate
 presentation, and canonical KTX2 output. `calculator` uses the
 application-style path. `snake` combines events with fixed-step scheduled
-wakes. See also [Interactive Component Contract](/docs/interactive-component)
-and [Interactive Rendering Performance](/docs/interactive-rendering-performance).
+wakes. See also [GUI Components](/docs/gui-components) and
+[Interactive Rendering Performance](/docs/interactive-rendering-performance).
 
 ## Pre-Rendering
 
@@ -346,5 +346,5 @@ A custom element such as `<account-usage-report>` can own authenticated fetching
 - [Content Component Contract](/docs/content-component) — the exports, inputs, outputs, and content-type composition used by finite renderers.
 - [Hard Limits](/docs/hard-limits) — the memory, time, and host-access budget components run within.
 - [Architecture And Boundaries](/docs/architecture-boundaries) — where trust boundaries sit between host, component, and page.
-- [Interactive Component Contract](/docs/interactive-component) — the contract behind `<qip-play>`.
+- [GUI Components](/docs/gui-components) — the composed contract behind `<qip-play>`.
 - [Form ABI](/docs/form_abi) — prompt-driven form components, a separate element family.
