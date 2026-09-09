@@ -275,22 +275,14 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 export function highlightJavaScript(source) {
-  const input = encoder.encode(source);
-  if (input.byteLength > input_utf8_cap()) {
-    throw new RangeError("Input exceeds the component capacity");
+  const input = new Uint8Array(memory.buffer, input_ptr(), input_utf8_cap());
+  const { read, written } = encoder.encodeInto(source, input);
+  if (read !== source.length) {
+    throw new RangeError(`Input exceeds the component capacity of ${input.byteLength} bytes`);
   }
 
-  const inputPointer = input_ptr();
-  new Uint8Array(memory.buffer, inputPointer, input.byteLength).set(input);
-
-  const result = BigInt.asUintN(64, render(input.byteLength));
-  if ((result & (1n << 63n)) !== 0n) {
-    throw new Error("The component rejected the input");
-  }
-
-  const outputLength = Number(result & 0xffff_ffffn);
-  const outputPointer = Number((result >> 32n) & 0x7fff_ffffn);
-  const output = new Uint8Array(memory.buffer, outputPointer, outputLength);
+  const result = render(written);
+  const output = new Uint8Array(memory.buffer, Number((result >> 32n) & 0x7fff_ffffn), Number(result & 0xffff_ffffn));
   return decoder.decode(output);
 }
 ```
