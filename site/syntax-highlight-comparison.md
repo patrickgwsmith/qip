@@ -2,9 +2,9 @@
 
 # JavaScript syntax highlighter in [12.7 kB](/text/javascript/js-syntax-highlight-html.wasm) of WebAssembly
 
-`js-syntax-highlight-html.wasm` highlighted 5.56 MB of `three.min.js` in 247 ms in
-Chrome and 263 ms in Node. This was 2.6 times faster than
-the impressively-language-agnostic small model [gpu-lexer](https://gpu-lexer.vercel.app/) at 633 ms on the same Apple M5.
+`js-syntax-highlight-html.wasm` highlighted 5.56 MB of `three.min.js` in 265 ms in
+Chrome and 263 ms in Node. This was 2.0 times faster than
+the impressively-language-agnostic small model [gpu-lexer](https://gpu-lexer.vercel.app/) at 533 ms on the same Apple M5.
 Chrome executed the component on the CPU, while gpu-lexer used WebGPU. `js-syntax-highlight-html.wasm` labels agreed with Shiki on 99.97% of non-whitespace characters.
 
 The component accepts raw `text/javascript` and returns escaped `text/html`.
@@ -154,7 +154,7 @@ main table {
 </style>
 
 <div class="syntax-summary" role="group" aria-label="Syntax highlighter benchmark summary">
-  <div><strong>247 ms</strong><span>10× three.min.js in Chrome</span></div>
+  <div><strong>265 ms</strong><span>10× three.min.js in Chrome</span></div>
   <div><strong>99.97%</strong><span>agreement with Shiki</span></div>
   <div><strong>12.7 kB</strong><span>Wasm module</span></div>
 </div>
@@ -292,8 +292,8 @@ export function highlightJavaScript(source) {
 <figure class="benchmark-chart">
   <figcaption>Time to highlight 10× three.min.js · lower is better</figcaption>
   <div class="benchmark-bars">
-    <span>js-syntax-highlight-html.wasm</span><div class="benchmark-track"><div class="benchmark-bar qip" style="--bar-width: 0.71%"></div></div><span class="benchmark-time">247 ms</span>
-    <span><a href="https://gpu-lexer.vercel.app/">gpu-lexer</a></span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 1.83%"></div></div><span class="benchmark-time">633 ms</span>
+    <span>js-syntax-highlight-html.wasm</span><div class="benchmark-track"><div class="benchmark-bar qip" style="--bar-width: 0.77%"></div></div><span class="benchmark-time">265 ms</span>
+    <span><a href="https://gpu-lexer.vercel.app/">gpu-lexer</a></span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 1.54%"></div></div><span class="benchmark-time">533 ms</span>
     <span>Sugar High</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 3.61%"></div></div><span class="benchmark-time">1.25 s</span>
     <span>Prism</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 5.29%"></div></div><span class="benchmark-time">1.83 s</span>
     <span>Starry Night</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 38.13%"></div></div><span class="benchmark-time">13.19 s</span>
@@ -305,16 +305,19 @@ The input was ten copies of
 [`three@0.97.0/build/three.min.js`](https://unpkg.com/three@0.97.0/build/three.min.js),
 or 5,556,500 bytes. The browser test used CPU WebAssembly in headless Chrome
 152 with V8 15.2.124.21. The Node tests used Node.js 26.8.1 and V8
-14.6.202.34. All tests ran sequentially on an Apple M5. Each highlighter had
-one warm-up run. The Wasm component, Sugar High, and Prism had ten measured
-runs. Starry Night and Shiki had three because each run took more than ten
-seconds.
+14.6.202.34. All tests ran sequentially on a MacBook Air with an Apple M5, a
+10-core GPU, 24 GB of memory, and macOS 26.6.2. Each highlighter had one warm-up
+run. The Wasm component and gpu-lexer had 40 measured runs in four batches. The
+batch means were 238 to 301 ms for the Wasm component and 497 to 548 ms for
+gpu-lexer. Sugar High and Prism had ten measured runs. Starry Night and Shiki
+had three because each run took more than ten seconds. The gpu-lexer test used
+[version 0.0.2](https://www.npmjs.com/package/gpu-lexer/v/0.0.2).
 
 | Highlighter | Mean | Runtime | Input | Returned value |
 | --- | ---: | --- | --- | --- |
-| [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) | 247 ms | Chrome/WebAssembly CPU | 5.56 MB raw JavaScript | 26.09 MB HTML |
+| [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) | 265 ms | Chrome/WebAssembly CPU | 5.56 MB raw JavaScript | 26.09 MB HTML |
 | [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) | 263 ms | Node/V8 | 5.56 MB raw JavaScript | 26.09 MB HTML |
-| [gpu-lexer](https://gpu-lexer.vercel.app/) | 633 ms | Chrome/WebGPU | 5.56 MB raw JavaScript | 1,053,420 token ranges |
+| [gpu-lexer](https://gpu-lexer.vercel.app/) 0.0.2 | 533 ms | Chrome/WebGPU | 5.56 MB raw JavaScript | 1,054,839 token ranges |
 | [Sugar High 2.3.1](https://github.com/huozhi/sugar-high) | 1.25 s | Node/V8 | 5.56 MB raw JavaScript | 147.50 MB HTML |
 | [Prism 1.30.0](https://github.com/PrismJS/prism) | 1.83 s | Node/V8 | 5.56 MB raw JavaScript | 59.11 MB HTML |
 | [Starry Night 3.11.0](https://github.com/wooorm/starry-night) | 13.19 s | Node/V8 | 5.56 MB raw JavaScript | HAST with 1,485,453 nodes |
