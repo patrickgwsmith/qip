@@ -1,10 +1,20 @@
 #!/usr/bin/env node
 
-import { createHash, randomUUID } from "node:crypto";
-import { link, mkdir, readFile, readdir, realpath, stat, unlink, writeFile } from "node:fs/promises";
-import { arch, cpus, platform } from "node:os";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
-import { gzipSync } from "node:zlib";
+const runningInNode = typeof process !== "undefined" && process.versions?.node;
+const [nodeCrypto, nodeFS, nodeOS, nodePath, nodeZlib] = runningInNode
+  ? await Promise.all([
+      import("node:crypto"),
+      import("node:fs/promises"),
+      import("node:os"),
+      import("node:path"),
+      import("node:zlib"),
+    ])
+  : [{}, {}, {}, {}, {}];
+const { createHash, randomUUID } = nodeCrypto;
+const { link, mkdir, readFile, readdir, realpath, stat, unlink, writeFile } = nodeFS;
+const { arch, cpus, platform } = nodeOS;
+const { basename, dirname, isAbsolute, join, relative } = nodePath;
+const { gzipSync } = nodeZlib;
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const encoder = new TextEncoder();
