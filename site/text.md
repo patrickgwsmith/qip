@@ -94,7 +94,7 @@ Related tool: [Open Graph image maker](/og-image).
 
 ### JavaScript (`text/javascript`)
 
-- [`javascript-to-syntax-highlight-html.wasm`](/text/javascript/javascript-to-syntax-highlight-html.wasm) escapes JavaScript and adds eight semantic syntax classes. It returns `text/html`.
+- [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) escapes JavaScript and adds eight semantic syntax classes. It returns `text/html`.
 - [`js-to-bmp.wasm`](/text/javascript/js-to-bmp.wasm) renders the supported JavaScript syntax subset to a BMP image.
 - [`js-to-bmp2.wasm`](/text/javascript/js-to-bmp2.wasm) provides the newer Zig implementation of the same JavaScript-to-BMP pipeline.
 

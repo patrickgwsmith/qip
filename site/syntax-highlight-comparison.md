@@ -1,14 +1,14 @@
 <title>Syntax highlight comparison</title>
 
-# JavaScript highlighting: 319 ms, 99.97% Shiki agreement
+# JavaScript syntax highlighter in [12.7 kB](/text/javascript/js-syntax-highlight-html.wasm) of WebAssembly
 
-QIP highlighted 5.56 MB of `three.min.js` in 319 ms. Its labels agreed with
-Shiki on 99.97% of non-whitespace characters. The WebAssembly module is 12.7
-kB.
+`js-syntax-highlight-html.wasm` highlighted 5.56 MB of `three.min.js` in 247 ms in
+Chrome and 263 ms in Node. This was 2.6 times faster than
+[gpu-lexer](https://gpu-lexer.vercel.app/) at 633 ms on the same Apple M5.
+Chrome executed the component on the CPU, while gpu-lexer used WebGPU. Its labels agreed with Shiki on 99.97% of non-whitespace characters.
 
 The component accepts raw `text/javascript` and returns escaped `text/html`.
-Its output is a fragment with flat semantic spans. It does not add `pre`,
-`code`, line, or theme elements.
+The benchmark calls its QIP Content ABI directly from JavaScript.
 
 <style>
 .syntax-summary {
@@ -153,8 +153,8 @@ main table {
 }
 </style>
 
-<div class="syntax-summary" role="group" aria-label="QIP benchmark summary">
-  <div><strong>319 ms</strong><span>10× three.min.js</span></div>
+<div class="syntax-summary" role="group" aria-label="Syntax highlighter benchmark summary">
+  <div><strong>247 ms</strong><span>10× three.min.js in Chrome</span></div>
   <div><strong>99.97%</strong><span>agreement with Shiki</span></div>
   <div><strong>12.7 kB</strong><span>Wasm module</span></div>
 </div>
@@ -201,7 +201,7 @@ function formatBytes(size) {
 }
 
 try {
-  const response = await fetch("/text/javascript/javascript-to-syntax-highlight-html.wasm");
+  const response = await fetch("/text/javascript/js-syntax-highlight-html.wasm");
   if (!response.ok) throw new Error(`Wasm request returned HTTP ${response.status}`);
   const wasmBytes = await response.arrayBuffer();
   const { instance } = await WebAssembly.instantiate(wasmBytes);
@@ -248,21 +248,60 @@ try {
 }
 </script>
 
-<a href="/text/javascript/javascript-to-syntax-highlight-html.wasm" download>Download <code>javascript-to-syntax-highlight-html.wasm</code> (<qip-content-size src="/text/javascript/javascript-to-syntax-highlight-html.wasm"></qip-content-size>)</a>.
+<p><a href="/text/javascript/js-syntax-highlight-html.wasm" download>Download <code>js-syntax-highlight-html.wasm</code> (<qip-content-size src="/text/javascript/js-syntax-highlight-html.wasm"></qip-content-size>)</a></p>
+
+## Run in qipx cli
 
 ```sh
-qip run -i input.js \
-  components/text/javascript/javascript-to-syntax-highlight-html.wasm \
+npx @qip.dev/qipx qip.dev run -i input.js \
+  text/javascript/js-syntax-highlight-html.wasm \
   -o highlighted.html
 ```
 
-## Speed on `three.min.js`
+## Run in JavaScript
+
+With a bundler that supports WebAssembly ES module integration, wrap the
+component in a JavaScript module:
+
+```js
+import {
+  memory,
+  input_ptr,
+  input_utf8_cap,
+  render,
+} from "./js-syntax-highlight-html.wasm";
+
+const encoder = new TextEncoder();
+const decoder = new TextDecoder("utf-8", { fatal: true });
+
+export function highlightJavaScript(source) {
+  const input = encoder.encode(source);
+  if (input.byteLength > input_utf8_cap()) {
+    throw new RangeError("Input exceeds the component capacity");
+  }
+
+  const inputPointer = input_ptr();
+  new Uint8Array(memory.buffer, inputPointer, input.byteLength).set(input);
+
+  const result = BigInt.asUintN(64, render(input.byteLength));
+  if ((result & (1n << 63n)) !== 0n) {
+    throw new Error("The component rejected the input");
+  }
+
+  const outputLength = Number(result & 0xffff_ffffn);
+  const outputPointer = Number((result >> 32n) & 0x7fff_ffffn);
+  const output = new Uint8Array(memory.buffer, outputPointer, outputLength);
+  return decoder.decode(output);
+}
+```
+
+## Speed comparison
 
 <figure class="benchmark-chart">
   <figcaption>Time to highlight 10× three.min.js · lower is better</figcaption>
   <div class="benchmark-bars">
-    <span>QIP</span><div class="benchmark-track"><div class="benchmark-bar qip" style="--bar-width: 0.92%"></div></div><span class="benchmark-time">319 ms</span>
-    <span><a href="https://gpu-lexer.vercel.app/">gpu-lexer*</a></span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 1.83%"></div></div><span class="benchmark-time">633 ms</span>
+    <span>js-syntax-highlight-html.wasm</span><div class="benchmark-track"><div class="benchmark-bar qip" style="--bar-width: 0.71%"></div></div><span class="benchmark-time">247 ms</span>
+    <span><a href="https://gpu-lexer.vercel.app/">gpu-lexer</a></span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 1.83%"></div></div><span class="benchmark-time">633 ms</span>
     <span>Sugar High</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 3.61%"></div></div><span class="benchmark-time">1.25 s</span>
     <span>Prism</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 5.29%"></div></div><span class="benchmark-time">1.83 s</span>
     <span>Starry Night</span><div class="benchmark-track"><div class="benchmark-bar" style="--bar-width: 38.13%"></div></div><span class="benchmark-time">13.19 s</span>
@@ -272,50 +311,52 @@ qip run -i input.js \
 
 The input was ten copies of
 [`three@0.97.0/build/three.min.js`](https://unpkg.com/three@0.97.0/build/three.min.js),
-or 5,556,500 bytes. The CPU tests ran sequentially on an Apple M5 with Node.js
-26.8.1 and V8 14.6.202.34. Each library had one warm-up run. QIP, Sugar High,
-and Prism had ten measured runs. Starry Night and Shiki had three because each
-run took more than ten seconds.
+or 5,556,500 bytes. The browser test used CPU WebAssembly in headless Chrome
+152 with V8 15.2.124.21. The Node tests used Node.js 26.8.1 and V8
+14.6.202.34. All tests ran sequentially on an Apple M5. Each highlighter had
+one warm-up run. The Wasm component, Sugar High, and Prism had ten measured
+runs. Starry Night and Shiki had three because each run took more than ten
+seconds.
 
 | Highlighter | Mean | Runtime | Input | Returned value |
 | --- | ---: | --- | --- | --- |
-| QIP | 319 ms | Node/V8 | 5.56 MB raw JavaScript | 26.09 MB HTML |
+| [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) | 247 ms | Chrome/WebAssembly CPU | 5.56 MB raw JavaScript | 26.09 MB HTML |
+| [`js-syntax-highlight-html.wasm`](/text/javascript/js-syntax-highlight-html.wasm) | 263 ms | Node/V8 | 5.56 MB raw JavaScript | 26.09 MB HTML |
 | [gpu-lexer](https://gpu-lexer.vercel.app/) | 633 ms | Chrome/WebGPU | 5.56 MB raw JavaScript | 1,053,420 token ranges |
 | [Sugar High 2.3.1](https://github.com/huozhi/sugar-high) | 1.25 s | Node/V8 | 5.56 MB raw JavaScript | 147.50 MB HTML |
 | [Prism 1.30.0](https://github.com/PrismJS/prism) | 1.83 s | Node/V8 | 5.56 MB raw JavaScript | 59.11 MB HTML |
 | [Starry Night 3.11.0](https://github.com/wooorm/starry-night) | 13.19 s | Node/V8 | 5.56 MB raw JavaScript | HAST with 1,485,453 nodes |
 | Shiki 4.4.3 | 34.59 s | Node/V8 | 5.56 MB raw JavaScript | 1,160,820 tokens |
 
-*gpu-lexer ran in Chrome 152 on the same Apple GPU. It is not a Node.js result.
-
 These libraries return different data structures. HTML generators allocate and
 copy markup. Starry Night builds a syntax tree. Shiki returns detailed tokens.
 gpu-lexer returns source ranges. The table measures the complete returned value,
 not token recognition alone.
 
-### Why QIP returns less HTML
+### Why the component returns less HTML
 
-QIP copies plain identifiers, whitespace, and punctuation without wrappers. It
-adds a flat `span` only to comments, strings, numbers, keywords, types,
-functions, constants, and operators. Each highlighted run adds 33 to 37 bytes
-of markup. The component adds no line wrappers, inline styles, or nested token
-elements.
+The component copies plain identifiers, whitespace, and punctuation without
+wrappers. It adds a flat `span` only to comments, strings, numbers, keywords,
+types, functions, constants, and operators. Each highlighted run adds 33 to 37
+bytes of markup. The component adds no line wrappers, inline styles, or nested
+token elements.
 
 Sugar High wraps every token and every line. Its default token markup contains
 both a class and an inline color style. Prism also wraps punctuation and can
 produce nested token spans. Those choices support their styling models, but
 they create more markup for punctuation-heavy minified code.
 
-For this input, QIP's 26.09 MB result was 56% smaller than Prism's HTML and 82%
-smaller than Sugar High's HTML. The QIP output is still 4.7 times larger than
-the source because `three.min.js` contains many short highlighted tokens.
+For this input, the component's 26.09 MB result was 56% smaller than Prism's
+HTML and 82% smaller than Sugar High's HTML. Its output is still 4.7 times
+larger than the source because `three.min.js` contains many short highlighted
+tokens.
 
 ## Agreement with Shiki
 
-Shiki 4.4.3 is the reference when QIP and another highlighter disagree. The
-score maps Shiki's TextMate scopes and QIP's HTML classes to the nine token
-types used by gpu-lexer: plain, comment, string, number, keyword, type,
-function, constant, and operator.
+Shiki 4.4.3 is the reference when the component and another highlighter
+disagree. The score maps Shiki's TextMate scopes and the component's HTML
+classes to the nine token types used by gpu-lexer: plain, comment, string,
+number, keyword, type, function, constant, and operator.
 
 | Fixture | Bytes | Shiki agreement |
 | --- | ---: | ---: |
@@ -325,8 +366,8 @@ function, constant, and operator.
 | [Lodash 4.18.1](https://unpkg.com/lodash@4.18.1/lodash.js) | 545,945 | 99.99% |
 
 The score compares the class of each non-whitespace source character. The
-runner also decodes the QIP HTML and requires it to reproduce the complete
-input. QIP cannot gain points by dropping text.
+runner also decodes the component's HTML and requires it to reproduce the
+complete input. The component cannot gain points by dropping text.
 
 These are focused JavaScript regression measurements. They are not comparable
 to gpu-lexer's Top-25 score. That score covers many languages and gives an
@@ -341,7 +382,7 @@ parentheses and nested conditional expressions.
 
 The project uses two oracle layers:
 
-1. `compare-shiki.mjs` downloads four pinned JavaScript files, verifies their byte lengths and SHA-256 digests, runs Shiki and QIP, and reports each disagreement.
+1. `compare-shiki.mjs` downloads four pinned JavaScript files, verifies their byte lengths and SHA-256 digests, runs Shiki and the Wasm component, and reports each disagreement.
 2. A developer reduces a useful disagreement to a short input and exact HTML output in `syntax-highlight-javascript-semantic.fixtures.txt`.
 3. `syntax-highlight-javascript-semantic.comply.zig` embeds that fixture file and compiles it into a 5.7 kB Compliance module.
 4. `qip comply` runs those exact cases against the highlighter. A changed byte, missing span, extra span, or escaping error fails the check.
@@ -381,7 +422,7 @@ Run the contract with:
 
 ```sh
 qip comply \
-  components/text/javascript/javascript-to-syntax-highlight-html.wasm \
+  components/text/javascript/js-syntax-highlight-html.wasm \
   --with compliance/syntax-highlight-javascript-semantic.comply.wasm \
   --straight-line-oracles
 ```
@@ -410,9 +451,9 @@ npm run compare -- --json react-development
 
 ## Output classes
 
-QIP uses the same nine-class vocabulary as gpu-lexer's comparison, but not its
-token decisions. Plain text has no element. The eight highlighted types use a
-`syntax-` prefix to avoid generic application class names.
+The component uses the same nine-class vocabulary as gpu-lexer's comparison,
+but not its token decisions. Plain text has no element. The eight highlighted
+types use a `syntax-` prefix to avoid generic application class names.
 
 | Token | HTML class |
 | --- | --- |
@@ -427,8 +468,8 @@ token decisions. Plain text has no element. The eight highlighted types use a
 | Plain text | No element |
 
 These are not Shiki CSS classes. Shiki normally returns TextMate scopes,
-tokens, and theme colors. QIP's smaller vocabulary keeps presentation separate
-from token meaning.
+tokens, and theme colors. The component's smaller vocabulary keeps presentation
+separate from token meaning.
 
 The comparison normalizes Shiki scopes in this order:
 
@@ -445,9 +486,9 @@ The comparison normalizes Shiki scopes in this order:
 | All other scopes | Plain text |
 
 The remaining differences come from context that a small lexer does not fully
-parse and from formatting-sensitive TextMate scopes. QIP does not add a special
-case only to imitate an unusual scope decision. A new rule must describe useful
-JavaScript behavior and have a reduced Compliance case.
+parse and from formatting-sensitive TextMate scopes. The component does not add
+a special case only to imitate an unusual scope decision. A new rule must
+describe useful JavaScript behavior and have a reduced Compliance case.
 
 ## When to use another highlighter
 
@@ -457,9 +498,8 @@ theme compatibility justify its cost. Use Starry Night when you need
 GitHub-compatible `pl-*` classes or a HAST tree. Use Prism or Sugar High when
 their CSS and browser integration fit your application.
 
-The QIP lexer uses deliberate heuristics. It is not a complete JavaScript
-parser, and it does not support the language range of Shiki, Starry Night, or
-gpu-lexer.
+The lexer uses deliberate heuristics. It is not a complete JavaScript parser,
+and it does not support the language range of Shiki, Starry Night, or gpu-lexer.
 
 ## Did the Compliance oracle help?
 

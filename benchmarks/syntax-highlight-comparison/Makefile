@@ -4,7 +4,7 @@ install:
 	npm ci
 
 build:
-	$(MAKE) -C ../.. components/text/javascript/javascript-to-syntax-highlight-html.wasm
+	$(MAKE) -C ../.. components/text/javascript/js-syntax-highlight-html.wasm
 
 compare: build
 	npm run compare

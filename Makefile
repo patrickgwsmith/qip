@@ -86,7 +86,7 @@ components/text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += --stack 102
 components/text/html/html-code-syntax-highlight-css.wasm: components/text/html/lib/syntax-highlight-css.zig
 components/text/html/html-code-syntax-highlight-tsx.wasm: components/text/html/lib/syntax-highlight-javascript.zig
 components/text/html/html-code-syntax-highlight-html.wasm: components/text/html/lib/syntax-highlight-css.zig components/text/html/lib/syntax-highlight-javascript.zig
-components/text/javascript/javascript-to-syntax-highlight-html.wasm: components/text/javascript/javascript-to-syntax-highlight-html.zig components/text/html/lib/syntax-highlight-javascript.zig
+components/text/javascript/js-syntax-highlight-html.wasm: components/text/javascript/js-syntax-highlight-html.zig components/text/html/lib/syntax-highlight-javascript.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep javascript -Mroot=$< -Mjavascript=components/text/html/lib/syntax-highlight-javascript.zig -femit-bin=$@
 components/text/html/html-to-accessibility-tree.wasm components/text/html/html-accessible-name-unique-validator.wasm: components/text/html/lib/html-accessibility.zig
 
@@ -1070,7 +1070,7 @@ test-deno: qip components
 
 test-comply: qip components compliance
 	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-tsx.wasm --with compliance/syntax-highlight-javascript.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/javascript/javascript-to-syntax-highlight-html.wasm --with compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply components/text/javascript/js-syntax-highlight-html.wasm --with compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-html.wasm --with compliance/syntax-highlight-html.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-css.wasm --with compliance/syntax-highlight-css.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply recipes/text/markdown/25-html-code-syntax-highlight-python.wasm --with compliance/syntax-highlight-python.comply.wasm --straight-line-oracles
@@ -1210,7 +1210,7 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig || status=1; \
 		elif [ "$$f" = "components/text/html/html-to-svg-inter-paths.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=components/text/lib/inter_display_latin_paths.zig -Minter_bold=components/text/lib/inter_display_bold_latin_paths.zig || status=1; \
-		elif [ "$$f" = "components/text/javascript/javascript-to-syntax-highlight-html.zig" ]; then \
+		elif [ "$$f" = "components/text/javascript/js-syntax-highlight-html.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep javascript -Mroot="$$f" -Mjavascript=components/text/html/lib/syntax-highlight-javascript.zig || status=1; \
 		elif [ "$$f" = "components/image/svg+xml/svg-to-pdf-inter-font.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot="$$f" -Mttf=components/font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig || status=1; \
