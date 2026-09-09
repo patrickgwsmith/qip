@@ -1,0 +1,12 @@
+{
+  "name": "qip-syntax-highlight-comparison",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compare": "node compare-shiki.mjs",
+    "benchmark:qip": "node benchmark-qip.mjs"
+  },
+  "dependencies": {
+    "shiki": "4.4.3"
+  }
+}

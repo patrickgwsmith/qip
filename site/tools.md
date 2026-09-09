@@ -34,6 +34,7 @@ Browse the complete lists of [`text/*` components](/text) and [`image/*` compone
 - [High-quality image resizer](/image-resize) uses Lanczos3 for reduction and Mitchell-Netravali bicubic reconstruction for enlargement.
 - [WebP to PNG or BMP](/webp-to-png) decodes static lossy or lossless WebP locally.
 - [Syntax highlighter](/syntax-highlight) turns pasted code into self-contained highlighted HTML.
+- [Syntax highlight comparison](/syntax-highlight-comparison) compares QIP with gpu-lexer, Sugar High, Prism, Starry Night, and Shiki.
 - [HTML accessibility tree](/accessibility-tree) shows the roles and accessible names screen readers compute from your HTML.
 - [CSS minifier](/css-minifier) removes unnecessary CSS whitespace and comments.
 - [CSS expression calculator](/css-expression-calculator) resolves viewport units, safe-area insets, and keyboard insets for editable mobile scenarios.

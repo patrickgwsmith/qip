@@ -85,6 +85,7 @@ syntax highlighters.
 | HTML | [wasm](/oracles/syntax-highlight-html.comply.wasm) | [zig](/oracles/syntax-highlight-html.comply.zig) |
 | Java | [wasm](/oracles/syntax-highlight-java.comply.wasm) | [zig](/oracles/syntax-highlight-java.comply.zig) |
 | JavaScript | [wasm](/oracles/syntax-highlight-javascript.comply.wasm) | [zig](/oracles/syntax-highlight-javascript.comply.zig) |
+| JavaScript semantic classes | [wasm](/oracles/syntax-highlight-javascript-semantic.comply.wasm) | [zig](/oracles/syntax-highlight-javascript-semantic.comply.zig) |
 | Python | [wasm](/oracles/syntax-highlight-python.comply.wasm) | [zig](/oracles/syntax-highlight-python.comply.zig) |
 | Ruby | [wasm](/oracles/syntax-highlight-ruby.comply.wasm) | [zig](/oracles/syntax-highlight-ruby.comply.zig) |
 | Swift | [wasm](/oracles/syntax-highlight-swift.comply.wasm) | [zig](/oracles/syntax-highlight-swift.comply.zig) |

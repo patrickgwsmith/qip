@@ -1,8 +1,8 @@
 const std = @import("std");
 const javascript = @import("lib/syntax-highlight-javascript.zig");
 
-const INPUT_CAP: usize = 1024 * 1024;
-const OUTPUT_CAP: usize = 4 * 1024 * 1024;
+const INPUT_CAP: usize = 8 * 1024 * 1024;
+const OUTPUT_CAP: usize = 32 * 1024 * 1024;
 const INPUT_CONTENT_TYPE = "text/html";
 const OUTPUT_CONTENT_TYPE = "text/html";
 
@@ -41,6 +41,14 @@ const Writer = struct {
         self.openSpan(class_name);
         self.writeSlice(text);
         self.closeSpan();
+    }
+
+    pub fn writeOperator(self: *Writer, text: []const u8) void {
+        self.writeSlice(text);
+    }
+
+    pub fn writeParameterType(self: *Writer, text: []const u8) void {
+        self.writeSpan("hljs-title class_", text);
     }
 
     pub fn openSpan(self: *Writer, class_name: []const u8) void {

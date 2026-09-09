@@ -44,6 +44,14 @@ const Writer = struct {
         self.closeSpan();
     }
 
+    pub fn writeOperator(self: *Writer, text: []const u8) void {
+        self.writeSlice(text);
+    }
+
+    pub fn writeParameterType(self: *Writer, text: []const u8) void {
+        self.writeSpan("hljs-title class_", text);
+    }
+
     pub fn openSpan(self: *Writer, class_name: []const u8) void {
         self.writeSlice("<span class=\"");
         self.writeSlice(class_name);

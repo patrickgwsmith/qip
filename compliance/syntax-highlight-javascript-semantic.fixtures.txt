@@ -1,0 +1,73 @@
+=== INPUT ===
+async function render(value) {
+  const message = "QIP";
+  return Promise.resolve(message ?? null);
+}
+=== OUTPUT ===
+<span class="syntax-keyword">async</span> <span class="syntax-keyword">function</span> <span class="syntax-function">render</span>(value) {
+  <span class="syntax-keyword">const</span> message <span class="syntax-operator">=</span> <span class="syntax-string">&quot;QIP&quot;</span>;
+  <span class="syntax-keyword">return</span> <span class="syntax-type">Promise</span>.<span class="syntax-function">resolve</span>(message <span class="syntax-operator">??</span> <span class="syntax-constant">null</span>);
+}
+=== END ===
+=== INPUT ===
+function describe(type) { return Symbol.for(type); }
+function of(value) { return value instanceof of; }
+module.exports = ioInfo.default;
+const value = new p;
+const event = new window.ErrorEvent();
+const result = ready ? identity : function () {};
+const object = { value: function () {} };
+const isArray = Array.isArray;
+const now = Date.now;
+const map = new Map();
+function setToArray(set) { return set; }
+function useContext(Context) { return Context; }
+const accessor = { get value() { return 1; } };
+=== OUTPUT ===
+<span class="syntax-keyword">function</span> <span class="syntax-function">describe</span>(type) { <span class="syntax-keyword">return</span> Symbol.<span class="syntax-function">for</span>(type); }
+<span class="syntax-keyword">function</span> <span class="syntax-function">of</span>(value) { <span class="syntax-keyword">return</span> value <span class="syntax-operator">instanceof</span> <span class="syntax-type">of</span>; }
+<span class="syntax-type">module</span>.<span class="syntax-type">exports</span> <span class="syntax-operator">=</span> ioInfo.default;
+<span class="syntax-keyword">const</span> value <span class="syntax-operator">=</span> <span class="syntax-operator">new</span> p;
+<span class="syntax-keyword">const</span> event <span class="syntax-operator">=</span> <span class="syntax-operator">new</span> window.<span class="syntax-function">ErrorEvent</span>();
+<span class="syntax-keyword">const</span> result <span class="syntax-operator">=</span> ready <span class="syntax-operator">?</span> identity <span class="syntax-operator">:</span> <span class="syntax-keyword">function</span> () {};
+<span class="syntax-keyword">const</span> object <span class="syntax-operator">=</span> { <span class="syntax-function">value</span>: <span class="syntax-keyword">function</span> () {} };
+<span class="syntax-keyword">const</span> isArray <span class="syntax-operator">=</span> Array.isArray;
+<span class="syntax-keyword">const</span> now <span class="syntax-operator">=</span> Date.now;
+<span class="syntax-keyword">const</span> map <span class="syntax-operator">=</span> <span class="syntax-operator">new</span> <span class="syntax-function">Map</span>();
+<span class="syntax-keyword">function</span> <span class="syntax-function">setToArray</span>(set) { <span class="syntax-keyword">return</span> set; }
+<span class="syntax-keyword">function</span> <span class="syntax-function">useContext</span>(Context) { <span class="syntax-keyword">return</span> Context; }
+<span class="syntax-keyword">const</span> accessor <span class="syntax-operator">=</span> { <span class="syntax-keyword">get</span> <span class="syntax-function">value</span>() { <span class="syntax-keyword">return</span> <span class="syntax-number">1</span>; } };
+=== END ===
+=== INPUT ===
+const task = function (callback) { return callback; };
+const queue = {
+  then: function (resolve) { return resolve; },
+  get: function () { return arguments; },
+  type: 'task'
+};
+exports.Component = Component.prototype;
+=== OUTPUT ===
+<span class="syntax-keyword">const</span> <span class="syntax-function">task</span> <span class="syntax-operator">=</span> <span class="syntax-keyword">function</span> (callback) { <span class="syntax-keyword">return</span> callback; };
+<span class="syntax-keyword">const</span> queue <span class="syntax-operator">=</span> {
+  <span class="syntax-function">then</span>: <span class="syntax-keyword">function</span> (resolve) { <span class="syntax-keyword">return</span> resolve; },
+  <span class="syntax-function">get</span>: <span class="syntax-keyword">function</span> () { <span class="syntax-keyword">return</span> <span class="syntax-constant">arguments</span>; },
+  type: <span class="syntax-string">&#39;task&#39;</span>
+};
+<span class="syntax-type">exports</span>.Component <span class="syntax-operator">=</span> <span class="syntax-type">Component</span>.prototype;
+=== END ===
+=== INPUT ===
+this.value = new Value() instanceof Object;
+typeof this.value;
+object.get();
+=== OUTPUT ===
+<span class="syntax-constant">this</span>.value <span class="syntax-operator">=</span> <span class="syntax-operator">new</span> <span class="syntax-function">Value</span>() <span class="syntax-operator">instanceof</span> <span class="syntax-type">Object</span>;
+<span class="syntax-operator">typeof</span> <span class="syntax-constant">this</span>.value;
+object.<span class="syntax-function">get</span>();
+=== END ===
+=== INPUT ===
+// Escape raw source before it becomes HTML.
+const message = '<QIP & JavaScript>';
+=== OUTPUT ===
+<span class="syntax-comment">// Escape raw source before it becomes HTML.</span>
+<span class="syntax-keyword">const</span> message <span class="syntax-operator">=</span> <span class="syntax-string">&#39;&lt;QIP &amp; JavaScript&gt;&#39;</span>;
+=== END ===
