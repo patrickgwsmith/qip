@@ -4,8 +4,8 @@
 
 `js-syntax-highlight-html.wasm` highlighted 5.56 MB of `three.min.js` in 247 ms in
 Chrome and 263 ms in Node. This was 2.6 times faster than
-[gpu-lexer](https://gpu-lexer.vercel.app/) at 633 ms on the same Apple M5.
-Chrome executed the component on the CPU, while gpu-lexer used WebGPU. Its labels agreed with Shiki on 99.97% of non-whitespace characters.
+the impressively-language-agnostic small model [gpu-lexer](https://gpu-lexer.vercel.app/) at 633 ms on the same Apple M5.
+Chrome executed the component on the CPU, while gpu-lexer used WebGPU. `js-syntax-highlight-html.wasm` labels agreed with Shiki on 99.97% of non-whitespace characters.
 
 The component accepts raw `text/javascript` and returns escaped `text/html`.
 The benchmark calls its QIP Content ABI directly from JavaScript.
