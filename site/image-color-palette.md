@@ -55,9 +55,14 @@ const text = contentTypeUTF8();
 const componentModule = await WebAssembly.compileStreaming(fetch("/image/bmp/bmp-color-palette.wasm"));
 const extractPaletteComponent = contentComponent(bytes, componentModule, text);
 
-function showPalette(palette) {
+function showPalette(tokensDocument) {
   output.replaceChildren();
-  for (const color of palette.colors ?? []) {
+  const tokens = Object.entries(tokensDocument.palette ?? {})
+    .filter(([name]) => !name.startsWith("$"));
+  for (const [name, token] of tokens) {
+    const color = token.$value;
+    const details = token.$extensions?.["dev.qip.image-palette"];
+    if (!color || !details) continue;
     const row = document.createElement("div");
     row.className = "palette-color";
 
@@ -68,9 +73,9 @@ function showPalette(palette) {
     const text = document.createElement("div");
     const code = document.createElement("div");
     code.className = "palette-code";
-    code.textContent = color.hex;
+    code.textContent = `${name}: ${color.hex}`;
     const meta = document.createElement("div");
-    meta.textContent = `${color.percent}% (${color.count} pixels)`;
+    meta.textContent = `${details.percent}% (${details.count} pixels)`;
     text.append(code, meta);
     row.append(swatch, text);
     output.append(row);
@@ -97,3 +102,9 @@ fileInput.addEventListener("change", async () => {
 ```bash
 qip run components/image/bmp/bmp-color-palette.wasm < image.bmp
 ```
+
+The component treats the BMP channel values as sRGB and emits
+[DTCG 2025.10 color tokens](https://www.designtokens.org/TR/2025.10/color/)
+with the `application/design-tokens+json` content type. BMP color profiles are
+outside this component's narrow input profile. Pixel counts and percentages
+are available in each token's `dev.qip.image-palette` extension.

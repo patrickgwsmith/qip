@@ -127,7 +127,12 @@ test("RGBA8 KTX2 returns a palette and doubles pixels exactly", async (t) => {
   await writeFile(bmpPath, buildBMP(2, 1, (x) => x ? [0, 0, 255, 255] : [255, 0, 0, 255]));
   await runPipeline([bmpToRgba8], bmpPath, join(dir, "in.ktx2"));
   const palette = JSON.parse((await runPipeline([rgba8Palette], join(dir, "in.ktx2"), join(dir, "palette.json"))).toString("utf8"));
-  assert.deepEqual(palette.colors.map(({ hex }) => hex).sort(), ["#0000ff", "#ff0000"]);
+  const tokens = Object.entries(palette.palette)
+    .filter(([name]) => !name.startsWith("$"))
+    .map(([, token]) => token);
+  assert.deepEqual(tokens.map(({ $value }) => $value.hex).sort(), ["#0000ff", "#ff0000"]);
+  assert.deepEqual(tokens.map(({ $value }) => $value.colorSpace), ["srgb", "srgb"]);
+  assert.deepEqual(tokens.map(({ $type }) => $type), ["color", "color"]);
 
   const doubled = await runPipeline([rgba8Double], join(dir, "in.ktx2"), join(dir, "double.ktx2"));
   assert.equal(doubled.readUInt32LE(20), 4);

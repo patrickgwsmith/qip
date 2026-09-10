@@ -1,3 +1,7 @@
+//! Extracts up to eight representative opaque colors from an uncompressed BMP.
+//! The component treats RGB channel values as sRGB and returns DTCG 2025.10
+//! design tokens. It does not process BMP color profiles.
+
 const std = @import("std");
 
 const INPUT_CAP: usize = 24 * 1024 * 1024;
@@ -5,7 +9,7 @@ const OUTPUT_CAP: usize = 4096;
 const BUCKETS: usize = 32 * 32 * 32;
 const MAX_COLORS: usize = 8;
 const INPUT_CONTENT_TYPE = "image/bmp";
-const OUTPUT_CONTENT_TYPE = "application/json";
+const OUTPUT_CONTENT_TYPE = "application/design-tokens+json";
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -105,6 +109,27 @@ fn writePercent(out: *usize, count: u32, total: u64) BmpError!void {
     try writeUInt(out, frac);
 }
 
+fn writeSrgbComponent(out: *usize, value: u8) BmpError!void {
+    if (value == 0) return writeByte(out, '0');
+    if (value == 255) return writeByte(out, '1');
+
+    // Eight decimal places reproduce every 8-bit channel when rounded back to
+    // a byte. Do the conversion with integers so output is deterministic.
+    const scale: u64 = 100_000_000;
+    var fraction = (@as(u64, value) * scale + 127) / 255;
+    var digits: [8]u8 = undefined;
+    var i: usize = digits.len;
+    while (i > 0) {
+        i -= 1;
+        digits[i] = @intCast('0' + fraction % 10);
+        fraction /= 10;
+    }
+    var end = digits.len;
+    while (end > 0 and digits[end - 1] == '0') end -= 1;
+    try writeAll(out, "0.");
+    try writeAll(out, digits[0..end]);
+}
+
 fn hexNibble(n: u8) u8 {
     return if (n < 10) '0' + n else 'a' + (n - 10);
 }
@@ -182,7 +207,7 @@ fn paletteJSON(input: []const u8) BmpError!usize {
     }
 
     var out: usize = 0;
-    try writeAll(&out, "{\"colors\":[");
+    try writeAll(&out, "{\"palette\":{\"$description\":\"Representative opaque sRGB colors extracted from the image, ordered by pixel frequency.\",");
     var written: usize = 0;
     for (top) |color| {
         if (color.count == 0) break;
@@ -190,18 +215,28 @@ fn paletteJSON(input: []const u8) BmpError!usize {
         const r: u8 = @intCast((sum_r[color.bucket] + color.count / 2) / color.count);
         const g: u8 = @intCast((sum_g[color.bucket] + color.count / 2) / color.count);
         const b: u8 = @intCast((sum_b[color.bucket] + color.count / 2) / color.count);
-        try writeAll(&out, "{\"hex\":\"#");
+        try writeAll(&out, "\"dominant-");
+        try writeUInt(&out, written + 1);
+        try writeAll(&out, "\":{\"$type\":\"color\",\"$value\":{\"colorSpace\":\"srgb\",\"components\":[");
+        try writeSrgbComponent(&out, r);
+        try writeByte(&out, ',');
+        try writeSrgbComponent(&out, g);
+        try writeByte(&out, ',');
+        try writeSrgbComponent(&out, b);
+        try writeAll(&out, "],\"hex\":\"#");
         try writeHexByte(&out, r);
         try writeHexByte(&out, g);
         try writeHexByte(&out, b);
-        try writeAll(&out, "\",\"count\":");
+        try writeAll(&out, "\"},\"$extensions\":{\"dev.qip.image-palette\":{\"rank\":");
+        try writeUInt(&out, written + 1);
+        try writeAll(&out, ",\"count\":");
         try writeUInt(&out, color.count);
         try writeAll(&out, ",\"percent\":");
         try writePercent(&out, color.count, total);
-        try writeByte(&out, '}');
+        try writeAll(&out, "}}}");
         written += 1;
     }
-    try writeAll(&out, "]}");
+    try writeAll(&out, "}}");
     return out;
 }
 
@@ -231,6 +266,17 @@ test "extracts dominant colors from a tiny bmp" {
         255, 0,   0,  255, 0, 0, 255, 0, 0, 255, 0,  0, 0, 0,
     };
     const len = try paletteJSON(bmp[0..]);
+    try std.testing.expectEqualStrings("application/design-tokens+json", OUTPUT_CONTENT_TYPE);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "\"$type\":\"color\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "\"colorSpace\":\"srgb\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "\"components\":[1,0,0]") != null);
     try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "#ff0000") != null);
     try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "#0000ff") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..len], "\"dev.qip.image-palette\"") != null);
+}
+
+test "writes normalized sRGB components deterministically" {
+    var out: usize = 0;
+    try writeSrgbComponent(&out, 128);
+    try std.testing.expectEqualStrings("0.50196078", output_buf[0..out]);
 }

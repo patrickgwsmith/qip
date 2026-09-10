@@ -55,7 +55,7 @@ Related tool: [image compressor](/image-compress).
 ### Color and size
 
 - [`bmp-b8g8r8a8-icc-to-srgb.wasm`](/image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm) converts supported embedded ICC color profiles to sRGB.
-- [`bmp-color-palette.wasm`](/image/bmp/bmp-color-palette.wasm) returns a representative color palette as JSON.
+- [`bmp-color-palette.wasm`](/image/bmp/bmp-color-palette.wasm) returns a representative color palette as Design Tokens JSON.
 - [`bmp-double.wasm`](/image/bmp/bmp-double.wasm) doubles the image dimensions with the C scaler.
 - [`bmp-double2.wasm`](/image/bmp/bmp-double2.wasm) doubles the image dimensions with the Zig scaler.
 - [`bmp-double-simd.wasm`](/image/bmp/bmp-double-simd.wasm) doubles the image dimensions with the SIMD scaler.

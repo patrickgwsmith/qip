@@ -177,8 +177,10 @@ swaps RGBA to BGRA for the ICO bitmap. Use `bmp-to-ico.wasm` when the source is
 already BMP; neither component resizes an image.
 
 `ktx2-r8g8b8a8-srgb-color-palette.wasm` returns up to eight representative
-RGB colours in the same JSON shape as `bmp-color-palette.wasm`. It ignores
-alpha when counting colours.
+opaque sRGB colours as DTCG 2025.10 design tokens with the
+`application/design-tokens+json` content type. The `dev.qip.image-palette`
+extension records each colour's rank, pixel count, and percentage. The
+component ignores alpha when counting colours.
 
 `ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm` converts a canonical KTX2 of at
 most eight million pixels into grid-aligned SVG paths. It reduces retained pixels

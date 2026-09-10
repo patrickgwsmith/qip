@@ -1,5 +1,5 @@
 //! Extracts up to eight representative RGB colours from canonical RGBA8 sRGB
-//! KTX2 and returns the same JSON shape as bmp-color-palette.wasm.
+//! KTX2 and returns DTCG 2025.10 design tokens.
 
 const std = @import("std");
 const ktx = @import("ktx2_rgba8_srgb");
@@ -9,7 +9,7 @@ const OUTPUT_CAP: usize = 4096;
 const BUCKETS: usize = 32 * 32 * 32;
 const MAX_COLORS: usize = 8;
 const INPUT_CONTENT_TYPE = ktx.CONTENT_TYPE;
-const OUTPUT_CONTENT_TYPE = "application/json";
+const OUTPUT_CONTENT_TYPE = "application/design-tokens+json";
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -20,13 +20,27 @@ var sum_b: [BUCKETS]u32 = undefined;
 
 const Color = struct { bucket: usize, count: u32 };
 
-export fn input_ptr() u32 { return @intCast(@intFromPtr(&input_buf)); }
-export fn input_bytes_cap() u32 { return INPUT_CAP; }
-export fn output_utf8_cap() u32 { return OUTPUT_CAP; }
-export fn input_content_type_ptr() u32 { return @intCast(@intFromPtr(INPUT_CONTENT_TYPE.ptr)); }
-export fn input_content_type_size() u32 { return INPUT_CONTENT_TYPE.len; }
-export fn output_content_type_ptr() u32 { return @intCast(@intFromPtr(OUTPUT_CONTENT_TYPE.ptr)); }
-export fn output_content_type_size() u32 { return OUTPUT_CONTENT_TYPE.len; }
+export fn input_ptr() u32 {
+    return @intCast(@intFromPtr(&input_buf));
+}
+export fn input_bytes_cap() u32 {
+    return INPUT_CAP;
+}
+export fn output_utf8_cap() u32 {
+    return OUTPUT_CAP;
+}
+export fn input_content_type_ptr() u32 {
+    return @intCast(@intFromPtr(INPUT_CONTENT_TYPE.ptr));
+}
+export fn input_content_type_size() u32 {
+    return INPUT_CONTENT_TYPE.len;
+}
+export fn output_content_type_ptr() u32 {
+    return @intCast(@intFromPtr(OUTPUT_CONTENT_TYPE.ptr));
+}
+export fn output_content_type_size() u32 {
+    return OUTPUT_CONTENT_TYPE.len;
+}
 
 fn bucketIndex(r: u8, g: u8, b: u8) usize {
     return (@as(usize, r >> 3) << 10) | (@as(usize, g >> 3) << 5) | @as(usize, b >> 3);
@@ -55,6 +69,25 @@ fn appendPercent(out: *usize, count: u32, total: u64) !void {
     try appendByte(out, '.');
     if (hundredths % 100 < 10) try appendByte(out, '0');
     try appendUInt(out, hundredths % 100);
+}
+
+fn appendSrgbComponent(out: *usize, value: u8) !void {
+    if (value == 0) return appendByte(out, '0');
+    if (value == 255) return appendByte(out, '1');
+
+    const scale: u64 = 100_000_000;
+    var fraction = (@as(u64, value) * scale + 127) / 255;
+    var digits: [8]u8 = undefined;
+    var i: usize = digits.len;
+    while (i > 0) {
+        i -= 1;
+        digits[i] = @intCast('0' + fraction % 10);
+        fraction /= 10;
+    }
+    var end = digits.len;
+    while (end > 0 and digits[end - 1] == '0') end -= 1;
+    try append(out, "0.");
+    try append(out, digits[0..end]);
 }
 
 fn appendHexByte(out: *usize, value: u8) !void {
@@ -99,29 +132,43 @@ fn renderImpl(input_size_in: u32) u32 {
 
     const total: u64 = @intCast(image.width * image.height);
     var out: usize = 0;
-    append(&out, "{\"colors\":[") catch @trap();
-    for (top, 0..) |color, index| {
+    append(&out, "{\"palette\":{\"$description\":\"Representative opaque sRGB colors extracted from the image, ordered by pixel frequency.\",") catch @trap();
+    var written: usize = 0;
+    for (top) |color| {
         if (color.count == 0) break;
-        if (index != 0) appendByte(&out, ',') catch @trap();
+        if (written != 0) appendByte(&out, ',') catch @trap();
         const r: u8 = @intCast((sum_r[color.bucket] + color.count / 2) / color.count);
         const g: u8 = @intCast((sum_g[color.bucket] + color.count / 2) / color.count);
         const b: u8 = @intCast((sum_b[color.bucket] + color.count / 2) / color.count);
-        append(&out, "{\"hex\":\"#") catch @trap();
+        append(&out, "\"dominant-") catch @trap();
+        appendUInt(&out, written + 1) catch @trap();
+        append(&out, "\":{\"$type\":\"color\",\"$value\":{\"colorSpace\":\"srgb\",\"components\":[") catch @trap();
+        appendSrgbComponent(&out, r) catch @trap();
+        appendByte(&out, ',') catch @trap();
+        appendSrgbComponent(&out, g) catch @trap();
+        appendByte(&out, ',') catch @trap();
+        appendSrgbComponent(&out, b) catch @trap();
+        append(&out, "],\"hex\":\"#") catch @trap();
         appendHexByte(&out, r) catch @trap();
         appendHexByte(&out, g) catch @trap();
         appendHexByte(&out, b) catch @trap();
-        append(&out, "\",\"count\":") catch @trap();
+        append(&out, "\"},\"$extensions\":{\"dev.qip.image-palette\":{\"rank\":") catch @trap();
+        appendUInt(&out, written + 1) catch @trap();
+        append(&out, ",\"count\":") catch @trap();
         appendUInt(&out, color.count) catch @trap();
         append(&out, ",\"percent\":") catch @trap();
         appendPercent(&out, color.count, total) catch @trap();
-        appendByte(&out, '}') catch @trap();
+        append(&out, "}}}") catch @trap();
+        written += 1;
     }
-    append(&out, "]}") catch @trap();
+    append(&out, "}}") catch @trap();
     return @intCast(out);
 }
 
 export fn render(input_size_in: u32) packed struct(u64) {
-    output_size: u32, output_ptr: u31, failed: u1,
+    output_size: u32,
+    output_ptr: u31,
+    failed: u1,
 } {
     return .{ .output_size = renderImpl(input_size_in), .output_ptr = @intCast(@intFromPtr(&output_buf)), .failed = 0 };
 }
@@ -130,6 +177,14 @@ test "reports canonical KTX2 colours" {
     const size = ktx.writeHeader(input_buf[0..], 2, 1) orelse unreachable;
     @memcpy(input_buf[ktx.HEADER_SIZE..size], &[_]u8{ 255, 0, 0, 255, 0, 0, 255, 255 });
     const written = renderImpl(@intCast(size));
+    try std.testing.expectEqualStrings("application/design-tokens+json", OUTPUT_CONTENT_TYPE);
+    try std.testing.expect(std.mem.indexOf(u8, output_buf[0..written], "\"components\":[1,0,0]") != null);
     try std.testing.expect(std.mem.indexOf(u8, output_buf[0..written], "#ff0000") != null);
     try std.testing.expect(std.mem.indexOf(u8, output_buf[0..written], "#0000ff") != null);
+}
+
+test "writes normalized sRGB components deterministically" {
+    var out: usize = 0;
+    try appendSrgbComponent(&out, 128);
+    try std.testing.expectEqualStrings("0.50196078", output_buf[0..out]);
 }

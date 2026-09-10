@@ -129,9 +129,14 @@ memory. A Document Object Model (DOM) parser allocates a tree instead.
 | Format | Use it for | Tradeoff |
 | --- | --- | --- |
 | `application/json` | Small structured messages and broad application interoperation. | Many JSON APIs allocate a complete value tree. |
+| `application/design-tokens+json` | Named design values shared between design and development tools. | The DTCG structure is more verbose than application-specific JSON. Pin components to a published specification version. |
 | `application/xml` | Existing XML protocols, namespaces, or mixed text and elements. | XML has more syntax and processing rules than JSON. |
 | `text/csv` | Flat records that consumers can process in sequence. | CSV loses nested structure and data types unless the application defines a schema. |
 | `application/vnd.sqlite3` | Tables, indexes, transactions, and selective queries. | SQLite needs page access and a larger runtime than CSV. |
+
+QIP palette extractors target the stable
+[DTCG 2025.10 format](https://www.designtokens.org/TR/2025.10/format/), not
+the changing preview draft.
 
 JSON and XML permit streaming parsers. Some APIs still build a complete tree
 and increase peak memory. Check the parser API when working memory is limited.
