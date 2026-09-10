@@ -227,9 +227,11 @@ make -j components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm
 ```
 
 The Makefile locates the SDK through `mise`, prepares the LTO sysroot libraries,
-and keeps intermediate objects in `/private/tmp` on macOS or `/tmp` elsewhere.
-Preparing a fresh cache took about one minute on the development machine;
-subsequent builds reuse it.
+and keeps intermediate objects in the ignored
+`tmp/qip-emcc-2.0.34-cache/` directory. The cache name follows the selected
+`EMSDK_VERSION`, so different compiler versions do not share generated files.
+Preparing a fresh cache took about one minute on the development machine.
+Subsequent builds in the same checkout reuse it.
 
 Inspect the artifact and exercise its runtime policy:
 

@@ -617,7 +617,7 @@ AVIF_AOM_SOURCE_FILES := $(shell find $(LIBAOM_ROOT) -type f)
 AVIF_LIBAVIF_SOURCE_FILES := $(shell find $(LIBAVIF_ROOT) -type f)
 
 EMSDK_VERSION ?= 2.0.34
-EMCC_CACHE ?= $(if $(filter Darwin,$(HOST_OS)),/private/tmp/qip-emcc-2.0.34-cache,/tmp/qip-emcc-2.0.34-cache)
+EMCC_CACHE ?= $(CURDIR)/tmp/qip-emcc-$(EMSDK_VERSION)-cache
 EMSDK_ROOT ?= $(shell mise where emsdk@$(EMSDK_VERSION) 2>/dev/null)
 EMSDK_UPSTREAM := $(EMSDK_ROOT)/upstream
 EMSDK_SYSROOT := $(EMCC_CACHE)/sysroot
