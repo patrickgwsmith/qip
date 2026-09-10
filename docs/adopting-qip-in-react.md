@@ -5,9 +5,9 @@ Next.js, routing, authentication, storage, or deployment. Start with one
 bounded operation. The application passes bytes to a WebAssembly component and
 uses the returned bytes as normal application data.
 
-This guide adds the existing E.164 phone-number normalizer to a Next.js
-application. The same `.wasm` file runs in a Server Component and a Client
-Component.
+This guide adds the existing TSX syntax highlighter to a Next.js application.
+The server highlights a fixed example while Next.js prerenders the page. The
+browser runs the same `.wasm` file again as the user edits TSX.
 
 The complete, tested application is in
 [examples/nextjs-qip](https://github.com/royalicing/qip/tree/main/examples/nextjs-qip).
@@ -39,13 +39,14 @@ npm run build
 npm run dev
 ```
 
-Open `http://localhost:3000`. Edit the phone number in the Client Component and
-compare its result with the Server Component result.
+Open `http://localhost:3000`. The first highlighted block comes from a cached
+Server Component. Edit the second block to see the Client Component run in the
+browser.
 
 The example's preparation script copies
-`components/text/e164.wasm` to `public/qip-components/e164.wasm`. A real
-application can put a reviewed component in its own public or server asset
-directory instead.
+`components/text/html/html-code-syntax-highlight-tsx.wasm` to
+`public/qip-components/`. A real application can put a reviewed component in
+its own public or server asset directory instead.
 
 ## Wrap The Content Contract
 
@@ -94,47 +95,95 @@ export function createTextRenderer(exports) {
 `read` counts JavaScript UTF-16 code units. `written` counts UTF-8 bytes. Pass
 `written` to `render` and check that `read` consumed the complete string.
 
-The example keeps this wrapper in `lib/qip-content.js` so both execution paths
-use the same contract code.
+The highlighter accepts `text/html`, not raw TSX. The example adds a second
+small wrapper which escapes the source and puts it in a
+`<code class="language-tsx">` element. Both execution paths use these wrappers
+from `lib/qip-content.js`.
+
+```js
+function escapeHTML(source) {
+  return source
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+export function createTSXHighlighter(exports) {
+  const renderHTML = createTextRenderer(exports);
+
+  return function highlightTSX(source) {
+    const code = escapeHTML(source);
+    return renderHTML(
+      `<pre><code class="language-tsx">${code}</code></pre>`,
+    );
+  };
+}
+```
 
 ## Run It In A Server Component
 
-Load the module once from the server's filesystem and reuse the instance for
-synchronous calls:
+Enable [Cache Components](https://nextjs.org/docs/app/getting-started/caching)
+in `next.config.js`:
+
+```js
+const nextConfig = {
+  cacheComponents: true,
+};
+
+export default nextConfig;
+```
+
+Then load the module once from the server's filesystem. The exported async
+function uses Next.js's [`use cache`](https://nextjs.org/docs/app/api-reference/directives/use-cache)
+directive, and its source argument becomes part of the cache key:
 
 ```js
 import "server-only";
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
+import { cacheLife } from "next/cache";
 
-import { createTextRenderer } from "./qip-content.js";
+import { createTSXHighlighter } from "./qip-content.js";
 
 const componentPath = path.join(
   process.cwd(),
   "public",
   "qip-components",
-  "e164.wasm",
+  "html-code-syntax-highlight-tsx.wasm",
 );
 const module = new WebAssembly.Module(readFileSync(componentPath));
 const instance = new WebAssembly.Instance(module, {});
+const highlight = createTSXHighlighter(instance.exports);
 
-export const normalizeE164 = createTextRenderer(instance.exports);
-```
-
-Call the wrapper as an ordinary function in a Server Component:
-
-```jsx
-import { normalizeE164 } from "../lib/e164-server.js";
-
-export default function Page() {
-  const normalized = normalizeE164("+1 (212) 555-0100");
-  return <output>{normalized}</output>;
+export async function highlightTSX(source) {
+  "use cache";
+  cacheLife("max");
+  return highlight(source);
 }
 ```
 
-This path works well when the input already lives on the server or when the
-server needs the canonical result.
+Await the cached function in a Server Component:
+
+```jsx
+import { highlightTSX } from "../lib/tsx-server.js";
+
+const source = `export function Greeting({ name }) {
+  return <button>Hello, {name}!</button>;
+}`;
+
+export default async function Page() {
+  const html = await highlightTSX(source);
+  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+}
+```
+
+`cacheLife("max")` makes the lifetime explicit. Because this call has a fixed
+argument during prerendering, its result becomes part of the static page. A
+different source string has a different cache entry. For a one-off fixed value,
+Next.js can also prerender the synchronous computation without `use cache`.
+The directive is useful here because it shows how to reuse results when several
+pages highlight the same source.
 
 ## Run It In A Client Component
 
@@ -144,37 +193,36 @@ The browser can fetch the same file and create its own instance:
 "use client";
 
 import { useEffect, useState } from "react";
-import { createTextRenderer } from "../lib/qip-content.js";
+import { createTSXHighlighter } from "../lib/qip-content.js";
 
-let rendererPromise;
+let highlighterPromise;
 
-function loadRenderer() {
-  rendererPromise ??= WebAssembly.instantiateStreaming(
-    fetch("/qip-components/e164.wasm"),
+function loadHighlighter() {
+  highlighterPromise ??= WebAssembly.instantiateStreaming(
+    fetch("/qip-components/html-code-syntax-highlight-tsx.wasm"),
     {},
-  ).then(({ instance }) => createTextRenderer(instance.exports));
-  return rendererPromise;
+  ).then(({ instance }) => createTSXHighlighter(instance.exports));
+  return highlighterPromise;
 }
 
-export function PhoneNumberInput() {
-  const [source, setSource] = useState("+1 (212) 555-0100");
-  const [normalize, setNormalize] = useState(null);
+export function TSXEditor({ initialValue }) {
+  const [source, setSource] = useState(initialValue);
+  const [highlight, setHighlight] = useState(null);
 
   useEffect(() => {
-    loadRenderer().then((loaded) => setNormalize(() => loaded));
+    loadHighlighter().then((loaded) => setHighlight(() => loaded));
   }, []);
 
-  const output = normalize ? normalize(source) : "Loading component…";
+  const html = highlight ? highlight(source) : "";
 
   return (
-    <label>
-      Phone number
-      <input
+    <>
+      <textarea
         value={source}
         onChange={(event) => setSource(event.target.value)}
       />
-      <output>{output}</output>
-    </label>
+      {html ? <div dangerouslySetInnerHTML={{ __html: html }} /> : "Loading…"}
+    </>
   );
 }
 ```
@@ -183,8 +231,9 @@ export function PhoneNumberInput() {
 `Content-Type: application/wasm`. Next.js serves a `.wasm` file from `public`
 with this type.
 
-The module-level promise prevents each render from loading another copy. Each
-browser tab still creates its own component instance.
+The module-level promise prevents each React render from loading another copy.
+Each browser tab still creates its own component instance. Highlighting after
+each keystroke is synchronous and does not need an Effect or server request.
 
 ## Choose The Server Or Browser
 
@@ -210,15 +259,21 @@ Check each boundary explicitly:
 - Do not read output memory after a failure or trap.
 - Interpret the output according to its declared MIME type.
 
-This example returns plain text, which React escapes when it renders the
-string. HTML and arbitrary SVG need more care. QIP isolation limits what a
-component can access, but it does not make active output safe. Sanitize
-untrusted HTML before you pass it to `dangerouslySetInnerHTML`.
+This example returns HTML because syntax colors need `<span>` elements. The
+wrapper escapes the user's TSX before it constructs the highlighter input. Do
+not pass arbitrary user HTML directly to this component: it preserves markup
+outside the selected code block.
+
+The example then inserts output from a reviewed, pinned component with
+`dangerouslySetInnerHTML`. QIP isolation limits what the component can access,
+but it does not make active output safe. If the component or its HTML input is
+not trusted, sanitize the result before inserting it into the page.
 
 ## Test And Deploy It
 
-The example's Node test instantiates the same component and checks valid and
-invalid input. `npm run build` then checks both Next.js execution paths.
+The example's Node test instantiates the same component, checks its highlighted
+HTML, and verifies that the TSX wrapper escapes a script element. `npm run
+build` then checks the cached Server Component and browser Client Component.
 
 Keep the reviewed `.wasm` artifact with the application or copy it during the
 build. Do not fetch an unpinned component at request time. If a Client

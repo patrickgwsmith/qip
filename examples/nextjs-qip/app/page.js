@@ -1,30 +1,31 @@
-import { ClientNormalizer } from "./client-normalizer.js";
-import { normalizeE164 } from "../lib/e164-server.js";
+import { ClientHighlighter } from "./client-highlighter.js";
+import { highlightTSX } from "../lib/tsx-server.js";
 
-const initialPhoneNumber = "+1 (212) 555-0100";
+const initialSource = `export function Greeting({ name }) {
+  return <button className="primary">Hello, {name}!</button>;
+}`;
 
-export default function Page() {
-  const normalized = normalizeE164(initialPhoneNumber);
+export default async function Page() {
+  const highlighted = await highlightTSX(initialSource);
 
   return (
     <main>
-      <h1>QIP with Next.js</h1>
+      <h1>Highlight TSX with QIP</h1>
       <p>
-        The server and browser run the same deterministic WebAssembly
+        The server and browser run the same syntax-highlighting WebAssembly
         component.
       </p>
 
       <section>
         <h2>Server Component</h2>
-        <dl>
-          <dt>Input</dt>
-          <dd>{initialPhoneNumber}</dd>
-          <dt>Output</dt>
-          <dd>{normalized}</dd>
-        </dl>
+        <p>This result is cached and included in the prerendered page.</p>
+        <div
+          className="highlighted-code"
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
       </section>
 
-      <ClientNormalizer initialValue={initialPhoneNumber} />
+      <ClientHighlighter initialValue={initialSource} />
     </main>
   );
 }

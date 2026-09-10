@@ -19,24 +19,54 @@ section {
   padding-block-start: 1rem;
 }
 
-dt,
 label {
   font-weight: 700;
 }
 
-dd {
-  margin: 0 0 1rem;
-}
-
-input {
+textarea {
   box-sizing: border-box;
   display: block;
   font: inherit;
+  line-height: 1.5;
   margin-block-start: 0.5rem;
   padding: 0.5rem;
+  resize: vertical;
   width: 100%;
 }
 
-output {
+.highlighted-code {
+  background: #111827;
+  color: #e5e7eb;
   font-family: ui-monospace, monospace;
+  margin-block-start: 1rem;
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+.highlighted-code pre {
+  margin: 0;
+}
+
+.hljs-keyword,
+.hljs-built_in {
+  color: #c084fc;
+}
+
+.hljs-title,
+.hljs-name {
+  color: #67e8f9;
+}
+
+.hljs-string,
+.hljs-attr {
+  color: #86efac;
+}
+
+.hljs-number,
+.hljs-literal {
+  color: #fca5a5;
+}
+
+.hljs-comment {
+  color: #9ca3af;
 }

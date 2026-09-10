@@ -12,9 +12,13 @@ const source = path.resolve(
   "..",
   "components",
   "text",
-  "e164.wasm",
+  "html",
+  "html-code-syntax-highlight-tsx.wasm",
 );
 const destinationDir = path.join(exampleDir, "public", "qip-components");
 
 await mkdir(destinationDir, { recursive: true });
-await copyFile(source, path.join(destinationDir, "e164.wasm"));
+await copyFile(
+  source,
+  path.join(destinationDir, "html-code-syntax-highlight-tsx.wasm"),
+);

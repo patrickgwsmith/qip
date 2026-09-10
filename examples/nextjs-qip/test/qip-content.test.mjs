@@ -4,20 +4,39 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { createTextRenderer } from "../lib/qip-content.js";
+import { createTSXHighlighter } from "../lib/qip-content.js";
 
 const exampleDir = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
 const component = await readFile(
-  path.join(exampleDir, "..", "..", "components", "text", "e164.wasm"),
+  path.join(
+    exampleDir,
+    "..",
+    "..",
+    "components",
+    "text",
+    "html",
+    "html-code-syntax-highlight-tsx.wasm",
+  ),
 );
 
-test("the example wraps the E.164 QIP component", async () => {
+test("the example wraps the TSX syntax-highlighting component", async () => {
   const { instance } = await WebAssembly.instantiate(component, {});
-  const normalizeE164 = createTextRenderer(instance.exports);
+  const highlightTSX = createTSXHighlighter(instance.exports);
 
-  assert.equal(normalizeE164("+1 (212) 555-0100"), "+12125550100");
-  assert.equal(normalizeE164("not a phone number"), "");
+  const output = highlightTSX("const view = <Button label={name} />;");
+  assert.match(output, /class="language-tsx hljs"/);
+  assert.match(output, /hljs-keyword">const<\/span>/);
+  assert.match(output, /hljs-name">Button<\/span>/);
+});
+
+test("the wrapper escapes source before constructing component input", async () => {
+  const { instance } = await WebAssembly.instantiate(component, {});
+  const highlightTSX = createTSXHighlighter(instance.exports);
+
+  const output = highlightTSX(`<script>alert("no")<\/script>`);
+  assert.doesNotMatch(output, /<script>/);
+  assert.match(output, /&lt;/);
 });

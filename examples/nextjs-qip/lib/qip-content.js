@@ -43,3 +43,21 @@ export function createTextRenderer(exports) {
     );
   };
 }
+
+function escapeHTML(source) {
+  return source
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+export function createTSXHighlighter(exports) {
+  const renderHTML = createTextRenderer(exports);
+
+  return function highlightTSX(source) {
+    const code = escapeHTML(source);
+    return renderHTML(
+      `<pre><code class="language-tsx">${code}</code></pre>`,
+    );
+  };
+}
