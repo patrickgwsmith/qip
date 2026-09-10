@@ -1308,7 +1308,7 @@ func TestLoadRecipeChainsIgnoresNonWasm(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1340,7 +1340,7 @@ func TestLoadRecipeChainsSupportsSymlinkedRecipeComponents(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(external, "text", "markdown"), 0o755); err != nil {
 		t.Fatalf("mkdir external: %v", err)
 	}
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1374,7 +1374,7 @@ func TestLoadRecipeChainsRejectsInvalidFilename(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1394,7 +1394,7 @@ func TestLoadRecipeChainsRejectsDuplicatePrefix(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1457,7 +1457,7 @@ func TestLoadComponentAssets(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1496,7 +1496,7 @@ func TestLoadComponentAssetsSupportsSymlinkedWasmAndIgnoresNonWasmSymlink(t *tes
 	root := t.TempDir()
 	external := t.TempDir()
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}

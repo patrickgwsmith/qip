@@ -46,7 +46,7 @@ func TestRouterFileStateCapturesRecipeBytesWithoutCompilingThem(t *testing.T) {
 	if got := len(files.recipeFiles["text/html"]); got != 1 {
 		t.Fatalf("recipe file count=%d, want 1", got)
 	}
-	validWasm, err := os.ReadFile(filepath.Join("components", "utf8", "hello.wasm"))
+	validWasm, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read valid Wasm fixture: %v", err)
 	}
