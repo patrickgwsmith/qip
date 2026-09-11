@@ -6,7 +6,7 @@
 // run (cmark 0.31.2, `--unsafe`).
 //
 // This corpus was the acceptance gate for the delimiter-stack rewrite of
-// components/text/markdown/lib/commonmark.zig and has been green since that
+// text/markdown/lib/commonmark.zig and has been green since that
 // rewrite landed; it runs in test-comply against both markdown components.
 // Keep growing the fixture from future fuzz runs (tools/fuzz-markdown-vs-cmark.py
 // then tools/freeze-markdown-divergences.py) as further divergences are fixed.

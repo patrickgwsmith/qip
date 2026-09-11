@@ -12,7 +12,7 @@ const execFileP = promisify(execFile);
 
 const qip = fileURLToPath(new URL("../qip", import.meta.url));
 const instrumenter = fileURLToPath(
-  new URL("../components/application/wasm/wasm-trace-instrument.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-trace-instrument.wasm", import.meta.url),
 );
 
 function isDenoPermissionError(err) {
@@ -31,7 +31,7 @@ async function ensureTracePrerequisites(t) {
     await access(instrumenter, constants.R_OK);
   } catch (err) {
     if (isDenoPermissionError(err)) throw err;
-    t.skip("build components/application/wasm/wasm-trace-instrument.wasm first");
+    t.skip("build application/wasm/wasm-trace-instrument.wasm first");
   }
 
   try {

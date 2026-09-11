@@ -4,7 +4,7 @@ import test from "node:test";
 
 const chronographWasm = await readFile("components/interactive/chronograph.wasm");
 const transferWasm = await readFile(
-  "components/image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm",
+  "image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm",
 );
 
 function decodeRender(result) {

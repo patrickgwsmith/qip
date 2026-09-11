@@ -12,7 +12,7 @@ import {
 } from "../npm/qipx/qipx.mjs";
 
 const boundary = "uuid-00000000-0000-0000-0000-000000000000";
-const identity = "components/bytes/identity.wasm";
+const identity = "bytes/identity.wasm";
 
 function run(command, args, input) {
   return spawnSync(command, args, { input, maxBuffer: 4 * 1024 * 1024 });
@@ -94,8 +94,8 @@ test("both CLIs reject raw input with -F and still require a component", () => {
 });
 
 test("qipx bench accepts the same multipart input as Go qip bench", () => {
-  const fields = ["mode=step", "component=@components/text/hello.wasm"];
-  const multipartComponent = "components/multipart/form-data/form-data-to-tar.wasm";
+  const fields = ["mode=step", "component=@text/hello.wasm"];
+  const multipartComponent = "multipart/form-data/form-data-to-tar.wasm";
   const go = run("./qip", [
     "bench",
     "-F", fields[0],
@@ -127,9 +127,9 @@ test("qipx bench rejects raw and multipart input together", () => {
     "npm/qipx/cli.mjs",
     "bench",
     "-i", "README.md",
-    "-F", "component=@components/text/hello.wasm",
+    "-F", "component=@text/hello.wasm",
     "--runs", "1",
-    "components/multipart/form-data/form-data-to-tar.wasm",
+    "multipart/form-data/form-data-to-tar.wasm",
   ]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr.toString(), /-F and -i are mutually exclusive/);

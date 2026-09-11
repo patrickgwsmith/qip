@@ -137,7 +137,7 @@ zig_bin=${ZIG:-zig}
 wasm2c_bin=${WASM2C:-wasm2c}
 node_bin=${NODE:-node}
 qip_bin=${QIP_BIN:-"$repo_root/qip"}
-translator="$repo_root/components/application/wasm/qip-component-to-c.wasm"
+translator="$repo_root/application/wasm/qip-component-to-c.wasm"
 
 for command in "$cc_bin" "$node_bin" "$wasm2c_bin"; do
   command -v "$command" >/dev/null 2>&1 || fail "required command not found: $command"
@@ -148,7 +148,7 @@ fi
 
 if [[ "$skip_build" -eq 0 ]]; then
   step "building QIP, translator, and $wasm_target"
-  make -j qip components/application/wasm/qip-component-to-c.wasm \
+  make -j qip application/wasm/qip-component-to-c.wasm \
     "$wasm_target" >&2
 fi
 [[ -x "$qip_bin" ]] || fail "QIP executable not found: $qip_bin"

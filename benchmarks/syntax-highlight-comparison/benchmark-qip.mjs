@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const directory = fileURLToPath(new URL(".", import.meta.url));
 const componentPath = fileURLToPath(new URL(
-  "../../components/text/javascript/js-syntax-highlight-html.wasm",
+  "../../text/javascript/js-syntax-highlight-html.wasm",
   import.meta.url,
 ));
 const manifest = JSON.parse(await readFile(`${directory}/fixtures.json`, "utf8"));

@@ -80,8 +80,8 @@ the copies. This keeps composition visible in a command, recipe, or host
 program:
 
 ```bash
-qip run components/text/markdown/commonmark.0.31.2.wasm \
-  components/text/html/html-page-wrap.wasm < page.md
+qip run text/markdown/commonmark.0.31.2.wasm \
+  text/html/html-page-wrap.wasm < page.md
 ```
 
 Some boundaries carry more than one item. QIP uses KTX2 for canonical raster

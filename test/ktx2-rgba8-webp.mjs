@@ -12,14 +12,14 @@ import { promisify } from "node:util";
 const execFileP = promisify(execFile);
 const path = (relative) => fileURLToPath(new URL(relative, import.meta.url));
 const qip = path("../qip");
-const bmpToKtx = path("../components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm");
-const bmpToBgraKtx = path("../components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm");
-const bmpToLossless = path("../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm");
-const bmpToLossy = path("../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm");
-const webpToBmp = path("../components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm");
-const webpToKtx = path("../components/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm");
-const ktxToLossless = path("../components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm");
-const ktxToLossy = path("../components/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm");
+const bmpToKtx = path("../image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm");
+const bmpToBgraKtx = path("../image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm");
+const bmpToLossless = path("../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm");
+const bmpToLossy = path("../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm");
+const webpToBmp = path("../image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm");
+const webpToKtx = path("../image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm");
+const ktxToLossless = path("../image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm");
+const ktxToLossy = path("../image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm");
 
 async function ensurePrerequisites(t) {
   try {

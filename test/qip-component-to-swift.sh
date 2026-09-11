@@ -2,7 +2,7 @@
 set -eu
 
 qip_bin=${QIP_BIN:-./qip}
-translator=components/application/wasm/qip-component-to-swift.wasm
+translator=application/wasm/qip-component-to-swift.wasm
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/qip-component-to-swift.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 
@@ -15,10 +15,10 @@ compile_and_run() {
     "$executable"
 }
 
-"$qip_bin" run -i components/text/hello.wasm -o "$tmp_dir/hello.swift" "$translator"
+"$qip_bin" run -i text/hello.wasm -o "$tmp_dir/hello.swift" "$translator"
 compile_and_run "$tmp_dir/hello.swift" test/qip-component-to-swift-runner.swift "$tmp_dir/hello"
 
-"$qip_bin" run -i components/text/trim.wasm -o "$tmp_dir/trim.swift" "$translator"
+"$qip_bin" run -i text/trim.wasm -o "$tmp_dir/trim.swift" "$translator"
 swiftc -O -whole-module-optimization -emit-library -emit-module -module-name HelloComponent -module-cache-path "$tmp_dir/module-cache" "$tmp_dir/hello.swift" -o "$tmp_dir/libHelloComponent.dylib"
 swiftc -O -whole-module-optimization -emit-library -emit-module -module-name TrimComponent -module-cache-path "$tmp_dir/module-cache" "$tmp_dir/trim.swift" -o "$tmp_dir/libTrimComponent.dylib"
 cp test/qip-component-to-swift-bundle.swift "$tmp_dir/main.swift"

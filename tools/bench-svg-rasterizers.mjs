@@ -11,19 +11,19 @@ if (!Number.isInteger(runs) || runs < 1 || runs > 1000) throw new Error("runs mu
 
 const tigerUrl = new URL("../test/fixtures/svg/ghostscript-tiger.svg", import.meta.url);
 const rgba8Url = new URL(
-  "../components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm",
+  "../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm",
   import.meta.url,
 );
 const floatUrl = new URL(
-  "../components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm",
+  "../image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm",
   import.meta.url,
 );
 const rgba8SimdUrl = new URL(
-  "../components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm",
+  "../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm",
   import.meta.url,
 );
 const thorvgUrl = new URL(
-  "../components/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm",
+  "../image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm",
   import.meta.url,
 );
 

@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const moduleUrl = new URL(
-  "../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm",
+  "../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm",
   import.meta.url,
 );
 

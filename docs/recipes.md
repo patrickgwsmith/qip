@@ -45,7 +45,7 @@ To inspect missing paths, run the same archive through
 
 ```sh
 qip router warc ./site --view-source \
-  | qip run components/application/warc/warc-extract-broken-links.wasm
+  | qip run application/warc/warc-extract-broken-links.wasm
 ```
 
 The result is another `application/warc` archive. It keeps only response pages containing broken links and reduces each HTML body to the exact opening tags with broken `href`, `src`, `action`, `data`, or `srcset` values. An archive with no broken links contains only a `warcinfo` record; WARC 1.1 does not define a zero-record archive.
@@ -91,7 +91,7 @@ instead of being written to disk.
 
 ### Turning URI lists into redirects
 
-`components/application/warc/warc-text-uri-list-to-redirect.wasm` rewrites
+`application/warc/warc-text-uri-list-to-redirect.wasm` rewrites
 each `text/uri-list` HTTP response in a WARC into `302 Found`. The first
 non-empty, non-comment line becomes the `Location` header; a UTF-8 BOM on the
 first line and surrounding whitespace are ignored. A URI list without a target
@@ -104,7 +104,7 @@ component without reproducing redirect behavior in host code.
 
 ### Loading custom elements selectively
 
-`components/application/warc/warc-add-custom-element-scripts.wasm` connects element routes to the pages that use them. It discovers top-level `/elements/<tag-name>.js` responses in the archive, detects matching custom-element tags in each HTML response, and inserts one external module script per used element:
+`application/warc/warc-add-custom-element-scripts.wasm` connects element routes to the pages that use them. It discovers top-level `/elements/<tag-name>.js` responses in the archive, detects matching custom-element tags in each HTML response, and inserts one external module script per used element:
 
 ```html
 <script type="module" src="/elements/qip-edit.js"></script>
@@ -191,8 +191,8 @@ absent from that catalog.
 
 ```sh
 qip dry run \
-  components/text/markdown/commonmark.0.31.2.wasm \
-  components/text/html/html-page-wrap.wasm
+  text/markdown/commonmark.0.31.2.wasm \
+  text/html/html-page-wrap.wasm
 ```
 
 The report is intended to be useful in CI logs without another formatting
@@ -200,15 +200,15 @@ step:
 
 ```text
 Pipeline compatible: 2 step(s)
-1. components/text/markdown/commonmark.0.31.2.wasm — Content
+1. text/markdown/commonmark.0.31.2.wasm — Content
    Input:  encoding=UTF-8, type=text/markdown, capacity=2.0 MiB (2097152 bytes)
    Output: encoding=UTF-8, type=text/html, capacity=2.0 MiB (2097152 bytes)
    Buffers: 4.0 MiB (4194304 bytes)
-2. components/text/html/html-page-wrap.wasm — Content
+2. text/html/html-page-wrap.wasm — Content
    Input:  encoding=UTF-8, type=text/html, capacity=256.0 KiB (262144 bytes)
    Output: encoding=UTF-8, type=text/html, capacity=512.0 KiB (524288 bytes)
    Buffers: 768.0 KiB (786432 bytes)
-   Note: step 2 (components/text/html/html-page-wrap.wasm): previous output capacity 2.0 MiB (2097152 bytes) exceeds this input capacity 256.0 KiB (262144 bytes); qip run remains valid when the actual intermediate output fits
+   Note: step 2 (text/html/html-page-wrap.wasm): previous output capacity 2.0 MiB (2097152 bytes) exceeds this input capacity 256.0 KiB (262144 bytes); qip run remains valid when the actual intermediate output fits
 Total declared buffer capacity: 4.8 MiB (4980736 bytes)
 Warnings: 1
 ```
@@ -223,7 +223,7 @@ When a recipe step fails, the host reports its one-based position and component
 path before the component error:
 
 ```text
-step 2 (components/bytes/zlib-decompress.wasm): rejected input
+step 2 (bytes/zlib-decompress.wasm): rejected input
 ```
 
 The same format applies to `qip run` pipelines and router recipe chains. This
@@ -235,7 +235,7 @@ sets the failure bit. The CLI does not read output from a rejected result. If
 the component supplies an input offset, the message is more specific:
 
 ```text
-step 3 (components/text/utf8-must-be-valid.wasm): rejected input at input offset 17
+step 3 (text/utf8-must-be-valid.wasm): rejected input at input offset 17
 ```
 
 The input offset is diagnostic data. Recipe logic must not treat it as a stable
@@ -250,8 +250,8 @@ Use `--capacities-must-fit` to turn capacity warnings into errors:
 
 ```sh
 qip dry run --capacities-must-fit \
-  components/text/markdown/commonmark.0.31.2.wasm \
-  components/text/html/html-page-wrap.wasm
+  text/markdown/commonmark.0.31.2.wasm \
+  text/html/html-page-wrap.wasm
 ```
 
 The check requires each Content component's declared maximum output capacity
@@ -335,9 +335,9 @@ filter, then passes BMP Content to the ICO encoder:
 
 ```sh
 qip dry run \
-  components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
+  image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
   components/rgba/brightness.wasm -u brightness=0.1 \
-  components/image/bmp/bmp-to-ico.wasm
+  image/bmp/bmp-to-ico.wasm
 ```
 
 The middle step reports `RGBA32Float tile` for its input and output encoding;
@@ -367,7 +367,7 @@ WARC recipes can synthesize or rewrite archive records, which means they can add
   and adds `/sitemap.xml` from its successful HTML responses. Set `--host`
   explicitly when building so the generated locations use the production
   origin.
-- `components/application/warc/warc-to-sitemap.wasm` is the terminal
+- `application/warc/warc-to-sitemap.wasm` is the terminal
   `application/warc` to `application/xml` form when a standalone sitemap body,
   rather than an added route, is wanted.
 - `recipes/application/warc/35-add-search-index.wasm` runs after page recipes

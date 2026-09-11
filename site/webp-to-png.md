@@ -255,10 +255,10 @@ fixed Wasm memory attached to the page.
 ## CLI equivalent
 
 ```bash
-qip run components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
   < input.webp > output.bmp
 
-qip run components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
-  components/image/bmp/bmp-to-png.wasm \
+qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+  image/bmp/bmp-to-png.wasm \
   < input.webp > output.png
 ```

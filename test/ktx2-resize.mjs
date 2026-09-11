@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { decodeRenderResult, renderSize, renderedOutputPointer } from "./lib/content-component-host.mjs";
 
-const downPath = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm";
-const upPath = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm";
+const downPath = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm";
+const upPath = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm";
 
 function instantiate(path) {
   return new WebAssembly.Instance(new WebAssembly.Module(readFileSync(path)), {}).exports;

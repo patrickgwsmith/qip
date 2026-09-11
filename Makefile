@@ -62,33 +62,33 @@ compliance/currency-format-ja-jp.comply.wasm: compliance/currency-format-ja-jp.c
 compliance/currency-format-zh-cn.comply.wasm: compliance/currency-format-zh-cn.comply.zig compliance/currency-format-zh-cn-table.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/text/currency-format-en-us.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-en-us.wasm: components/text/lib/currency-format-en-us-table.zig
-components/text/currency-format-en-in.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-en-in.wasm: components/text/lib/currency-format-en-in-table.zig
-components/text/currency-format-es-es.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-es-es.wasm: components/text/lib/currency-format-es-es-table.zig
-components/text/currency-format-de-de.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-de-de.wasm: components/text/lib/currency-format-de-de-table.zig
-components/text/currency-format-ar-eg.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-ar-eg.wasm: components/text/lib/currency-format-ar-eg-table.zig
-components/text/currency-format-fr-fr.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-fr-fr.wasm: components/text/lib/currency-format-fr-fr-table.zig
-components/text/currency-format-pt-br.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-pt-br.wasm: components/text/lib/currency-format-pt-br-table.zig
-components/text/currency-format-ja-jp.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-ja-jp.wasm: components/text/lib/currency-format-ja-jp-table.zig
-components/text/currency-format-zh-cn.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/currency-format-zh-cn.wasm: components/text/lib/currency-format-zh-cn-table.zig
-components/image/svg+xml/svg-to-data-uri.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-components/text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-en-us.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-en-us.wasm: text/lib/currency-format-en-us-table.zig
+text/currency-format-en-in.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-en-in.wasm: text/lib/currency-format-en-in-table.zig
+text/currency-format-es-es.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-es-es.wasm: text/lib/currency-format-es-es-table.zig
+text/currency-format-de-de.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-de-de.wasm: text/lib/currency-format-de-de-table.zig
+text/currency-format-ar-eg.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-ar-eg.wasm: text/lib/currency-format-ar-eg-table.zig
+text/currency-format-fr-fr.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-fr-fr.wasm: text/lib/currency-format-fr-fr-table.zig
+text/currency-format-pt-br.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-pt-br.wasm: text/lib/currency-format-pt-br-table.zig
+text/currency-format-ja-jp.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-ja-jp.wasm: text/lib/currency-format-ja-jp-table.zig
+text/currency-format-zh-cn.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/currency-format-zh-cn.wasm: text/lib/currency-format-zh-cn-table.zig
+image/svg+xml/svg-to-data-uri.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
 
-components/text/html/html-code-syntax-highlight-css.wasm: components/text/html/lib/syntax-highlight-css.zig
-components/text/html/html-code-syntax-highlight-tsx.wasm: components/text/html/lib/syntax-highlight-javascript.zig
-components/text/html/html-code-syntax-highlight-html.wasm: components/text/html/lib/syntax-highlight-css.zig components/text/html/lib/syntax-highlight-javascript.zig
-components/text/javascript/js-syntax-highlight-html.wasm: components/text/javascript/js-syntax-highlight-html.zig components/text/html/lib/syntax-highlight-javascript.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep javascript -Mroot=$< -Mjavascript=components/text/html/lib/syntax-highlight-javascript.zig -femit-bin=$@
-components/text/html/html-to-accessibility-tree.wasm components/text/html/html-accessible-name-unique-validator.wasm: components/text/html/lib/html-accessibility.zig
+text/html/html-code-syntax-highlight-css.wasm: text/html/lib/syntax-highlight-css.zig
+text/html/html-code-syntax-highlight-tsx.wasm: text/html/lib/syntax-highlight-javascript.zig
+text/html/html-code-syntax-highlight-html.wasm: text/html/lib/syntax-highlight-css.zig text/html/lib/syntax-highlight-javascript.zig
+text/javascript/js-syntax-highlight-html.wasm: text/javascript/js-syntax-highlight-html.zig text/html/lib/syntax-highlight-javascript.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep javascript -Mroot=$< -Mjavascript=text/html/lib/syntax-highlight-javascript.zig -femit-bin=$@
+text/html/html-to-accessibility-tree.wasm text/html/html-accessible-name-unique-validator.wasm: text/html/lib/html-accessibility.zig
 
 compliance/iso-4217-alpha-to-numeric.comply.wasm: compliance/iso-4217-alpha-to-numeric.comply.zig compliance/iso-4217-alpha-numeric-table.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
@@ -172,158 +172,164 @@ endif
 endif
 ZIG_TEST_FLAGS ?=
 
-COMPONENT_WAT_FILES := $(shell find components -type f -name '*.wat')
-COMPONENT_C_FILES := $(shell find components -type f -name '*.c')
-COMPONENT_ZIG_FILES := $(shell find components \( -path 'components/interactive/assets' -o -type d -name 'lib' \) -prune -o -type f -name '*.zig' -print)
+CONTENT_COMPONENT_DIRS := application bytes font image multipart text
+COMPONENT_DIRS := components $(CONTENT_COMPONENT_DIRS)
+
+COMPONENT_WAT_FILES := $(shell find $(COMPONENT_DIRS) -type f -name '*.wat')
+COMPONENT_C_FILES := $(shell find $(COMPONENT_DIRS) -type f -name '*.c')
+COMPONENT_ZIG_FILES := $(shell find $(COMPONENT_DIRS) \( -path 'components/interactive/assets' -o -type d -name 'lib' \) -prune -o -type f -name '*.zig' -print)
 
 COMPONENT_WAT_TARGETS := $(patsubst %.wat,%.wasm,$(COMPONENT_WAT_FILES))
 COMPONENT_C_TARGETS := $(patsubst %.c,%.wasm,$(COMPONENT_C_FILES))
 COMPONENT_ZIG_TARGETS := $(patsubst %.zig,%.wasm,$(COMPONENT_ZIG_FILES))
 
-components/%.wasm: components/%.wat
-	wat2wasm $< -o $@
+define COMPONENT_WAT_RULE
+$(1)/%.wasm: $(1)/%.wat
+	wat2wasm $$< -o $$@
+endef
+$(foreach dir,$(COMPONENT_DIRS),$(eval $(call COMPONENT_WAT_RULE,$(dir))))
 
 SQLITE3_ZIG_COMPONENTS := sqlite-first-table-dump sqlite-schema sqlite-table-dump sqlite-table-csv sqlite-row-lookup sqlite-table-count
-$(foreach m,$(SQLITE3_ZIG_COMPONENTS),components/application/vnd.sqlite3/$(m).wasm): components/application/vnd.sqlite3/lib/sqlite.zig
+$(foreach m,$(SQLITE3_ZIG_COMPONENTS),application/vnd.sqlite3/$(m).wasm): application/vnd.sqlite3/lib/sqlite.zig
 
-components/application/vnd.sqlite3/sqlite-table-names.wasm: components/application/vnd.sqlite3/sqlite-table-names.c
+application/vnd.sqlite3/sqlite-table-names.wasm: application/vnd.sqlite3/sqlite-table-names.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_bytes_cap -Wl,--export=output_utf8_cap -Oz -o $@
 
-components/text/text-to-bmp.wasm: components/text/text-to-bmp.c
+text/text-to-bmp.wasm: text/text-to-bmp.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_leading -Wl,--export=uniform_set_cols -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/text-to-ktx2-r8g8b8a8-srgb.wasm: components/text/text-to-bmp.c components/text/lib/raster-output.h components/text/lib/string.h components/image/lib/ktx2-rgba8-srgb.h
-	$(ZIG_ENV) zig cc $< -I components/text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_leading -Wl,--export=uniform_set_cols -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
+text/text-to-ktx2-r8g8b8a8-srgb.wasm: text/text-to-bmp.c text/lib/raster-output.h text/lib/string.h image/lib/ktx2-rgba8-srgb.h
+	$(ZIG_ENV) zig cc $< -I text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_leading -Wl,--export=uniform_set_cols -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/text-to-og-image-font8x8.wasm: components/text/text-to-og-image-font8x8.c
+text/text-to-og-image-font8x8.wasm: text/text-to-og-image-font8x8.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_text_color_rgba -Wl,--export=uniform_set_background_color_rgba -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/text-to-og-image-font8x8-ktx2-r8g8b8a8-srgb.wasm: components/text/text-to-og-image-font8x8.c components/text/lib/raster-output.h components/text/lib/string.h components/image/lib/ktx2-rgba8-srgb.h
-	$(ZIG_ENV) zig cc $< -I components/text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_text_color_rgba -Wl,--export=uniform_set_background_color_rgba -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
+text/text-to-og-image-font8x8-ktx2-r8g8b8a8-srgb.wasm: text/text-to-og-image-font8x8.c text/lib/raster-output.h text/lib/string.h image/lib/ktx2-rgba8-srgb.h
+	$(ZIG_ENV) zig cc $< -I text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=uniform_set_text_color_rgba -Wl,--export=uniform_set_background_color_rgba -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/image/bmp/bmp-double.wasm: components/image/bmp/bmp-double.c
+image/bmp/bmp-double.wasm: image/bmp/bmp-double.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_bytes_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/image/bmp/bmp-double-simd.wasm: components/image/bmp/bmp-double-simd.zig
+image/bmp/bmp-double-simd.wasm: image/bmp/bmp-double-simd.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 -femit-bin=$@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm: components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm: image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm: components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.zig components/image/lib/ktx2-bgra8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_bgra8_srgb -Mroot=$< -Mktx2_bgra8_srgb=components/image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm: image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.zig image/lib/ktx2-bgra8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_bgra8_srgb -Mroot=$< -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm: components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm: image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm components/image/ktx2/ktx2-rgba32float-look-warm-fade.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm image/ktx2/ktx2-rgba32float-look-warm-fade.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm: components/image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig components/image/lib/ktx2-rgba32float-display-p3.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot=$< -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=components/image/lib/ktx2-rgba32float-display-p3.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm: image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.zig image/lib/ktx2-rgba32float-display-p3-linear.zig image/lib/ktx2-rgba32float-display-p3.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot=$< -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=image/lib/ktx2-rgba32float-display-p3.zig -femit-bin=$@
 
-components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.wasm: components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
+image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.wasm: image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
 
-components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm: components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
+image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm: image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
 
-components/image/svg+xml/svg-to-pdf-inter-font.wasm: ZIG_WASM_MAX_MEMORY = 12582912
-components/image/svg+xml/svg-to-pdf-inter-font.wasm: components/image/svg+xml/svg-to-pdf-inter-font.zig components/image/svg+xml/sRGB2014.icc components/font/ttf/lib/ttf.zig fixtures/inter-4.1/inter-display-regular.zig fixtures/inter-4.1/inter-display-bold.zig fixtures/inter-4.1/inter-display-italic.zig fixtures/inter-4.1/inter-display-bold-italic.zig fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf fixtures/inter-4.1/ttf/InterDisplay-Italic.ttf fixtures/inter-4.1/ttf/InterDisplay-BoldItalic.ttf
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot=$< -Mttf=components/font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig -femit-bin=$@
+image/svg+xml/svg-to-pdf-inter-font.wasm: ZIG_WASM_MAX_MEMORY = 12582912
+image/svg+xml/svg-to-pdf-inter-font.wasm: image/svg+xml/svg-to-pdf-inter-font.zig image/svg+xml/sRGB2014.icc font/ttf/lib/ttf.zig fixtures/inter-4.1/inter-display-regular.zig fixtures/inter-4.1/inter-display-bold.zig fixtures/inter-4.1/inter-display-italic.zig fixtures/inter-4.1/inter-display-bold-italic.zig fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf fixtures/inter-4.1/ttf/InterDisplay-Italic.ttf fixtures/inter-4.1/ttf/InterDisplay-BoldItalic.ttf
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot=$< -Mttf=font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig -femit-bin=$@
 
-components/text/csv/time-series-csv-to-svg-polylines.wasm: components/text/csv/time-series-csv-to-svg-polylines.zig
+text/csv/time-series-csv-to-svg-polylines.wasm: text/csv/time-series-csv-to-svg-polylines.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/image/svg+xml/svg-polylines-exponential-moving-average.wasm: components/image/svg+xml/svg-polylines-exponential-moving-average.zig components/image/svg+xml/lib/polyline-smoothing.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=components/image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
+image/svg+xml/svg-polylines-exponential-moving-average.wasm: image/svg+xml/svg-polylines-exponential-moving-average.zig image/svg+xml/lib/polyline-smoothing.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
 
-components/image/svg+xml/svg-polylines-rolling-mean.wasm: components/image/svg+xml/svg-polylines-rolling-mean.zig components/image/svg+xml/lib/polyline-smoothing.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=components/image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
+image/svg+xml/svg-polylines-rolling-mean.wasm: image/svg+xml/svg-polylines-rolling-mean.zig image/svg+xml/lib/polyline-smoothing.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
 
-components/image/svg+xml/svg-polylines-add-mean-lines.wasm: components/image/svg+xml/svg-polylines-add-mean-lines.zig components/image/svg+xml/lib/polyline-smoothing.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=components/image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
+image/svg+xml/svg-polylines-add-mean-lines.wasm: image/svg+xml/svg-polylines-add-mean-lines.zig image/svg+xml/lib/polyline-smoothing.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba32float-linear.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba32float-linear.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.wasm components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba32float-linear.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.wasm image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba32float-linear.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba32float-linear.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba32float-linear.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/ktx2/lib/resize-rgba32float-linear.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba32float-linear.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float_profile -Mroot=$< -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm: components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
+image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm: image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: components/image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.zig components/image/lib/ktx2-bgra8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_bgra8_srgb -Mroot=$< -Mktx2_bgra8_srgb=components/image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.zig image/lib/ktx2-bgra8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_bgra8_srgb -Mroot=$< -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm: ZIG_WASM_MAX_MEMORY = 100663296
-components/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm: ZIG_WASM_MAX_MEMORY = 100663296
+image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-double.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-double.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.wasm: components/image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.wasm: image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-rgba32float-rotate-and-flip.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-rotate-and-flip.wasm: components/image/ktx2/ktx2-rgba32float-rotate-and-flip.zig components/image/lib/ktx2-rgba32float.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig components/image/lib/ktx2-rgba32float-display-p3.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot=$< -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=components/image/lib/ktx2-rgba32float-display-p3.zig -femit-bin=$@
+image/ktx2/ktx2-rgba32float-rotate-and-flip.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-rotate-and-flip.wasm: image/ktx2/ktx2-rgba32float-rotate-and-flip.zig image/lib/ktx2-rgba32float.zig image/lib/ktx2-rgba32float-display-p3-linear.zig image/lib/ktx2-rgba32float-display-p3.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba32float --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot=$< -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=image/lib/ktx2-rgba32float-display-p3.zig -femit-bin=$@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm components/image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm: components/image/ktx2/%.wasm: components/image/ktx2/%.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.zig components/image/png/png-to-bmp-b8g8r8a8-srgb.zig
+image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: image/png/png-to-bmp-b8g8r8a8-srgb-simd.zig image/png/png-to-bmp-b8g8r8a8-srgb.zig
 	$(ZIG_ENV) zig build-exe $< -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 -femit-bin=$@
 
-components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig
+image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
 components/interactive/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 
 components/interactive/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/interactive/qipdb.wasm: components/interactive/qipdb.zig components/application/wasm/lib/wasm-interpreter.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig -femit-bin=$@
+components/interactive/qipdb.wasm: components/interactive/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
-components/application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/application/wasm/qip-content-interpreter.wasm: components/application/wasm/qip-content-interpreter.zig components/application/wasm/lib/wasm-interpreter.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter -Mroot=$< -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
+application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+application/wasm/qip-content-interpreter.wasm: application/wasm/qip-content-interpreter.zig application/wasm/lib/wasm-interpreter.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
 
 test/fixtures/wasm-debugger-bulk-memory.wasm: test/fixtures/wasm-debugger-bulk-memory.wat
 	wat2wasm $< -o $@
@@ -334,236 +340,236 @@ test/fixtures/wasm-debugger-call-indirect.wasm: test/fixtures/wasm-debugger-call
 test/fixtures/qip-content-interpreter-uniforms.wasm: test/fixtures/qip-content-interpreter-uniforms.wat
 	wat2wasm $< -o $@
 
-components/interactive/cover-flow.wasm: components/interactive/cover-flow.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+components/interactive/cover-flow.wasm: components/interactive/cover-flow.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/god-rays-optimized.wasm: components/interactive/god-rays-optimized.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+components/interactive/god-rays-optimized.wasm: components/interactive/god-rays-optimized.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/tic-tac-toe-sun-moon.wasm: components/interactive/tic-tac-toe-sun-moon.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+components/interactive/tic-tac-toe-sun-moon.wasm: components/interactive/tic-tac-toe-sun-moon.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/side-scroller-platformer.wasm components/interactive/spreadsheet.wasm: components/interactive/%.wasm: components/interactive/%.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+components/interactive/side-scroller-platformer.wasm components/interactive/spreadsheet.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/gameboy-camera.wasm components/interactive/liars-dice.wasm components/interactive/macos9-desktop.wasm components/interactive/macosx-leopard-desktop.wasm components/interactive/org_planner.wasm components/interactive/peon-gold.wasm components/interactive/textedit.wasm components/interactive/vector-editor.wasm components/interactive/vertical-shooter.wasm components/interactive/windows95-desktop.wasm: components/interactive/%.wasm: components/interactive/%.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+components/interactive/gameboy-camera.wasm components/interactive/liars-dice.wasm components/interactive/macos9-desktop.wasm components/interactive/macosx-leopard-desktop.wasm components/interactive/org_planner.wasm components/interactive/peon-gold.wasm components/interactive/textedit.wasm components/interactive/vector-editor.wasm components/interactive/vertical-shooter.wasm components/interactive/windows95-desktop.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/aces-up.wasm components/interactive/browser-security.wasm components/interactive/calculator.wasm components/interactive/chronograph.wasm components/interactive/cover-flow-lofi.wasm components/interactive/dock-magnification.wasm components/interactive/formula-1-map.wasm components/interactive/gif-player.wasm components/interactive/god-rays.wasm components/interactive/graph-calculator.wasm components/interactive/ieee-754-floats.wasm components/interactive/layout-systems.wasm components/interactive/macintosh-1bit.wasm components/interactive/mandelbrot.wasm components/interactive/moon-phases.wasm components/interactive/openai-anthropic-arr.wasm components/interactive/page-load-waterfall.wasm components/interactive/paint.wasm components/interactive/perlin-noise.wasm components/interactive/photo-light-table.wasm components/interactive/ps2-menu.wasm components/interactive/render-counts.wasm components/interactive/shadow-rendering.wasm components/interactive/shutterstock-earnings.wasm components/interactive/snake.wasm components/interactive/sudoku.wasm components/interactive/tetris.wasm components/interactive/tile-world-12x12.wasm components/interactive/web-mechanics.wasm components/interactive/webos-card-view.wasm components/interactive/xbox-dashboard.wasm: components/interactive/%.wasm: components/interactive/%.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter components/interactive/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig $(if $(filter components/interactive/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
+components/interactive/aces-up.wasm components/interactive/browser-security.wasm components/interactive/calculator.wasm components/interactive/chronograph.wasm components/interactive/cover-flow-lofi.wasm components/interactive/dock-magnification.wasm components/interactive/formula-1-map.wasm components/interactive/gif-player.wasm components/interactive/god-rays.wasm components/interactive/graph-calculator.wasm components/interactive/ieee-754-floats.wasm components/interactive/layout-systems.wasm components/interactive/macintosh-1bit.wasm components/interactive/mandelbrot.wasm components/interactive/moon-phases.wasm components/interactive/openai-anthropic-arr.wasm components/interactive/page-load-waterfall.wasm components/interactive/paint.wasm components/interactive/perlin-noise.wasm components/interactive/photo-light-table.wasm components/interactive/ps2-menu.wasm components/interactive/render-counts.wasm components/interactive/shadow-rendering.wasm components/interactive/shutterstock-earnings.wasm components/interactive/snake.wasm components/interactive/sudoku.wasm components/interactive/tetris.wasm components/interactive/tile-world-12x12.wasm components/interactive/web-mechanics.wasm components/interactive/webos-card-view.wasm components/interactive/xbox-dashboard.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter components/interactive/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter components/interactive/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
 
-components/interactive/chronograph.wasm: components/interactive/assets/inter_display_bold_chronograph_digits.zig components/image/lib/ktx2-rgba32float-display-p3-linear.zig
+components/interactive/chronograph.wasm: components/interactive/assets/inter_display_bold_chronograph_digits.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
 
-components/application/wasm/wasm-strict-profile.wasm: ZIG_WASM_MAX_MEMORY = 20971520
-components/application/wasm/wasm-strict-profile.wasm: components/application/wasm/wasm-strict-profile.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-strict-profile.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+application/wasm/wasm-strict-profile.wasm: application/wasm/wasm-strict-profile.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-read-input-content-type.wasm: ZIG_WASM_MAX_MEMORY = 16777216
-components/application/wasm/wasm-read-input-content-type.wasm: components/application/wasm/wasm-read-input-content-type.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-read-input-content-type.wasm: ZIG_WASM_MAX_MEMORY = 16777216
+application/wasm/wasm-read-input-content-type.wasm: application/wasm/wasm-read-input-content-type.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-validate-core-1.0.wasm: ZIG_WASM_MAX_MEMORY = 25165824
+application/wasm/wasm-validate-core-1.0.wasm: ZIG_WASM_MAX_MEMORY = 25165824
 # Keep bulk-memory lowering for copies, but do not emit sign-extension opcodes.
-components/application/wasm/wasm-validate-core-1.0.wasm: components/application/wasm/wasm-validate-core-1.0.zig
+application/wasm/wasm-validate-core-1.0.wasm: application/wasm/wasm-validate-core-1.0.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) -mcpu=generic-sign_ext --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-CORE2_VALIDATOR_DIR := components/application/wasm/wasm-validate-core-2.0
+CORE2_VALIDATOR_DIR := application/wasm/wasm-validate-core-2.0
 CORE2_VALIDATOR_DEPS := $(shell find $(CORE2_VALIDATOR_DIR) third_party/rust/wasmparser-0.252.0 third_party/rust/bitflags-2.13.0 -type f)
-components/application/wasm/wasm-validate-core-2.0.wasm: $(CORE2_VALIDATOR_DEPS)
+application/wasm/wasm-validate-core-2.0.wasm: $(CORE2_VALIDATOR_DEPS)
 	cd $(CORE2_VALIDATOR_DIR) && CARGO_TARGET_DIR=$(RUST_WASM_TARGET_DIR) cargo build --release --locked --offline --target wasm32-unknown-unknown $(RUST_WASM_CARGO_FLAGS)
 	cp $(RUST_WASM_TARGET_DIR)/wasm32-unknown-unknown/release/qip-wasm-validate-core-2.wasm $@
 
-components/application/wasm/wasm-bounded-loops.wasm: ZIG_WASM_MAX_MEMORY = 25165824
-components/application/wasm/wasm-bounded-loops.wasm: components/application/wasm/wasm-bounded-loops.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-bounded-loops.wasm: ZIG_WASM_MAX_MEMORY = 25165824
+application/wasm/wasm-bounded-loops.wasm: application/wasm/wasm-bounded-loops.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-bounded-output.wasm: ZIG_WASM_MAX_MEMORY = 20971520
-components/application/wasm/wasm-bounded-output.wasm: components/application/wasm/wasm-bounded-output.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-bounded-output.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+application/wasm/wasm-bounded-output.wasm: application/wasm/wasm-bounded-output.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-counts.wasm: ZIG_WASM_MAX_MEMORY = 12582912
-components/application/wasm/wasm-counts.wasm: components/application/wasm/wasm-counts.zig components/application/wasm/lib/wasm-counts.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-counts.wasm: ZIG_WASM_MAX_MEMORY = 12582912
+application/wasm/wasm-counts.wasm: application/wasm/wasm-counts.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/render-cyclomatic-complexity.wasm: ZIG_WASM_MAX_MEMORY = 12582912
-components/application/wasm/render-cyclomatic-complexity.wasm: components/application/wasm/render-cyclomatic-complexity.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/render-cyclomatic-complexity.wasm: ZIG_WASM_MAX_MEMORY = 12582912
+application/wasm/render-cyclomatic-complexity.wasm: application/wasm/render-cyclomatic-complexity.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-nontrapping-divides.wasm: ZIG_WASM_MAX_MEMORY = 25165824
-components/application/wasm/wasm-nontrapping-divides.wasm: components/application/wasm/wasm-nontrapping-divides.zig components/application/wasm/lib/wasm-reader.zig
+application/wasm/wasm-nontrapping-divides.wasm: ZIG_WASM_MAX_MEMORY = 25165824
+application/wasm/wasm-nontrapping-divides.wasm: application/wasm/wasm-nontrapping-divides.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/wasm-to-js.wasm: components/application/wasm/wasm-to-js.zig
+application/wasm/wasm-to-js.wasm: application/wasm/wasm-to-js.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/text/csv/content-recipe-to-browser-javascript.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+text/csv/content-recipe-to-browser-javascript.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 
-components/font/ttf/ttf-to-svg-paths-csv.wasm components/font/ttf/ttf-to-svg-path-defs.wasm: components/font/ttf/lib/ttf.zig components/font/ttf/lib/path-output.zig
+font/ttf/ttf-to-svg-paths-csv.wasm font/ttf/ttf-to-svg-path-defs.wasm: font/ttf/lib/ttf.zig font/ttf/lib/path-output.zig
 
-components/text/text-to-og-image-svg-dejavu-sans-mono.wasm: components/text/dejavu_sans_mono_56_latin1_paths.zig components/text/dejavu_sans_mono_bold_56_latin1_paths.zig
+text/text-to-og-image-svg-dejavu-sans-mono.wasm: text/dejavu_sans_mono_56_latin1_paths.zig text/dejavu_sans_mono_bold_56_latin1_paths.zig
 
-components/text/text-to-path-svg-dejavu-sans-mono-bold.wasm: components/text/dejavu_sans_mono_bold_paths.zig
+text/text-to-path-svg-dejavu-sans-mono-bold.wasm: text/dejavu_sans_mono_bold_paths.zig
 
-components/text/text-to-path-svg-dejavu-sans-mono.wasm: components/text/dejavu_sans_mono_paths.zig
+text/text-to-path-svg-dejavu-sans-mono.wasm: text/dejavu_sans_mono_paths.zig
 
-components/text/text-to-og-image-svg-inter.wasm: components/text/lib/inter_display_latin_paths.zig components/text/lib/inter_display_bold_latin_paths.zig
+text/text-to-og-image-svg-inter.wasm: text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
 
-components/text/strip-ansi-sgr.wasm components/text/ansi-sgr-to-html.wasm components/text/ansi-sgr-to-svg.wasm: components/text/lib/ansi-sgr.zig
+text/strip-ansi-sgr.wasm text/ansi-sgr-to-html.wasm text/ansi-sgr-to-svg.wasm: text/lib/ansi-sgr.zig
 
-components/text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.wasm: components/text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.zig components/text/text-to-og-image-dejavu-sans-mono.zig components/text/dejavu_sans_mono_56_latin1_bitmap.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.wasm: text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.zig text/text-to-og-image-dejavu-sans-mono.zig text/dejavu_sans_mono_56_latin1_bitmap.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/application/wasm/qip-component-to-c.wasm: ZIG_WASM_MAX_MEMORY = 41943040
-components/application/wasm/qip-component-to-c.wasm: components/application/wasm/qip-component-to-c.zig
+application/wasm/qip-component-to-c.wasm: ZIG_WASM_MAX_MEMORY = 41943040
+application/wasm/qip-component-to-c.wasm: application/wasm/qip-component-to-c.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/qip-component-to-zig.wasm: ZIG_WASM_MAX_MEMORY = 41943040
-components/application/wasm/qip-component-to-zig.wasm: components/application/wasm/qip-component-to-zig.zig
+application/wasm/qip-component-to-zig.wasm: ZIG_WASM_MAX_MEMORY = 41943040
+application/wasm/qip-component-to-zig.wasm: application/wasm/qip-component-to-zig.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/application/wasm/qip-component-to-swift.wasm: ZIG_WASM_MAX_MEMORY = 41943040
-components/application/wasm/qip-component-to-swift.wasm: components/application/wasm/qip-component-to-swift.zig
+application/wasm/qip-component-to-swift.wasm: ZIG_WASM_MAX_MEMORY = 41943040
+application/wasm/qip-component-to-swift.wasm: application/wasm/qip-component-to-swift.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/bytes/bytes-to-sha256.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+bytes/bytes-to-sha256.wasm: ZIG_WASM_MAX_MEMORY = 20971520
 
-components/text/javascript/js-to-bmp.wasm: components/text/javascript/js-to-bmp.c
+text/javascript/js-to-bmp.wasm: text/javascript/js-to-bmp.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/javascript/js-to-ktx2-r8g8b8a8-srgb.wasm: components/text/javascript/js-to-bmp.c components/text/lib/raster-output.h components/text/lib/string.h components/image/lib/ktx2-rgba8-srgb.h
-	$(ZIG_ENV) zig cc $< -I components/text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
+text/javascript/js-to-ktx2-r8g8b8a8-srgb.wasm: text/javascript/js-to-bmp.c text/lib/raster-output.h text/lib/string.h image/lib/ktx2-rgba8-srgb.h
+	$(ZIG_ENV) zig cc $< -I text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/x-c/c-to-bmp.wasm: components/text/x-c/c-to-bmp.c
+text/x-c/c-to-bmp.wasm: text/x-c/c-to-bmp.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
-components/text/x-c/c-to-ktx2-r8g8b8a8-srgb.wasm: components/text/x-c/c-to-bmp.c components/text/lib/raster-output.h components/text/lib/string.h components/image/lib/ktx2-rgba8-srgb.h
-	$(ZIG_ENV) zig cc $< -I components/text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
+text/x-c/c-to-ktx2-r8g8b8a8-srgb.wasm: text/x-c/c-to-bmp.c text/lib/raster-output.h text/lib/string.h image/lib/ktx2-rgba8-srgb.h
+	$(ZIG_ENV) zig cc $< -I text/lib -DQIP_TEXT_OUTPUT_KTX2 -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
 
 recipes/text/markdown/80-html-page-wrap.wasm: recipes/text/markdown/styles.css recipes/text/markdown/header.html recipes/text/markdown/footer.html
 
-components/text/html/html-add-highlight-stylesheet-night-owl.wasm: components/text/html/highlight-night-owl.css
+text/html/html-add-highlight-stylesheet-night-owl.wasm: text/html/highlight-night-owl.css
 
-recipes/text/markdown/17-html-code-syntax-highlight-go.wasm: components/text/html/html-code-syntax-highlight-go.wasm
+recipes/text/markdown/17-html-code-syntax-highlight-go.wasm: text/html/html-code-syntax-highlight-go.wasm
 	cp $< $@
 
-recipes/text/markdown/18-html-code-syntax-highlight-ruby.wasm: components/text/html/html-code-syntax-highlight-ruby.wasm
+recipes/text/markdown/18-html-code-syntax-highlight-ruby.wasm: text/html/html-code-syntax-highlight-ruby.wasm
 	cp $< $@
 
-recipes/text/markdown/19-html-code-syntax-highlight-swift.wasm: components/text/html/html-code-syntax-highlight-swift.wasm
+recipes/text/markdown/19-html-code-syntax-highlight-swift.wasm: text/html/html-code-syntax-highlight-swift.wasm
 	cp $< $@
 
-recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm: components/text/html/html-add-highlight-stylesheet-night-owl.wasm
+recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm: text/html/html-add-highlight-stylesheet-night-owl.wasm
 	cp $< $@
 
-recipes/text/markdown/28-html-code-syntax-highlight-css.wasm: components/text/html/html-code-syntax-highlight-css.wasm
+recipes/text/markdown/28-html-code-syntax-highlight-css.wasm: text/html/html-code-syntax-highlight-css.wasm
 	cp $< $@
 
-recipes/text/markdown/23-html-code-syntax-highlight-tsx.wasm: components/text/html/html-code-syntax-highlight-tsx.wasm
+recipes/text/markdown/23-html-code-syntax-highlight-tsx.wasm: text/html/html-code-syntax-highlight-tsx.wasm
 	cp $< $@
 
-components/text/markdown/commonmark.0.31.2.wasm components/text/markdown/gfm-commonmark.0.31.2.wasm: components/text/markdown/lib/commonmark.zig components/text/markdown/lib/html5-entities-table.zig components/text/markdown/lib/unicode-17-casefold-tables.zig
+text/markdown/commonmark.0.31.2.wasm text/markdown/gfm-commonmark.0.31.2.wasm: text/markdown/lib/commonmark.zig text/markdown/lib/html5-entities-table.zig text/markdown/lib/unicode-17-casefold-tables.zig
 
-components/text/markdown/markdown-basic.wasm: recipes/text/markdown/10-markdown-basic.wasm
+text/markdown/markdown-basic.wasm: recipes/text/markdown/10-markdown-basic.wasm
 	cp $< $@
 
-components/text/html/html-page-wrap.wasm: recipes/text/markdown/80-html-page-wrap.wasm
+text/html/html-page-wrap.wasm: recipes/text/markdown/80-html-page-wrap.wasm
 	cp $< $@
 
-components/application/warc/warc-check-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 167772160
-components/application/warc/warc-counts.wasm: ZIG_WASM_MAX_MEMORY = 142606336
-components/application/warc/warc-extract-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/warc/warc-check-broken-module-imports.wasm: ZIG_WASM_MAX_MEMORY = 167772160
-components/application/warc/warc-to-static-tar-no-trailing-slash.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/x-tar/tar-to-zip.wasm: ZIG_WASM_MAX_MEMORY = 402653184
-components/application/x-tar/tar-to-zip.wasm: components/application/x-tar/tar-to-zip.zig components/bytes/lib/deflate.zig
-	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate -Mroot=$< -Mdeflate=components/bytes/lib/deflate.zig -femit-bin=$@
-components/application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
-components/application/x-tar/recipes-tar-to-node-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/x-tar/recipes-tar-to-csv.wasm components/application/x-tar/recipes-tar-to-node-tar.wasm: components/application/x-tar/%.wasm: components/application/x-tar/%.zig components/application/x-tar/lib/recipe-book.zig components/application/wasm/lib/wasm-reader.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_reader -Mroot=$< -Mwasm_reader=components/application/wasm/lib/wasm-reader.zig -femit-bin=$@
-components/application/zip/zip-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/zip/zip-to-tar.wasm: components/application/zip/zip-to-tar.zig components/application/zip/lib/zip.zig components/bytes/lib/inflate.zig components/bytes/lib/deflate.zig
-	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=components/bytes/lib/inflate.zig -femit-bin=$@
-components/application/zip/zip-list-entries-csv.wasm components/application/zip/zip-list-files-csv.wasm components/application/zip/zip-extract-file.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/zip/zip-list-entries-csv.wasm components/application/zip/zip-list-files-csv.wasm components/application/zip/zip-extract-file.wasm: components/application/zip/%.wasm: components/application/zip/%.zig components/application/zip/lib/zip.zig components/application/zip/lib/list-csv.zig components/bytes/lib/inflate.zig components/bytes/lib/deflate.zig
-	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=components/bytes/lib/inflate.zig -femit-bin=$@
-components/application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-components/application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-components/application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-components/application/warc/warc-add-open-graph-image-meta.wasm components/application/warc/warc-add-custom-element-scripts.wasm components/application/warc/warc-extract-broken-links.wasm components/application/warc/warc-text-uri-list-to-redirect.wasm: components/application/warc/lib/warc.zig
+application/warc/warc-check-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 167772160
+application/warc/warc-counts.wasm: ZIG_WASM_MAX_MEMORY = 142606336
+application/warc/warc-extract-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/warc/warc-check-broken-module-imports.wasm: ZIG_WASM_MAX_MEMORY = 167772160
+application/warc/warc-to-static-tar-no-trailing-slash.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/x-tar/tar-to-zip.wasm: ZIG_WASM_MAX_MEMORY = 402653184
+application/x-tar/tar-to-zip.wasm: application/x-tar/tar-to-zip.zig bytes/lib/deflate.zig
+	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate -Mroot=$< -Mdeflate=bytes/lib/deflate.zig -femit-bin=$@
+application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
+application/x-tar/recipes-tar-to-node-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/x-tar/recipes-tar-to-csv.wasm application/x-tar/recipes-tar-to-node-tar.wasm: application/x-tar/%.wasm: application/x-tar/%.zig application/x-tar/lib/recipe-book.zig application/wasm/lib/wasm-reader.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_reader -Mroot=$< -Mwasm_reader=application/wasm/lib/wasm-reader.zig -femit-bin=$@
+application/zip/zip-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/zip/zip-to-tar.wasm: application/zip/zip-to-tar.zig application/zip/lib/zip.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
+	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=bytes/lib/inflate.zig -femit-bin=$@
+application/zip/zip-list-entries-csv.wasm application/zip/zip-list-files-csv.wasm application/zip/zip-extract-file.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/zip/zip-list-entries-csv.wasm application/zip/zip-list-files-csv.wasm application/zip/zip-extract-file.wasm: application/zip/%.wasm: application/zip/%.zig application/zip/lib/zip.zig application/zip/lib/list-csv.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
+	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=bytes/lib/inflate.zig -femit-bin=$@
+application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-extract-broken-links.wasm application/warc/warc-text-uri-list-to-redirect.wasm: application/warc/lib/warc.zig
 recipes/application/warc/15-add-html-data-path.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/20-add-docs-sidebar.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/25-add-content-size.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/30-add-sitemap-xml.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/35-add-search-index.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-add-docs-sidebar.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm: recipes/application/warc/lib/warc.zig
-components/image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
-components/image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
-components/multipart/form-data/form-data-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 142606336
-components/image/bmp/bmp-to-png.wasm: ZIG_WASM_MAX_MEMORY = 369098752
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm: ZIG_WASM_MAX_MEMORY = 369098752
+image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
+image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
+multipart/form-data/form-data-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 142606336
+image/bmp/bmp-to-png.wasm: ZIG_WASM_MAX_MEMORY = 369098752
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm: ZIG_WASM_MAX_MEMORY = 369098752
 # Full 25 MP level-9 VP8L encoding needs a 1.25 GiB reclaiming arena in
 # addition to its input and worst-case output buffers.
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm: ZIG_WASM_MAX_MEMORY = 1610612736
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm: ZIG_WASM_MAX_MEMORY = 1610612736
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm: ZIG_WASM_MAX_MEMORY = 1610612736
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm: ZIG_WASM_MAX_MEMORY = 1610612736
 # The module has no memory.grow instruction, so its maximum matches its initial
 # memory. Transparent images exercise libwebp's VP8L alpha compressor.
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1275068416
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1275068416
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1275068416
+image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1275068416
 # The opaque build has no VP8L alpha path and needs only the measured lossy VP8
 # arena plus input, output, row scratch, stack, and code.
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm: ZIG_WASM_MAX_MEMORY = 469762048
-components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm: ZIG_WASM_MAX_MEMORY = 469762048
+image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
 # MozJPEG's trellis pass stores image-wide coefficient arrays. The 336 MiB
 # arena supports the measured 25 MP 4:4:4 peak within 512 MiB fixed memory.
-components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
-components/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
-components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 201326592
-components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: ZIG_WASM_MAX_MEMORY = 201326592
-components/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 201326592
-components/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
+image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
+image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+image/png/png-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 201326592
+image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: ZIG_WASM_MAX_MEMORY = 201326592
+image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 201326592
+image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 # Progressive JPEG retains image-wide DCT coefficients. The fixed 336 MiB
 # MozJPEG arena, input, output, stack, and code fit in this 512 MiB module.
-components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
 # Experimental self-contained Zig progressive decoder. It retains quantized
 # coefficients and renders two MCU rows at a time, avoiding full sample planes.
-components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb-zig-progressive.wasm: ZIG_WASM_MAX_MEMORY = 402653184
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/ktx2/ktx2-rgba32float-look-warm-fade.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm: LCMS_WASM_MAX_MEMORY = 536870912
-components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 134217728
-components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-components/application/pdf/pdf-extract-images.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/pdf/pdf-extract-text.wasm: ZIG_WASM_MAX_MEMORY = 335544320
-components/application/pdf/pdf-extract-images.wasm components/application/pdf/pdf-extract-text.wasm: components/application/pdf/%.wasm: components/application/pdf/%.zig components/bytes/lib/inflate.zig
-	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=components/bytes/lib/inflate.zig -femit-bin=$@
+image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb-zig-progressive.wasm: ZIG_WASM_MAX_MEMORY = 402653184
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/ktx2/ktx2-rgba32float-look-warm-fade.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm: LCMS_WASM_MAX_MEMORY = 536870912
+image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+application/pdf/pdf-extract-images.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/pdf/pdf-extract-text.wasm: ZIG_WASM_MAX_MEMORY = 335544320
+application/pdf/pdf-extract-images.wasm application/pdf/pdf-extract-text.wasm: application/pdf/%.wasm: application/pdf/%.zig bytes/lib/inflate.zig
+	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseSmall -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=bytes/lib/inflate.zig -femit-bin=$@
 
 LIBWEBP_ROOT := third_party/libwebp-1.6.0
 LIBWEBP_DEC_NAMES := alpha_dec buffer_dec frame_dec idec_dec io_dec quant_dec tree_dec vp8_dec vp8l_dec webp_dec
@@ -663,7 +669,7 @@ OPENJPEG_DEC_CLANG_EXPORT_FLAGS := $(foreach name,$(OPENJPEG_DEC_CLANG_EXPORTS),
 OPENJPEG_CLANG_FEATURE_FLAGS = $(LIBWEBP_CLANG_FEATURE_FLAGS)
 THORVG_SVG_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_width uniform_set_height uniform_set_background_color_rgba arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count __wasm_call_ctors
 THORVG_SVG_CLANG_EXPORT_FLAGS := $(foreach name,$(THORVG_SVG_CLANG_EXPORTS),-Xlinker --export=$(name))
-THORVG_INCLUDE_FLAGS := -I$(THORVG_ROOT)/qip -I$(THORVG_ROOT)/inc -I$(THORVG_ROOT)/src/common -I$(THORVG_ROOT)/src/renderer -I$(THORVG_ROOT)/src/renderer/cpu_engine -I$(THORVG_ROOT)/src/loaders -I$(THORVG_ROOT)/src/loaders/svg -I$(THORVG_ROOT)/src/loaders/raw -Icomponents/image/lib
+THORVG_INCLUDE_FLAGS := -I$(THORVG_ROOT)/qip -I$(THORVG_ROOT)/inc -I$(THORVG_ROOT)/src/common -I$(THORVG_ROOT)/src/renderer -I$(THORVG_ROOT)/src/renderer/cpu_engine -I$(THORVG_ROOT)/src/loaders -I$(THORVG_ROOT)/src/loaders/svg -I$(THORVG_ROOT)/src/loaders/raw -Iimage/lib
 THORVG_CLANG_FLAGS := -std=c++14 -O3 -ffunction-sections -fdata-sections -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-math-errno -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-memcpy -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DTVG_STATIC -DNDEBUG
 LIBWEBP_CLANG_FEATURE_FLAGS := -msimd128 -mbulk-memory -DEMSCRIPTEN=1 -D__SSE__=1 -D__SSE2__=1 -D__SSE3__=1 -D__SSSE3__=1 -D__SSE4_1__=1
 
@@ -692,58 +698,58 @@ $(EMSDK_LTO_STAMP):
 	$(EMSDK_EMBUILDER) --lto build libc libcompiler_rt libc_rt_wasm libstandalonewasm
 	touch $@
 
-$(LIBWEBP_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.c $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.c $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm: $(LIBWEBP_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm: $(LIBWEBP_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_OPAQUE_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.c $(LIBWEBP_OPAQUE_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_OPAQUE_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.c $(LIBWEBP_OPAQUE_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DWEBP_OPAQUE_ONLY=1 -DNDEBUG -nostdlib $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_OPAQUE_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm: $(LIBWEBP_OPAQUE_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm: $(LIBWEBP_OPAQUE_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_LOSSLESS_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.c $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_LOSSLESS_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.c $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_LOSSLESS_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm: $(LIBWEBP_LOSSLESS_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm: $(LIBWEBP_LOSSLESS_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_KTX_LOSSY_CLANG_RAW_WASM): components/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.c components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.c components/image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_KTX_LOSSY_CLANG_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.c image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.c image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $< $(LIBWEBP_SIMD_C_SOURCES) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm: $(LIBWEBP_KTX_LOSSY_CLANG_RAW_WASM)
+image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm: $(LIBWEBP_KTX_LOSSY_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_KTX_LOSSLESS_CLANG_RAW_WASM): components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.c components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.c components/image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_KTX_LOSSLESS_CLANG_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.c image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.c image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_SIMD_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $< $(LIBWEBP_SIMD_C_SOURCES) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_LOSSLESS_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm: $(LIBWEBP_KTX_LOSSLESS_CLANG_RAW_WASM)
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm: $(LIBWEBP_KTX_LOSSLESS_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_DEC_CLANG_RAW_WASM): components/image/webp/webp-to-bmp-b8g8r8a8-srgb.c $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_DEC_CLANG_RAW_WASM): image/webp/webp-to-bmp-b8g8r8a8-srgb.c $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_DEC_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: $(LIBWEBP_DEC_CLANG_RAW_WASM)
+image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: $(LIBWEBP_DEC_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_KTX_DEC_CLANG_RAW_WASM): components/image/webp/webp-to-ktx2-r8g8b8a8-srgb.c components/image/webp/webp-to-bmp-b8g8r8a8-srgb.c components/image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_KTX_DEC_CLANG_RAW_WASM): image/webp/webp-to-ktx2-r8g8b8a8-srgb.c image/webp/webp-to-bmp-b8g8r8a8-srgb.c image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $< $(LIBWEBP_DEC_C_SOURCES) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_DEC_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: $(LIBWEBP_KTX_DEC_CLANG_RAW_WASM)
+image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: $(LIBWEBP_KTX_DEC_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(OPENJPEG_DEC_CLANG_RAW_WASM): components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.c $(OPENJPEG_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(OPENJPEG_DEC_CLANG_RAW_WASM): image/jp2/jp2-to-bmp-b8g8r8a8-srgb.c $(OPENJPEG_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(OPENJPEG_LIB_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free $(OPENJPEG_CLANG_FEATURE_FLAGS) -DOPJ_STATIC -DMUTEX_stub -DNDEBUG -nostdlib $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(OPENJPEG_DEC_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: $(OPENJPEG_DEC_CLANG_RAW_WASM)
+image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: $(OPENJPEG_DEC_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(THORVG_SVG_CLANG_RAW_WASM): components/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.cpp components/image/lib/ktx2-rgba8-srgb.h $(THORVG_CPP_SOURCES) $(THORVG_ROOT)/qip/config.h $(THORVG_ROOT)/src/common/tvgLock.h $(THORVG_ROOT)/src/renderer/tvgLoader.h $(EMSDK_LTO_STAMP)
+$(THORVG_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.cpp image/lib/ktx2-rgba8-srgb.h $(THORVG_CPP_SOURCES) $(THORVG_ROOT)/qip/config.h $(THORVG_ROOT)/src/common/tvgLock.h $(THORVG_ROOT)/src/renderer/tvgLoader.h $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) $(THORVG_INCLUDE_FLAGS) $(THORVG_CLANG_FLAGS) -nostdlib -Wl,--gc-sections $< $(THORVG_CPP_SOURCES) -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=536870912 -Wl,--max-memory=536870912 $(WASM_STACK_FLAG) $(THORVG_SVG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
 
-components/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm: $(THORVG_SVG_CLANG_RAW_WASM)
+image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm: $(THORVG_SVG_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
 $(AVIF_AOM_STAMP): $(AVIF_AOM_SOURCE_FILES) $(AVIF_COMPAT_ROOT)/setjmp.h
@@ -758,22 +764,22 @@ $(AVIF_LIBAVIF_STAMP): $(AVIF_LIBAVIF_SOURCE_FILES) $(AVIF_AOM_STAMP) $(AVIF_COM
 	env EM_CACHE=$(EMCC_CACHE) cmake --build $(AVIF_LIBAVIF_BUILD) --target avif_static
 	touch $@
 
-$(AVIF_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
+$(AVIF_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(AVIF_COMPAT_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBAVIF_ROOT)/include -I$(LIBAOM_ROOT) -I$(AVIF_AOM_BUILD) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-setjmp -fno-builtin-longjmp -DNDEBUG -nostdlib -Wl,--gc-sections $(AVIF_CLANG_WRAP_FLAGS) $< $(AVIF_LIBAVIF_BUILD)/libavif_internal.a $(AVIF_AOM_BUILD)/libaom.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(AVIF_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm: $(AVIF_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm: $(AVIF_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(AVIF_KTX_CLANG_RAW_WASM): components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.c components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c components/image/lib/ktx2-rgba8-srgb.h $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
+$(AVIF_KTX_CLANG_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.c image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c image/lib/ktx2-rgba8-srgb.h $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(AVIF_COMPAT_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBAVIF_ROOT)/include -I$(LIBAOM_ROOT) -I$(AVIF_AOM_BUILD) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-setjmp -fno-builtin-longjmp -DNDEBUG -nostdlib -Wl,--gc-sections $(AVIF_CLANG_WRAP_FLAGS) $< $(AVIF_LIBAVIF_BUILD)/libavif_internal.a $(AVIF_AOM_BUILD)/libaom.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(AVIF_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm: $(AVIF_KTX_CLANG_RAW_WASM)
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm: $(AVIF_KTX_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(AVIF_DEC_KTX_CLANG_RAW_WASM): components/image/avif/avif-to-ktx2-r8g8b8a8-srgb.c components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c components/image/lib/ktx2-rgba8-srgb.h $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
+$(AVIF_DEC_KTX_CLANG_RAW_WASM): image/avif/avif-to-ktx2-r8g8b8a8-srgb.c image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.c image/lib/ktx2-rgba8-srgb.h $(AVIF_LIBAVIF_STAMP) $(AVIF_AOM_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(AVIF_COMPAT_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBAVIF_ROOT)/include -I$(LIBAOM_ROOT) -I$(AVIF_AOM_BUILD) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-setjmp -fno-builtin-longjmp -DNDEBUG -nostdlib -Wl,--gc-sections $(AVIF_CLANG_WRAP_FLAGS) $< $(AVIF_LIBAVIF_BUILD)/libavif_internal.a $(AVIF_AOM_BUILD)/libaom.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(AVIF_DEC_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: $(AVIF_DEC_KTX_CLANG_RAW_WASM)
+image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: $(AVIF_DEC_KTX_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
 $(MOZJPEG_STAMP): $(shell find $(MOZJPEG_ROOT) -type f) $(EMSDK_LTO_STAMP)
@@ -782,99 +788,105 @@ $(MOZJPEG_STAMP): $(shell find $(MOZJPEG_ROOT) -type f) $(EMSDK_LTO_STAMP)
 	env EM_CACHE=$(EMCC_CACHE) cmake --build $(MOZJPEG_BUILD) --target jpeg-static
 	touch $@
 
-$(MOZJPEG_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.c $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
+$(MOZJPEG_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.c $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(MOZJPEG_BUILD) -I$(MOZJPEG_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -mbulk-memory -DNDEBUG -nostdlib -Wl,--gc-sections $< $(MOZJPEG_BUILD)/libjpeg.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(MOZJPEG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: $(MOZJPEG_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: $(MOZJPEG_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(MOZJPEG_KTX_CLANG_RAW_WASM): components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.c components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.c components/image/lib/ktx2-rgba8-srgb.h $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
+$(MOZJPEG_KTX_CLANG_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.c image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.c image/lib/ktx2-rgba8-srgb.h $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(MOZJPEG_BUILD) -I$(MOZJPEG_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -mbulk-memory -DNDEBUG -nostdlib -Wl,--gc-sections $< $(MOZJPEG_BUILD)/libjpeg.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(MOZJPEG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: $(MOZJPEG_KTX_CLANG_RAW_WASM)
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: $(MOZJPEG_KTX_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(MOZJPEG_DEC_KTX_CLANG_RAW_WASM): components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.c components/image/lib/ktx2-rgba8-srgb.h $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
+$(MOZJPEG_DEC_KTX_CLANG_RAW_WASM): image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.c image/lib/ktx2-rgba8-srgb.h $(MOZJPEG_STAMP) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(MOZJPEG_BUILD) -I$(MOZJPEG_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -mbulk-memory -DNDEBUG -nostdlib -Wl,--gc-sections $< $(MOZJPEG_BUILD)/libjpeg.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(MOZJPEG_DEC_KTX_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm: $(MOZJPEG_DEC_KTX_CLANG_RAW_WASM)
+image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm: $(MOZJPEG_DEC_KTX_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb-zig-progressive.wasm: components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb-zig-progressive.wasm: image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-$(LCMS_CLANG_RAW_WASM): components/image/bmp/bmp-b8g8r8a8-icc-to-srgb.c $(LCMS_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LCMS_CLANG_RAW_WASM): image/bmp/bmp-b8g8r8a8-icc-to-srgb.c $(LCMS_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(LCMS_ROOT)/include -I$(LCMS_ROOT)/src -isystem $(EMSDK_SYSROOT)/include/compat -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free $(LCMS_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib -Wl,--gc-sections $(LCMS_CLANG_WRAP_FLAGS) $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(LCMS_WASM_MAX_MEMORY) -Wl,--max-memory=$(LCMS_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LCMS_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
-components/image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm: $(LCMS_CLANG_RAW_WASM)
+image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm: $(LCMS_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-components/text/unicode-17-lowercase.wasm: components/text/lib/unicode-17-lowercase-tables.zig components/text/lib/utf8.zig
-components/text/unicode-17-uppercase.wasm: components/text/lib/unicode-17-uppercase-tables.zig components/text/lib/utf8.zig
-components/text/iso-4217-alpha-to-numeric.wasm: components/text/lib/iso-4217-alpha-numeric-table.zig
+text/unicode-17-lowercase.wasm: text/lib/unicode-17-lowercase-tables.zig text/lib/utf8.zig
+text/unicode-17-uppercase.wasm: text/lib/unicode-17-uppercase-tables.zig text/lib/utf8.zig
+text/iso-4217-alpha-to-numeric.wasm: text/lib/iso-4217-alpha-numeric-table.zig
 
-components/bytes/zlib-compress-dynamic-huffman-opt.wasm: components/bytes/lib/deflate.zig
-components/image/bmp/bmp-to-png.wasm: components/image/bmp/lib/deflate.zig
-components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm: components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.zig components/image/bmp/bmp-to-png.zig components/image/bmp/lib/deflate.zig components/image/lib/ktx2-rgba8-srgb.zig components/image/lib/ktx2-bgra8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep png_encoder_impl -Mroot=$< --dep ktx2_rgba8_srgb --dep ktx2_bgra8_srgb -Mpng_encoder_impl=components/image/bmp/bmp-to-png.zig -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_bgra8_srgb=components/image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
-components/bytes/zlib-decompress.wasm: components/bytes/lib/inflate.zig components/bytes/lib/deflate.zig
-components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: components/image/png/lib/inflate.zig components/image/png/lib/deflate.zig
-components/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: components/image/png/png-to-ktx2-r8g8b8a8-srgb.zig components/image/png/png-to-bmp-b8g8r8a8-srgb.zig components/image/png/lib/inflate.zig components/image/png/lib/deflate.zig components/image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+bytes/zlib-compress-dynamic-huffman-opt.wasm: bytes/lib/deflate.zig
+image/bmp/bmp-to-png.wasm: image/bmp/lib/deflate.zig
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm: image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.zig image/bmp/bmp-to-png.zig image/bmp/lib/deflate.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-bgra8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep png_encoder_impl -Mroot=$< --dep ktx2_rgba8_srgb --dep ktx2_bgra8_srgb -Mpng_encoder_impl=image/bmp/bmp-to-png.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
+bytes/zlib-decompress.wasm: bytes/lib/inflate.zig bytes/lib/deflate.zig
+image/png/png-to-bmp-b8g8r8a8-srgb.wasm image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: image/png/lib/inflate.zig image/png/lib/deflate.zig
+image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: image/png/png-to-ktx2-r8g8b8a8-srgb.zig image/png/png-to-bmp-b8g8r8a8-srgb.zig image/png/lib/inflate.zig image/png/lib/deflate.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/text/html/html-to-svg-inter-paths.wasm: components/text/html/html-to-svg-inter-paths.zig components/text/lib/inter_display_latin_paths.zig components/text/lib/inter_display_bold_latin_paths.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inter_regular --dep inter_bold -Mroot=$< -Minter_regular=components/text/lib/inter_display_latin_paths.zig -Minter_bold=components/text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
+text/html/html-to-svg-inter-paths.wasm: text/html/html-to-svg-inter-paths.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inter_regular --dep inter_bold -Mroot=$< -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
 
-components/%.wasm: components/%.c
-	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_utf8_cap -Oz -o $@
+define COMPONENT_C_RULE
+$(1)/%.wasm: $(1)/%.c
+	$$(ZIG_ENV) zig cc $$< -target wasm32-freestanding -nostdlib -Wl,--no-entry $$(WASM_STACK_FLAG) -Wl,--max-memory=$$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_utf8_cap -Oz -o $$@
+endef
+$(foreach dir,$(COMPONENT_DIRS),$(eval $(call COMPONENT_C_RULE,$(dir))))
 
-components/%.wasm: components/%.zig
-	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+define COMPONENT_ZIG_RULE
+$(1)/%.wasm: $(1)/%.zig
+	$$(ZIG_ENV) zig build-exe $$< $$(ZIG_WASM_FLAGS) --max-memory=$$(ZIG_WASM_MAX_MEMORY) -femit-bin=$$@
+endef
+$(foreach dir,$(COMPONENT_DIRS),$(eval $(call COMPONENT_ZIG_RULE,$(dir))))
 
-components/text/hello-odin.wasm: components/text/hello-odin.odin
+text/hello-odin.wasm: text/hello-odin.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
-components/text/wc-odin.wasm: ODIN_WASM_MAX_MEMORY = 6291456
-components/text/wc-odin.wasm: components/text/wc-odin.odin
+text/wc-odin.wasm: ODIN_WASM_MAX_MEMORY = 6291456
+text/wc-odin.wasm: text/wc-odin.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
-components/text/shortcode-to-emoji-odin.wasm: components/text/shortcode-to-emoji-odin.odin
+text/shortcode-to-emoji-odin.wasm: text/shortcode-to-emoji-odin.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
-components/text/utf8-must-be-valid-odin.wasm: ODIN_WASM_MAX_MEMORY = 3145728
-components/text/utf8-must-be-valid-odin.wasm: components/text/utf8-must-be-valid-odin.odin
+text/utf8-must-be-valid-odin.wasm: ODIN_WASM_MAX_MEMORY = 3145728
+text/utf8-must-be-valid-odin.wasm: text/utf8-must-be-valid-odin.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: ODIN_WASM_MAX_MEMORY = 1073741824
-components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.odin
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: ODIN_WASM_MAX_MEMORY = 1073741824
+image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -strict-target-features -target-features:simd128 -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
-components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: ODIN_WASM_MAX_MEMORY = 134217728
-components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.odin
+image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: ODIN_WASM_MAX_MEMORY = 134217728
+image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
 recipes/%.wasm: recipes/%.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-recipes/application/warc/10-add-open-graph-image-meta.wasm: components/application/warc/warc-add-open-graph-image-meta.wasm
+recipes/application/warc/10-add-open-graph-image-meta.wasm: application/warc/warc-add-open-graph-image-meta.wasm
 	@mkdir -p $(dir $@)
-	ln -sf ../../../components/application/warc/warc-add-open-graph-image-meta.wasm $@
+	ln -sf ../../../application/warc/warc-add-open-graph-image-meta.wasm $@
 
-recipes/application/warc/05-text-uri-list-to-redirect.wasm: components/application/warc/warc-text-uri-list-to-redirect.wasm
+recipes/application/warc/05-text-uri-list-to-redirect.wasm: application/warc/warc-text-uri-list-to-redirect.wasm
 	@mkdir -p $(dir $@)
-	ln -sf ../../../components/application/warc/warc-text-uri-list-to-redirect.wasm $@
+	ln -sf ../../../application/warc/warc-text-uri-list-to-redirect.wasm $@
 
-recipes/application/warc/99-add-custom-element-scripts.wasm: components/application/warc/warc-add-custom-element-scripts.wasm
-	ln -sf ../../../components/application/warc/warc-add-custom-element-scripts.wasm $@
+recipes/application/warc/99-add-custom-element-scripts.wasm: application/warc/warc-add-custom-element-scripts.wasm
+	ln -sf ../../../application/warc/warc-add-custom-element-scripts.wasm $@
 
 components-wat-wasm: $(COMPONENT_WAT_TARGETS)
 components-c-wasm: $(COMPONENT_C_TARGETS)
 components-zig-wasm: $(COMPONENT_ZIG_TARGETS)
-components-zig-wasm: components/text/markdown/markdown-basic.wasm
-components-zig-wasm: components/text/html/html-page-wrap.wasm
+components-zig-wasm: text/markdown/markdown-basic.wasm
+components-zig-wasm: text/html/html-page-wrap.wasm
 components-zig-wasm: recipes/text/markdown/10-markdown-basic.wasm
 components-zig-wasm: recipes/text/markdown/80-html-page-wrap.wasm
-components-rust-wasm: components/application/wasm/wasm-validate-core-2.0.wasm
+components-rust-wasm: application/wasm/wasm-validate-core-2.0.wasm
 
 recipes: $(patsubst recipes/text/markdown/%.zig,recipes/text/markdown/%.wasm,$(wildcard recipes/text/markdown/*.zig))
 recipes: $(patsubst recipes/application/warc/%.zig,recipes/application/warc/%.wasm,$(wildcard recipes/application/warc/*.zig))
@@ -893,22 +905,22 @@ components: components-wat-wasm components-c-wasm components-zig-wasm components
 
 test: qip components test-go test-node test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help
 
-test-wasm-core-1-spec: components/application/wasm/wasm-validate-core-1.0.wasm
+test-wasm-core-1-spec: application/wasm/wasm-validate-core-1.0.wasm
 	@test -n "$(WASM_CORE_1_0_SPEC_DIR)" || (echo "set WASM_CORE_1_0_SPEC_DIR to the WebAssembly spec wg-1.0 checkout" && exit 1)
 	node test/wasm-validate-core-1.0-spec.mjs $(WASM_CORE_1_0_SPEC_DIR)
 
-test-wasm-core-2-spec: components/application/wasm/wasm-validate-core-2.0.wasm
+test-wasm-core-2-spec: application/wasm/wasm-validate-core-2.0.wasm
 	@test -n "$(WASM_CORE_2_0_SPEC_DIR)" || (echo "set WASM_CORE_2_0_SPEC_DIR to the WebAssembly spec wg-2.0 checkout" && exit 1)
 	node test/wasm-validate-core-2.0-spec.mjs $(WASM_CORE_2_0_SPEC_DIR)
 
-test-markdown-pathological: qip components/text/markdown/gfm-commonmark.0.31.2.wasm
+test-markdown-pathological: qip text/markdown/gfm-commonmark.0.31.2.wasm
 	QIP_BIN=$(QIP_BIN) tools/test-markdown-pathological.sh
 
-test-qip-component-to-c: qip components/application/wasm/qip-component-to-c.wasm
+test-qip-component-to-c: qip application/wasm/qip-component-to-c.wasm
 	wat2wasm test/fixtures/qip-component-to-c-traps.wat -o test/fixtures/qip-component-to-c-traps.wasm
 	QIP_BIN=$(QIP_BIN) sh test/qip-component-to-c.sh
 
-test-qip-component-to-zig: qip components/application/wasm/qip-component-to-zig.wasm
+test-qip-component-to-zig: qip application/wasm/qip-component-to-zig.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-traps.wat -o test/fixtures/qip-component-to-zig-traps.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-direct.wat -o test/fixtures/qip-component-to-zig-direct.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-floats.wat -o test/fixtures/qip-component-to-zig-floats.wasm
@@ -916,7 +928,7 @@ test-qip-component-to-zig: qip components/application/wasm/qip-component-to-zig.
 	wat2wasm test/fixtures/qip-component-to-zig-indirect.wat -o test/fixtures/qip-component-to-zig-indirect.wasm
 	QIP_BIN=$(QIP_BIN) sh test/qip-component-to-zig.sh
 
-test-qip-component-to-swift: qip components/application/wasm/qip-component-to-swift.wasm
+test-qip-component-to-swift: qip application/wasm/qip-component-to-swift.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-traps.wat -o test/fixtures/qip-component-to-zig-traps.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-direct.wat -o test/fixtures/qip-component-to-zig-direct.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-floats.wat -o test/fixtures/qip-component-to-zig-floats.wasm
@@ -926,11 +938,11 @@ test-qip-component-to-swift: qip components/application/wasm/qip-component-to-sw
 
 # Large generated Swift functions make this test take several minutes. Keep it
 # separate from the routine test target until the backend splits function bodies.
-test-qip-component-to-swift-complex: qip components/application/wasm/qip-component-to-swift.wasm site-static/_og/index.png
+test-qip-component-to-swift-complex: qip application/wasm/qip-component-to-swift.wasm site-static/_og/index.png
 	QIP_BIN=$(QIP_BIN) sh test/qip-component-to-swift-complex.sh
 
 test-warc-libs:
-	cmp components/application/warc/lib/warc.zig recipes/application/warc/lib/warc.zig
+	cmp application/warc/lib/warc.zig recipes/application/warc/lib/warc.zig
 
 test-qip-router-help: qip
 	QIP_BIN=$(QIP_BIN) sh test/qip-router-help.sh
@@ -1050,17 +1062,17 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/form-data-to-tar.mjs
 	node --test test/wasm-trap-instance-continues.mjs
 
-test-svg-rasterizers: components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm components/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm components/application/wasm/wasm-bounded-output.wasm
-	$(ZIG_ENV) zig test components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig $(ZIG_TEST_FLAGS)
-	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot=components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig
+test-svg-rasterizers: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm application/wasm/wasm-bounded-output.wasm
+	$(ZIG_ENV) zig test image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig $(ZIG_TEST_FLAGS)
+	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot=image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
 	node --test test/svg-rasterizer-thorvg.mjs
 
-test-wasm-bounded-output: components/application/wasm/wasm-bounded-output.wasm
-	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot=components/application/wasm/wasm-bounded-output.zig -Mwasm_reader=components/application/wasm/lib/wasm-reader.zig
+test-wasm-bounded-output: application/wasm/wasm-bounded-output.wasm
+	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot=application/wasm/wasm-bounded-output.zig -Mwasm_reader=application/wasm/lib/wasm-reader.zig
 
-fuzz-zlib: components/bytes/zlib-compress.wasm components/bytes/zlib-compress-fixed-huffman.wasm components/bytes/zlib-compress-dynamic-huffman.wasm components/bytes/zlib-compress-dynamic-huffman-opt.wasm components/bytes/zlib-decompress.wasm
+fuzz-zlib: bytes/zlib-compress.wasm bytes/zlib-compress-fixed-huffman.wasm bytes/zlib-compress-dynamic-huffman.wasm bytes/zlib-compress-dynamic-huffman-opt.wasm bytes/zlib-decompress.wasm
 	node tools/fuzz-zlib.mjs 20000
 
 test-deno: qip components
@@ -1069,129 +1081,129 @@ test-deno: qip components
 	deno test --allow-read --allow-write --allow-run --allow-sys --allow-env test/qip-play-debug-stats.mjs test/qip-edit-stats.mjs test/sudoku-ui.mjs test/html-id-validator.mjs test/html-adjacent.mjs test/html-to-accessibility-tree.mjs test/luhn.mjs test/trace-with.mjs test/wasm-trap-instance-continues.mjs
 
 test-comply: qip components compliance
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-tsx.wasm --with compliance/syntax-highlight-javascript.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/javascript/js-syntax-highlight-html.wasm --with compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-html.wasm --with compliance/syntax-highlight-html.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-css.wasm --with compliance/syntax-highlight-css.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-tsx.wasm --with compliance/syntax-highlight-javascript.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/javascript/js-syntax-highlight-html.wasm --with compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-html.wasm --with compliance/syntax-highlight-html.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-css.wasm --with compliance/syntax-highlight-css.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply recipes/text/markdown/25-html-code-syntax-highlight-python.wasm --with compliance/syntax-highlight-python.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply recipes/text/markdown/26-html-code-syntax-highlight-java.wasm --with compliance/syntax-highlight-java.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply recipes/text/markdown/27-html-code-syntax-highlight-csharp.wasm --with compliance/syntax-highlight-csharp.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-swift.wasm --with compliance/syntax-highlight-swift.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-ruby.wasm --with compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-go.wasm --with compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-c.wasm --with compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-bash.wasm --with compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-wasm.wasm --with compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-code-syntax-highlight-zig.wasm --with compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/vnd.mermaid/mermaid-to-unicode-html.wasm --with compliance/mermaid-to-unicode-html.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/markdown/commonmark.0.31.2.wasm --with compliance/commonmark-spec-0.31.2.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/commonmark-0.31.2-gfm.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/markdown/commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
-	$(QIP_BIN) comply components/text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
-	$(QIP_BIN) comply components/text/luhn.wasm --with compliance/luhn.comply.wasm
-	$(QIP_BIN) comply components/text/rgb-to-hex.wasm --with compliance/rgb-to-hex.comply.wasm
-	$(QIP_BIN) comply components/text/base64-decode.wasm --with compliance/base64-decode.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/css/css-class-validator.wasm --with compliance/css-class-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-id-validator.wasm --with compliance/html-id-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-input-name-validator.wasm --with compliance/html-input-name-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/html/html-tag-validator.wasm --with compliance/html-tag-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/e164.wasm --with compliance/e164.comply.wasm
-	$(QIP_BIN) comply components/bytes/base64-encode.wasm --with compliance/base64-encode.comply.wasm
-	$(QIP_BIN) comply components/bytes/crc32-hex.wasm --with compliance/crc32-hex.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/trim.wasm --with compliance/trim.comply.wasm
-	$(QIP_BIN) comply components/text/markdown/extract-title-text.wasm --with compliance/extract-title-text.comply.wasm
-	$(QIP_BIN) comply components/text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
-	$(QIP_BIN) comply components/text/utf8-must-be-ascii.wasm --with compliance/reject-non-ascii.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
-	$(QIP_BIN) comply components/text/unicode-17-lowercase.wasm --with compliance/unicode-17-lowercase.comply.wasm
-	$(QIP_BIN) comply components/text/unicode-17-uppercase.wasm --with compliance/unicode-17-uppercase.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-usd-en-us.wasm --with compliance/currency-format-usd-en-us.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-en-us.wasm --with compliance/currency-format-en-us.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-en-in.wasm --with compliance/currency-format-en-in.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-es-es.wasm --with compliance/currency-format-es-es.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-de-de.wasm --with compliance/currency-format-de-de.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-ar-eg.wasm --with compliance/currency-format-ar-eg.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-fr-fr.wasm --with compliance/currency-format-fr-fr.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-pt-br.wasm --with compliance/currency-format-pt-br.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-ja-jp.wasm --with compliance/currency-format-ja-jp.comply.wasm
-	$(QIP_BIN) comply components/text/currency-format-zh-cn.wasm --with compliance/currency-format-zh-cn.comply.wasm
-	$(QIP_BIN) comply components/text/iso-4217-alpha-to-numeric.wasm --with compliance/iso-4217-alpha-to-numeric.comply.wasm
-	$(QIP_BIN) comply components/image/svg+xml/svg-to-data-uri.wasm --with compliance/svg-to-data-uri.comply.wasm
-	$(QIP_BIN) comply components/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm --with compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm --with compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply components/text/uri-list/data-uri-to-css-url.wasm --with compliance/data-uri-to-css-url.comply.wasm
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-swift.wasm --with compliance/syntax-highlight-swift.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-ruby.wasm --with compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-go.wasm --with compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-c.wasm --with compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --with compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --with compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-zig.wasm --with compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/vnd.mermaid/mermaid-to-unicode-html.wasm --with compliance/mermaid-to-unicode-html.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --with compliance/commonmark-spec-0.31.2.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/commonmark-0.31.2-gfm.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
+	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
+	$(QIP_BIN) comply text/luhn.wasm --with compliance/luhn.comply.wasm
+	$(QIP_BIN) comply text/rgb-to-hex.wasm --with compliance/rgb-to-hex.comply.wasm
+	$(QIP_BIN) comply text/base64-decode.wasm --with compliance/base64-decode.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/css/css-class-validator.wasm --with compliance/css-class-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-id-validator.wasm --with compliance/html-id-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-input-name-validator.wasm --with compliance/html-input-name-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-tag-validator.wasm --with compliance/html-tag-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/e164.wasm --with compliance/e164.comply.wasm
+	$(QIP_BIN) comply bytes/base64-encode.wasm --with compliance/base64-encode.comply.wasm
+	$(QIP_BIN) comply bytes/crc32-hex.wasm --with compliance/crc32-hex.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/trim.wasm --with compliance/trim.comply.wasm
+	$(QIP_BIN) comply text/markdown/extract-title-text.wasm --with compliance/extract-title-text.comply.wasm
+	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
+	$(QIP_BIN) comply text/utf8-must-be-ascii.wasm --with compliance/reject-non-ascii.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
+	$(QIP_BIN) comply text/unicode-17-lowercase.wasm --with compliance/unicode-17-lowercase.comply.wasm
+	$(QIP_BIN) comply text/unicode-17-uppercase.wasm --with compliance/unicode-17-uppercase.comply.wasm
+	$(QIP_BIN) comply text/currency-format-usd-en-us.wasm --with compliance/currency-format-usd-en-us.comply.wasm
+	$(QIP_BIN) comply text/currency-format-en-us.wasm --with compliance/currency-format-en-us.comply.wasm
+	$(QIP_BIN) comply text/currency-format-en-in.wasm --with compliance/currency-format-en-in.comply.wasm
+	$(QIP_BIN) comply text/currency-format-es-es.wasm --with compliance/currency-format-es-es.comply.wasm
+	$(QIP_BIN) comply text/currency-format-de-de.wasm --with compliance/currency-format-de-de.comply.wasm
+	$(QIP_BIN) comply text/currency-format-ar-eg.wasm --with compliance/currency-format-ar-eg.comply.wasm
+	$(QIP_BIN) comply text/currency-format-fr-fr.wasm --with compliance/currency-format-fr-fr.comply.wasm
+	$(QIP_BIN) comply text/currency-format-pt-br.wasm --with compliance/currency-format-pt-br.comply.wasm
+	$(QIP_BIN) comply text/currency-format-ja-jp.wasm --with compliance/currency-format-ja-jp.comply.wasm
+	$(QIP_BIN) comply text/currency-format-zh-cn.wasm --with compliance/currency-format-zh-cn.comply.wasm
+	$(QIP_BIN) comply text/iso-4217-alpha-to-numeric.wasm --with compliance/iso-4217-alpha-to-numeric.comply.wasm
+	$(QIP_BIN) comply image/svg+xml/svg-to-data-uri.wasm --with compliance/svg-to-data-uri.comply.wasm
+	$(QIP_BIN) comply image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm --with compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm --with compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/uri-list/data-uri-to-css-url.wasm --with compliance/data-uri-to-css-url.comply.wasm
 
 test-snapshot: qip components
 	@mkdir -p test
 	@rm -f test/latest.txt
 	@printf "%s\n" "module: base64-encode.wasm" >> test/latest.txt
-	@printf %s "hello" | $(QIP_BIN) run components/bytes/base64-encode.wasm >> test/latest.txt
+	@printf %s "hello" | $(QIP_BIN) run bytes/base64-encode.wasm >> test/latest.txt
 	@printf "%s\n" "module: base64-encode.wasm | base64-decode.wasm" >> test/latest.txt
-	@printf %s "hello" | $(QIP_BIN) run components/bytes/base64-encode.wasm components/text/base64-decode.wasm >> test/latest.txt
+	@printf %s "hello" | $(QIP_BIN) run bytes/base64-encode.wasm text/base64-decode.wasm >> test/latest.txt
 	@printf "\n" >> test/latest.txt
 	@printf "%s\n" "module: bmp-to-ico.wasm | base64-encode.wasm" >> test/latest.txt
-	@printf %s "424D3A0000000000000036000000280000000100000001000000010018000000000004000000000000000000000000000000000000000000FF00" | xxd -r -p | $(QIP_BIN) run components/image/bmp/bmp-to-ico.wasm components/bytes/base64-encode.wasm >> test/latest.txt
+	@printf %s "424D3A0000000000000036000000280000000100000001000000010018000000000004000000000000000000000000000000000000000000FF00" | xxd -r -p | $(QIP_BIN) run image/bmp/bmp-to-ico.wasm bytes/base64-encode.wasm >> test/latest.txt
 	@printf "\n" >> test/latest.txt
 	@printf "%s\n" "module: crc32-hex.wasm" >> test/latest.txt
-	@printf %s "abc" | $(QIP_BIN) run components/bytes/crc32-hex.wasm >> test/latest.txt
+	@printf %s "abc" | $(QIP_BIN) run bytes/crc32-hex.wasm >> test/latest.txt
 	@printf "%s\n" "module: css-class-validator.wasm" >> test/latest.txt
-	@printf %s "btn-primary" | $(QIP_BIN) run components/text/css/css-class-validator.wasm >> test/latest.txt
+	@printf %s "btn-primary" | $(QIP_BIN) run text/css/css-class-validator.wasm >> test/latest.txt
 	@printf "%s\n" "module: e164.wasm" >> test/latest.txt
-	@printf %s "+14155552671" | $(QIP_BIN) run components/text/e164.wasm >> test/latest.txt
+	@printf %s "+14155552671" | $(QIP_BIN) run text/e164.wasm >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress.wasm | base64-encode.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress.wasm components/bytes/base64-encode.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress.wasm bytes/base64-encode.wasm >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress.wasm | zlib-decompress.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress.wasm components/bytes/zlib-decompress.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress.wasm bytes/zlib-decompress.wasm >> test/latest.txt
 	@printf "\n" >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress-fixed-huffman.wasm | base64-encode.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress-fixed-huffman.wasm components/bytes/base64-encode.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress-fixed-huffman.wasm bytes/base64-encode.wasm >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress-fixed-huffman.wasm | zlib-decompress.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress-fixed-huffman.wasm components/bytes/zlib-decompress.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress-fixed-huffman.wasm bytes/zlib-decompress.wasm >> test/latest.txt
 	@printf "\n" >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress-dynamic-huffman.wasm | base64-encode.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress-dynamic-huffman.wasm components/bytes/base64-encode.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress-dynamic-huffman.wasm bytes/base64-encode.wasm >> test/latest.txt
 	@printf "%s\n" "module: zlib-compress-dynamic-huffman.wasm | zlib-decompress.wasm" >> test/latest.txt
-	@printf %s "qip + wasm" | $(QIP_BIN) run components/bytes/zlib-compress-dynamic-huffman.wasm components/bytes/zlib-decompress.wasm >> test/latest.txt
+	@printf %s "qip + wasm" | $(QIP_BIN) run bytes/zlib-compress-dynamic-huffman.wasm bytes/zlib-decompress.wasm >> test/latest.txt
 	@printf "\n" >> test/latest.txt
 	@printf "%s\n" "module: hello.wasm" >> test/latest.txt
-	@printf %s "World" | $(QIP_BIN) run components/text/hello.wasm >> test/latest.txt
+	@printf %s "World" | $(QIP_BIN) run text/hello.wasm >> test/latest.txt
 	@printf "%s\n" "module: hello-c.wasm" >> test/latest.txt
-	@printf %s "World" | $(QIP_BIN) run components/text/hello-c.wasm >> test/latest.txt
+	@printf %s "World" | $(QIP_BIN) run text/hello-c.wasm >> test/latest.txt
 	@printf "%s\n" "module: hello-zig.wasm" >> test/latest.txt
-	@printf %s "World" | $(QIP_BIN) run components/text/hello-zig.wasm >> test/latest.txt
+	@printf %s "World" | $(QIP_BIN) run text/hello-zig.wasm >> test/latest.txt
 	@printf "%s\n" "module: hex-to-rgb.wasm" >> test/latest.txt
-	@printf %s "#ff8800" | $(QIP_BIN) run components/text/hex-to-rgb.wasm >> test/latest.txt
+	@printf %s "#ff8800" | $(QIP_BIN) run text/hex-to-rgb.wasm >> test/latest.txt
 	@printf "%s\n" "module: html-id-validator.wasm" >> test/latest.txt
-	@printf %s "main-content" | $(QIP_BIN) run components/text/html/html-id-validator.wasm >> test/latest.txt
+	@printf %s "main-content" | $(QIP_BIN) run text/html/html-id-validator.wasm >> test/latest.txt
 	@printf "%s\n" "module: html-input-name-validator.wasm" >> test/latest.txt
-	@printf %s "email" | $(QIP_BIN) run components/text/html/html-input-name-validator.wasm >> test/latest.txt
+	@printf %s "email" | $(QIP_BIN) run text/html/html-input-name-validator.wasm >> test/latest.txt
 	@printf "%s\n" "module: html-escape.wasm" >> test/latest.txt
-	@printf "%s" "<textarea>Tom & \"QIP\"</textarea><input value='raw'>" | $(QIP_BIN) run components/text/html/html-escape.wasm >> test/latest.txt
+	@printf "%s" "<textarea>Tom & \"QIP\"</textarea><input value='raw'>" | $(QIP_BIN) run text/html/html-escape.wasm >> test/latest.txt
 	@printf "%s\n" "module: html-wcag-contrast-aa.wasm" >> test/latest.txt
-	@printf "%s" "<style>.ok{color:#111;background:#fff}</style><p class=ok>Readable</p>" | $(QIP_BIN) run components/text/html/html-wcag-contrast-aa.wasm >> test/latest.txt
+	@printf "%s" "<style>.ok{color:#111;background:#fff}</style><p class=ok>Readable</p>" | $(QIP_BIN) run text/html/html-wcag-contrast-aa.wasm >> test/latest.txt
 	@printf "%s\n" "module: html-tag-validator.wasm" >> test/latest.txt
-	@printf %s "div" | $(QIP_BIN) run components/text/html/html-tag-validator.wasm >> test/latest.txt
+	@printf %s "div" | $(QIP_BIN) run text/html/html-tag-validator.wasm >> test/latest.txt
 	@printf "%s\n" "module: luhn.wasm" >> test/latest.txt
-	@printf %s "49927398716" | $(QIP_BIN) run components/text/luhn.wasm >> test/latest.txt
+	@printf %s "49927398716" | $(QIP_BIN) run text/luhn.wasm >> test/latest.txt
 	@printf "%s\n" "module: markdown-basic.wasm" >> test/latest.txt
-	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run components/text/markdown/markdown-basic.wasm >> test/latest.txt
+	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run text/markdown/markdown-basic.wasm >> test/latest.txt
 	@printf "%s\n" "module: markdown-basic.wasm (table)" >> test/latest.txt
-	@printf "%b" '| A | B |\n| --- | --- |\n| `x` | **y** |\n' | $(QIP_BIN) run components/text/markdown/markdown-basic.wasm >> test/latest.txt
+	@printf "%b" '| A | B |\n| --- | --- |\n| `x` | **y** |\n' | $(QIP_BIN) run text/markdown/markdown-basic.wasm >> test/latest.txt
 	@printf "%s\n" "module: markdown-basic.wasm | html-page-wrap.wasm" >> test/latest.txt
-	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run components/text/markdown/markdown-basic.wasm components/text/html/html-page-wrap.wasm | perl -0pe 's#(<style\b[^>]*>).*?(</style>)#$$1$$2#gis' >> test/latest.txt
+	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run text/markdown/markdown-basic.wasm text/html/html-page-wrap.wasm | perl -0pe 's#(<style\b[^>]*>).*?(</style>)#$$1$$2#gis' >> test/latest.txt
 	@printf "%s\n" "module: rgb-to-hex.wasm" >> test/latest.txt
-	@printf %s "255,0,170" | $(QIP_BIN) run components/text/rgb-to-hex.wasm >> test/latest.txt
+	@printf %s "255,0,170" | $(QIP_BIN) run text/rgb-to-hex.wasm >> test/latest.txt
 	@printf "%s\n" "module: rgb-to-hex.wasm (rgb())" >> test/latest.txt
-	@printf %s " rgb( 101, 79, 240 ) " | $(QIP_BIN) run components/text/rgb-to-hex.wasm >> test/latest.txt
+	@printf %s " rgb( 101, 79, 240 ) " | $(QIP_BIN) run text/rgb-to-hex.wasm >> test/latest.txt
 	@printf "%s\n" "module: tld-validator.wasm" >> test/latest.txt
-	@printf %s "com" | $(QIP_BIN) run components/text/tld-validator.wasm >> test/latest.txt
+	@printf %s "com" | $(QIP_BIN) run text/tld-validator.wasm >> test/latest.txt
 	@printf "%s\n" "module: youtube-id-extractor.wasm" >> test/latest.txt
-	@printf %s "https://youtu.be/dQw4w9WgXcQ https://www.youtube.com/embed/9bZkp7q19f0 https://www.youtube.com/watch?v=3JZ_D3ELwOQ" | $(QIP_BIN) run components/text/youtube-id-extractor.wasm >> test/latest.txt
+	@printf %s "https://youtu.be/dQw4w9WgXcQ https://www.youtube.com/embed/9bZkp7q19f0 https://www.youtube.com/watch?v=3JZ_D3ELwOQ" | $(QIP_BIN) run text/youtube-id-extractor.wasm >> test/latest.txt
 	@printf "%s\n" "module: trim.wasm" >> test/latest.txt
-	@printf %s "  hi  " | $(QIP_BIN) run components/text/trim.wasm >> test/latest.txt
+	@printf %s "  hi  " | $(QIP_BIN) run text/trim.wasm >> test/latest.txt
 	@printf "%s\n" "module: utf8-must-be-valid.wasm" >> test/latest.txt
-	@printf %s "hello" | $(QIP_BIN) run components/text/utf8-must-be-valid.wasm >> test/latest.txt
+	@printf %s "hello" | $(QIP_BIN) run text/utf8-must-be-valid.wasm >> test/latest.txt
 	@printf "%s\n" "module: wasm-to-js.wasm" >> test/latest.txt
-	@cat components/text/hello.wasm | $(QIP_BIN) run -o test/latest-wasm-to-js.txt components/application/wasm/wasm-to-js.wasm
+	@cat text/hello.wasm | $(QIP_BIN) run -o test/latest-wasm-to-js.txt application/wasm/wasm-to-js.wasm
 	@cat test/latest-wasm-to-js.txt >> test/latest.txt
 	@rm -f test/latest-wasm-to-js.txt
 	diff test/expected.txt test/latest.txt && echo "Snapshots pass."
@@ -1202,64 +1214,64 @@ test-zig: $(ZIG_TEST_FILES)
 	@status=0; \
 	for f in $^; do \
 		echo "zig test $$f"; \
-		if [ "$$f" = "components/application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "components/application/pdf/pdf-extract-text.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=components/bytes/lib/inflate.zig || status=1; \
+		if [ "$$f" = "application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "application/pdf/pdf-extract-text.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "components/interactive/qipdb.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=components/application/wasm/lib/wasm-counts.zig || status=1; \
-		elif [ "$$f" = "components/application/wasm/qip-content-interpreter.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=components/application/wasm/lib/wasm-interpreter.zig || status=1; \
-		elif [ "$$f" = "components/text/html/html-to-svg-inter-paths.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=components/text/lib/inter_display_latin_paths.zig -Minter_bold=components/text/lib/inter_display_bold_latin_paths.zig || status=1; \
-		elif [ "$$f" = "components/text/javascript/js-syntax-highlight-html.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep javascript -Mroot="$$f" -Mjavascript=components/text/html/lib/syntax-highlight-javascript.zig || status=1; \
-		elif [ "$$f" = "components/image/svg+xml/svg-to-pdf-inter-font.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot="$$f" -Mttf=components/font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig || status=1; \
-		elif [ "$$f" = "components/image/svg+xml/svg-polylines-exponential-moving-average.zig" ] || [ "$$f" = "components/image/svg+xml/svg-polylines-rolling-mean.zig" ] || [ "$$f" = "components/image/svg+xml/svg-polylines-add-mean-lines.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep polyline_smoothing -Mroot="$$f" -Mpolyline_smoothing=components/image/svg+xml/lib/polyline-smoothing.zig || status=1; \
-		elif [ "$$f" = "components/application/x-tar/tar-to-zip.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate -Mroot="$$f" -Mdeflate=components/bytes/lib/deflate.zig || status=1; \
-		elif [ "$$f" = "components/application/x-tar/recipes-tar-to-csv.zig" ] || [ "$$f" = "components/application/x-tar/recipes-tar-to-node-tar.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot="$$f" -Mwasm_reader=components/application/wasm/lib/wasm-reader.zig || status=1; \
-		elif [ "$$f" = "components/application/zip/zip-to-tar.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=components/bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "components/application/zip/zip-list-entries-csv.zig" ] || [ "$$f" = "components/application/zip/zip-list-files-csv.zig" ] || [ "$$f" = "components/application/zip/zip-extract-file.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=components/bytes/lib/inflate.zig || status=1; \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
+		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
+		elif [ "$$f" = "text/html/html-to-svg-inter-paths.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig || status=1; \
+		elif [ "$$f" = "text/javascript/js-syntax-highlight-html.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep javascript -Mroot="$$f" -Mjavascript=text/html/lib/syntax-highlight-javascript.zig || status=1; \
+		elif [ "$$f" = "image/svg+xml/svg-to-pdf-inter-font.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot="$$f" -Mttf=font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig || status=1; \
+		elif [ "$$f" = "image/svg+xml/svg-polylines-exponential-moving-average.zig" ] || [ "$$f" = "image/svg+xml/svg-polylines-rolling-mean.zig" ] || [ "$$f" = "image/svg+xml/svg-polylines-add-mean-lines.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep polyline_smoothing -Mroot="$$f" -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig || status=1; \
+		elif [ "$$f" = "application/x-tar/tar-to-zip.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig || status=1; \
+		elif [ "$$f" = "application/x-tar/recipes-tar-to-csv.zig" ] || [ "$$f" = "application/x-tar/recipes-tar-to-node-tar.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot="$$f" -Mwasm_reader=application/wasm/lib/wasm-reader.zig || status=1; \
+		elif [ "$$f" = "application/zip/zip-to-tar.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
+		elif [ "$$f" = "application/zip/zip-list-entries-csv.zig" ] || [ "$$f" = "application/zip/zip-list-files-csv.zig" ] || [ "$$f" = "application/zip/zip-extract-file.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "components/interactive/liars-dice.zig" ] || [ "$$f" = "components/interactive/macos9-desktop.zig" ] || [ "$$f" = "components/interactive/macosx-leopard-desktop.zig" ] || [ "$$f" = "components/interactive/org_planner.zig" ] || [ "$$f" = "components/interactive/peon-gold.zig" ] || [ "$$f" = "components/interactive/textedit.zig" ] || [ "$$f" = "components/interactive/vertical-shooter.zig" ] || [ "$$f" = "components/interactive/windows95-desktop.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-look-warm-fade.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig || status=1; \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-look-warm-fade.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
 		elif [ "$$f" = "components/interactive/chronograph.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
 		elif [ "$$f" = "components/interactive/macintosh-1bit.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/lib/ktx2-rgba32float-display-p3.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot="$$f" -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=components/image/lib/ktx2-rgba32float-display-p3.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_profile -Mroot="$$f" -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_profile -Mroot="$$f" -Mktx2_rgba32float_profile=components/image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.zig" ] || [ "$$f" = "components/image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.zig" ] || [ "$$f" = "components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-double.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-rgba32float-rotate-and-flip.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot="$$f" -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig -Mktx2_rgba32float_display_p3_linear=components/image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=components/image/lib/ktx2-rgba32float-display-p3.zig || status=1; \
-		elif [ "$$f" = "components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_bgra8_srgb -Mroot="$$f" -Mktx2_bgra8_srgb=components/image/lib/ktx2-bgra8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "components/interactive/aces-up.zig" ] || [ "$$f" = "components/interactive/gameboy-camera.zig" ] || [ "$$f" = "components/interactive/gif-player.zig" ] || [ "$$f" = "components/interactive/god-rays-optimized.zig" ] || [ "$$f" = "components/interactive/god-rays.zig" ] || [ "$$f" = "components/interactive/tic-tac-toe-sun-moon.zig" ] || [ "$$f" = "components/interactive/browser-security.zig" ] || [ "$$f" = "components/interactive/calculator.zig" ] || [ "$$f" = "components/interactive/chronograph.zig" ] || [ "$$f" = "components/interactive/cover-flow-lofi.zig" ] || [ "$$f" = "components/interactive/dock-magnification.zig" ] || [ "$$f" = "components/interactive/formula-1-map.zig" ] || [ "$$f" = "components/interactive/graph-calculator.zig" ] || [ "$$f" = "components/interactive/ieee-754-floats.zig" ] || [ "$$f" = "components/interactive/layout-systems.zig" ] || [ "$$f" = "components/interactive/mandelbrot.zig" ] || [ "$$f" = "components/interactive/moon-phases.zig" ] || [ "$$f" = "components/interactive/openai-anthropic-arr.zig" ] || [ "$$f" = "components/interactive/page-load-waterfall.zig" ] || [ "$$f" = "components/interactive/paint.zig" ] || [ "$$f" = "components/interactive/perlin-noise.zig" ] || [ "$$f" = "components/interactive/photo-light-table.zig" ] || [ "$$f" = "components/interactive/ps2-menu.zig" ] || [ "$$f" = "components/interactive/render-counts.zig" ] || [ "$$f" = "components/interactive/shadow-rendering.zig" ] || [ "$$f" = "components/interactive/shutterstock-earnings.zig" ] || [ "$$f" = "components/interactive/side-scroller-platformer.zig" ] || [ "$$f" = "components/interactive/snake.zig" ] || [ "$$f" = "components/interactive/spreadsheet.zig" ] || [ "$$f" = "components/interactive/sudoku.zig" ] || [ "$$f" = "components/interactive/tetris.zig" ] || [ "$$f" = "components/interactive/tile-world-12x12.zig" ] || [ "$$f" = "components/interactive/vector-editor.zig" ] || [ "$$f" = "components/interactive/web-mechanics.zig" ] || [ "$$f" = "components/interactive/webos-card-view.zig" ] || [ "$$f" = "components/interactive/xbox-dashboard.zig" ] || [ "$$f" = "components/interactive/cover-flow.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig" ] || [ "$$f" = "components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "components/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "components/image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=components/image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "components/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep png_encoder_impl -Mroot="$$f" --dep ktx2_rgba8_srgb --dep ktx2_bgra8_srgb -Mpng_encoder_impl=components/image/bmp/bmp-to-png.zig -Mktx2_rgba8_srgb=components/image/lib/ktx2-rgba8-srgb.zig -Mktx2_bgra8_srgb=components/image/lib/ktx2-bgra8-srgb.zig || status=1; \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/lib/ktx2-rgba32float-display-p3.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot="$$f" -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=image/lib/ktx2-rgba32float-display-p3.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_profile -Mroot="$$f" -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_profile -Mroot="$$f" -Mktx2_rgba32float_profile=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.zig" ] || [ "$$f" = "image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.zig" ] || [ "$$f" = "image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-double.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-rotate-and-flip.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-rgba32float-rotate-and-flip.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=image/lib/ktx2-rgba32float-display-p3.zig || status=1; \
+		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_bgra8_srgb -Mroot="$$f" -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "components/interactive/aces-up.zig" ] || [ "$$f" = "components/interactive/gameboy-camera.zig" ] || [ "$$f" = "components/interactive/gif-player.zig" ] || [ "$$f" = "components/interactive/god-rays-optimized.zig" ] || [ "$$f" = "components/interactive/god-rays.zig" ] || [ "$$f" = "components/interactive/tic-tac-toe-sun-moon.zig" ] || [ "$$f" = "components/interactive/browser-security.zig" ] || [ "$$f" = "components/interactive/calculator.zig" ] || [ "$$f" = "components/interactive/chronograph.zig" ] || [ "$$f" = "components/interactive/cover-flow-lofi.zig" ] || [ "$$f" = "components/interactive/dock-magnification.zig" ] || [ "$$f" = "components/interactive/formula-1-map.zig" ] || [ "$$f" = "components/interactive/graph-calculator.zig" ] || [ "$$f" = "components/interactive/ieee-754-floats.zig" ] || [ "$$f" = "components/interactive/layout-systems.zig" ] || [ "$$f" = "components/interactive/mandelbrot.zig" ] || [ "$$f" = "components/interactive/moon-phases.zig" ] || [ "$$f" = "components/interactive/openai-anthropic-arr.zig" ] || [ "$$f" = "components/interactive/page-load-waterfall.zig" ] || [ "$$f" = "components/interactive/paint.zig" ] || [ "$$f" = "components/interactive/perlin-noise.zig" ] || [ "$$f" = "components/interactive/photo-light-table.zig" ] || [ "$$f" = "components/interactive/ps2-menu.zig" ] || [ "$$f" = "components/interactive/render-counts.zig" ] || [ "$$f" = "components/interactive/shadow-rendering.zig" ] || [ "$$f" = "components/interactive/shutterstock-earnings.zig" ] || [ "$$f" = "components/interactive/side-scroller-platformer.zig" ] || [ "$$f" = "components/interactive/snake.zig" ] || [ "$$f" = "components/interactive/spreadsheet.zig" ] || [ "$$f" = "components/interactive/sudoku.zig" ] || [ "$$f" = "components/interactive/tetris.zig" ] || [ "$$f" = "components/interactive/tile-world-12x12.zig" ] || [ "$$f" = "components/interactive/vector-editor.zig" ] || [ "$$f" = "components/interactive/web-mechanics.zig" ] || [ "$$f" = "components/interactive/webos-card-view.zig" ] || [ "$$f" = "components/interactive/xbox-dashboard.zig" ] || [ "$$f" = "components/interactive/cover-flow.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig" ] || [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
+		elif [ "$$f" = "image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
+		elif [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep png_encoder_impl -Mroot="$$f" --dep ktx2_rgba8_srgb --dep ktx2_bgra8_srgb -Mpng_encoder_impl=image/bmp/bmp-to-png.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig || status=1; \
 		else \
 			$(ZIG_ENV) zig test "$$f" $(ZIG_TEST_FLAGS) || status=1; \
 		fi; \
@@ -1271,10 +1283,10 @@ test-go:
 	go test $(GO_TOOL_FILES)
 
 site/favicon.ico: qip-logo.svg
-	$(QIP_BIN) run -i qip-logo.svg -- components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm components/image/bmp/bmp-double.wasm components/image/bmp/bmp-double.wasm components/image/bmp/bmp-to-ico.wasm > $@
+	$(QIP_BIN) run -i qip-logo.svg -- image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-double.wasm image/bmp/bmp-double.wasm image/bmp/bmp-to-ico.wasm > $@
 
 OG_MD_SOURCES := $(shell find site docs -type f -name '*.md' | sort)
-OG_IMAGE_MODULES := components/text/markdown/extract-title-text.wasm components/text/text-to-path-svg-dejavu-sans-mono-bold.wasm components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm components/image/bmp/bmp-to-png.wasm
+OG_IMAGE_MODULES := text/markdown/extract-title-text.wasm text/text-to-path-svg-dejavu-sans-mono-bold.wasm image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-to-png.wasm
 
 OG_PNG_TARGETS := $(sort $(patsubst site/_og/%/index.png,site/_og/%.png,$(patsubst docs/%.md,site/_og/docs/%.png,$(patsubst site/%.md,site/_og/%.png,$(OG_MD_SOURCES)))))
 
@@ -1282,7 +1294,7 @@ site/_og: $(OG_PNG_TARGETS)
 
 define OG_RENDER_PNG_RECIPE
 	@mkdir -p $(dir $@)
-	$(QIP_BIN) run -i "$<" -o "$@" -- components/text/markdown/extract-title-text.wasm components/text/text-to-path-svg-dejavu-sans-mono-bold.wasm '?width=1200&height=630&font_size=72' components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm '?background_color_rgba=0xeecc33ff' components/image/bmp/bmp-to-png.wasm
+	$(QIP_BIN) run -i "$<" -o "$@" -- text/markdown/extract-title-text.wasm text/text-to-path-svg-dejavu-sans-mono-bold.wasm '?width=1200&height=630&font_size=72' image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm '?background_color_rgba=0xeecc33ff' image/bmp/bmp-to-png.wasm
 endef
 
 site/_og/%.png: site/%.md $(OG_IMAGE_MODULES)
@@ -1305,26 +1317,26 @@ install:
 
 score: qip
 	@echo "make score is deprecated; use wasm-safety-report for strict policy checks or wasm-counts.wasm for factual metrics."
-	@files="$$(find components -type f -name '*.wasm' | LC_ALL=C sort)"; \
+	@files="$$(find $(COMPONENT_DIRS) -type f -name '*.wasm' | LC_ALL=C sort)"; \
 	if [ -z "$$files" ]; then \
-		echo "No .wasm files found under components/"; \
+		echo "No component .wasm files found"; \
 		exit 1; \
 	fi; \
 	$(QIP_BIN) score $$files
 
 strict-profile-report: components
-	node tools/report-strict-profile.mjs components
+	@for dir in $(COMPONENT_DIRS); do node tools/report-strict-profile.mjs "$$dir" || exit; done
 
 wasm-safety-report: qip components
 	@pass=0; \
 	fail=0; \
-	files="$$(find components -type f -name '*.wasm' | LC_ALL=C sort)"; \
+	files="$$(find $(COMPONENT_DIRS) -type f -name '*.wasm' | LC_ALL=C sort)"; \
 	if [ -z "$$files" ]; then \
-		echo "No .wasm files found under components/"; \
+		echo "No component .wasm files found"; \
 		exit 1; \
 	fi; \
 	for f in $$files; do \
-		if $(QIP_BIN) run -i "$$f" -- components/application/wasm/wasm-strict-profile.wasm components/application/wasm/wasm-bounded-loops.wasm >/dev/null 2>&1; then \
+		if $(QIP_BIN) run -i "$$f" -- application/wasm/wasm-strict-profile.wasm application/wasm/wasm-bounded-loops.wasm >/dev/null 2>&1; then \
 			printf "PASS %s\n" "$$f"; \
 			pass=$$((pass + 1)); \
 		else \
@@ -1335,10 +1347,10 @@ wasm-safety-report: qip components
 	total=$$((pass + fail)); \
 	printf "\npass=%d fail=%d total=%d\n" "$$pass" "$$fail" "$$total"
 
-# SITE_HTML_VALIDATORS := components/text/html/html-unique-id-validator.wasm components/text/html/html-id-reference-validator.wasm components/text/html/html-accessible-name-unique-validator.wasm
+# SITE_HTML_VALIDATORS := text/html/html-unique-id-validator.wasm text/html/html-id-reference-validator.wasm text/html/html-accessible-name-unique-validator.wasm
 
 site-static: qip # $(SITE_HTML_VALIDATORS)
-	$(QIP_BIN) router warc ./site --host https://qip.dev --view-source | $(QIP_BIN) run components/application/warc/warc-check-broken-links.wasm components/application/warc/warc-check-broken-module-imports.wasm components/application/warc/warc-to-static-tar-no-trailing-slash.wasm > site-static.tar && mkdir -p site-static && tar -xvf site-static.tar -C site-static
+	$(QIP_BIN) router warc ./site --host https://qip.dev --view-source | $(QIP_BIN) run application/warc/warc-check-broken-links.wasm application/warc/warc-check-broken-module-imports.wasm application/warc/warc-to-static-tar-no-trailing-slash.wasm > site-static.tar && mkdir -p site-static && tar -xvf site-static.tar -C site-static
 	@failed=0; \
 	html_entries="$$(tar -tf site-static.tar | LC_ALL=C sort | awk '/\.html$$/')"; \
 	for validator in $(SITE_HTML_VALIDATORS); do \
@@ -1358,7 +1370,7 @@ site-static: qip # $(SITE_HTML_VALIDATORS)
 site-static-with-og: site/_og recipes/application/warc/10-add-open-graph-image-meta.wasm site-static
 
 site-checks: site-static
-	$(QIP_BIN) router get site / | $(QIP_BIN) run components/text/html/html-wcag-contrast-aa.wasm
+	$(QIP_BIN) router get site / | $(QIP_BIN) run text/html/html-wcag-contrast-aa.wasm
 
 dev:
 	$(QIP_BIN) router dev ./site -p 4114 --view-source

@@ -1,4 +1,4 @@
-// Generated subset from components/text/dejavu_sans_mono_56_latin1_bitmap.zig
+// Generated subset from text/dejavu_sans_mono_56_latin1_bitmap.zig
 // Coverage: U+0020..U+005A for Cover Flow UI text.
 
 pub const GLYPH_W: u32 = 34;

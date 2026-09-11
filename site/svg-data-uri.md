@@ -6,12 +6,12 @@ Convert SVG bytes into a percent-encoded data URI that is safe inside either sin
 
 ```bash
 printf %s '<svg fill="none"/>' \
-  | qip run components/image/svg+xml/svg-to-data-uri.wasm
+  | qip run image/svg+xml/svg-to-data-uri.wasm
 # data:image/svg+xml,%3Csvg%20fill=%22none%22/%3E
 
 printf %s '<svg fill="none"/>' \
-  | qip run components/image/svg+xml/svg-to-data-uri.wasm \
-    components/text/uri-list/data-uri-to-css-url.wasm
+  | qip run image/svg+xml/svg-to-data-uri.wasm \
+    text/uri-list/data-uri-to-css-url.wasm
 # url("data:image/svg+xml,%3Csvg%20fill=%22none%22/%3E")
 ```
 

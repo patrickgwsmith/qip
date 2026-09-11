@@ -113,10 +113,10 @@ def build_tools() -> tuple[list[Tool], list[str]]:
     qip = pathlib.Path("./qip")
     if qip.exists():
         for name, module in [
-            ("qip-zlib-stored", "components/bytes/zlib-compress.wasm"),
-            ("qip-zlib-fixed", "components/bytes/zlib-compress-fixed-huffman.wasm"),
-            ("qip-zlib-dynamic", "components/bytes/zlib-compress-dynamic-huffman.wasm"),
-            ("qip-zlib-dynamic-opt", "components/bytes/zlib-compress-dynamic-huffman-opt.wasm"),
+            ("qip-zlib-stored", "bytes/zlib-compress.wasm"),
+            ("qip-zlib-fixed", "bytes/zlib-compress-fixed-huffman.wasm"),
+            ("qip-zlib-dynamic", "bytes/zlib-compress-dynamic-huffman.wasm"),
+            ("qip-zlib-dynamic-opt", "bytes/zlib-compress-dynamic-huffman-opt.wasm"),
         ]:
             if pathlib.Path(module).exists():
                 tools.append(Tool(name=name, cmd=["./qip", "run", "-i", "-", module]))

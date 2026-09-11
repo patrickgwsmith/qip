@@ -619,5 +619,5 @@ performance score.
 ## CLI equivalent
 
 ```bash
-qip run -i component.wasm -- components/application/wasm/wasm-counts.wasm
+qip run -i component.wasm -- application/wasm/wasm-counts.wasm
 ```

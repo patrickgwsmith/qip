@@ -339,7 +339,7 @@ function replacedBoundary(body, from, to) {
 
 async function debuggerForm(component, input) {
   const form = new FormData();
-  const componentPath = component.path ? "components" + component.path : component.name;
+  const componentPath = component.path ? component.path.slice(1) : component.name;
   form.append("component", new Blob([component.bytes], { type: "application/wasm" }), componentPath);
   if (input) {
     form.append("input", new Blob([input.bytes], { type: "application/octet-stream" }), input.name);

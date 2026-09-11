@@ -4,10 +4,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const encoderModule = await WebAssembly.compile(
-  await readFile("components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm"),
+  await readFile("image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm"),
 );
 const decoderModule = await WebAssembly.compile(
-  await readFile("components/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm"),
+  await readFile("image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm"),
 );
 const decoder = new TextDecoder();
 

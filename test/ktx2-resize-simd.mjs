@@ -76,7 +76,7 @@ function rgba8KTX2(width, height) {
 
 async function toFloat(input) {
   const converter = instantiate(
-    "components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm",
   );
   new Uint8Array(converter.memory.buffer, converter.input_ptr(), input.length).set(input);
   const size = renderSize(converter, input.length);
@@ -89,7 +89,7 @@ async function toFloat(input) {
 
 async function toDisplayP3Float(input) {
   const converter = instantiate(
-    "components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm",
+    "image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm",
   );
   new Uint8Array(converter.memory.buffer, converter.input_ptr(), input.length).set(input);
   const size = renderSize(converter, input.length);
@@ -104,14 +104,14 @@ test("RGBA8 SIMD resizers match the scalar components byte for byte", async () =
   const input = rgba8KTX2(9, 7);
   for (const [scalar, simd, width, height] of [
     [
-      "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm",
-      "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm",
+      "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm",
+      "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm",
       5,
       3,
     ],
     [
-      "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm",
-      "components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm",
+      "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm",
+      "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm",
       17,
       13,
     ],
@@ -127,14 +127,14 @@ test("float32 Zig and Odin SIMD enlargement matches scalar output", async () => 
   const width = 15;
   const height = 11;
   const scalar = await isolatedRun(
-    "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm",
+    "image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell.wasm",
     input,
     width,
     height,
   );
   for (const path of [
-    "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm",
-    "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm",
+    "image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-simd.wasm",
+    "image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm",
   ]) {
     assert.deepEqual(await isolatedRun(path, input, width, height), scalar);
   }
@@ -144,14 +144,14 @@ test("Display P3 float32 SIMD resizers match the scalar components", async () =>
   const input = await toDisplayP3Float(rgba8KTX2(9, 7));
   for (const [scalar, simd, width, height] of [
     [
-      "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm",
-      "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm",
+      "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3.wasm",
+      "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-down-lanczos3-simd.wasm",
       5,
       3,
     ],
     [
-      "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm",
-      "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm",
+      "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm",
+      "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell-simd.wasm",
       17,
       13,
     ],

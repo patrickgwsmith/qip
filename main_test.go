@@ -222,9 +222,9 @@ func TestLegacyDevNoticePointsToRouterCommand(t *testing.T) {
 
 func TestNormalizeRunArgs(t *testing.T) {
 	in := []string{
-		"components/text/trim.wasm",
+		"text/trim.wasm",
 		"?x=1",
-		"components/text/wc.wasm",
+		"text/wc.wasm",
 		"-o",
 		"out.txt",
 		"--timeout-ms",
@@ -242,9 +242,9 @@ func TestNormalizeRunArgs(t *testing.T) {
 		"--max-memory",
 		"1048576",
 		"--allow-memory-grow",
-		"components/text/trim.wasm",
+		"text/trim.wasm",
 		"?x=1",
-		"components/text/wc.wasm",
+		"text/wc.wasm",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args=%v, want %v", got, want)
@@ -269,7 +269,7 @@ func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 	in := []string{
 		"components/interactive/qipdb.wasm",
 		"-F",
-		"component=@components/text/hello.wasm",
+		"component=@text/hello.wasm",
 		"--form",
 		"input=hello",
 		"-r",
@@ -278,7 +278,7 @@ func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 	got := normalizeBenchArgs(in)
 	want := []string{
 		"-F",
-		"component=@components/text/hello.wasm",
+		"component=@text/hello.wasm",
 		"--form",
 		"input=hello",
 		"-r",
@@ -527,7 +527,7 @@ func TestParseUniformUint(t *testing.T) {
 }
 
 func TestRunDelayedStdinDoesNotFailExportResolution(t *testing.T) {
-	cmd := exec.Command(os.Args[0], "-test.run=TestHelperRunModuleCLI", "--", "components/text/html/html-link-extractor.wasm")
+	cmd := exec.Command(os.Args[0], "-test.run=TestHelperRunModuleCLI", "--", "text/html/html-link-extractor.wasm")
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 
 	stdin, err := cmd.StdinPipe()
@@ -566,7 +566,7 @@ func TestRunModuleExecutionErrorIncludesModulePath(t *testing.T) {
 		"--",
 		"--timeout-ms",
 		"1",
-		"components/text/infinite-loop.wasm",
+		"text/infinite-loop.wasm",
 	)
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 	var stdout bytes.Buffer
@@ -580,7 +580,7 @@ func TestRunModuleExecutionErrorIncludesModulePath(t *testing.T) {
 	}
 
 	gotErr := stderr.String()
-	if !strings.Contains(gotErr, "step 1 (components/text/infinite-loop.wasm): render trapped:") {
+	if !strings.Contains(gotErr, "step 1 (text/infinite-loop.wasm): render trapped:") {
 		t.Fatalf("stderr=%q, want step, component path, and render failure", gotErr)
 	}
 	if !strings.Contains(gotErr, "Wasm module exceeded the execution time limit") {
@@ -594,9 +594,9 @@ func TestRunRejectionNamesPipelineStepAndComponent(t *testing.T) {
 		"-test.run=TestHelperRunModuleCLI",
 		"--",
 		"--trace-with",
-		"components/application/wasm/wasm-trace-instrument.wasm",
-		"components/bytes/base64-encode.wasm",
-		"components/bytes/zlib-decompress.wasm",
+		"application/wasm/wasm-trace-instrument.wasm",
+		"bytes/base64-encode.wasm",
+		"bytes/zlib-decompress.wasm",
 	)
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 	cmd.Stdin = strings.NewReader("not zlib")
@@ -612,7 +612,7 @@ func TestRunRejectionNamesPipelineStepAndComponent(t *testing.T) {
 		t.Fatalf("rejected pipeline wrote stdout=%q", stdout.String())
 	}
 	got := stderr.String()
-	if !strings.Contains(got, "step 2 (components/bytes/zlib-decompress.wasm): component rejected input") {
+	if !strings.Contains(got, "step 2 (bytes/zlib-decompress.wasm): component rejected input") {
 		t.Fatalf("stderr=%q, want step, component, and rejection", got)
 	}
 	if strings.Contains(got, "trace retry") {
@@ -627,7 +627,7 @@ func TestRunAppliesUniformQueries(t *testing.T) {
 	}
 
 	runOnce := func(extraArgs ...string) []byte {
-		args := []string{"-test.run=TestHelperRunModuleCLI", "--", "-i", inputPath, "components/text/text-to-bmp.wasm"}
+		args := []string{"-test.run=TestHelperRunModuleCLI", "--", "-i", inputPath, "text/text-to-bmp.wasm"}
 		args = append(args, extraArgs...)
 		cmd := exec.Command(os.Args[0], args...)
 		cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
@@ -668,7 +668,7 @@ func TestRunAppliesColsUniform(t *testing.T) {
 	}
 
 	runOnce := func(extraArgs ...string) []byte {
-		args := []string{"-test.run=TestHelperRunModuleCLI", "--", "-i", inputPath, "components/text/text-to-bmp.wasm"}
+		args := []string{"-test.run=TestHelperRunModuleCLI", "--", "-i", inputPath, "text/text-to-bmp.wasm"}
 		args = append(args, extraArgs...)
 		cmd := exec.Command(os.Args[0], args...)
 		cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
@@ -720,7 +720,7 @@ func TestRunOutputFlagWritesToFile(t *testing.T) {
 		inputPath,
 		"-o",
 		outputPath,
-		"components/text/trim.wasm",
+		"text/trim.wasm",
 	)
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 	var stdout bytes.Buffer
@@ -757,7 +757,7 @@ func TestRunOutputFlagAtEndWritesToFile(t *testing.T) {
 		"--",
 		"-i",
 		inputPath,
-		"components/text/trim.wasm",
+		"text/trim.wasm",
 		"-o",
 		outputPath,
 	)
@@ -836,7 +836,7 @@ func TestRunOutputFlagImageReencodeByExtension(t *testing.T) {
 				inputPath,
 				"-o",
 				outputPath,
-				"components/text/text-to-bmp.wasm",
+				"text/text-to-bmp.wasm",
 			)
 			cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 			var stdout bytes.Buffer
@@ -915,7 +915,7 @@ func TestRunOutputFlagImageReencodeRejectsNonImageOutput(t *testing.T) {
 		inputPath,
 		"-o",
 		outputPath,
-		"components/text/trim.wasm",
+		"text/trim.wasm",
 	)
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 	var stdout bytes.Buffer
@@ -954,7 +954,7 @@ func TestExecuteModuleReadsOutputPtrAfterRender(t *testing.T) {
 	defer runtime.Close(ctx)
 
 	// trim returns a dynamic immutable slice of its input.
-	wasmBytes, err := os.ReadFile("components/text/trim.wasm")
+	wasmBytes, err := os.ReadFile("text/trim.wasm")
 	if err != nil {
 		t.Fatalf("read trim component: %v", err)
 	}
@@ -1026,7 +1026,7 @@ func TestContentTypeCheckingModesForRunModule(t *testing.T) {
 	runtime := wasmruntime.New(ctx)
 	defer runtime.Close(ctx)
 
-	compiled := compileWasmModuleForTest(t, ctx, runtime, "components/text/html/html-link-extractor.wasm")
+	compiled := compileWasmModuleForTest(t, ctx, runtime, "text/html/html-link-extractor.wasm")
 	defer compiled.Close(ctx)
 
 	input := []byte(`<a href="/x">X</a>`)
@@ -1071,7 +1071,7 @@ func TestRunModuleAcceptsAndRejects(t *testing.T) {
 	runtime := wasmruntime.New(ctx)
 	defer runtime.Close(ctx)
 
-	compiled := compileWasmModuleForTest(t, ctx, runtime, "components/text/utf8-must-be-valid.wasm")
+	compiled := compileWasmModuleForTest(t, ctx, runtime, "text/utf8-must-be-valid.wasm")
 	defer compiled.Close(ctx)
 
 	exec, err := executeModuleWithInput(
@@ -1116,7 +1116,7 @@ func TestRunModuleAcceptsInputlessGenerator(t *testing.T) {
 	runtime := wasmruntime.New(ctx)
 	defer runtime.Close(ctx)
 
-	compiled := compileWasmModuleForTest(t, ctx, runtime, "components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm")
+	compiled := compileWasmModuleForTest(t, ctx, runtime, "image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm")
 	defer compiled.Close(ctx)
 
 	exec, err := executeModuleWithInput(
@@ -1158,7 +1158,7 @@ func TestTrustFirstStageContentTypePropagation(t *testing.T) {
 	runtime := wasmruntime.New(ctx)
 	defer runtime.Close(ctx)
 
-	compiled := compileWasmModuleForTest(t, ctx, runtime, "components/text/html/html-link-extractor.wasm")
+	compiled := compileWasmModuleForTest(t, ctx, runtime, "text/html/html-link-extractor.wasm")
 	defer compiled.Close(ctx)
 
 	exec, err := executeModuleWithInput(
@@ -1308,7 +1308,7 @@ func TestLoadRecipeChainsIgnoresNonWasm(t *testing.T) {
 		t.Fatalf("write source: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1340,7 +1340,7 @@ func TestLoadRecipeChainsSupportsSymlinkedRecipeComponents(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(external, "text", "markdown"), 0o755); err != nil {
 		t.Fatalf("mkdir external: %v", err)
 	}
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1374,7 +1374,7 @@ func TestLoadRecipeChainsRejectsInvalidFilename(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1394,7 +1394,7 @@ func TestLoadRecipeChainsRejectsDuplicatePrefix(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1457,7 +1457,7 @@ func TestLoadComponentAssets(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}
@@ -1496,7 +1496,7 @@ func TestLoadComponentAssetsSupportsSymlinkedWasmAndIgnoresNonWasmSymlink(t *tes
 	root := t.TempDir()
 	external := t.TempDir()
 
-	wasmBytes, err := os.ReadFile(filepath.Join("components", "text", "hello.wasm"))
+	wasmBytes, err := os.ReadFile(filepath.Join("text", "hello.wasm"))
 	if err != nil {
 		t.Fatalf("read wasm fixture: %v", err)
 	}

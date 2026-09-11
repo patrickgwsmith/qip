@@ -17,15 +17,15 @@ const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
 const component = join(
   process.cwd(),
-  "components/application/zip/zip-to-tar.wasm",
+  "application/zip/zip-to-tar.wasm",
 );
 const wasmCounts = join(
   process.cwd(),
-  "components/application/wasm/wasm-counts.wasm",
+  "application/wasm/wasm-counts.wasm",
 );
 const reverse = join(
   process.cwd(),
-  "components/application/x-tar/tar-to-zip.wasm",
+  "application/x-tar/tar-to-zip.wasm",
 );
 
 const crcTable = new Uint32Array(256);

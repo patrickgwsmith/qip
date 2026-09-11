@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Differential fuzzer: the CommonMark component vs the cmark reference binary.
 
-Renders generated markdown through both components/text/markdown/
+Renders generated markdown through both text/markdown/
 commonmark.0.31.2.wasm (via `qip run`) and `cmark --unsafe`, and reports every
 byte-level divergence. cmark 0.31.2 implements exactly the spec revision the
 component targets, so any divergence is a conformance finding — this is the
 inventory step that precedes the delimiter-stack rewrite of
-components/text/markdown/lib/commonmark.zig (see the TODO block there), and
+text/markdown/lib/commonmark.zig (see the TODO block there), and
 the surviving corpus becomes that rewrite's acceptance test.
 
 Inputs are ASCII-only by construction (invalid UTF-8 is deliberately out of
@@ -30,7 +30,7 @@ import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WASM = ROOT / "components/text/markdown/commonmark.0.31.2.wasm"
+WASM = ROOT / "text/markdown/commonmark.0.31.2.wasm"
 SPEC = ROOT / "compliance/commonmark-spec-0.31.2.txt"
 FENCE = "`" * 32
 

@@ -139,7 +139,7 @@ Run a TUI component in the terminal:
 
 ```sh
 qipx tui \
-  -F component=@components/text/wc.wasm \
+  -F component=@text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
   components/interactive/qipdb.wasm
 ```
@@ -164,7 +164,7 @@ Put `-u <name=value>` or `--uniform <name=value>` after the component it
 configures. Repeat the option to set more than one uniform:
 
 ```sh
-qipx run components/text/text-to-bmp.wasm \
+qipx run text/text-to-bmp.wasm \
   -u cols=80 \
   -u leading=16 \
   < text.txt > out.bmp
@@ -212,8 +212,8 @@ implementation does not need to be WebAssembly; only the adapter must implement
 the oracle bridge.
 
 ```text
-PASS components/text/trim.wasm
-PASS components/text/trim.wasm --with compliance/preserve-empty.wasm (1 cases)
+PASS text/trim.wasm
+PASS text/trim.wasm --with compliance/preserve-empty.wasm (1 cases)
 
 pass=2 fail=0 total=2
 ```
@@ -249,7 +249,7 @@ Use repeatable `-F` or `--form` fields to benchmark a component that accepts
 
 ```sh
 qipx bench \
-  -F component=@components/text/hello.wasm \
+  -F component=@text/hello.wasm \
   --runs 100 \
   components/interactive/qipdb.wasm
 ```

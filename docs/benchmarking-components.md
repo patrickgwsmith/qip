@@ -16,12 +16,12 @@ Build once, then run the benchmark without another build or test process in
 parallel:
 
 ```sh
-make -j components/text/markdown/commonmark.0.31.2.wasm
+make -j text/markdown/commonmark.0.31.2.wasm
 
 ./qip bench \
   -i README.md \
   --benchtime=3s \
-  components/text/markdown/commonmark.0.31.2.wasm
+  text/markdown/commonmark.0.31.2.wasm
 ```
 
 `qip bench` compiles the module once and creates a fresh instance for each
@@ -45,7 +45,7 @@ every sample:
 
 ```sh
 ./qip bench \
-  -F component=@components/text/hello.wasm \
+  -F component=@text/hello.wasm \
   -r 100 \
   components/interactive/qipdb.wasm
 ```
@@ -63,7 +63,7 @@ Pass `--node` to add an opt-in V8 measurement for Content components:
   -i README.md \
   --benchtime=3s \
   --node \
-  components/text/markdown/commonmark.0.31.2.wasm
+  text/markdown/commonmark.0.31.2.wasm
 ```
 
 Node.js is required only when the flag is present. QIP finds `node` on `PATH`,
@@ -97,7 +97,7 @@ NODE_OPTIONS=--expose-gc npx @qip.dev/qipx bench \
   -i README.md \
   --benchtime=3s \
   /tmp/commonmark-before.wasm \
-  components/text/markdown/commonmark.0.31.2.wasm
+  text/markdown/commonmark.0.31.2.wasm
 ```
 
 `qipx bench` validates and compiles each Content component once, creates one
@@ -167,7 +167,7 @@ Use a fixed run count for slow inputs, and raise the per-run timeout explicitly:
   -i fixtures/25mp-lossless.jp2 \
   -r 3 \
   --timeout-ms 30000 \
-  components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
+  image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
 ```
 
 The timeout protects each sample; it is not the benchmark duration.
@@ -178,17 +178,17 @@ Before changing the implementation, copy the built artifact to a separate path.
 Then pass that baseline first and one or more candidates after it:
 
 ```sh
-cp components/text/markdown/commonmark.0.31.2.wasm \
+cp text/markdown/commonmark.0.31.2.wasm \
   /tmp/commonmark-before.wasm
 
 # Make the source change and rebuild the production target.
-make -j components/text/markdown/commonmark.0.31.2.wasm
+make -j text/markdown/commonmark.0.31.2.wasm
 
 ./qip bench \
   -i README.md \
   --benchtime=3s \
   /tmp/commonmark-before.wasm \
-  components/text/markdown/commonmark.0.31.2.wasm
+  text/markdown/commonmark.0.31.2.wasm
 ```
 
 QIP alternates the order in which it runs the modules. It also requires every
@@ -281,7 +281,7 @@ the complete source, generated-C, wasm2c, V8, and wazero matrix with:
 ```sh
 tools/bench-qip-component-to-c-source.sh \
   --input README.md \
-  components/text/markdown/commonmark.0.31.2.zig
+  text/markdown/commonmark.0.31.2.zig
 ```
 
 See [QIP Component-to-C Runtime Benchmarks](/docs/qip-component-to-c-benchmarks#reproducing) for
@@ -293,9 +293,9 @@ copies output, matching the warmed generated-C boundary:
 
 ```sh
 ./qip run \
-  -i components/text/markdown/commonmark.0.31.2.wasm \
+  -i text/markdown/commonmark.0.31.2.wasm \
   -o /tmp/commonmark-qip.zig \
-  components/application/wasm/qip-component-to-zig.wasm
+  application/wasm/qip-component-to-zig.wasm
 zig build-exe -O ReleaseFast \
   --dep component \
   -Mroot=tools/bench-content-generated-zig.zig \
@@ -309,9 +309,9 @@ For a pipeline of Content components, use the recipe variant:
 ```sh
 tools/bench-qip-component-to-c-recipe.sh \
   --input qip-logo.svg \
-  components/image/svg+xml/svg-recolor-current-color.wasm \
-  components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
-  components/image/bmp/bmp-to-png.wasm
+  image/svg+xml/svg-recolor-current-color.wasm \
+  image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
+  image/bmp/bmp-to-png.wasm
 ```
 
 It first delegates content-type and encoding validation to `qip dry run`, then

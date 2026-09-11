@@ -14,7 +14,7 @@ the vendored trees. The full license files remain alongside the source; AOM's
 license also covers its patent grant and third-party notices.
 
 The Makefile builds both libraries with Emscripten 2.0.34 and links them into
-`components/image/bmp/bmp-b8g8r8a8-srgb-to-avif.wasm` using direct Clang/wasm-ld:
+`image/bmp/bmp-b8g8r8a8-srgb-to-avif.wasm` using direct Clang/wasm-ld:
 
 - libaom: `AOM_TARGET_CPU=generic`, encoder only, no decoder, multithreading,
   runtime CPU detection, WebM I/O, accounting, inspection, tests, examples,

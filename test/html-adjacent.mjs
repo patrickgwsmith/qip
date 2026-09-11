@@ -30,7 +30,7 @@ function render(exports, text) {
 }
 
 test("css-minify preserves whitespace required by CSS math", async () => {
-  const exports = await load("components/text/css/css-minify.wasm");
+  const exports = await load("text/css/css-minify.wasm");
   assert.equal(
     render(exports, ".x { width: calc(100% - 1rem); height: min(1px + 2px, 4px); --pair: red blue; }"),
     ".x{width:calc(100% - 1rem);height:min(1px + 2px,4px);--pair:red blue}",
@@ -38,7 +38,7 @@ test("css-minify preserves whitespace required by CSS math", async () => {
 });
 
 test("autolink-https respects HTML literal contexts and URL punctuation", async () => {
-  const exports = await load("components/text/html/autolink-https.wasm");
+  const exports = await load("text/html/autolink-https.wasm");
   assert.equal(
     render(exports, "<p>See https://example.com/path).</p>"),
     '<p>See <a href="https://example.com/path">https://example.com/path</a>).</p>',
@@ -52,7 +52,7 @@ test("autolink-https respects HTML literal contexts and URL punctuation", async 
 });
 
 test("html-wcag-contrast-aa uses the document cascade and HTML void elements", async () => {
-  const exports = await load("components/text/html/html-wcag-contrast-aa.wasm");
+  const exports = await load("text/html/html-wcag-contrast-aa.wasm");
   const pass = '<p id="message" class="muted">Readable</p><style>#message{color:#111}.muted{color:#aaa;background:#fff}</style>';
   assert.equal(render(exports, pass), pass);
 
@@ -74,7 +74,7 @@ test("html-wcag-contrast-aa uses the document cascade and HTML void elements", a
 });
 
 test("html-wcag-contrast-aa matches compound, descendant, attribute, root, and nested selectors", async () => {
-  const exports = await load("components/text/html/html-wcag-contrast-aa.wasm");
+  const exports = await load("text/html/html-wcag-contrast-aa.wasm");
   const html = `<style>
     :root { color: #aaa; background: #fff; }
     section.card[data-tone="SAFE" i] {

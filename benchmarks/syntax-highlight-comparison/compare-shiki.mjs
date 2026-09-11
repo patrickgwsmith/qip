@@ -5,7 +5,7 @@ import { createHighlighter } from "shiki";
 
 const directory = fileURLToPath(new URL(".", import.meta.url));
 const componentPath = fileURLToPath(new URL(
-  "../../components/text/javascript/js-syntax-highlight-html.wasm",
+  "../../text/javascript/js-syntax-highlight-html.wasm",
   import.meta.url,
 ));
 const categories = [

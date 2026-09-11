@@ -5,13 +5,13 @@ multipart form data. It executes that component in the same bounded Zig
 interpreter used by qipdb, then returns the component's output bytes.
 
 ```sh
-make -j qip components/application/wasm/qip-content-interpreter.wasm
+make -j qip application/wasm/qip-content-interpreter.wasm
 
 qip run \
-  -F component=@components/image/svg+xml/svg-recolor-current-color.wasm \
+  -F component=@image/svg+xml/svg-recolor-current-color.wasm \
   -F 'input=<svg xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M0 0"/></svg>' \
   -F 'uniforms[color_rgba]=0x654ff0ff' \
-  components/application/wasm/qip-content-interpreter.wasm
+  application/wasm/qip-content-interpreter.wasm
 ```
 
 The request supports these multipart fields:
@@ -28,10 +28,10 @@ and render instructions share the outer component's instruction budget:
 
 ```sh
 qip run \
-  -F component=@components/image/svg+xml/svg-recolor-current-color.wasm \
+  -F component=@image/svg+xml/svg-recolor-current-color.wasm \
   -F input=@qip-logo.svg \
   -F 'uniforms[color_rgba]=0x654ff0ff' \
-  components/application/wasm/qip-content-interpreter.wasm \
+  application/wasm/qip-content-interpreter.wasm \
   -u instruction_budget=2000000 \
   > recolored.svg
 ```

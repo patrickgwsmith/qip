@@ -93,5 +93,5 @@ downloadButton.addEventListener("click", () => {
 ## CLI equivalent
 
 ```bash
-qip run components/image/jpeg/jpeg-strip-gps-exif.wasm < photo.jpg > photo-clean.jpg
+qip run image/jpeg/jpeg-strip-gps-exif.wasm < photo.jpg > photo-clean.jpg
 ```

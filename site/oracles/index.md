@@ -15,8 +15,8 @@ returns output bytes or reports a trap-like failure.
 
 ```bash
 curl -O https://qip.dev/oracles/rgb-to-hex.comply.wasm
-qip comply components/text/rgb-to-hex.wasm --with rgb-to-hex.comply.wasm
-npx @qip.dev/qipx comply components/text/rgb-to-hex.wasm --with rgb-to-hex.comply.wasm
+qip comply text/rgb-to-hex.wasm --with rgb-to-hex.comply.wasm
+npx @qip.dev/qipx comply text/rgb-to-hex.wasm --with rgb-to-hex.comply.wasm
 ```
 
 For the bridge ABI and authoring rules, see [`qip comply`](/docs/comply).

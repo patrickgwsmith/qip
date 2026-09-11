@@ -30,7 +30,7 @@ function writeBytes(exports, bytes) {
 
 async function load(name) {
   return (await WebAssembly.instantiate(
-    await readFile(`components/text/html/${name}.wasm`),
+    await readFile(`text/html/${name}.wasm`),
     {},
   )).instance.exports;
 }

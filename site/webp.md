@@ -369,15 +369,15 @@ to the page.
 ## CLI equivalent
 
 ```bash
-qip run components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm \
+qip run image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm \
   -u quality=95 -u method=4 -u sharp_yuv=1 -u low_memory=1 \
   -u background_color_rgb=0xffffff \
   < input.bmp > output.webp
 
-qip run components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm \
+qip run image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm \
   -u quality=95 -u method=4 -u sharp_yuv=1 -u low_memory=1 \
   < input.bmp > output.webp
 
-qip run components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm -u level=6 \
+qip run image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm -u level=6 \
   < input.bmp > output.webp
 ```

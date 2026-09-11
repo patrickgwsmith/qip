@@ -4,8 +4,8 @@ import test from "node:test";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
-const converterPath = "components/image/svg+xml/svg-to-pdf-inter-font.wasm";
-const extractorPath = "components/application/pdf/pdf-extract-text.wasm";
+const converterPath = "image/svg+xml/svg-to-pdf-inter-font.wasm";
+const extractorPath = "application/pdf/pdf-extract-text.wasm";
 
 function decodeResult(result) {
   const bits = BigInt.asUintN(64, result);

@@ -12,7 +12,7 @@ func TestNodeBenchRunsContentComponentInOneProcess(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("Node.js is not installed")
 	}
-	body, err := os.ReadFile("components/text/hello.wasm")
+	body, err := os.ReadFile("text/hello.wasm")
 	if err != nil {
 		t.Fatal(err)
 	}

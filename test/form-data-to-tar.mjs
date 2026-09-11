@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const wasm = await WebAssembly.compile(
-  await readFile("components/multipart/form-data/form-data-to-tar.wasm"),
+  await readFile("multipart/form-data/form-data-to-tar.wasm"),
 );
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

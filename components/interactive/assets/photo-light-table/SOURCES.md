@@ -28,4 +28,4 @@ Source photos, downloaded June 28, 2026:
 
 Unsplash license: `https://unsplash.com/license`
 
-Future size pass: if the TGA BGRA8 assets make the module too large for a particular demo, compress `tga/*.tga` with zlib and inflate once in `ensureInit()`. The repo already has examples using `std.compress.flate.Decompress` in `components/bytes/zlib-decompress.zig`.
+Future size pass: if the TGA BGRA8 assets make the module too large for a particular demo, compress `tga/*.tga` with zlib and inflate once in `ensureInit()`. The repo already has examples using `std.compress.flate.Decompress` in `bytes/zlib-decompress.zig`.

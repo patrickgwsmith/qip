@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const moduleUrl = new URL("../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm", import.meta.url);
+const moduleUrl = new URL("../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm", import.meta.url);
 
 function makeBmp(pixels) {
   const width = pixels.length;

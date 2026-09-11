@@ -3,7 +3,7 @@ set -eu
 
 qip_bin=${QIP_BIN:-./qip}
 cc_bin=${CC:-cc}
-translator=components/application/wasm/qip-component-to-c.wasm
+translator=application/wasm/qip-component-to-c.wasm
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/qip-component-to-c.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 
@@ -33,30 +33,30 @@ printf '%s' '<a&"' > "$tmp_dir/html.txt"
 printf '%s' '{"name":"QIP","values":[1,true,null]}' > "$tmp_dir/data.json"
 printf '# Heading\n\nHello *world*.\n' > "$tmp_dir/commonmark.md"
 
-translate_and_compile components/text/hello.wasm hello
-translate_and_compile components/text/html/html-escape.wasm html-escape
-translate_and_compile components/application/json/json-prettify.wasm json-prettify
-translate_and_compile components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp
-translate_and_compile components/image/bmp/bmp-to-png.wasm bmp-to-png
-translate_and_compile components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm svg-rasterize
-translate_and_compile components/application/x-tar/tar-to-zip.wasm tar-to-zip
-translate_and_compile components/application/wasm/wasm-counts.wasm wasm-counts
-translate_and_compile components/text/markdown/commonmark.0.31.2.wasm commonmark
+translate_and_compile text/hello.wasm hello
+translate_and_compile text/html/html-escape.wasm html-escape
+translate_and_compile application/json/json-prettify.wasm json-prettify
+translate_and_compile image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp
+translate_and_compile image/bmp/bmp-to-png.wasm bmp-to-png
+translate_and_compile image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm svg-rasterize
+translate_and_compile application/x-tar/tar-to-zip.wasm tar-to-zip
+translate_and_compile application/wasm/wasm-counts.wasm wasm-counts
+translate_and_compile text/markdown/commonmark.0.31.2.wasm commonmark
 
-compare_output components/text/hello.wasm hello "$tmp_dir/html.txt"
-compare_output components/text/html/html-escape.wasm html-escape "$tmp_dir/html.txt"
-compare_output components/application/json/json-prettify.wasm json-prettify "$tmp_dir/data.json"
-compare_output components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp site-static/_og/index.png
-compare_output components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm svg-rasterize qip-logo.svg
+compare_output text/hello.wasm hello "$tmp_dir/html.txt"
+compare_output text/html/html-escape.wasm html-escape "$tmp_dir/html.txt"
+compare_output application/json/json-prettify.wasm json-prettify "$tmp_dir/data.json"
+compare_output image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp site-static/_og/index.png
+compare_output image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm svg-rasterize qip-logo.svg
 
 "$qip_bin" run -i site-static/_og/index.png -o "$tmp_dir/image.bmp" \
-    components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm
-compare_output components/image/bmp/bmp-to-png.wasm bmp-to-png "$tmp_dir/image.bmp"
+    image/png/png-to-bmp-b8g8r8a8-srgb.wasm
+compare_output image/bmp/bmp-to-png.wasm bmp-to-png "$tmp_dir/image.bmp"
 
 tar -cf "$tmp_dir/input.tar" docs/formats.md
-compare_output components/application/x-tar/tar-to-zip.wasm tar-to-zip "$tmp_dir/input.tar"
-compare_output components/application/wasm/wasm-counts.wasm wasm-counts components/text/hello.wasm
-compare_output components/text/markdown/commonmark.0.31.2.wasm commonmark "$tmp_dir/commonmark.md"
+compare_output application/x-tar/tar-to-zip.wasm tar-to-zip "$tmp_dir/input.tar"
+compare_output application/wasm/wasm-counts.wasm wasm-counts text/hello.wasm
+compare_output text/markdown/commonmark.0.31.2.wasm commonmark "$tmp_dir/commonmark.md"
 
 a_prefix=$(sed -n 's/^typedef struct \(qip_wasm_[0-9a-f]*\)_instance.*/\1/p' "$tmp_dir/hello.h")
 b_prefix=$(sed -n 's/^typedef struct \(qip_wasm_[0-9a-f]*\)_instance.*/\1/p' "$tmp_dir/html-escape.h")

@@ -144,40 +144,40 @@ printf '# Hello\n' \
 npm install --global @qip.dev/qipx
 
 # Convert purple from rgb to hex
-echo "rgb(101, 79, 240)" | qipx run components/text/rgb-to-hex.wasm
+echo "rgb(101, 79, 240)" | qipx run text/rgb-to-hex.wasm
 # #654ff0
 
 # Normalize phone number
-echo "+1 (212) 555-0100" | qipx run components/text/e164.wasm
+echo "+1 (212) 555-0100" | qipx run text/e164.wasm
 # +12125550100
 
 # Expand emoji shortcodes
-echo "Run :rocket: WebAssembly components identically on any computer :sparkles:" | qipx run components/text/shortcode-to-emoji.wasm
+echo "Run :rocket: WebAssembly components identically on any computer :sparkles:" | qipx run text/shortcode-to-emoji.wasm
 # Run 🚀 WebAssembly components identically on any computer ✨
 
 # Create zlib bytes (dynamic Huffman, shown as base64)
-echo "qip + wasm" | qipx run components/bytes/zlib-compress-dynamic-huffman.wasm components/bytes/base64-encode.wasm
+echo "qip + wasm" | qipx run bytes/zlib-compress-dynamic-huffman.wasm bytes/base64-encode.wasm
 # eAEFwKENAAAMArBX8LtqcmIJBMH7VEcMsv4CEnkDbg==
 
 # Round-trip zlib back to original text
-echo "qip + wasm" | qipx run components/bytes/zlib-compress-dynamic-huffman.wasm components/bytes/zlib-decompress.wasm
+echo "qip + wasm" | qipx run bytes/zlib-compress-dynamic-huffman.wasm bytes/zlib-decompress.wasm
 # qip + wasm
 
 # Load Hacker News, extract all links
-curl -s https://news.ycombinator.com | qipx run components/text/html/html-link-extractor.wasm
+curl -s https://news.ycombinator.com | qipx run text/html/html-link-extractor.wasm
 
 # Render QIP logo to ICO
 qipx run -i qip-logo.svg \
-  components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm \
-  components/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm \
-  components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm \
+  image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm \
   > qip-logo.ico
 
 # Render Switzerland flag SVG to ICO
 echo '<svg width="32" height="32"><rect width="32" height="32" fill="#d52b1e" /><rect x="13" y="6" width="6" height="20" fill="#ffffff" /><rect x="6" y="13" width="20" height="6" fill="#ffffff" /></svg>' \
   | qipx run \
-      components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm \
-      components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm \
+      image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm \
+      image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm \
   > switzerland-flag.ico
 
 ```
@@ -494,7 +494,7 @@ Build static tar from the site:
 
 ```bash
 npx qip-router warc ./docs \
-  | qipx run components/application/warc/warc-to-static-tar-no-trailing-slash.wasm \
+  | qipx run application/warc/warc-to-static-tar-no-trailing-slash.wasm \
   > site.tar
 
 tar -tf site.tar
@@ -564,7 +564,7 @@ make -j test
 `test/trace-with.mjs` is included in both `make -j test-node` and `make -j test-deno`. To run it directly with Node:
 
 ```bash
-make -j qip components/application/wasm/wasm-trace-instrument.wasm
+make -j qip application/wasm/wasm-trace-instrument.wasm
 node --test test/trace-with.mjs
 ```
 
@@ -574,20 +574,20 @@ To run it directly with Deno, pass the same permissions used by `make test-deno`
 deno test --allow-read --allow-write --allow-run --allow-sys --allow-env test/trace-with.mjs
 ```
 
-You can clone this repo to use the components provided in `./components`.
-
-The component layout groups components by content domain and media type:
+You can clone this repository to use its components. Content component paths
+match their qip.dev URLs and start with a top-level MIME type. Components for
+other contracts remain under `components/` until they get permanent paths.
 
 ```text
+application/
+bytes/
+font/
+image/
+multipart/
+text/
 components/
-  bytes/
-  image/svg+xml/
-  text/
-    css/
-    html/
-    javascript/
-    markdown/
-    x-c/
+  form/
+  interactive/
   rgba/
 ```
 
@@ -597,34 +597,34 @@ Benchmark the performance of one or more QIP components. If you compare multiple
 
 ```bash
 # Benchmark one component for two seconds
-echo "World" | qipx bench -i - --benchtime=2s components/text/hello.wasm
+echo "World" | qipx bench -i - --benchtime=2s text/hello.wasm
 # Benchmark: outputs match
 
 # Benchmark two components against each other and verify identical output
-echo "World" | qipx bench -i - --benchtime=2s components/text/hello.wasm components/text/hello-c.wasm
+echo "World" | qipx bench -i - --benchtime=2s text/hello.wasm text/hello-c.wasm
 # Benchmark: outputs match
 
 # Benchmark three components against each other and verify identical output
-echo "World" | qipx bench -i - --benchtime=2s components/text/hello.wasm components/text/hello-c.wasm components/text/hello-zig.wasm
+echo "World" | qipx bench -i - --benchtime=2s text/hello.wasm text/hello-c.wasm text/hello-zig.wasm
 # Benchmark: outputs match
 
 # Ask Node.js to collect garbage between component measurements
-echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s components/text/hello.wasm
+echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hello.wasm
 ```
 
 ## TODO
 
+- [ ] Redesign `/view-source`. Its source-file walker does not follow symlinked component directories. Define which source files the router can publish before changing that behavior.
 - [ ] Add a `--double` flag for `qipx bench` that doubles the input and plots the performance. So we should see if rendering is `O(n)` where n is the size of the input or not. It could keep doubling the input. I imagine it would only work for text input and uncompressed ktx2 input, as those should be trivial to “double”.
-- [ ] House keeping: drop `components` and match the qip.dev site paths:
-  - [ ] `components/text/text-to-path-svg-dejavu-sans-mono.wasm` -> `text/text-to-path-svg-dejavu-sans-mono.wasm`
-  - [ ] `components/image/png/png-to-ktx2-r8g8b8a8-srgb.zig` -> `image/png/png-to-ktx2-r8g8b8a8-srgb.zig`
+- [x] Move Content component trees to repository paths that match qip.dev: `application/`, `bytes/`, `font/`, `image/`, `multipart/`, and `text/`.
+- [ ] Move interactive components to contract-specific paths:
   - [ ] `components/interactive/calendar-gregorian.wasm` -> `tui/calendar-gregorian.wasm`
   - [ ] `components/interactive/textedit.zig` -> `gui/textedit.zig`
 - [ ] Make TUI like `https://allweeks.exe.xyz/2026`
 - [ ] Decide whether to add a post-link pass that removes unused one-slot WebAssembly tables emitted by `zig cc`.
 - [ ] Decide whether the component debugger should show fixed table entries alongside locals and globals.
 - [ ] In debugger show instructions used by the current wasm: call_indirect, SIMD, etc.
-- [ ] Allow compiling TUIs into native code via `components/application/wasm/qip-component-to-c.wasm`. So you get the benefit of a sandbox but you get the fast performance of native.
+- [ ] Allow compiling TUIs into native code via `application/wasm/qip-component-to-c.wasm`. So you get the benefit of a sandbox but you get the fast performance of native.
 - [ ] Explore a consistent route hierarchy for interactive image tools, such as moving `/image-resize` to `/image/resize`. Consider all image tools together, preserve redirects for existing URLs, and decide how tool routes coexist with the `/image` component namespace.
 - [ ] Add `--view-source` to `npx qip-router warc`, including recipe source and view-source records.
 - [ ] Align `npx qip-router` CLI output with `./qip router`. Rendering and WARC output match byte-for-byte, and `list` has the same routes after whitespace normalization. Remaining differences: `list` uses tabs instead of Go's padded columns; `head` prints an HTTP-style block to stdout while Go logs headers to stderr; Node does not currently emit `ETag` for some static/raw `HEAD` responses that Go reports.
@@ -654,7 +654,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s component
   - [ ] Support `SQLite3`: <https://www.php.net/manual/en/sqlite3.prepare.php>
 - [ ] Add SQLite prepared statement example that takes SQLite database and a query, and produces a new optimized component that accepts query parameters as its input.
   - [ ] Curried component: input content type `application/vnd.sqlite3` output content type `application/sql -> application/x-www-form-urlencoded -> text/csv`
-- [ ] Work through the [QIP component-to-C code-generation performance experiments](components/application/wasm/qip-component-to-c.zig), measuring each lowering change independently against the current translator and WABT `wasm2c`.
+- [ ] Work through the [QIP component-to-C code-generation performance experiments](application/wasm/qip-component-to-c.zig), measuring each lowering change independently against the current translator and WABT `wasm2c`.
 - [ ] How does our `qip-component-to-c.wasm` compare with RLBox? https://rlbox.dev/
 - [ ] Add `warc-latency-estimator.wasm` that takes a WARC and then for each route calculates largest-contentful-paint and time-to-interaction and so forth.
 - [ ] Investigate lighter router `HEAD` handling. Today `HEAD` follows the full `GET` path so WARC recipes can add derived routes, change headers, and set the final content length correctly. Many WARC recipes need the full site to understand links, but usually do not change status or headers other than `content-length`. Find a safe way for `HEAD` to avoid unnecessary body work when recipes can declare that behavior.
@@ -730,12 +730,12 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s component
 - [ ] Add digest pinning for remote modules (for example `https://...#sha256=<hex>`), and fail fast when fetched bytes do not match the pinned digest.
 - [x] Update docs to encourage hard failure with traps instead of returning empty output which could lead to data loss.
 - [ ] Convert soft-failure validators to trap on invalid input, then add invalid-then-valid same-instance recovery tests:
-  - [ ] `components/text/css/css-class-validator.wasm`
-  - [x] `components/text/html/html-id-validator.wasm`
-  - [x] `components/text/html/html-input-name-validator.wasm`
-  - [x] `components/text/html/html-tag-validator.wasm`
-  - [ ] `components/text/tld-validator.wasm`
-  - [x] `components/text/luhn.wasm`
+  - [ ] `text/css/css-class-validator.wasm`
+  - [x] `text/html/html-id-validator.wasm`
+  - [x] `text/html/html-input-name-validator.wasm`
+  - [x] `text/html/html-tag-validator.wasm`
+  - [ ] `text/tld-validator.wasm`
+  - [x] `text/luhn.wasm`
 - [x] Add `qip dry run ...pipeline.wasm` that validates pipeline compatibility and outputs memory usage (summing all input/output buffers).
 - [ ] Add `qip serve` command that runs the server in `prod` mode by default, and includes a module upload endpoint.
 - [ ] Add `random_ptr` and `random_size` to modules that the host can detect and fill in with random data. It can choose to seed with determinism or use a cryptographic source of randomness — it’s up to the host.

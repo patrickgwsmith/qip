@@ -13,12 +13,12 @@ instructions an unambiguous failure mode.
 Build the translator and run it like any other QIP Content component:
 
 ```sh
-make -j components/application/wasm/qip-component-to-c.wasm
-wasm-validate components/text/markdown/commonmark.0.31.2.wasm
+make -j application/wasm/qip-component-to-c.wasm
+wasm-validate text/markdown/commonmark.0.31.2.wasm
 ./qip run \
-  -i components/text/markdown/commonmark.0.31.2.wasm \
+  -i text/markdown/commonmark.0.31.2.wasm \
   -o commonmark.h \
-  components/application/wasm/qip-component-to-c.wasm
+  application/wasm/qip-component-to-c.wasm
 ```
 
 The translator enforces its feature profile, but it is not a complete

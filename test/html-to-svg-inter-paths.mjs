@@ -4,7 +4,7 @@ import test from "node:test";
 import { ContentComponentHost } from "./lib/content-component-host.mjs";
 
 const componentPath = new URL(
-  "../components/text/html/html-to-svg-inter-paths.wasm",
+  "../text/html/html-to-svg-inter-paths.wasm",
   import.meta.url,
 );
 const fixturePath = new URL(

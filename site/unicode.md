@@ -106,10 +106,10 @@ Both implement Unicode Default Case Conversion for the root locale. Locale-speci
 ## Use the components
 
 ```bash
-echo "ΘΕΣΣΑΛΟΝΊΚΗ ΣΟΦΟΣ" | qip run components/text/unicode-17-lowercase.wasm
+echo "ΘΕΣΣΑΛΟΝΊΚΗ ΣΟΦΟΣ" | qip run text/unicode-17-lowercase.wasm
 # θεσσαλονίκη σοφος
 
-echo "straße" | qip run components/text/unicode-17-uppercase.wasm
+echo "straße" | qip run text/unicode-17-uppercase.wasm
 # STRASSE
 ```
 

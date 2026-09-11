@@ -11,9 +11,9 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 const qip = fileURLToPath(new URL("../qip", import.meta.url));
-const bmpToKtx = fileURLToPath(new URL("../components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm", import.meta.url));
-const warmFade = fileURLToPath(new URL("../components/image/ktx2/ktx2-rgba32float-look-warm-fade.wasm", import.meta.url));
-const ktxToBmp = fileURLToPath(new URL("../components/image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url));
+const bmpToKtx = fileURLToPath(new URL("../image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm", import.meta.url));
+const warmFade = fileURLToPath(new URL("../image/ktx2/ktx2-rgba32float-look-warm-fade.wasm", import.meta.url));
+const ktxToBmp = fileURLToPath(new URL("../image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url));
 
 async function ensurePrerequisites(t) {
   try {

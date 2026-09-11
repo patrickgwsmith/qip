@@ -11,15 +11,15 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 const qip = fileURLToPath(new URL("../qip", import.meta.url));
-const bmpToRgba8 = fileURLToPath(new URL("../components/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
-const rgba8ToBmp = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url));
-const rgba8ToFavicon = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm", import.meta.url));
-const rgba8Palette = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm", import.meta.url));
-const rgba8Vectorize = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm", import.meta.url));
-const rgba8Double = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm", import.meta.url));
-const svgToRgba8 = fileURLToPath(new URL("../components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
-const rgba8ToFloat = fileURLToPath(new URL("../components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm", import.meta.url));
-const floatToRgba8 = fileURLToPath(new URL("../components/image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
+const bmpToRgba8 = fileURLToPath(new URL("../image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
+const rgba8ToBmp = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url));
+const rgba8ToFavicon = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm", import.meta.url));
+const rgba8Palette = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm", import.meta.url));
+const rgba8Vectorize = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm", import.meta.url));
+const rgba8Double = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm", import.meta.url));
+const svgToRgba8 = fileURLToPath(new URL("../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
+const rgba8ToFloat = fileURLToPath(new URL("../image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm", import.meta.url));
+const floatToRgba8 = fileURLToPath(new URL("../image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url));
 
 const modules = [bmpToRgba8, rgba8ToBmp, rgba8ToFavicon, rgba8Palette, rgba8Vectorize, rgba8Double, svgToRgba8, rgba8ToFloat, floatToRgba8];
 

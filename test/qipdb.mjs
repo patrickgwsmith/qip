@@ -7,19 +7,19 @@ import { fileURLToPath } from "node:url";
 import { ContentComponentHost } from "./lib/content-component-host.mjs";
 
 const debuggerPath = fileURLToPath(new URL("../components/interactive/qipdb.wasm", import.meta.url));
-const targetPath = fileURLToPath(new URL("../components/text/hello.wasm", import.meta.url));
-const wcPath = fileURLToPath(new URL("../components/text/wc.wasm", import.meta.url));
-const infiniteLoopPath = fileURLToPath(new URL("../components/text/infinite-loop.wasm", import.meta.url));
-const commonmarkPath = fileURLToPath(new URL("../components/text/markdown/commonmark.0.31.2.wasm", import.meta.url));
-const qrPath = fileURLToPath(new URL("../components/text/uri-list/url-to-qr-svg.wasm", import.meta.url));
-const qipToZigPath = fileURLToPath(new URL("../components/application/wasm/qip-component-to-zig.wasm", import.meta.url));
+const targetPath = fileURLToPath(new URL("../text/hello.wasm", import.meta.url));
+const wcPath = fileURLToPath(new URL("../text/wc.wasm", import.meta.url));
+const infiniteLoopPath = fileURLToPath(new URL("../text/infinite-loop.wasm", import.meta.url));
+const commonmarkPath = fileURLToPath(new URL("../text/markdown/commonmark.0.31.2.wasm", import.meta.url));
+const qrPath = fileURLToPath(new URL("../text/uri-list/url-to-qr-svg.wasm", import.meta.url));
+const qipToZigPath = fileURLToPath(new URL("../application/wasm/qip-component-to-zig.wasm", import.meta.url));
 const bulkMemoryPath = fileURLToPath(new URL("./fixtures/wasm-debugger-bulk-memory.wasm", import.meta.url));
 const callIndirectPath = fileURLToPath(new URL("./fixtures/wasm-debugger-call-indirect.wasm", import.meta.url));
-const bmpDoubleSIMDPath = fileURLToPath(new URL("../components/image/bmp/bmp-double-simd.wasm", import.meta.url));
-const pngToBMPSIMDPath = fileURLToPath(new URL("../components/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm", import.meta.url));
+const bmpDoubleSIMDPath = fileURLToPath(new URL("../image/bmp/bmp-double-simd.wasm", import.meta.url));
+const pngToBMPSIMDPath = fileURLToPath(new URL("../image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm", import.meta.url));
 const qipLogoPNGPath = fileURLToPath(new URL("../qip-logo.png", import.meta.url));
-const stripAnsiPath = fileURLToPath(new URL("../components/text/strip-ansi-sgr.wasm", import.meta.url));
-const ansiHTMLPath = fileURLToPath(new URL("../components/text/ansi-sgr-to-html.wasm", import.meta.url));
+const stripAnsiPath = fileURLToPath(new URL("../text/strip-ansi-sgr.wasm", import.meta.url));
+const ansiHTMLPath = fileURLToPath(new URL("../text/ansi-sgr-to-html.wasm", import.meta.url));
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const boundary = "uuid-00000000-0000-0000-0000-000000000000";
 const [stripAnsiBytes, ansiHTMLBytes] = await Promise.all([
@@ -176,7 +176,7 @@ test("initial and expanded summaries identify the component path", async () => {
   ]);
   const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
   const debuggerInput = multipart([
-    ["component", targetBytes, "components/text/hello.wasm"],
+    ["component", targetBytes, "text/hello.wasm"],
   ]);
   new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
 

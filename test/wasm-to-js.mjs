@@ -6,7 +6,7 @@ import { ContentComponentHost } from "./lib/content-component-host.mjs";
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const translatorBytes = await readFile(
-  new URL("../components/application/wasm/wasm-to-js.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-to-js.wasm", import.meta.url),
 );
 
 async function translate(componentPath) {
@@ -21,7 +21,7 @@ async function translate(componentPath) {
 }
 
 test("generated JavaScript runs an infallible component", async () => {
-  const { module, source } = await translate("../components/text/hello.wasm");
+  const { module, source } = await translate("../text/hello.wasm");
 
   assert.equal(module.default("Node"), "Hello, Node");
   assert.deepEqual(module.input, { encoding: "utf-8" });
@@ -33,7 +33,7 @@ test("generated JavaScript runs an infallible component", async () => {
 });
 
 test("generated JavaScript reports recoverable rejection detail", async () => {
-  const { module } = await translate("../components/text/html/html-id-validator.wasm");
+  const { module } = await translate("../text/html/html-id-validator.wasm");
 
   assert.equal(module.default("main-content"), "main-content");
   assert.throws(
@@ -50,13 +50,13 @@ test("generated JavaScript reports recoverable rejection detail", async () => {
 });
 
 test("generated JavaScript reads an immutable interior input slice", async () => {
-  const { module } = await translate("../components/text/css/css-class-validator.wasm");
+  const { module } = await translate("../text/css/css-class-validator.wasm");
 
   assert.equal(module.default(" \tbutton-primary \n"), "button-primary");
 });
 
 test("generated JavaScript runs a byte-to-UTF-8 guard", async () => {
-  const { module } = await translate("../components/text/utf8-must-be-valid.wasm");
+  const { module } = await translate("../text/utf8-must-be-valid.wasm");
   const valid = new TextEncoder().encode("Café");
 
   assert.equal(module.default(valid), "Café");

@@ -2,7 +2,7 @@
 set -eu
 
 qip_bin=${QIP_BIN:-./qip}
-translator=components/application/wasm/qip-component-to-swift.wasm
+translator=application/wasm/qip-component-to-swift.wasm
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/qip-component-to-swift-complex.XXXXXX")
 trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 
@@ -26,19 +26,19 @@ compare_output() {
 printf '# Heading\n\nHello *world*.\n\n- one\n- two\n\n> quote\n' > "$tmp_dir/commonmark.md"
 printf '%s' '{"name":"QIP","values":[1,true,null],"nested":{"escaped":"a\\nb"}}' > "$tmp_dir/data.json"
 
-translate_and_compile components/text/markdown/commonmark.0.31.2.wasm commonmark
-translate_and_compile components/application/json/json-prettify.wasm json-prettify
-translate_and_compile components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp
-translate_and_compile components/image/bmp/bmp-to-png.wasm bmp-to-png
-translate_and_compile components/application/wasm/wasm-counts.wasm wasm-counts
+translate_and_compile text/markdown/commonmark.0.31.2.wasm commonmark
+translate_and_compile application/json/json-prettify.wasm json-prettify
+translate_and_compile image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp
+translate_and_compile image/bmp/bmp-to-png.wasm bmp-to-png
+translate_and_compile application/wasm/wasm-counts.wasm wasm-counts
 
-compare_output components/text/markdown/commonmark.0.31.2.wasm commonmark "$tmp_dir/commonmark.md"
-compare_output components/application/json/json-prettify.wasm json-prettify "$tmp_dir/data.json"
-compare_output components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp site-static/_og/index.png
-compare_output components/application/wasm/wasm-counts.wasm wasm-counts components/text/hello.wasm
+compare_output text/markdown/commonmark.0.31.2.wasm commonmark "$tmp_dir/commonmark.md"
+compare_output application/json/json-prettify.wasm json-prettify "$tmp_dir/data.json"
+compare_output image/png/png-to-bmp-b8g8r8a8-srgb.wasm png-to-bmp site-static/_og/index.png
+compare_output application/wasm/wasm-counts.wasm wasm-counts text/hello.wasm
 
-"$qip_bin" run -i site-static/_og/index.png -o "$tmp_dir/image.bmp" components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm
-compare_output components/image/bmp/bmp-to-png.wasm bmp-to-png "$tmp_dir/image.bmp"
+"$qip_bin" run -i site-static/_og/index.png -o "$tmp_dir/image.bmp" image/png/png-to-bmp-b8g8r8a8-srgb.wasm
+compare_output image/bmp/bmp-to-png.wasm bmp-to-png "$tmp_dir/image.bmp"
 
 "$tmp_dir/png-to-bmp" < site-static/_og/index.png > "$tmp_dir/roundtrip.bmp"
 "$tmp_dir/bmp-to-png" < "$tmp_dir/roundtrip.bmp" > "$tmp_dir/roundtrip.png"

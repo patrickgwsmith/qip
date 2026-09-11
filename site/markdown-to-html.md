@@ -100,8 +100,8 @@ of WebAssembly</a>.
 
 ```bash
 go install github.com/royalicing/qip@latest
-qip run components/text/markdown/gfm-commonmark.0.31.2.wasm < page.md > page.html
-qip run components/text/markdown/commonmark.0.31.2.wasm < page.md > page.html
+qip run text/markdown/gfm-commonmark.0.31.2.wasm < page.md > page.html
+qip run text/markdown/commonmark.0.31.2.wasm < page.md > page.html
 ```
 
 ## JavaScript

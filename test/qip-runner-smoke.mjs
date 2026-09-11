@@ -115,13 +115,13 @@ for (const constructor of [contentTypeUTF8, contentTypeBytes]) {
 }
 
 const markdownModule = await WebAssembly.compile(
-  await readFile("components/text/markdown/commonmark.0.31.2.wasm"),
+  await readFile("text/markdown/commonmark.0.31.2.wasm"),
 );
 const pageModule = await WebAssembly.compile(
-  await readFile("components/text/html/html-page-wrap.wasm"),
+  await readFile("text/html/html-page-wrap.wasm"),
 );
 const formDataToTarModule = await WebAssembly.compile(
-  await readFile("components/multipart/form-data/form-data-to-tar.wasm"),
+  await readFile("multipart/form-data/form-data-to-tar.wasm"),
 );
 contentComponent(
   contentTypeBytes("multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000"),
@@ -139,10 +139,10 @@ if (typeof page !== "string" || !page.includes("<html")) {
 }
 
 const htmlEscapeModule = await WebAssembly.compile(
-  await readFile("components/text/html/html-escape.wasm"),
+  await readFile("text/html/html-escape.wasm"),
 );
 const cHighlightModule = await WebAssembly.compile(
-  await readFile("components/text/html/html-code-syntax-highlight-c.wasm"),
+  await readFile("text/html/html-code-syntax-highlight-c.wasm"),
 );
 const escapeHTML = contentComponent(text, htmlEscapeModule, html);
 const highlightC = contentComponent(html, cHighlightModule, html);
@@ -157,7 +157,7 @@ if (!highlightedC.includes("hljs-keyword")) {
 }
 
 const accessibilityTreeModule = await WebAssembly.compile(
-  await readFile("components/text/html/html-to-accessibility-tree.wasm"),
+  await readFile("text/html/html-to-accessibility-tree.wasm"),
 );
 const accessibilityTree = contentComponent(
   html,
@@ -170,7 +170,7 @@ if (accessibilityTree("<main><button>Save</button></main>") !==
 }
 
 const luhnModule = await WebAssembly.compile(
-  await readFile("components/text/luhn.wasm"),
+  await readFile("text/luhn.wasm"),
 );
 const luhn = contentComponent(text, luhnModule, text);
 if (luhn(" 4992-7398 716 ") !== "49927398716") {

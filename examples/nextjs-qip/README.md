@@ -15,5 +15,5 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. The preparation scripts copy
-`components/text/html/html-code-syntax-highlight-tsx.wasm` from the repository
+`text/html/html-code-syntax-highlight-tsx.wasm` from the repository
 into `public/qip-components`. The generated copy is not tracked.

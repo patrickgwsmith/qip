@@ -100,11 +100,11 @@ function assertFloatImage(bytes, width, height, primaries, color) {
 test("profile-named float32 resizers preserve linear BT.709 and Display P3", async () => {
   const rgba8 = rgba8KTX2(4, 2, [120, 80, 40, 255]);
   const bt709 = await isolatedRun(
-    "components/image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm",
     rgba8,
   );
   const p3 = await isolatedRun(
-    "components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm",
+    "image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm",
     rgba8,
   );
   const hdrColor = [2.5, -0.25, 0.75, 0.5];
@@ -112,14 +112,14 @@ test("profile-named float32 resizers preserve linear BT.709 and Display P3", asy
   setFloatPixels(p3.output, hdrColor);
 
   const bt709Down = await isolatedRun(
-    "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm",
+    "image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm",
     bt709.output,
     { width: 2, height: 1 },
   );
   assertFloatImage(bt709Down.output, 2, 1, 1, hdrColor);
 
   const p3Up = await isolatedRun(
-    "components/image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm",
+    "image/ktx2/ktx2-rgba32float-display-p3-linear-resize-up-mitchell.wasm",
     p3.output,
     { width: 8, height: 4 },
   );
@@ -127,7 +127,7 @@ test("profile-named float32 resizers preserve linear BT.709 and Display P3", asy
 
   await assert.rejects(
     isolatedRun(
-      "components/image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm",
+      "image/ktx2/ktx2-rgba32float-bt709-linear-resize-down-lanczos3.wasm",
       p3.output,
       { width: 2, height: 1 },
     ),

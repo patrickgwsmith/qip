@@ -68,7 +68,7 @@ func TestHostedDryRunObservesMultipartPathWithoutReadingContents(t *testing.T) {
 		timeoutMS:  5000,
 		formValues: formAssignmentList{"component=@" + target},
 		componentInvocations: []ComponentInvocation{{
-			Source: "components/text/trim.wasm",
+			Source: "text/trim.wasm",
 		}},
 	}
 	var output bytes.Buffer
@@ -83,7 +83,7 @@ func TestHostedDryRunObservesMultipartPathWithoutReadingContents(t *testing.T) {
 func TestExecuteDryRunDoesNotCallRender(t *testing.T) {
 	config, err := parseRunCommandArgs([]string{
 		"--timeout-ms", "250",
-		"components/text/infinite-loop.wasm",
+		"text/infinite-loop.wasm",
 	}, "dry run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs: %v", err)
@@ -95,7 +95,7 @@ func TestExecuteDryRunDoesNotCallRender(t *testing.T) {
 	}
 	got := output.String()
 	if !strings.Contains(got, "Pipeline compatible: 1 step(s)") ||
-		!strings.Contains(got, "components/text/infinite-loop.wasm — Content") ||
+		!strings.Contains(got, "text/infinite-loop.wasm — Content") ||
 		!strings.Contains(got, "Total declared buffer capacity:") {
 		t.Fatalf("unexpected dry-run report:\n%s", got)
 	}
@@ -170,8 +170,8 @@ func TestCapacitiesMustFitFlagRejectsRunAndDryRunPlans(t *testing.T) {
 		t.Run(commandName, func(t *testing.T) {
 			config, err := parseRunCommandArgs([]string{
 				"--capacities-must-fit",
-				"components/text/markdown/commonmark.0.31.2.wasm",
-				"components/text/html/html-page-wrap.wasm",
+				"text/markdown/commonmark.0.31.2.wasm",
+				"text/html/html-page-wrap.wasm",
 			}, commandName)
 			if err != nil {
 				t.Fatalf("parseRunCommandArgs: %v", err)
@@ -201,8 +201,8 @@ func TestDryRunMaxMemoryIsPerComponent(t *testing.T) {
 	const componentMemory = "262144"
 	args := []string{
 		"--max-memory", componentMemory,
-		"components/bytes/base64-encode.wasm",
-		"components/bytes/base64-encode.wasm",
+		"bytes/base64-encode.wasm",
+		"bytes/base64-encode.wasm",
 	}
 	config, err := parseRunCommandArgs(args, "dry run")
 	if err != nil {
@@ -218,7 +218,7 @@ func TestDryRunMaxMemoryIsPerComponent(t *testing.T) {
 
 	config, err = parseRunCommandArgs([]string{
 		"--max-memory", "262143",
-		"components/bytes/base64-encode.wasm",
+		"bytes/base64-encode.wasm",
 	}, "dry run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs below cap: %v", err)
@@ -234,16 +234,16 @@ func TestDocumentedRunPipelinesRemainCompatible(t *testing.T) {
 		name string
 		args []string
 	}{
-		{"zlib to base64", []string{"components/bytes/zlib-compress-dynamic-huffman.wasm", "components/bytes/base64-encode.wasm"}},
-		{"zlib round trip", []string{"components/bytes/zlib-compress-dynamic-huffman.wasm", "components/bytes/zlib-decompress.wasm"}},
-		{"SVG to doubled ICO", []string{"components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "components/image/bmp/bmp-double.wasm", "components/image/bmp/bmp-to-ico.wasm"}},
-		{"SVG directly to ICO", []string{"components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "components/image/bmp/bmp-to-ico.wasm"}},
-		{"PNG to ICO", []string{"components/image/png/png-to-bmp-b8g8r8a8-srgb.wasm", "components/image/bmp/bmp-to-ico.wasm"}},
-		{"strict Wasm checks", []string{"components/application/wasm/wasm-strict-profile.wasm", "components/application/wasm/wasm-bounded-loops.wasm"}},
-		{"Markdown highlighting", []string{"components/text/markdown/commonmark.0.31.2.wasm", "components/text/html/html-code-syntax-highlight-tsx.wasm"}},
-		{"HTML highlighter chain", []string{"components/text/html/html-code-syntax-highlight-zig.wasm", "components/text/html/html-code-syntax-highlight-css.wasm", "components/text/html/html-code-syntax-highlight-bash.wasm", "components/text/html/html-add-highlight-stylesheet-night-owl.wasm"}},
-		{"SVG data URI to CSS", []string{"components/image/svg+xml/svg-to-data-uri.wasm", "components/text/uri-list/data-uri-to-css-url.wasm"}},
-		{"Content Tile Content", []string{"components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "components/rgba/brightness.wasm", "?brightness=0.1", "components/image/bmp/bmp-to-ico.wasm"}},
+		{"zlib to base64", []string{"bytes/zlib-compress-dynamic-huffman.wasm", "bytes/base64-encode.wasm"}},
+		{"zlib round trip", []string{"bytes/zlib-compress-dynamic-huffman.wasm", "bytes/zlib-decompress.wasm"}},
+		{"SVG to doubled ICO", []string{"image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "image/bmp/bmp-double.wasm", "image/bmp/bmp-to-ico.wasm"}},
+		{"SVG directly to ICO", []string{"image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "image/bmp/bmp-to-ico.wasm"}},
+		{"PNG to ICO", []string{"image/png/png-to-bmp-b8g8r8a8-srgb.wasm", "image/bmp/bmp-to-ico.wasm"}},
+		{"strict Wasm checks", []string{"application/wasm/wasm-strict-profile.wasm", "application/wasm/wasm-bounded-loops.wasm"}},
+		{"Markdown highlighting", []string{"text/markdown/commonmark.0.31.2.wasm", "text/html/html-code-syntax-highlight-tsx.wasm"}},
+		{"HTML highlighter chain", []string{"text/html/html-code-syntax-highlight-zig.wasm", "text/html/html-code-syntax-highlight-css.wasm", "text/html/html-code-syntax-highlight-bash.wasm", "text/html/html-add-highlight-stylesheet-night-owl.wasm"}},
+		{"SVG data URI to CSS", []string{"image/svg+xml/svg-to-data-uri.wasm", "text/uri-list/data-uri-to-css-url.wasm"}},
+		{"Content Tile Content", []string{"image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", "components/rgba/brightness.wasm", "?brightness=0.1", "image/bmp/bmp-to-ico.wasm"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -260,10 +260,10 @@ func TestDocumentedRunPipelinesRemainCompatible(t *testing.T) {
 
 func TestPreparedContentTileContentPipelineExecutes(t *testing.T) {
 	config, err := parseRunCommandArgs([]string{
-		"components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm",
+		"image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm",
 		"components/rgba/brightness.wasm",
 		"?brightness=0.1",
-		"components/image/bmp/bmp-to-ico.wasm",
+		"image/bmp/bmp-to-ico.wasm",
 	}, "run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs: %v", err)

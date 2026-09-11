@@ -10,7 +10,7 @@
 // tools/freeze-markdown-divergences.py) into
 // compliance/commonmark-differential-corpus.comply.wasm — expected to fail
 // until the delimiter-stack rewrite (see the TODO block in
-// components/text/markdown/lib/commonmark.zig) lands, then wired into
+// text/markdown/lib/commonmark.zig) lands, then wired into
 // test-comply and regrown from fresh fuzz runs.
 // TODO(testing): Property fuzzing via the --seed/Luhn generative-oracle pattern
 // (docs/comply.md): arbitrary bytes (including invalid UTF-8) must never trap, and

@@ -9,7 +9,7 @@ function readI32Export(exports, name) {
 }
 
 async function instantiate() {
-  const wasmBytes = await readFile(new URL("../components/text/unicode-17-lowercase.wasm", import.meta.url));
+  const wasmBytes = await readFile(new URL("../text/unicode-17-lowercase.wasm", import.meta.url));
   const { instance } = await WebAssembly.instantiate(wasmBytes);
   return instance.exports;
 }

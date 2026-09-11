@@ -5,7 +5,7 @@ import { constants } from "node:fs";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-const modulePath = fileURLToPath(new URL("../components/image/bmp/bmp-rgb-metrics.wasm", import.meta.url));
+const modulePath = fileURLToPath(new URL("../image/bmp/bmp-rgb-metrics.wasm", import.meta.url));
 
 function buildBMP(width, height, changed = false) {
   const stride = width * 4;

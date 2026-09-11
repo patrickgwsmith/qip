@@ -138,10 +138,10 @@ const markdown = contentTypeUTF8("text/markdown");
 const html = contentTypeUTF8("text/html");
 
 const markdownModule = await WebAssembly.compile(
-  await readFile("components/text/markdown/commonmark.0.31.2.wasm"),
+  await readFile("text/markdown/commonmark.0.31.2.wasm"),
 );
 const pageModule = await WebAssembly.compile(
-  await readFile("components/text/html/html-page-wrap.wasm"),
+  await readFile("text/html/html-page-wrap.wasm"),
 );
 
 const markdownToHtml = contentComponent(markdown, markdownModule, html);

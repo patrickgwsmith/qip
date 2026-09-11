@@ -40,7 +40,7 @@ test("image compressor worker runs the MozJPEG component", async () => {
     close() {},
   };
   globalThis.fetch = async (path) => new Response(
-    await readFile(`./components${path}`),
+    await readFile(`.${path}`),
     { headers: { "content-type": "application/wasm" } },
   );
   await import(`../site/image-compress-worker.js?jpeg-test=${Date.now()}`);

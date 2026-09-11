@@ -5,7 +5,7 @@ import test from "node:test";
 
 test("base64 encoder fits and returns its maximum advertised input", async () => {
   const { instance } = await WebAssembly.instantiate(
-    await readFile("components/bytes/base64-encode.wasm"),
+    await readFile("bytes/base64-encode.wasm"),
     {},
   );
   const wasm = instance.exports;
@@ -27,7 +27,7 @@ test("base64 encoder fits and returns its maximum advertised input", async () =>
 
 test("CRC-32 has fixed output and does not retain render state", async () => {
   const { instance } = await WebAssembly.instantiate(
-    await readFile("components/bytes/crc32-hex.wasm"),
+    await readFile("bytes/crc32-hex.wasm"),
     {},
   );
   const wasm = instance.exports;
@@ -64,7 +64,7 @@ test("CRC-32 has fixed output and does not retain render state", async () => {
 
 test("trim output cannot exceed its maximum input", async () => {
   const { instance } = await WebAssembly.instantiate(
-    await readFile("components/text/trim.wasm"),
+    await readFile("text/trim.wasm"),
     {},
   );
   const wasm = instance.exports;

@@ -7,7 +7,7 @@ The one-line summary: **give every loop a cursor that only moves one way, and te
 Every example below was compiled with the repo's production flags (`-O ReleaseSmall`) and verified with the strict-tier components. Two of the "obvious" fixes on this page compile into shapes that fail because the optimizer rewrites loops. Always verify the artifact, not the source:
 
 ```bash
-qip run -i component.wasm -- components/application/wasm/wasm-strict-profile.wasm components/application/wasm/wasm-bounded-loops.wasm
+qip run -i component.wasm -- application/wasm/wasm-strict-profile.wasm application/wasm/wasm-bounded-loops.wasm
 # passes bytes through on success, rejects any strict-tier violation
 ```
 

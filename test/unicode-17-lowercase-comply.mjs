@@ -27,9 +27,9 @@ test("curated cases carry the expected UCD 17 content including Final_Sigma", as
   assert.ok(predicates.every((p) => p.ok));
 });
 
-test("duel: components/text/unicode-17-lowercase.wasm is fully compliant", async () => {
+test("duel: text/unicode-17-lowercase.wasm is fully compliant", async () => {
   const implBytes = await readFile(
-    new URL("../components/text/unicode-17-lowercase.wasm", import.meta.url),
+    new URL("../text/unicode-17-lowercase.wasm", import.meta.url),
   );
   const { instance } = await WebAssembly.instantiate(implBytes);
   const impl = instance.exports;

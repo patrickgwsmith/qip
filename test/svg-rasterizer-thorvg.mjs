@@ -5,7 +5,7 @@ import test from "node:test";
 
 const encoder = new TextEncoder();
 const componentPath = new URL(
-  "../components/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm",
+  "../image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm",
   import.meta.url,
 );
 const tigerPath = new URL("fixtures/svg/ghostscript-tiger.svg", import.meta.url);

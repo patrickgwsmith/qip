@@ -5,7 +5,7 @@ import { access, readFile } from "node:fs/promises";
 import test from "node:test";
 
 const moduleUrl = new URL(
-  "../components/image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm",
+  "../image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm",
   import.meta.url,
 );
 const profileUrl = new URL(

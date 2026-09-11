@@ -1,6 +1,6 @@
 # casegen — Unicode case tables for QIP components
 
-Generates `components/text/lib/unicode-17-lowercase-tables.zig` and the duel fixtures
+Generates `text/lib/unicode-17-lowercase-tables.zig` and the duel fixtures
 `test/fixtures/unicode-17-lowercase.json` from the pinned Unicode 17.0.0 UCD files in
 `ucd-17.0.0/` (committed; URLs and SHA-256 pins in `main.go`'s header), then
 cross-checks every code point against `golang.org/x/text` `cases.Lower` as an
@@ -19,7 +19,7 @@ ordinal) — see `compliance/hosts/uppercase-node/` and `compliance/hosts/upperc
 cd tools/casegen
 go run .                 # rewrites tables + fixtures, exits nonzero on oracle mismatch
 cd ../..
-make components/text/unicode-17-lowercase.wasm
+make text/unicode-17-lowercase.wasm
 node --test test/unicode-17-lowercase.mjs
 ```
 
@@ -37,7 +37,7 @@ building anything:
 
 ```sh
 go run . -check-tag fr
-# fr lowercase is byte-identical to en: alias components/text/unicode-17-lowercase.wasm …
+# fr lowercase is byte-identical to en: alias text/unicode-17-lowercase.wasm …
 ```
 
 Exit 0 ⇒ **alias, don't rebuild.** `fr`, `de`, `es`, and `und` are all
@@ -46,7 +46,7 @@ Ship the alias with two Makefile lines (same pattern the repo already uses for
 recipe symlinks):
 
 ```make
-components/text/unicode-17-lowercase-fr.wasm: components/text/unicode-17-lowercase.wasm
+text/unicode-17-lowercase-fr.wasm: text/unicode-17-lowercase.wasm
 	cp $< $@
 ```
 

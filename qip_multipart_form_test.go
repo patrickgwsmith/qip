@@ -146,27 +146,27 @@ func TestCanonicalFormFilenameUsesOnlyFinalSegment(t *testing.T) {
 }
 
 func TestParseRunCommandArgsRejectsRawAndMultipartInput(t *testing.T) {
-	_, err := parseRunCommandArgs([]string{"-i", "input.bin", "-F", "component=@component.wasm", "components/bytes/identity.wasm"}, "run")
+	_, err := parseRunCommandArgs([]string{"-i", "input.bin", "-F", "component=@component.wasm", "bytes/identity.wasm"}, "run")
 	if err == nil || !strings.Contains(err.Error(), "-F and -i are mutually exclusive") {
 		t.Fatalf("error=%v, want mutual-exclusion error", err)
 	}
 }
 
 func TestParseRunCommandArgsAcceptsMultipartAfterComponent(t *testing.T) {
-	config, err := parseRunCommandArgs([]string{"components/bytes/identity.wasm", "--form", "mode=step"}, "run")
+	config, err := parseRunCommandArgs([]string{"bytes/identity.wasm", "--form", "mode=step"}, "run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs: %v", err)
 	}
 	if !reflect.DeepEqual([]string(config.formValues), []string{"mode=step"}) {
 		t.Fatalf("form values=%v", config.formValues)
 	}
-	if len(config.componentInvocations) != 1 || config.componentInvocations[0].Source != "components/bytes/identity.wasm" {
+	if len(config.componentInvocations) != 1 || config.componentInvocations[0].Source != "bytes/identity.wasm" {
 		t.Fatalf("component invocations=%v", config.componentInvocations)
 	}
 }
 
 func TestParseRunCommandArgsMultipartAliasesAccumulate(t *testing.T) {
-	config, err := parseRunCommandArgs([]string{"-F", "mode=step", "--form", "component=@-", "components/bytes/identity.wasm"}, "run")
+	config, err := parseRunCommandArgs([]string{"-F", "mode=step", "--form", "component=@-", "bytes/identity.wasm"}, "run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs: %v", err)
 	}

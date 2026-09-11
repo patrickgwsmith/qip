@@ -30,7 +30,7 @@ test("the exhaustive corpus preserves three-digit numeric codes", async () => {
 
 test("duel: iso-4217-alpha-to-numeric.wasm satisfies all 186 cases", async () => {
   const implBytes = await readFile(
-    new URL("../components/text/iso-4217-alpha-to-numeric.wasm", import.meta.url),
+    new URL("../text/iso-4217-alpha-to-numeric.wasm", import.meta.url),
   );
   const { instance } = await WebAssembly.instantiate(implBytes);
   const impl = instance.exports;

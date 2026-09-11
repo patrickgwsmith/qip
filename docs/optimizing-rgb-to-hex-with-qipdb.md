@@ -72,11 +72,11 @@ Build the component and its Compliance oracle:
 
 ```sh
 make -j \
-  components/text/rgb-to-hex.wasm \
+  text/rgb-to-hex.wasm \
   compliance/rgb-to-hex.comply.wasm
 
 ./qip comply \
-  components/text/rgb-to-hex.wasm \
+  text/rgb-to-hex.wasm \
   --with compliance/rgb-to-hex.comply.wasm
 ```
 
@@ -84,7 +84,7 @@ Open the representative input in qipdb:
 
 ```sh
 npx @qip.dev/qipx tui \
-  -F component=@components/text/rgb-to-hex.wasm \
+  -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
   components/interactive/qipdb.wasm
 ```

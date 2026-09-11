@@ -8,7 +8,7 @@ const root = new URL("../", import.meta.url);
 const simonPath = resolve(process.argv[2] ?? "/tmp/qip-grok-mermaid.wasm");
 const [checkerBytes, qipBytes, simonBytes] = await Promise.all([
   readFile(new URL("compliance/mermaid-to-unicode-html.comply.wasm", root)),
-  readFile(new URL("components/text/vnd.mermaid/mermaid-to-unicode-html.wasm", root)),
+  readFile(new URL("text/vnd.mermaid/mermaid-to-unicode-html.wasm", root)),
   readFile(simonPath),
 ]);
 

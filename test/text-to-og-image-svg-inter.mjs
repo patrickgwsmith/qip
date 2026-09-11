@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const componentPath = "components/text/text-to-og-image-svg-inter.wasm";
+const componentPath = "text/text-to-og-image-svg-inter.wasm";
 
 async function instantiate() {
   const { instance } = await WebAssembly.instantiate(

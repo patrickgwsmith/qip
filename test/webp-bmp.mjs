@@ -6,15 +6,15 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const decoderPath = fileURLToPath(new URL(
-  "../components/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm",
+  "../image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm",
   import.meta.url,
 ));
 const lossyEncoderPath = fileURLToPath(new URL(
-  "../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm",
+  "../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm",
   import.meta.url,
 ));
 const losslessEncoderPath = fileURLToPath(new URL(
-  "../components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm",
+  "../image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm",
   import.meta.url,
 ));
 

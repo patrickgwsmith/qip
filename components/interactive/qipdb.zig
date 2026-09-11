@@ -3224,7 +3224,7 @@ test "parses component and input multipart parts" {
 }
 
 test "only displays safe relative component filenames" {
-    try std.testing.expectEqualStrings("components/text/rgb-to-hex.wasm", safeComponentPath("components/text/rgb-to-hex.wasm").?);
+    try std.testing.expectEqualStrings("text/rgb-to-hex.wasm", safeComponentPath("text/rgb-to-hex.wasm").?);
     try std.testing.expect(safeComponentPath("../private/component.wasm") == null);
     try std.testing.expect(safeComponentPath("component\x1b[31m.wasm") == null);
     try std.testing.expect(safeComponentPath("/absolute/component.wasm") == null);

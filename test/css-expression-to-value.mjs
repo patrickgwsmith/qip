@@ -26,7 +26,7 @@ function render(exports, input, uniforms = {}) {
 
 async function load() {
   return (await WebAssembly.instantiate(
-    await readFile("components/text/css/css-expression-to-value.wasm"),
+    await readFile("text/css/css-expression-to-value.wasm"),
     {},
   )).instance.exports;
 }

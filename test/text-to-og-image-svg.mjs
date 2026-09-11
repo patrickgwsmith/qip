@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const componentPath =
-  "components/text/text-to-og-image-svg-dejavu-sans-mono.wasm";
+  "text/text-to-og-image-svg-dejavu-sans-mono.wasm";
 
 async function instantiate() {
   const { instance } = await WebAssembly.instantiate(

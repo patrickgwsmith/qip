@@ -11,19 +11,19 @@ const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
 const entriesComponent = join(
   process.cwd(),
-  "components/application/zip/zip-list-entries-csv.wasm",
+  "application/zip/zip-list-entries-csv.wasm",
 );
 const filesComponent = join(
   process.cwd(),
-  "components/application/zip/zip-list-files-csv.wasm",
+  "application/zip/zip-list-files-csv.wasm",
 );
 const wasmCounts = join(
   process.cwd(),
-  "components/application/wasm/wasm-counts.wasm",
+  "application/wasm/wasm-counts.wasm",
 );
 const extractComponent = join(
   process.cwd(),
-  "components/application/zip/zip-extract-file.wasm",
+  "application/zip/zip-extract-file.wasm",
 );
 
 const crcTable = new Uint32Array(256);

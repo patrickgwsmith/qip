@@ -44,7 +44,7 @@ function extractRange(first, last) {
       "-i",
       fontPath,
       "--",
-      "components/font/ttf/ttf-to-svg-paths-csv.wasm",
+      "font/ttf/ttf-to-svg-paths-csv.wasm",
       `?first_codepoint=${first}&last_codepoint=${last}`,
     ],
     { encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },

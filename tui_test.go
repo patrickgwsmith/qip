@@ -100,12 +100,12 @@ func TestTUISessionRendersDebuggerThroughContentStep(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	strip, err := os.ReadFile("components/text/strip-ansi-sgr.wasm")
+	strip, err := os.ReadFile("text/strip-ansi-sgr.wasm")
 	if err != nil {
 		t.Fatal(err)
 	}
 	form, contentType, err := buildMultipartFormInput([]string{
-		"component=@components/text/wc.wasm",
+		"component=@text/wc.wasm",
 		"input=The quick brown fox jumps over the lazy dog",
 	}, nil)
 	if err != nil {

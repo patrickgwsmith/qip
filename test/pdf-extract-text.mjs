@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
 const modulePath = join(
   process.cwd(),
-  "components/application/pdf/pdf-extract-text.wasm",
+  "application/pdf/pdf-extract-text.wasm",
 );
 
 function plainObject(number, body) {

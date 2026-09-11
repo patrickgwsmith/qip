@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { ContentComponentHost } from "./lib/content-component-host.mjs";
 
-const runnerPath = "components/application/wasm/qip-content-interpreter.wasm";
+const runnerPath = "application/wasm/qip-content-interpreter.wasm";
 const boundary = "uuid-00000000-0000-0000-0000-000000000000";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -51,9 +51,9 @@ async function expectedOutput(component, input) {
 test("interprets scalar, indirect-call, and SIMD Content components exactly", async () => {
   const [runner, rgb, commonmark, bmpDoubleSIMD] = await Promise.all([
     readFile(runnerPath),
-    readFile("components/text/rgb-to-hex.wasm"),
-    readFile("components/text/markdown/commonmark.0.31.2.wasm"),
-    readFile("components/image/bmp/bmp-double-simd.wasm"),
+    readFile("text/rgb-to-hex.wasm"),
+    readFile("text/markdown/commonmark.0.31.2.wasm"),
+    readFile("image/bmp/bmp-double-simd.wasm"),
   ]);
   const targets = [
     { component: rgb, input: encoder.encode("rgb(101, 79, 240)") },
@@ -79,7 +79,7 @@ test("interprets scalar, indirect-call, and SIMD Content components exactly", as
 test("uses a host-rewritten multipart boundary", async () => {
   const [runner, target] = await Promise.all([
     readFile(runnerPath),
-    readFile("components/text/rgb-to-hex.wasm"),
+    readFile("text/rgb-to-hex.wasm"),
   ]);
   const host = new ContentComponentHost(runner, { label: "QIP Content interpreter" });
   const instance = host.instantiate();
@@ -138,8 +138,8 @@ test("rejects unknown, malformed, duplicate, and invalid uniforms", async () => 
 test("rejects exhausted instruction budgets and resets the uniform", async () => {
   const [runner, infiniteLoop, rgb] = await Promise.all([
     readFile(runnerPath),
-    readFile("components/text/infinite-loop.wasm"),
-    readFile("components/text/rgb-to-hex.wasm"),
+    readFile("text/infinite-loop.wasm"),
+    readFile("text/rgb-to-hex.wasm"),
   ]);
   const host = new ContentComponentHost(runner, { label: "QIP Content interpreter" });
   const exhausted = host.run(multipart([["component", infiniteLoop]]), {

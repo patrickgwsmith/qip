@@ -23,10 +23,10 @@ async function instance(path) {
 }
 
 test("time-series CSV renders value-space polylines and chart passes transform every series", async () => {
-  const chart = await instance("components/text/csv/time-series-csv-to-svg-polylines.wasm");
-  const ema = await instance("components/image/svg+xml/svg-polylines-exponential-moving-average.wasm");
-  const mean = await instance("components/image/svg+xml/svg-polylines-rolling-mean.wasm");
-  const meanLines = await instance("components/image/svg+xml/svg-polylines-add-mean-lines.wasm");
+  const chart = await instance("text/csv/time-series-csv-to-svg-polylines.wasm");
+  const ema = await instance("image/svg+xml/svg-polylines-exponential-moving-average.wasm");
+  const mean = await instance("image/svg+xml/svg-polylines-rolling-mean.wasm");
+  const meanLines = await instance("image/svg+xml/svg-polylines-add-mean-lines.wasm");
   const csv = encoder.encode("date,revenue,costs\n2026-01-01,10,30\n2026-01-02,20,20\n2026-01-03,50,10\n");
   const svg = decoder.decode(render(chart, csv));
   assert.equal((svg.match(/<polyline/g) ?? []).length, 2);

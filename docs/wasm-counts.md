@@ -5,11 +5,11 @@ CSV. It reports factual static counts for comparing builds; it does not assign
 a score or decide whether a module is acceptable.
 
 ```sh
-make -j qip components/application/wasm/wasm-counts.wasm
+make -j qip application/wasm/wasm-counts.wasm
 
 qip run \
-  -i components/text/e164.wasm \
-  -- components/application/wasm/wasm-counts.wasm
+  -i text/e164.wasm \
+  -- application/wasm/wasm-counts.wasm
 ```
 
 The output has one integer measurement per row:
@@ -87,7 +87,7 @@ or instrumenting the module.
 SQLite's shell can import the output directly:
 
 ```sh
-qip run -i a.wasm -- components/application/wasm/wasm-counts.wasm > a.csv
+qip run -i a.wasm -- application/wasm/wasm-counts.wasm > a.csv
 
 sqlite3 counts.db
 ```

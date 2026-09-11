@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import source commonmarkModule from "../components/text/markdown/commonmark.0.31.2.wasm";
+import source commonmarkModule from "../text/markdown/commonmark.0.31.2.wasm";
 import { readFileSync, writeFileSync } from "node:fs";
 
 function exportedI32(exports, name) {

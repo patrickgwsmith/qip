@@ -68,7 +68,7 @@ func TestDevHandlerServesURIListRedirect(t *testing.T) {
 	if err := os.WriteFile(redirectPath, []byte("# move\n/docs/how-it-works\n"), 0o644); err != nil {
 		t.Fatalf("write redirect file: %v", err)
 	}
-	redirectWASM, err := os.ReadFile("components/application/warc/warc-text-uri-list-to-redirect.wasm")
+	redirectWASM, err := os.ReadFile("application/warc/warc-text-uri-list-to-redirect.wasm")
 	if err != nil {
 		t.Fatalf("read redirect recipe: %v", err)
 	}
@@ -288,8 +288,8 @@ func TestResolveRecipeSourceResponse(t *testing.T) {
 					Body:        []byte("const x = 1;"),
 					ContentType: "text/plain; charset=utf-8",
 				},
-				"/view-source/components/text/trim.zig": {
-					RequestPath: "/view-source/components/text/trim.zig",
+				"/view-source/text/trim.zig": {
+					RequestPath: "/view-source/text/trim.zig",
 					Body:        []byte("const std = @import(\"std\");"),
 					ContentType: "text/plain; charset=utf-8",
 				},
@@ -327,7 +327,7 @@ func TestResolveRecipeSourceResponse(t *testing.T) {
 		t.Fatal("expected missing asset to not resolve")
 	}
 
-	componentAssetResp, ok := resolveRecipeSourceResponse("/view-source/components/text/trim.zig", state)
+	componentAssetResp, ok := resolveRecipeSourceResponse("/view-source/text/trim.zig", state)
 	if !ok {
 		t.Fatal("expected component source asset response")
 	}

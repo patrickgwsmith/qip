@@ -5,7 +5,7 @@ import test from "node:test";
 
 test("bytes-to-sha256 returns the raw 32-byte digest", async () => {
   const { instance } = await WebAssembly.instantiate(
-    await readFile("components/bytes/bytes-to-sha256.wasm"),
+    await readFile("bytes/bytes-to-sha256.wasm"),
     {},
   );
   assert.equal(instance.exports.output_content_type_ptr, undefined);

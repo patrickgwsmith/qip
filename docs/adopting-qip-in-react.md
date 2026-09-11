@@ -44,7 +44,7 @@ Server Component. Edit the second block to see the Client Component run in the
 browser.
 
 The example's preparation script copies
-`components/text/html/html-code-syntax-highlight-tsx.wasm` to
+`text/html/html-code-syntax-highlight-tsx.wasm` to
 `public/qip-components/`. A real application can put a reviewed component in
 its own public or server asset directory instead.
 

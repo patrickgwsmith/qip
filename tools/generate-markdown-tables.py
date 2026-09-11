@@ -11,9 +11,9 @@ Inputs (vendored, pinned):
     sha256 ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183
 
 Outputs (each written twice — component copy and compliance copy):
-  components/text/markdown/lib/html5-entities-table.zig
+  text/markdown/lib/html5-entities-table.zig
   compliance/html5-entities-table.zig
-  components/text/markdown/lib/unicode-17-casefold-tables.zig
+  text/markdown/lib/unicode-17-casefold-tables.zig
   compliance/unicode-17-casefold-tables.zig
 
 Usage: python3 tools/generate-markdown-tables.py (from the repo root)
@@ -166,9 +166,9 @@ def main():
     entities = generate_entities()
     casefold = generate_casefold()
     targets = [
-        (ROOT / "components/text/markdown/lib/html5-entities-table.zig", entities),
+        (ROOT / "text/markdown/lib/html5-entities-table.zig", entities),
         (ROOT / "compliance/html5-entities-table.zig", entities),
-        (ROOT / "components/text/markdown/lib/unicode-17-casefold-tables.zig", casefold),
+        (ROOT / "text/markdown/lib/unicode-17-casefold-tables.zig", casefold),
         (ROOT / "compliance/unicode-17-casefold-tables.zig", casefold),
     ]
     for path, content in targets:

@@ -13,11 +13,11 @@ const root = process.cwd();
 const qip = join(root, "qip");
 const csvComponent = join(
   root,
-  "components/application/x-tar/recipes-tar-to-csv.wasm",
+  "application/x-tar/recipes-tar-to-csv.wasm",
 );
 const nodeComponent = join(
   root,
-  "components/application/x-tar/recipes-tar-to-node-tar.wasm",
+  "application/x-tar/recipes-tar-to-node-tar.wasm",
 );
 
 function writeOctal(header, offset, length, value) {

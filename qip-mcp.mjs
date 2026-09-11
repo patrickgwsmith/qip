@@ -13,7 +13,7 @@ const CATALOG_HEADER = "path,input_encoding,input_mime,input_capacity_bytes,outp
 const MAX_REQUEST_BYTES = 1_048_576;
 const MAX_RECIPES = 512;
 const DEFAULT_CATALOG = new URL("./site/data/component-catalog.csv", import.meta.url);
-const DEFAULT_GENERATOR = new URL("./components/text/csv/content-recipe-to-browser-javascript.wasm", import.meta.url);
+const DEFAULT_GENERATOR = new URL("./text/csv/content-recipe-to-browser-javascript.wasm", import.meta.url);
 
 const MIME_LABELS = {
   "application/json": "JSON",

@@ -12,12 +12,12 @@ input uses an unsupported instruction.
 Build and run the translator like any other Content component:
 
 ```sh
-make -j components/application/wasm/qip-component-to-zig.wasm
-wasm-validate components/text/trim.wasm
+make -j application/wasm/qip-component-to-zig.wasm
+wasm-validate text/trim.wasm
 ./qip run \
-  -i components/text/trim.wasm \
+  -i text/trim.wasm \
   -o trim.zig \
-  components/application/wasm/qip-component-to-zig.wasm
+  application/wasm/qip-component-to-zig.wasm
 ```
 
 Compile the generated module as part of a Zig program. Give it a module name so

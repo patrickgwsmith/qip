@@ -137,8 +137,8 @@ components handle up to 64 KiB.
 ## CLI equivalent
 
 ```bash
-qip run components/bytes/base64-encode.wasm < image.png > image.png.b64
-qip run components/text/base64-decode.wasm < image.png.b64 > image.png
+qip run bytes/base64-encode.wasm < image.png > image.png.b64
+qip run text/base64-decode.wasm < image.png.b64 > image.png
 ```
 
 The decoder accepts canonical RFC 4648 Base64. The input length must be a
@@ -148,4 +148,4 @@ producing partial bytes.
 
 The decoder treats every input byte as Base64 data, so strip whitespace first
 when a file wraps its lines. Add `=` padding when the source omitted it before
-running `qip run components/text/base64-decode.wasm`.
+running `qip run text/base64-decode.wasm`.

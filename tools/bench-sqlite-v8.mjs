@@ -16,7 +16,7 @@ const USGS_URL =
   "http://2016.padjo.org/files/data/starterpack/usgs/usgs-lower-us.sqlite";
 
 const moduleDir = fileURLToPath(
-  new URL("../components/application/vnd.sqlite3/", import.meta.url),
+  new URL("../application/vnd.sqlite3/", import.meta.url),
 );
 const jswasmDir = fileURLToPath(new URL("./sqlite-jswasm/", import.meta.url));
 

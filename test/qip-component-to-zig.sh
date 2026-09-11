@@ -3,7 +3,7 @@ set -eu
 
 qip_bin=${QIP_BIN:-./qip}
 zig_bin=${ZIG_BIN:-zig}
-translator=components/application/wasm/qip-component-to-zig.wasm
+translator=application/wasm/qip-component-to-zig.wasm
 tmp_dir=$(mktemp -d "${TMPDIR:-/tmp}/qip-component-to-zig.XXXXXX")
 export ZIG_CACHE_DIR=${ZIG_CACHE_DIR:-/tmp/zig-cache}
 export ZIG_GLOBAL_CACHE_DIR=${ZIG_GLOBAL_CACHE_DIR:-/tmp/zig-global-cache}
@@ -19,7 +19,7 @@ zig_build() {
     fi
 }
 
-"$qip_bin" run -i components/text/hello.wasm \
+"$qip_bin" run -i text/hello.wasm \
     -o "$tmp_dir/hello.zig" "$translator"
 zig_build --dep component \
     -Mroot=test/qip-component-to-zig-runner.zig \
@@ -27,7 +27,7 @@ zig_build --dep component \
     -O ReleaseSafe -femit-bin="$tmp_dir/hello"
 "$tmp_dir/hello"
 
-"$qip_bin" run -i components/text/trim.wasm \
+"$qip_bin" run -i text/trim.wasm \
     -o "$tmp_dir/trim.zig" "$translator"
 zig_build --dep first --dep second \
     -Mroot=test/qip-component-to-zig-bundle.zig \

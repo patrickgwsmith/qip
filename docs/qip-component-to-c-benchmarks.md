@@ -33,7 +33,7 @@ allocation functions where supported, and reconcile APIs that were not
 designed to share storage.
 
 A QIP component moves that work to the component adaptation. For example,
-`components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm` is not merely libwebp in another
+`image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm` is not merely libwebp in another
 file format. Its build and wrapper constrain libwebp to fixed memory, one
 thread, no imports, and no external system or data access, then expose the same
 Content lifecycle as other QIP components. A host does not need to learn
@@ -162,7 +162,7 @@ V8 and wasm2c also hand off directly, but between different linear memories.
 ## Native Source And The Wasm Intermediary
 
 CommonMark provides a useful source-level control because
-`components/text/markdown/commonmark.0.31.2.zig` contains the complete parser.
+`text/markdown/commonmark.0.31.2.zig` contains the complete parser.
 Its native benchmark calls the same `renderMarkdown` implementation, uses the
 same static scratch structures, and performs the same input and output copies
 as the translated-C harnesses. This is not a comparison with a different
@@ -278,7 +278,7 @@ tools/bench-qip-component-to-c-source.sh \
   --duration-ms 2000 \
   --trials 3 \
   --startup-runs 100 \
-  components/text/markdown/commonmark.0.31.2.zig
+  text/markdown/commonmark.0.31.2.zig
 ```
 
 The driver builds the source's normal `.wasm` target through the Makefile,
@@ -307,7 +307,7 @@ standard error, so a report can be captured directly:
 ```sh
 tools/bench-qip-component-to-c-source.sh \
   --input README.md \
-  components/text/markdown/commonmark.0.31.2.zig \
+  text/markdown/commonmark.0.31.2.zig \
   > /tmp/commonmark-native-matrix.md
 ```
 
@@ -350,7 +350,7 @@ Run the QIP boundary directly:
 
 ```sh
 ./qip bench -i README.md --benchtime=2s \
-  components/text/markdown/commonmark.0.31.2.wasm
+  text/markdown/commonmark.0.31.2.wasm
 ```
 
 Run a parameterized Content recipe comparison with:
@@ -358,9 +358,9 @@ Run a parameterized Content recipe comparison with:
 ```sh
 tools/bench-qip-component-to-c-recipe.sh \
   --input qip-logo.svg \
-  components/image/svg+xml/svg-recolor-current-color.wasm \
-  components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
-  components/image/bmp/bmp-to-png.wasm
+  image/svg+xml/svg-recolor-current-color.wasm \
+  image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
+  image/bmp/bmp-to-png.wasm
 ```
 
 The driver validates the connections with `qip dry run`, obtains the reference
@@ -397,7 +397,7 @@ Compile it with the CommonMark source as its `component` module:
 zig build-obj -O ReleaseFast -fstrip --dep component \
   -Mroot=tools/bench-content-native.zig \
   -O ReleaseFast \
-  -Mcomponent=components/text/markdown/commonmark.0.31.2.zig \
+  -Mcomponent=text/markdown/commonmark.0.31.2.zig \
   -femit-bin=/tmp/commonmark-native.o
 
 cc /tmp/commonmark-native.o -o /tmp/commonmark-native
@@ -411,7 +411,7 @@ link it to the same stdio boundary used by the translated executables:
 zig build-obj -O ReleaseFast -fstrip --dep component \
   -Mroot=tools/bench-content-native-api.zig \
   -O ReleaseFast \
-  -Mcomponent=components/text/markdown/commonmark.0.31.2.zig \
+  -Mcomponent=text/markdown/commonmark.0.31.2.zig \
   -femit-bin=/tmp/commonmark-native-api.o
 
 cc -std=c11 -O3 -DNDEBUG \
@@ -425,9 +425,9 @@ Generate the QIP C header with:
 
 ```sh
 ./qip run \
-  -i components/text/markdown/commonmark.0.31.2.wasm \
+  -i text/markdown/commonmark.0.31.2.wasm \
   -o /tmp/commonmark-qip.h \
-  components/application/wasm/qip-component-to-c.wasm
+  application/wasm/qip-component-to-c.wasm
 
 cc -std=c11 -O3 -DNDEBUG \
   -DQIP_WASM_GENERATED_HEADER='"/tmp/commonmark-qip.h"' \
@@ -438,7 +438,7 @@ Generate WABT C once:
 
 ```sh
 wasm2c -n qipbench \
-  components/text/markdown/commonmark.0.31.2.wasm \
+  text/markdown/commonmark.0.31.2.wasm \
   -o /tmp/commonmark-wasm2c.c
 ```
 

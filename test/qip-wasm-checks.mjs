@@ -13,36 +13,37 @@ const execFileP = promisify(execFile);
 
 const qip = fileURLToPath(new URL("../qip", import.meta.url));
 const strictProfile = fileURLToPath(
-  new URL("../components/application/wasm/wasm-strict-profile.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-strict-profile.wasm", import.meta.url),
 );
 const readInputContentType = fileURLToPath(
-  new URL("../components/application/wasm/wasm-read-input-content-type.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-read-input-content-type.wasm", import.meta.url),
 );
-const componentsDir = fileURLToPath(new URL("../components", import.meta.url));
+const componentDirs = ["components", "application", "bytes", "font", "image", "multipart", "text"]
+  .map((directory) => fileURLToPath(new URL(`../${directory}`, import.meta.url)));
 const boundedLoops = fileURLToPath(
-  new URL("../components/application/wasm/wasm-bounded-loops.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-bounded-loops.wasm", import.meta.url),
 );
 const boundedOutput = fileURLToPath(
-  new URL("../components/application/wasm/wasm-bounded-output.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-bounded-output.wasm", import.meta.url),
 );
 const wasmCounts = fileURLToPath(
-  new URL("../components/application/wasm/wasm-counts.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-counts.wasm", import.meta.url),
 );
 const wasmRenderCyclomaticComplexity = fileURLToPath(
-  new URL("../components/application/wasm/render-cyclomatic-complexity.wasm", import.meta.url),
+  new URL("../application/wasm/render-cyclomatic-complexity.wasm", import.meta.url),
 );
 const nontrappingDivides = fileURLToPath(
-  new URL("../components/application/wasm/wasm-nontrapping-divides.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-nontrapping-divides.wasm", import.meta.url),
 );
 const core10Validator = fileURLToPath(
-  new URL("../components/application/wasm/wasm-validate-core-1.0.wasm", import.meta.url),
+  new URL("../application/wasm/wasm-validate-core-1.0.wasm", import.meta.url),
 );
-const luhn = fileURLToPath(new URL("../components/text/luhn.wasm", import.meta.url));
-const e164 = fileURLToPath(new URL("../components/text/e164.wasm", import.meta.url));
-const infiniteLoop = fileURLToPath(new URL("../components/text/infinite-loop.wasm", import.meta.url));
-const helloNaive = fileURLToPath(new URL("../components/text/hello-naive.wasm", import.meta.url));
+const luhn = fileURLToPath(new URL("../text/luhn.wasm", import.meta.url));
+const e164 = fileURLToPath(new URL("../text/e164.wasm", import.meta.url));
+const infiniteLoop = fileURLToPath(new URL("../text/infinite-loop.wasm", import.meta.url));
+const helloNaive = fileURLToPath(new URL("../text/hello-naive.wasm", import.meta.url));
 const bmpColorPalette = fileURLToPath(
-  new URL("../components/image/bmp/bmp-color-palette.wasm", import.meta.url),
+  new URL("../image/bmp/bmp-color-palette.wasm", import.meta.url),
 );
 const indirectFixture = fileURLToPath(
   new URL("fixtures/qip-component-to-zig-indirect.wasm", import.meta.url),
@@ -488,6 +489,10 @@ async function componentWasmFiles(directory) {
   return files;
 }
 
+async function allComponentWasmFiles() {
+  return (await Promise.all(componentDirs.map(componentWasmFiles))).flat();
+}
+
 test("strict profile accepts content types from the initial memory image", async (t) => {
   await ensurePrerequisites(t);
   const moduleBytes = staticContentTypeModule();
@@ -608,7 +613,7 @@ test("all component content types are statically readable", async (t) => {
   const failures = [];
   let checked = 0;
 
-  for (const path of await componentWasmFiles(componentsDir)) {
+  for (const path of await allComponentWasmFiles()) {
     const moduleBytes = await readFile(path);
     const exports = WebAssembly.Module.exports(new WebAssembly.Module(moduleBytes));
     if (!exports.some(({ name }) => name.includes("content_type"))) continue;
@@ -635,7 +640,7 @@ test("all component QIP value exports are functions", async (t) => {
   ]);
   const failures = [];
   let checked = 0;
-  for (const path of await componentWasmFiles(componentsDir)) {
+  for (const path of await allComponentWasmFiles()) {
     const exports = WebAssembly.Module.exports(new WebAssembly.Module(await readFile(path)));
     for (const valueExport of exports.filter(({ name }) => qipValueNames.has(name))) {
       checked += 1;

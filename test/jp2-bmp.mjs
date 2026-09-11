@@ -7,7 +7,7 @@ import test from "node:test";
 
 const componentPath = join(
   process.cwd(),
-  "components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm",
+  "image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm",
 );
 const fixturePath = join(process.cwd(), "fixtures/25mp-lossless.jp2");
 

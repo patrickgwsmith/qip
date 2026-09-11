@@ -8,10 +8,10 @@ import test from "node:test";
 import { main } from "../npm/qipx/cli.mjs";
 
 const repository = join(dirname(fileURLToPath(import.meta.url)), "..");
-const trimWasm = await readFile(join(repository, "components/text/trim.wasm"));
-const identityWasm = await readFile(join(repository, "components/bytes/identity.wasm"));
+const trimWasm = await readFile(join(repository, "text/trim.wasm"));
+const identityWasm = await readFile(join(repository, "bytes/identity.wasm"));
 const debuggerWasm = await readFile(join(repository, "components/interactive/qipdb.wasm"));
-const validUTF8Wasm = await readFile(join(repository, "components/text/utf8-must-be-valid.wasm"));
+const validUTF8Wasm = await readFile(join(repository, "text/utf8-must-be-valid.wasm"));
 const rejectInvalidUTF8Wasm = await readFile(join(repository, "compliance/reject-invalid-utf8.wasm"));
 
 async function inTemporaryDirectory(run) {
@@ -252,7 +252,7 @@ test("qipx follows same-origin HTTPS redirects", async () => {
       if (requests.length === 1) {
         return new Response(null, {
           status: 302,
-          headers: { location: "/components/text/trim.wasm" },
+          headers: { location: "/text/trim.wasm" },
         });
       }
       return new Response(trimWasm, { status: 200 });
@@ -268,7 +268,7 @@ test("qipx follows same-origin HTTPS redirects", async () => {
 
     assert.deepEqual(requests, [
       "https://qip.dev/text/trim.wasm",
-      "https://qip.dev/components/text/trim.wasm",
+      "https://qip.dev/text/trim.wasm",
     ]);
     assert.equal(await readFile("output.txt", "utf8"), "hello");
     assert.deepEqual(await readFile("text/trim.wasm"), trimWasm);

@@ -64,9 +64,9 @@ test("duel: JavaScript toUpperCase vs the UCD 17 corpus and properties", async (
   );
 });
 
-test("duel: components/text/unicode-17-uppercase.wasm is fully compliant", async () => {
+test("duel: text/unicode-17-uppercase.wasm is fully compliant", async () => {
   const implBytes = await readFile(
-    new URL("../components/text/unicode-17-uppercase.wasm", import.meta.url),
+    new URL("../text/unicode-17-uppercase.wasm", import.meta.url),
   );
   const { instance } = await WebAssembly.instantiate(implBytes);
   const impl = instance.exports;
@@ -86,7 +86,7 @@ test("duel: components/text/unicode-17-uppercase.wasm is fully compliant", async
 
 test("malformed UTF-8 violates the component input precondition", async () => {
   const implBytes = await readFile(
-    new URL("../components/text/unicode-17-uppercase.wasm", import.meta.url),
+    new URL("../text/unicode-17-uppercase.wasm", import.meta.url),
   );
 
   for (const input of [Buffer.from([0xff]), Buffer.from([0xc3]), Buffer.from([0x80])]) {

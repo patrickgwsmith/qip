@@ -339,13 +339,13 @@ func TestRunRouteWARCViewSourceAddsViewSourceRecords(t *testing.T) {
 		t.Fatalf("write hidden file: %v", err)
 	}
 	componentsRoot := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(componentsRoot, "utf8"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(componentsRoot, "text"), 0o755); err != nil {
 		t.Fatalf("mkdir components: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(componentsRoot, "utf8", "trim.zig"), []byte("const std = @import(\"std\");"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(componentsRoot, "text", "trim.zig"), []byte("const std = @import(\"std\");"), 0o644); err != nil {
 		t.Fatalf("write component source zig: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(componentsRoot, "utf8", "styles.css"), []byte(".x{color:red}"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(componentsRoot, "text", "styles.css"), []byte(".x{color:red}"), 0o644); err != nil {
 		t.Fatalf("write component source css: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(componentsRoot, ".DS_Store"), []byte("noise"), 0o644); err != nil {

@@ -11,7 +11,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 test("input rejection keeps the instance reusable", async () => {
   const host = new ContentComponentHost(
-    await readFile("components/text/utf8-must-be-valid.wasm"),
+    await readFile("text/utf8-must-be-valid.wasm"),
     { label: "UTF-8 validator" },
   );
 
@@ -36,7 +36,7 @@ test("input rejection keeps the instance reusable", async () => {
 
 test("a render trap discards the instance instead of attempting recovery", async () => {
   const host = new ContentComponentHost(
-    await readFile("components/text/css/css-expression-to-value.wasm"),
+    await readFile("text/css/css-expression-to-value.wasm"),
     { label: "CSS expression evaluator" },
   );
 
@@ -52,7 +52,7 @@ test("a render trap discards the instance instead of attempting recovery", async
 
 test("Base64 rejects malformed and non-canonical input and recovers", async () => {
   const host = new ContentComponentHost(
-    await readFile("components/text/base64-decode.wasm"),
+    await readFile("text/base64-decode.wasm"),
     { label: "Base64 decoder" },
   );
   const instance = host.instantiate();
@@ -92,7 +92,7 @@ test("Base64 rejects malformed and non-canonical input and recovers", async () =
 
 test("zlib distinguishes accepted empty output from rejection", async () => {
   const host = new ContentComponentHost(
-    await readFile("components/bytes/zlib-decompress.wasm"),
+    await readFile("bytes/zlib-decompress.wasm"),
     { label: "zlib decompressor" },
   );
   const instance = host.instantiate();
@@ -112,7 +112,7 @@ test("zlib distinguishes accepted empty output from rejection", async () => {
 });
 
 test("Core Wasm validation rejects and recovers without copying accepted input", async () => {
-  const wasmBytes = await readFile("components/application/wasm/wasm-validate-core-1.0.wasm");
+  const wasmBytes = await readFile("application/wasm/wasm-validate-core-1.0.wasm");
   const host = new ContentComponentHost(wasmBytes, { label: "Core Wasm validator" });
 
   const rejected = host.run(new Uint8Array([0x00, 0x61, 0x73, 0x6d]));
@@ -126,7 +126,7 @@ test("Core Wasm validation rejects and recovers without copying accepted input",
 
 test("Core 2.0 validation accepts Core 2.0 and rejects later proposals", async () => {
   const validatorBytes = await readFile(
-    "components/application/wasm/wasm-validate-core-2.0.wasm",
+    "application/wasm/wasm-validate-core-2.0.wasm",
   );
   const host = new ContentComponentHost(validatorBytes, {
     label: "Core 2.0 Wasm validator",

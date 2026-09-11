@@ -5,15 +5,15 @@ import test from "node:test";
 
 const encoder = new TextEncoder();
 const rasterizerPath = new URL(
-  "../components/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm",
+  "../image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm",
   import.meta.url,
 );
 const boundedOutputPath = new URL(
-  "../components/application/wasm/wasm-bounded-output.wasm",
+  "../application/wasm/wasm-bounded-output.wasm",
   import.meta.url,
 );
 const rgba8RasterizerPath = new URL(
-  "../components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm",
+  "../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm",
   import.meta.url,
 );
 const tigerPath = new URL("fixtures/svg/ghostscript-tiger.svg", import.meta.url);

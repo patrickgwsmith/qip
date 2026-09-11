@@ -212,7 +212,7 @@ Once an artifact has been admitted as a known-valid component, downstream
 wrappers can use the simpler call flow above.
 
 Components can make the successful output-size guarantee statically
-certifiable with `components/application/wasm/wasm-bounded-output.wasm`. The
+certifiable with `application/wasm/wasm-bounded-output.wasm`. The
 checker recognizes a small compiled-Wasm proof epilogue that traps when the
 result exceeds the exact static output capacity. See [Bounded Output
 Proofs](/docs/hard-limits#bounded-output-proofs) for the accepted shape and its
@@ -337,7 +337,7 @@ input or output content-type metadata violates the static form:
 
 ```bash
 qip run -i component.wasm -- \
-  components/application/wasm/wasm-read-input-content-type.wasm
+  application/wasm/wasm-read-input-content-type.wasm
 ```
 
 Do not export catch-all MIME types for data whose generic shape is already

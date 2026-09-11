@@ -44,8 +44,8 @@ function initialKTX2() {
 test("image resize worker components enforce their explicit directions", () => {
   const input = initialKTX2();
   assert.deepEqual({ ...readKTX2Size(input) }, { width: 512, height: 342 });
-  const down = module("components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm");
-  const up = module("components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm");
+  const down = module("image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm");
+  const up = module("image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm");
 
   const reduction = run(down, input, { width: 128, height: 86 });
   assert.equal(reduction.status, "accepted");
@@ -63,7 +63,7 @@ test("image resize worker prefers SIMD and retains scalar fallbacks", () => {
     assert.equal(config.paths.length, 2);
     assert.match(config.paths[0], /-simd\.wasm$/);
     assert.doesNotMatch(config.paths[1], /-simd\.wasm$/);
-    for (const path of config.paths) assert.equal(existsSync(`components${path}`), true, path);
+    for (const path of config.paths) assert.equal(existsSync(`.${path}`), true, path);
   }
 });
 
@@ -94,7 +94,7 @@ test("image resize worker declares the four output choices", () => {
     "webp-lossy",
   ]);
   for (const config of Object.values(ENCODERS)) {
-    assert.equal(existsSync(`components${config.path}`), true, config.path);
+    assert.equal(existsSync(`.${config.path}`), true, config.path);
   }
   assert.equal(ENCODERS.jpeg.lossy, true);
   assert.equal(ENCODERS["webp-lossy"].lossy, true);
@@ -103,10 +103,10 @@ test("image resize worker declares the four output choices", () => {
 });
 
 test("image resize worker output enters the selected encoder", () => {
-  const down = module("components/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm");
+  const down = module("image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm");
   const resized = run(down, initialKTX2(), { width: 64, height: 43 });
   const config = ENCODERS.png;
-  const encoded = run(module(`components${config.path}`), resized.output);
+  const encoded = run(module(`.${config.path}`), resized.output);
   assert.equal(encoded.status, "accepted");
   assert.deepEqual(
     Array.from(encoded.output.subarray(0, 8)),

@@ -138,7 +138,7 @@ test("Node router reports Content component rejection", async () => {
   await mkdir(recipeRoot, { recursive: true });
   await writeFile(join(contentRoot, "index.txt"), "49927398717");
   await copyFile(
-    join(root, "components", "utf8", "luhn.wasm"),
+    join(root, "text", "luhn.wasm"),
     join(recipeRoot, "10-luhn.wasm"),
   );
   const router = await createQIPRouter({ contentRoot });

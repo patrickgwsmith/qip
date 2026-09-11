@@ -15,11 +15,11 @@ const fixture = join(
 );
 const csvComponent = join(
   root,
-  "components/font/ttf/ttf-to-svg-paths-csv.wasm",
+  "font/ttf/ttf-to-svg-paths-csv.wasm",
 );
 const defsComponent = join(
   root,
-  "components/font/ttf/ttf-to-svg-path-defs.wasm",
+  "font/ttf/ttf-to-svg-path-defs.wasm",
 );
 
 async function convert(component, first, last) {

@@ -4,8 +4,8 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const components = [
-  "components/text/text-to-og-image-font8x8.wasm",
-  "components/text/text-to-og-image-dejavu-sans-mono.wasm",
+  "text/text-to-og-image-font8x8.wasm",
+  "text/text-to-og-image-dejavu-sans-mono.wasm",
 ];
 
 function hasPixel(bytes, b, g, r, a) {

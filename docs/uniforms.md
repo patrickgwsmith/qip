@@ -85,14 +85,14 @@ Examples from this repository:
 
 ```bash
 # i32 uniform
-qip run components/text/text-to-bmp.wasm -u cols=120
+qip run text/text-to-bmp.wasm -u cols=120
 
 # f32 uniforms
 qip image -i in.jpg -o out.png \
   components/rgba/color-halftone.wasm -u max_radius=2.0 -u angle_c=0.26
 
 # 0xRRGGBBAA passed as the raw bits of an i32
-qip run components/image/svg+xml/svg-recolor-current-color.wasm \
+qip run image/svg+xml/svg-recolor-current-color.wasm \
   -u color_rgba=0xff5511ff
 ```
 

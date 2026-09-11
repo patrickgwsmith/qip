@@ -10,7 +10,7 @@ the fixture as an executable spec.
 
 The corpus captures inputs where the component currently DISAGREES with cmark
 0.31.2, so the checker is expected to fail until the delimiter-stack rewrite
-(see the TODO block in components/text/markdown/lib/commonmark.zig) makes it
+(see the TODO block in text/markdown/lib/commonmark.zig) makes it
 pass — it is that rewrite's acceptance gate, and joins test-comply once green.
 
 Cases are dropped (with a note) if they cannot be represented in the fixture
@@ -34,7 +34,7 @@ import pathlib
 import subprocess
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WASM = ROOT / "components/text/markdown/commonmark.0.31.2.wasm"
+WASM = ROOT / "text/markdown/commonmark.0.31.2.wasm"
 FIXTURE = ROOT / "compliance/commonmark-differential-corpus.txt"
 FENCE = "`" * 32
 

@@ -2,11 +2,11 @@
 # Pathological-input time budgets for the markdown components.
 #
 # Each case renders a generated adversarial input through the GFM component
-# (the superset build of components/text/markdown/lib/commonmark.zig) under a
+# (the superset build of text/markdown/lib/commonmark.zig) under a
 # hard `qip run --timeout-ms` budget. A trap or timeout fails the suite. This
 # is the regression fence for inline/block parser performance work — in
 # particular the planned delimiter-stack rewrite (see the TODO block in
-# components/text/markdown/lib/commonmark.zig).
+# text/markdown/lib/commonmark.zig).
 #
 # Budgets are calibrated to measured 2026-08-17 behavior on an M-series
 # laptop, roughly 3x the observed time, and fall into two groups:
@@ -24,7 +24,7 @@
 set -eu
 
 QIP_BIN="${QIP_BIN:-./qip}"
-WASM="${WASM:-components/text/markdown/gfm-commonmark.0.31.2.wasm}"
+WASM="${WASM:-text/markdown/gfm-commonmark.0.31.2.wasm}"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "$WORK_DIR"' EXIT
 

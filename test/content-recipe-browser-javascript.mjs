@@ -13,7 +13,7 @@ const header = "path,input_encoding,input_mime,input_capacity_bytes,output_encod
 async function generate(csv) {
   const module = await WebAssembly.compile(await readFile(join(
     root,
-    "components/text/csv/content-recipe-to-browser-javascript.wasm",
+    "text/csv/content-recipe-to-browser-javascript.wasm",
   )));
   const exports = new WebAssembly.Instance(module, {}).exports;
   const input = encoder.encode(csv);
@@ -33,7 +33,7 @@ test("generated browser JavaScript runs a multi-component recipe", async () => {
   globalThis.fetch = async (source) => {
     const path = String(source);
     assert.ok(path.startsWith("/"));
-    return new Response(await readFile(join(root, "components", path.slice(1))), {
+    return new Response(await readFile(join(root, path.slice(1))), {
       headers: { "Content-Type": "application/wasm" },
     });
   };

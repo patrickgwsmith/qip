@@ -9,19 +9,19 @@ The default QIP component contract does not include error strings, diagnostic fo
 Build the trace component and the CLI:
 
 ```sh
-make -j qip components/application/wasm/wasm-trace-instrument.wasm
+make -j qip application/wasm/wasm-trace-instrument.wasm
 ```
 
 Then run a component with a debug retry instrumenter:
 
 ```sh
-qip run --trace-with components/application/wasm/wasm-trace-instrument.wasm ./component.wasm
+qip run --trace-with application/wasm/wasm-trace-instrument.wasm ./component.wasm
 ```
 
 If the original component traps, QIP retries an instrumented copy and appends a short memory trace to the failure:
 
 ```text
-trace retry with components/application/wasm/wasm-trace-instrument.wasm:
+trace retry with application/wasm/wasm-trace-instrument.wasm:
 instrumented retry trapped: wasm error: out of bounds memory access
   before_load func=0 op=0 mem=0 addr=0x00010000 width=4 bytes=<out-of-bounds>
 ```
@@ -41,7 +41,7 @@ This also keeps tracing portable. The transformer is itself a QIP Content compon
 
 - Input: `application/wasm`
 - Output: `application/wasm`
-- Path: `components/application/wasm/wasm-trace-instrument.wasm`
+- Path: `application/wasm/wasm-trace-instrument.wasm`
 
 Because the transformer is a component, any QIP host that can run Content components can produce the same instrumented module. The CLI does not need to grow a full Wasm rewriting engine, and browser or SDK hosts can reuse the same diagnostic component.
 
@@ -99,7 +99,7 @@ make -j test-deno
 To run just the trace tests after building the CLI and trace component:
 
 ```sh
-make -j qip components/application/wasm/wasm-trace-instrument.wasm
+make -j qip application/wasm/wasm-trace-instrument.wasm
 node --test test/trace-with.mjs
 ```
 

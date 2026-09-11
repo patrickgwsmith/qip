@@ -185,7 +185,7 @@ MiB, and output is limited to 32 MiB.
 
 ```sh
 ./qip run -i document.pdf -o document.txt -- \
-  components/application/pdf/pdf-extract-text.wasm
+  application/pdf/pdf-extract-text.wasm
 ```
 
 ## Download the component

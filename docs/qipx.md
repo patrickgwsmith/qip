@@ -90,7 +90,7 @@ Use repeatable `-F` or `--form` options instead of `-i` to construct one
 qipx run \
   -F mode=step \
   -F component=@examples/counter.wasm \
-  components/multipart/form-data/form-data-to-tar.wasm \
+  multipart/form-data/form-data-to-tar.wasm \
   > debugger-input.tar
 ```
 
@@ -111,4 +111,4 @@ multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000
 Field names and emitted filenames must be printable ASCII without quotes or
 backslashes. Both CLIs reject a part body that contains the fixed boundary as
 a delimiter line. A `run` command still requires at least one component. Use
-`components/bytes/identity.wasm` when you need to inspect the complete body.
+`bytes/identity.wasm` when you need to inspect the complete body.

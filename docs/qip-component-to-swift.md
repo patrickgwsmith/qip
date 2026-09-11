@@ -19,9 +19,9 @@ Generate the component as C:
 
 ```sh
 ./qip run \
-  -i components/text/trim.wasm \
+  -i text/trim.wasm \
   -o trim.h \
-  components/application/wasm/qip-component-to-c.wasm
+  application/wasm/qip-component-to-c.wasm
 ```
 
 Define `QIP_WASM_IMPLEMENTATION` in one C translation unit. Expose that header
@@ -31,11 +31,11 @@ render, and convert C status values to a Swift error type. Do not reproduce the
 generated component implementation in Swift.
 
 ```sh
-make -j components/application/wasm/qip-component-to-swift.wasm
+make -j application/wasm/qip-component-to-swift.wasm
 ./qip run \
-  -i components/text/trim.wasm \
+  -i text/trim.wasm \
   -o trim.swift \
-  components/application/wasm/qip-component-to-swift.wasm
+  application/wasm/qip-component-to-swift.wasm
 ```
 
 Validate untrusted input with `wasm-validate` before translation. The backend

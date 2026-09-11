@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
 const component = join(
   process.cwd(),
-  "components/application/x-tar/tar-to-zip.wasm",
+  "application/x-tar/tar-to-zip.wasm",
 );
 
 function writeOctal(header, start, length, value) {

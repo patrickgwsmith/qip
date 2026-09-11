@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const wasmBytes = await readFile(
-  new URL("../components/application/warc/warc-text-uri-list-to-redirect.wasm", import.meta.url),
+  new URL("../application/warc/warc-text-uri-list-to-redirect.wasm", import.meta.url),
 );
 
 function response(target, contentType, body, extraHeaders = "") {

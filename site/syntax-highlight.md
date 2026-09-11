@@ -313,12 +313,12 @@ The highlighters transform whole HTML documents: each rewrites
 everything else untouched, so they chain safely.
 
 ```bash
-qip run components/text/html/html-code-syntax-highlight-zig.wasm \
-  components/text/html/html-code-syntax-highlight-go.wasm \
-  components/text/html/html-code-syntax-highlight-swift.wasm \
-  components/text/html/html-code-syntax-highlight-ruby.wasm \
-  components/text/html/html-code-syntax-highlight-css.wasm \
-  components/text/html/html-code-syntax-highlight-bash.wasm \
-  components/text/html/html-add-highlight-stylesheet-night-owl.wasm \
+qip run text/html/html-code-syntax-highlight-zig.wasm \
+  text/html/html-code-syntax-highlight-go.wasm \
+  text/html/html-code-syntax-highlight-swift.wasm \
+  text/html/html-code-syntax-highlight-ruby.wasm \
+  text/html/html-code-syntax-highlight-css.wasm \
+  text/html/html-code-syntax-highlight-bash.wasm \
+  text/html/html-add-highlight-stylesheet-night-owl.wasm \
   < page.html > highlighted.html
 ```

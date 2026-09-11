@@ -6,7 +6,7 @@ import test from "node:test";
 import { runComplianceComponent } from "./lib/compliance-harness.mjs";
 
 const moduleUrl = new URL(
-  "../components/text/vnd.mermaid/mermaid-to-unicode-html.wasm",
+  "../text/vnd.mermaid/mermaid-to-unicode-html.wasm",
   import.meta.url,
 );
 const complianceUrl = new URL(

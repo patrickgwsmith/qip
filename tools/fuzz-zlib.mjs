@@ -26,7 +26,7 @@ import zlib from "node:zlib";
 const iterations = Number(process.argv[2] ?? 2000);
 const seed = Number(process.argv[3] ?? Math.floor(Math.random() * 0xffffffff));
 
-const componentsDir = fileURLToPath(new URL("../components/bytes/", import.meta.url));
+const componentsDir = fileURLToPath(new URL("../bytes/", import.meta.url));
 const failureDir = fileURLToPath(new URL("./fuzz-failures/", import.meta.url));
 
 // mulberry32: small deterministic PRNG so every run is reproducible.

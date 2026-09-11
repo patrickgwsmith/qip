@@ -100,7 +100,7 @@ fileInput.addEventListener("change", async () => {
 ## CLI equivalent
 
 ```bash
-qip run components/image/bmp/bmp-color-palette.wasm < image.bmp
+qip run image/bmp/bmp-color-palette.wasm < image.bmp
 ```
 
 The component treats the BMP channel values as sRGB and emits

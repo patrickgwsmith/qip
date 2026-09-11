@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const modulePath = fileURLToPath(new URL(
-  "../components/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm",
+  "../image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm",
   import.meta.url,
 ));
 

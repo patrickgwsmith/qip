@@ -3,17 +3,17 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const encoder = new TextEncoder();
-const boundedOutputPath = new URL("../components/application/wasm/wasm-bounded-output.wasm", import.meta.url);
+const boundedOutputPath = new URL("../application/wasm/wasm-bounded-output.wasm", import.meta.url);
 const modules = [
   {
     name: "BMP",
-    path: new URL("../components/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url),
+    path: new URL("../image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url),
     pixelOffset: 54,
     red: [0, 0, 255, 255],
   },
   {
     name: "KTX2",
-    path: new URL("../components/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url),
+    path: new URL("../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url),
     pixelOffset: 224,
     red: [255, 0, 0, 255],
   },

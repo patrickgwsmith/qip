@@ -6,7 +6,7 @@ import { decodeRenderResult } from "./lib/content-component-host.mjs";
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const modulePath = new URL(
-  "../components/text/html/html-to-accessibility-tree.wasm",
+  "../text/html/html-to-accessibility-tree.wasm",
   import.meta.url,
 );
 

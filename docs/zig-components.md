@@ -305,7 +305,7 @@ capacity.
 A fixed output schema can remove `OutputOverflow` too. Compute the capacity at
 comptime from the complete field-name list, separators, and the maximum encoded
 width of each value. Use that same list to render the fields so the capacity
-and output cannot drift apart. `components/application/wasm/wasm-counts.zig`
+and output cannot drift apart. `application/wasm/wasm-counts.zig`
 uses this pattern for its CSV header, metric names, and 20-digit `u64` values.
 
 For floating-point text, `std.fmt.float.render` accepts a buffer directly and
@@ -315,7 +315,7 @@ calls are acceptable; this guidance is for components intended to satisfy the
 no-indirect-call profile.
 
 The repository already uses this direct decimal pattern in
-`components/application/zip/zip-to-tar.zig`.
+`application/zip/zip-to-tar.zig`.
 After changing formatting code, inspect the binary rather than assuming that a
 source-level direct call remained direct:
 
@@ -453,7 +453,7 @@ export fn uniform_set_color_rgba(value: u32) u32 {
 Callers pass uniforms next to the module path:
 
 ```bash
-qip run components/image/svg+xml/svg-recolor-current-color.wasm -u color_rgba=0xff5511ff
+qip run image/svg+xml/svg-recolor-current-color.wasm -u color_rgba=0xff5511ff
 ```
 
 Use packed integer uniforms for compact settings like colors, flags, and modes. Use `f32` uniforms for image math where fractional values are natural.
@@ -505,10 +505,10 @@ For checked-in modules, prefer the project rule over a one-off command. The Make
 ```make
 ZIG_WASM_MAX_MEMORY ?= 67108864
 
-components/%.wasm: components/%.zig
+%.wasm: %.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-components/bytes/example.wasm: ZIG_WASM_MAX_MEMORY = 1048576
+bytes/example.wasm: ZIG_WASM_MAX_MEMORY = 1048576
 ```
 
 Use the generic default for ordinary modules. Add target-specific overrides for modules with large static buffers, frame buffers, embedded tables, or intentionally tighter safety budgets.
@@ -516,7 +516,7 @@ Use the generic default for ordinary modules. Add target-specific overrides for 
 For C components compiled through `zig cc`, pass the linker spelling instead:
 
 ```make
-components/text/example-c.wasm: components/text/example-c.c
+text/example-c.wasm: text/example-c.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib \
 		-Wl,--no-entry -Wl,--max-memory=1048576 \
 		-Wl,--export=render -Wl,--export-memory \
@@ -532,7 +532,7 @@ Zig uses `--max-memory=...`; `zig cc` passes `-Wl,--max-memory=...` to the Wasm 
 Each component should have at least one direct smoke test through `qip`.
 
 ```bash
-printf 'hello' | qip run components/text/your-module.wasm
+printf 'hello' | qip run text/your-module.wasm
 ```
 
 Use inline Zig `test` blocks for checks tied to the implementation. They are
@@ -547,7 +547,7 @@ the best place for:
 Run them directly while iterating:
 
 ```bash
-zig test components/text/your-module.zig
+zig test text/your-module.zig
 ```
 
 Keep portable behavior in a Compliance oracle when alternative
@@ -559,15 +559,15 @@ capacity for every implementation.
 For binary modules, round-trip through files or compare bytes:
 
 ```bash
-qip run -i input.bin -- components/bytes/your-module.wasm > /tmp/out.bin
+qip run -i input.bin -- bytes/your-module.wasm > /tmp/out.bin
 cmp expected.bin /tmp/out.bin
 ```
 
 For validators, test both success and failure:
 
 ```bash
-printf 'valid' | qip run components/text/your-validator.wasm
-printf '\xff' | qip run components/text/your-validator.wasm
+printf 'valid' | qip run text/your-validator.wasm
+printf '\xff' | qip run text/your-validator.wasm
 ```
 
 For a fallible validator, test recovery on a reused instance: reject a range of
@@ -579,14 +579,14 @@ memory or global changes.
 Review the binary shape before trusting the source shape:
 
 ```bash
-wasm-objdump -x components/bytes/your-module.wasm
-qip run -i components/application/wasm/your-module.wasm -- \
-  components/application/wasm/wasm-validate-core-2.0.wasm \
-  components/application/wasm/wasm-strict-profile.wasm \
-  components/application/wasm/wasm-bounded-loops.wasm
+wasm-objdump -x bytes/your-module.wasm
+qip run -i application/wasm/your-module.wasm -- \
+  application/wasm/wasm-validate-core-2.0.wasm \
+  application/wasm/wasm-strict-profile.wasm \
+  application/wasm/wasm-bounded-loops.wasm
 ```
 
-`qip score` is deprecated. Use `components/application/wasm/wasm-validate-core-2.0.wasm` for complete WebAssembly Core 2.0 validation. The Core 1.0 validator remains available for pipelines that must reject later features. Use `components/application/wasm/wasm-strict-profile.wasm` for fixed memory, no imports, no banned instructions, no recursion, and static content-type metadata. Add `components/application/wasm/wasm-bounded-loops.wasm` to prove fixed loop bounds. Use `components/application/wasm/wasm-bounded-output.wasm` when `render` carries the recognized proof that its successful result does not exceed the static output capacity. Use `components/application/wasm/wasm-counts.wasm` for factual CSV metrics.
+`qip score` is deprecated. Use `application/wasm/wasm-validate-core-2.0.wasm` for complete WebAssembly Core 2.0 validation. The Core 1.0 validator remains available for pipelines that must reject later features. Use `application/wasm/wasm-strict-profile.wasm` for fixed memory, no imports, no banned instructions, no recursion, and static content-type metadata. Add `application/wasm/wasm-bounded-loops.wasm` to prove fixed loop bounds. Use `application/wasm/wasm-bounded-output.wasm` when `render` carries the recognized proof that its successful result does not exceed the static output capacity. Use `application/wasm/wasm-counts.wasm` for factual CSV metrics.
 
 The QIP ABI can be expressed in WebAssembly Core 1.0, while the standard
 component build targets Core 2.0 features such as bulk memory. Current Chrome,

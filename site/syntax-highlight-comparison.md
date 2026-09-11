@@ -417,7 +417,7 @@ Run the contract with:
 
 ```sh
 qip comply \
-  components/text/javascript/js-syntax-highlight-html.wasm \
+  text/javascript/js-syntax-highlight-html.wasm \
   --with compliance/syntax-highlight-javascript-semantic.comply.wasm \
   --straight-line-oracles
 ```

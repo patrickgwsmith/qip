@@ -72,7 +72,7 @@ Each profile contains one uncompressed image. The profiles do not accept
 compressed textures, mipmaps, arrays, or cubemaps. Keep linear float data
 between operations that need it. Convert the final image when transfer size is
 the main constraint. See the
-[KTX2 component documentation](https://github.com/royalicing/qip/blob/main/components/image/ktx2/README.md)
+[KTX2 component documentation](https://github.com/royalicing/qip/blob/main/image/ktx2/README.md)
 for the complete profiles.
 
 ### Image container names and pixel format names

@@ -45,7 +45,7 @@ For example, the component debugger needs a Wasm component and its input:
 
 ```sh
 qipx tui \
-  -F component=@components/text/wc.wasm \
+  -F component=@text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
   components/interactive/qipdb.wasm
 ```
@@ -54,7 +54,7 @@ Component hosts can precede the command and provide missing components:
 
 ```sh
 qipx qip.dev tui \
-  -F component=@components/text/wc.wasm \
+  -F component=@text/wc.wasm \
   interactive/qipdb.wasm
 ```
 
@@ -63,9 +63,9 @@ Content components. They transform every rendered frame from left to right:
 
 ```sh
 qipx tui \
-  -F component=@components/text/wc.wasm \
+  -F component=@text/wc.wasm \
   components/interactive/qipdb.wasm \
-  components/text/strip-ansi-sgr.wasm
+  text/strip-ansi-sgr.wasm
 ```
 
 The final stage must produce UTF-8. Tile and Timed stages are not valid after

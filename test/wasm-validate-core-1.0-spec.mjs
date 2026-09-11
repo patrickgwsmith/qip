@@ -6,7 +6,7 @@ await runCoreSpecSuite({
   minimumScriptCount: 73,
   specRoot: process.argv[2] ?? process.env.WASM_CORE_1_0_SPEC_DIR,
   validatorUrl: new URL(
-    "../components/application/wasm/wasm-validate-core-1.0.wasm",
+    "../application/wasm/wasm-validate-core-1.0.wasm",
     import.meta.url,
   ),
   // These flags also select the historical element-segment text grammar. In

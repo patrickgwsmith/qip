@@ -6,7 +6,7 @@ import test from "node:test";
 import { ContentRejection, newComponent, render, wasmMustComplyWithComponentContract } from "../npm/qipx/qipx.mjs";
 
 test("qipx accepts and rejects fallible Content renders", async () => {
-  const wasm = await readFile("components/text/utf8-must-be-valid.wasm");
+  const wasm = await readFile("text/utf8-must-be-valid.wasm");
   const { instance } = await WebAssembly.instantiate(wasm);
   const component = newComponent(instance, { label: "utf8 validator" });
 
@@ -29,7 +29,7 @@ test("qipx accepts and rejects fallible Content renders", async () => {
 });
 
 test("qipx runs the inputless OKLCH Content generator", async () => {
-  const wasm = await readFile("components/image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm");
+  const wasm = await readFile("image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm");
   wasmMustComplyWithComponentContract(wasm, { label: "OKLCH solid color" });
   const { instance } = await WebAssembly.instantiate(wasm);
   const component = newComponent(instance, { label: "OKLCH solid color" });
@@ -79,7 +79,7 @@ test("qipx Compliance supports must_reject", () => {
   const run = spawnSync(process.execPath, [
     "npm/qipx/cli.mjs",
     "comply",
-    "components/text/utf8-must-be-valid.wasm",
+    "text/utf8-must-be-valid.wasm",
     "--with",
     "compliance/reject-invalid-utf8.wasm",
   ], { encoding: "utf8" });

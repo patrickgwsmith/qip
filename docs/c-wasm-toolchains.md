@@ -222,8 +222,8 @@ work.
 
 ```sh
 mise install emsdk@2.0.34
-make -j components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
-make -j components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm
+make -j image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
+make -j image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm
 ```
 
 The Makefile locates the SDK through `mise`, prepares the LTO sysroot libraries,
@@ -236,17 +236,17 @@ Subsequent builds in the same checkout reuse it.
 Inspect the artifact and exercise its runtime policy:
 
 ```sh
-./qip comply components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
-wasm-objdump -x components/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
+./qip comply image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
+wasm-objdump -x image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm
 node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs test/qip-wasm-policy.mjs
 ```
 
 For the OpenJPEG decoder:
 
 ```sh
-make -j components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
-./qip comply components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
-wasm-objdump -x components/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
+make -j image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
+./qip comply image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
+wasm-objdump -x image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm
 node --test test/jp2-bmp.mjs
 ```
 
@@ -257,8 +257,8 @@ reporting; its output is a fixed memory slice rather than a `FILE` or an
 Emscripten filesystem stream.
 
 ```sh
-make -j components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm
-./qip comply components/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm
+make -j image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm
+./qip comply image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm
 node --test test/bmp-b8g8r8a8-srgb-jpeg-lossy.mjs test/qip-wasm-policy.mjs
 ```
 

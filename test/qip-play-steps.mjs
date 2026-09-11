@@ -127,7 +127,7 @@ test("post-step alternatives require identical exact content types", () => {
 
 test("a post step uses the first source whose render accepts the frame", () => {
   const primaryModule = instantiate("components/interactive/macintosh-1bit.wasm");
-  const effectModule = instantiate("components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
+  const effectModule = instantiate("image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
   const primarySource = node("source", { src: "/interactive/macintosh-1bit.wasm" });
   const rejectedSource = node("source", { src: "/image/reject.wasm" });
   const acceptedSource = node("source", { src: "/image/duotone.wasm" });
@@ -203,7 +203,7 @@ test("a post step uses the first source whose render accepts the frame", () => {
 
 test("finite post-processing runs after the Interactive render and reports each step", () => {
   const primaryModule = instantiate("components/interactive/macintosh-1bit.wasm");
-  const effectModule = instantiate("components/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
+  const effectModule = instantiate("image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
   const primarySource = node("source");
   const effectSource = node("source");
   const primary = {

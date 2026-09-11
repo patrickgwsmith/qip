@@ -57,8 +57,8 @@ pass/fail check.
 Use these flags on commands that execute components:
 
 ```bash
-qip run --timeout-ms 1000 --max-memory 67108864 components/text/trim.wasm
-qip bench -i input.txt --timeout-ms 1000 --max-memory 67108864 components/text/trim.wasm
+qip run --timeout-ms 1000 --max-memory 67108864 text/trim.wasm
+qip bench -i input.txt --timeout-ms 1000 --max-memory 67108864 text/trim.wasm
 qip image -i in.png -o out.png --timeout-ms 1000 --max-memory 8388608 components/rgba/invert.wasm
 ```
 
@@ -102,17 +102,17 @@ Run both strict-tier stages on a Wasm file:
 
 ```bash
 qip run -i component.wasm -- \
-  components/application/wasm/wasm-strict-profile.wasm \
-  components/application/wasm/wasm-bounded-loops.wasm
+  application/wasm/wasm-strict-profile.wasm \
+  application/wasm/wasm-bounded-loops.wasm
 ```
 
 For untrusted Wasm bytes, validate the core module first:
 
 ```bash
 qip run -i component.wasm -- \
-  components/application/wasm/wasm-validate-core-2.0.wasm \
-  components/application/wasm/wasm-strict-profile.wasm \
-  components/application/wasm/wasm-bounded-loops.wasm
+  application/wasm/wasm-validate-core-2.0.wasm \
+  application/wasm/wasm-strict-profile.wasm \
+  application/wasm/wasm-bounded-loops.wasm
 ```
 
 `wasm-validate-core-2.0.wasm` validates the complete Core 2.0 language. This
@@ -179,7 +179,7 @@ not larger than the static `output_utf8_cap()` or `output_bytes_cap()` value.
 
 ```bash
 qip run -i component.wasm -- \
-  components/application/wasm/wasm-bounded-output.wasm
+  application/wasm/wasm-bounded-output.wasm
 ```
 
 The checker accepts a constant result within the capacity. For a dynamic
