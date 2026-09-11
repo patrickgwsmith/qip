@@ -12,7 +12,7 @@ const wasm_counts = @import("wasm_counts");
 const MULTIPART_OVERHEAD_CAP: usize = 32 * 1024;
 const MAX_TARGET_INPUT_BYTES: usize = 8 * 1024 * 1024;
 const INPUT_CAP: usize = interpreter.MAX_MODULE_BYTES + MAX_TARGET_INPUT_BYTES + MULTIPART_OVERHEAD_CAP;
-const OUTPUT_CAP: usize = 64 * 1024;
+const OUTPUT_CAP: usize = 512 * 1024;
 const TYPE_PREFIX = "multipart/form-data;boundary=uuid-";
 const DEFAULT_UUID = "00000000-0000-0000-0000-000000000000";
 const OUTPUT_CONTENT_TYPE = "text/plain";
@@ -35,12 +35,11 @@ const REPLAY_INSTRUCTION_CAP: usize = MAX_INSTRUCTION_BUDGET;
 const MEMORY_VIEW_BYTES: usize = 128;
 const MEMORY_ACCESS_CONTEXT_ROWS: usize = 3;
 const INSTRUCTION_MARKER_WIDTH: usize = 3;
-const INSTRUCTION_WINDOW_SIZE: usize = 11;
-const INSTRUCTION_WINDOW_PREVIOUS: usize = 5;
+const DEFAULT_INSTRUCTION_WINDOW_LINES: usize = 11;
+const MAX_INSTRUCTION_WINDOW_LINES: usize = 2048;
 const MAX_INSTRUCTION_INDENT: usize = 4;
-const COLUMN_BUFFER_CAP: usize = 16 * 1024;
+const COLUMN_BUFFER_CAP: usize = 256 * 1024;
 const LEFT_COLUMN_WIDTH: usize = 44;
-const WRITER_LINE_CAP: usize = 256;
 
 const SGR_RESET = "\x1b[0m";
 const SGR_BOLD = "\x1b[1m";
@@ -798,8 +797,6 @@ export fn render(input_size: u32) packed struct(u64) {
 const Writer = struct {
     buffer: []u8,
     offset: usize = 0,
-    line_index: usize = 0,
-    visible_line_lengths: [WRITER_LINE_CAP]usize = [_]usize{0} ** WRITER_LINE_CAP,
 
     fn init(buffer: []u8) Writer {
         return .{ .buffer = buffer };
@@ -809,7 +806,6 @@ const Writer = struct {
         const amount = @min(value.len, self.buffer.len - self.offset);
         @memcpy(self.buffer[self.offset .. self.offset + amount], value[0..amount]);
         self.offset += amount;
-        self.countVisible(value[0..amount]);
     }
 
     fn raw(self: *Writer, value: []const u8) void {
@@ -827,21 +823,6 @@ const Writer = struct {
     fn print(self: *Writer, comptime format: []const u8, args: anytype) void {
         const rendered = std.fmt.bufPrint(self.buffer[self.offset..], format, args) catch return;
         self.offset += rendered.len;
-        self.countVisible(rendered);
-    }
-
-    fn countVisible(self: *Writer, value: []const u8) void {
-        for (value) |byte| {
-            if (byte == '\n') {
-                self.line_index += 1;
-            } else if ((byte & 0xc0) != 0x80 and self.line_index < self.visible_line_lengths.len) {
-                self.visible_line_lengths[self.line_index] += 1;
-            }
-        }
-    }
-
-    fn visibleLineLength(self: *const Writer, index: usize) usize {
-        return if (index < self.visible_line_lengths.len) self.visible_line_lengths[index] else 0;
     }
 };
 
@@ -1661,6 +1642,8 @@ fn renderStatusLight(out: *Writer) void {
 }
 
 fn renderExecutionColumns(out: *Writer) void {
+    const preceding_lines = std.mem.count(u8, out.buffer[0..out.offset], "\n");
+    const instruction_window_lines = instructionWindowLines(preceding_lines);
     var left = Writer.init(&left_column_buf);
     left.styled(SGR_BOLD, "INSTRUCTIONS");
     left.text("  ");
@@ -1686,7 +1669,7 @@ fn renderExecutionColumns(out: *Writer) void {
         left.raw(SGR_RESET);
         left.text("\n");
     }
-    renderInstructions(&left);
+    renderInstructions(&left, instruction_window_lines);
 
     var right = Writer.init(&right_column_buf);
     right.styled(SGR_BOLD, "STACKS/LOCALS");
@@ -1703,8 +1686,6 @@ fn renderExecutionColumns(out: *Writer) void {
 
     var left_offset: usize = 0;
     var right_offset: usize = 0;
-    var left_line_index: usize = 0;
-    var right_line_index: usize = 0;
     while (left_offset < left.offset or right_offset < right.offset) {
         const left_end = lineEnd(left.buffer[0..left.offset], left_offset);
         const right_end = lineEnd(right.buffer[0..right.offset], right_offset);
@@ -1712,7 +1693,7 @@ fn renderExecutionColumns(out: *Writer) void {
         const right_line = right.buffer[right_offset..right_end];
         out.text(left_line);
         if (right_line.len > 0) {
-            const left_visible = left.visibleLineLength(left_line_index);
+            const left_visible = visibleTextWidth(left_line);
             if (left_visible < LEFT_COLUMN_WIDTH) writeSpaces(out, LEFT_COLUMN_WIDTH - left_visible);
             out.text(" ");
             out.text(right_line);
@@ -1720,9 +1701,23 @@ fn renderExecutionColumns(out: *Writer) void {
         out.text("\n");
         left_offset = nextLineOffset(left.buffer[0..left.offset], left_end);
         right_offset = nextLineOffset(right.buffer[0..right.offset], right_end);
-        left_line_index += 1;
-        right_line_index += 1;
     }
+}
+
+fn visibleTextWidth(value: []const u8) usize {
+    var width: usize = 0;
+    var index: usize = 0;
+    while (index < value.len) {
+        if (value[index] == 0x1b and index + 1 < value.len and value[index + 1] == '[') {
+            index += 2;
+            while (index < value.len and value[index] != 'm') index += 1;
+            if (index < value.len) index += 1;
+            continue;
+        }
+        if ((value[index] & 0xc0) != 0x80) width += 1;
+        index += 1;
+    }
+    return width;
 }
 
 fn lineEnd(buffer: []const u8, start: usize) usize {
@@ -1744,7 +1739,7 @@ fn writeSpaces(out: *Writer, amount: usize) void {
     }
 }
 
-fn renderInstructions(out: *Writer) void {
+fn renderInstructions(out: *Writer, window_lines: usize) void {
     const current = machine.current_instruction;
     const host_input_visible = renderHostInput(out);
     if (current >= machine.instruction_count) {
@@ -1767,8 +1762,8 @@ fn renderInstructions(out: *Writer) void {
     while (function_first > 0 and machine.instructions[function_first - 1].function_index == current_function) function_first -= 1;
     var function_end = current_index + 1;
     while (function_end < machine.instruction_count and machine.instructions[function_end].function_index == current_function) function_end += 1;
-    var window = instructionWindow(current_index, function_first, function_end);
-    if (host_input_visible and window.end - window.first == INSTRUCTION_WINDOW_SIZE) window.end -= 1;
+    var window = instructionWindow(current_index, function_first, function_end, window_lines);
+    if (host_input_visible and window.end - window.first == window_lines) window.end -= 1;
     const indent_base = instructionWindowIndentBase(window);
     var current_call_target: ?u32 = null;
     var i: usize = window.first;
@@ -1817,11 +1812,17 @@ const InstructionWindow = struct {
     end: usize,
 };
 
-fn instructionWindow(current: usize, function_first: usize, function_end: usize) InstructionWindow {
-    const previous = @min(current - function_first, INSTRUCTION_WINDOW_PREVIOUS);
+fn instructionWindowLines(preceding_lines: usize) usize {
+    if (viewport_lines == std.math.maxInt(u32)) return DEFAULT_INSTRUCTION_WINDOW_LINES;
+    const available = @as(usize, viewport_lines) -| preceding_lines -| 1;
+    return std.math.clamp(available, DEFAULT_INSTRUCTION_WINDOW_LINES, MAX_INSTRUCTION_WINDOW_LINES);
+}
+
+fn instructionWindow(current: usize, function_first: usize, function_end: usize, window_lines: usize) InstructionWindow {
+    const previous = @min(current - function_first, window_lines / 2);
     var first = current - previous;
-    const end = @min(function_end, first + INSTRUCTION_WINDOW_SIZE);
-    const missing = INSTRUCTION_WINDOW_SIZE -| (end - first);
+    const end = @min(function_end, first + window_lines);
+    const missing = window_lines -| (end - first);
     first -= @min(missing, first - function_first);
     return .{ .first = first, .end = end };
 }
@@ -3248,12 +3249,31 @@ test "indents structured control bodies and aligns closing instructions" {
 }
 
 test "keeps the instruction window full at function boundaries" {
-    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(0, 0, 20));
-    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(1, 0, 20));
-    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(5, 0, 20));
-    try std.testing.expectEqual(InstructionWindow{ .first = 1, .end = 12 }, instructionWindow(6, 0, 20));
-    try std.testing.expectEqual(InstructionWindow{ .first = 9, .end = 20 }, instructionWindow(19, 0, 20));
-    try std.testing.expectEqual(InstructionWindow{ .first = 7, .end = 12 }, instructionWindow(7, 7, 12));
+    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(0, 0, 20, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(1, 0, 20, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 0, .end = 11 }, instructionWindow(5, 0, 20, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 1, .end = 12 }, instructionWindow(6, 0, 20, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 9, .end = 20 }, instructionWindow(19, 0, 20, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 7, .end = 12 }, instructionWindow(7, 7, 12, 11));
+    try std.testing.expectEqual(InstructionWindow{ .first = 151, .end = 650 }, instructionWindow(400, 0, 1000, 499));
+}
+
+test "uses a taller viewport for more instruction lines" {
+    const previous_lines = viewport_lines;
+    defer viewport_lines = previous_lines;
+
+    viewport_lines = std.math.maxInt(u32);
+    try std.testing.expectEqual(@as(usize, 11), instructionWindowLines(11));
+    viewport_lines = 24;
+    try std.testing.expectEqual(@as(usize, 12), instructionWindowLines(11));
+    viewport_lines = 512;
+    try std.testing.expectEqual(@as(usize, 500), instructionWindowLines(11));
+    viewport_lines = std.math.maxInt(u32) - 1;
+    try std.testing.expectEqual(MAX_INSTRUCTION_WINDOW_LINES, instructionWindowLines(0));
+}
+
+test "measures styled lines without a fixed line-count limit" {
+    try std.testing.expectEqual(@as(usize, 5), visibleTextWidth("\x1b[1mAé中\x1b[0mBC"));
 }
 
 test "assigns opcode colors by instruction family" {

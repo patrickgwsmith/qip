@@ -87,7 +87,7 @@ function assertTerminalWidth(text) {
 
 function executionRowCount(text) {
   return text.split("\n").filter((line) => (
-    /^[=>rnf↑↓ ]{3}f\d+ 0x[0-9a-f]+/.test(line) || /^(?:=> | {3})host (?:wrote|passed)/.test(line)
+    /^[=>rnf↑↓ ]{3} {0,4}f\d+ 0x[0-9a-f]+/.test(line) || /^(?:=> | {3})host (?:wrote|passed)/.test(line)
   )).length;
 }
 
@@ -125,6 +125,26 @@ test("interactive Wasm debugger fits its terminal viewport", async () => {
   assert.match(output, /^qipdb  ●  i expand/);
   assert.match(output, /^MEMORY/m);
   assert.ok(!output.endsWith("\n"));
+});
+
+test("a tall terminal shows hundreds of instructions", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(commonmarkPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  assert.equal(instance.exports.uniform_set_columns(120), 120);
+  assert.equal(instance.exports.uniform_set_lines(512), 512);
+  const debuggerInput = multipart([
+    ["component", targetBytes],
+    ["input", Buffer.from("# Heading\n\nText\n")],
+  ]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+
+  const output = renderedText(instance, debuggerInput.length);
+  const instructionRows = executionRowCount(output);
+  assert.equal(output.split("\n").length, 512);
+  assert.ok(instructionRows >= 400, `expected at least 400 instruction rows, got ${instructionRows}`);
 });
 
 test("memory minimap packs two Wasm pages into each quadrant cell", async () => {
@@ -181,12 +201,12 @@ test("initial and expanded summaries identify the component path", async () => {
   new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
 
   const initial = renderedText(instance, debuggerInput.length);
-  assert.match(initial, /^qipdb  ●  i expand  \? help  components\/text\/hello\.wasm utf-8 → utf-8 274B$/m);
+  assert.match(initial, /^qipdb  ●  i expand  \? help  text\/hello\.wasm utf-8 → utf-8 274B$/m);
   assert.doesNotMatch(initial, /QIP content component/);
 
   sendKey(instance, 2n, 0x69);
   const expanded = renderedText(instance, 0);
-  assert.match(expanded, /^  WASM     components\/text\/hello\.wasm  274 B$/m);
+  assert.match(expanded, /^  WASM     text\/hello\.wasm  274 B$/m);
   assert.match(expanded, /^  QIP      UTF-8 → UTF-8 /m);
 });
 
