@@ -21,6 +21,8 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /font/ttf/ttf-to-svg-path-defs.wasm,bytes,font/ttf,16777216,utf8,image/svg+xml,33554432
 /text/text-to-og-image-svg-dejavu-sans-mono.wasm,utf8,application/x-www-form-urlencoded,4096,utf8,image/svg+xml,8388608
 /text/text-to-og-image-svg-inter.wasm,utf8,application/x-www-form-urlencoded,4096,utf8,image/svg+xml,8388608
+/text/text-to-svg-inter.wasm,utf8,text/plain,4096,utf8,image/svg+xml,8388608
+/text/text-to-svg-jetbrains-mono-v2.304.wasm,utf8,text/plain,4096,utf8,image/svg+xml,8388608
 /multipart/form-data/form-data-to-tar.wasm,bytes,multipart/form-data,67108864,bytes,application/x-tar,67372032
 /image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm,bytes,image/bmp,48065536,bytes,image/avif,67108864
 /image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm,bytes,image/bmp,100065536,bytes,image/jpeg,83886080

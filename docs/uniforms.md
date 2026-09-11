@@ -52,6 +52,22 @@ The host applies setters after instantiation and before `render`, or before tile
 
 Returning the applied value lets a host observe clamping or normalization. A setter for a range-limited value should store and return the value the component will actually use.
 
+## Inspection Uniforms
+
+Uniform names beginning with `inspect_` reveal internal geometry or processing
+decisions. They are authored inspection aids, not normal output controls. Hosts
+may omit them from their primary uniform interface and present them in an
+Inspector or View menu instead.
+
+An inspection uniform defaults to disabled. Enabling it may add vector marks
+or recolor pixels, but it must not change the output dimensions, content type,
+layout calculations, or processing decision being inspected. Hosts should
+disable inspection uniforms for normal export.
+
+For example, `inspect_layout_metrics` can add baselines and bounds to an SVG,
+while `inspect_out_of_gamut` could mark pixels clipped by a color conversion.
+Components for nonvisual formats do not need to provide inspection uniforms.
+
 ## Content Reset Semantics
 
 Content uniforms apply to one render only. Each render starts with authored

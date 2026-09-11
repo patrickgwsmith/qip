@@ -414,6 +414,10 @@ text/text-to-path-svg-dejavu-sans-mono.wasm: text/dejavu_sans_mono_paths.zig
 
 text/text-to-og-image-svg-inter.wasm: text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
 
+text/text-to-svg-inter.wasm: text/text-to-og-image-svg-inter.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+
+text/text-to-svg-jetbrains-mono-v2.304.wasm: text/text-to-og-image-svg-inter.zig text/lib/jetbrains_mono_2_304_regular_latin_paths.zig text/lib/jetbrains_mono_2_304_bold_latin_paths.zig
+
 text/strip-ansi-sgr.wasm text/ansi-sgr-to-html.wasm text/ansi-sgr-to-svg.wasm: text/lib/ansi-sgr.zig
 
 text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.wasm: text/text-to-og-image-dejavu-sans-mono-ktx2-r8g8b8a8-srgb.zig text/text-to-og-image-dejavu-sans-mono.zig text/dejavu_sans_mono_56_latin1_bitmap.zig image/lib/ktx2-rgba8-srgb.zig
@@ -1036,6 +1040,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/text-to-og-image-font8x8.mjs
 	node --test test/text-to-og-image-svg.mjs
 	node --test test/text-to-og-image-svg-inter.mjs
+	node --test test/text-to-svg-inter.mjs
+	node --test test/text-to-svg-jetbrains-mono-v2.304.mjs
 	node --test test/jp2-bmp.mjs
 	node --test test/recipe-book-tar.mjs
 	node --test test/content-recipe-browser-javascript.mjs

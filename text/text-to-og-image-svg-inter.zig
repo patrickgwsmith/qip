@@ -7,12 +7,24 @@
 //! uses the default 112px ceiling. The renderer can select a smaller size.
 
 const std = @import("std");
-const regular = @import("lib/inter_display_latin_paths.zig");
-const bold = @import("lib/inter_display_bold_latin_paths.zig");
+const root = @import("root");
+const HAS_CUSTOM_FONTS = @hasDecl(root, "regular_font") and @hasDecl(root, "bold_font");
+const regular = if (HAS_CUSTOM_FONTS) root.regular_font else @import("lib/inter_display_latin_paths.zig");
+const bold = if (HAS_CUSTOM_FONTS) root.bold_font else @import("lib/inter_display_bold_latin_paths.zig");
+const FONT_FAMILY = if (@hasDecl(root, "font_family")) root.font_family else "Inter Display";
+
+// A small sibling root module reuses this renderer with a plain-text input.
+// Keep the font metrics, wrapping, and path emission together so they cannot
+// drift from the form-based Open Graph component.
+const PLAIN_TEXT_INPUT = @hasDecl(@import("root"), "plain_text_input") and
+    @import("root").plain_text_input;
 
 const INPUT_CAP: usize = 4 * 1024;
 const OUTPUT_CAP: usize = 8 * 1024 * 1024;
-const INPUT_CONTENT_TYPE = "application/x-www-form-urlencoded";
+const INPUT_CONTENT_TYPE = if (PLAIN_TEXT_INPUT)
+    "text/plain"
+else
+    "application/x-www-form-urlencoded";
 const OUTPUT_CONTENT_TYPE = "image/svg+xml";
 
 const WIDTH: u32 = 1200;
@@ -33,8 +45,12 @@ const FIELD_BYTES_CAP: usize = 2 * 1024;
 
 const DEFAULT_TEXT_COLOR_RGBA: u32 = 0x101010ff;
 const DEFAULT_BACKGROUND_COLOR_RGBA: u32 = 0xeecc33ff;
-const DEFAULT_FONT_WEIGHT: u32 = 700;
+const DEFAULT_FONT_WEIGHT: u32 = if (PLAIN_TEXT_INPUT) 400 else 700;
 const DEFAULT_REQUESTED_MAX_FONT_SIZE: u32 = 0;
+const DEFAULT_FONT_SIZE: u32 = 64;
+const DEFAULT_MEASURE: u32 = 1080;
+const DEFAULT_ALIGNMENT: f32 = 0;
+const DEFAULT_LINE_HEIGHT_EM: f32 = (regular.ASCENDER - regular.DESCENDER + regular.LINE_GAP) / regular.UNITS_PER_EM;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -49,6 +65,11 @@ var text_color_rgba: u32 = DEFAULT_TEXT_COLOR_RGBA;
 var background_color_rgba: u32 = DEFAULT_BACKGROUND_COLOR_RGBA;
 var font_weight: u32 = DEFAULT_FONT_WEIGHT;
 var requested_max_font_size: u32 = DEFAULT_REQUESTED_MAX_FONT_SIZE;
+var plain_font_size: u32 = DEFAULT_FONT_SIZE;
+var measure: u32 = DEFAULT_MEASURE;
+var alignment: f32 = DEFAULT_ALIGNMENT;
+var line_height_em: f32 = DEFAULT_LINE_HEIGHT_EM;
+var inspect_layout_metrics: bool = false;
 
 const RenderError = error{
     InvalidForm,
@@ -113,6 +134,12 @@ const Writer = struct {
         try self.write(value_text);
     }
 
+    fn scale(self: *Writer, value: f32) RenderError!void {
+        var buffer: [48]u8 = undefined;
+        const value_text = std.fmt.bufPrint(&buffer, "{d:.6}", .{value}) catch return error.OutputOverflow;
+        try self.write(value_text);
+    }
+
     fn color(self: *Writer, rgba: u32) RenderError!void {
         var buffer: [9]u8 = undefined;
         buffer[0] = '#';
@@ -162,9 +189,15 @@ export fn uniform_set_text_color_rgba(value: u32) u32 {
     return text_color_rgba;
 }
 
-export fn uniform_set_background_color_rgba(value: u32) u32 {
+fn setBackgroundColorRgba(value: u32) callconv(.c) u32 {
     background_color_rgba = value;
     return background_color_rgba;
+}
+
+comptime {
+    if (!PLAIN_TEXT_INPUT) {
+        @export(&setBackgroundColorRgba, .{ .name = "uniform_set_background_color_rgba" });
+    }
 }
 
 export fn uniform_set_font_weight(value: u32) u32 {
@@ -172,13 +205,50 @@ export fn uniform_set_font_weight(value: u32) u32 {
     return font_weight;
 }
 
-export fn uniform_set_font_max_size(value: u32) u32 {
+fn setFontMaxSize(value: u32) callconv(.c) u32 {
     if (value == 0) {
         requested_max_font_size = 0;
     } else {
         requested_max_font_size = std.math.clamp(value, MIN_FONT_SIZE, MAX_FONT_SIZE);
     }
     return requested_max_font_size;
+}
+
+fn setFontSize(value: u32) callconv(.c) u32 {
+    plain_font_size = value;
+    return plain_font_size;
+}
+
+fn setMeasure(value: u32) callconv(.c) u32 {
+    measure = value;
+    return measure;
+}
+
+fn setAlignment(value: f32) callconv(.c) f32 {
+    alignment = if (std.math.isFinite(value)) std.math.clamp(value, 0, 1) else DEFAULT_ALIGNMENT;
+    return alignment;
+}
+
+fn setInspectLayoutMetrics(value: u32) callconv(.c) u32 {
+    inspect_layout_metrics = value != 0;
+    return @intFromBool(inspect_layout_metrics);
+}
+
+fn setLineHeightEm(value: f32) callconv(.c) f32 {
+    line_height_em = if (std.math.isFinite(value)) @max(value, 0) else DEFAULT_LINE_HEIGHT_EM;
+    return line_height_em;
+}
+
+comptime {
+    if (PLAIN_TEXT_INPUT) {
+        @export(&setFontSize, .{ .name = "uniform_set_font_size" });
+        @export(&setMeasure, .{ .name = "uniform_set_measure" });
+        @export(&setAlignment, .{ .name = "uniform_set_alignment" });
+        @export(&setLineHeightEm, .{ .name = "uniform_set_line_height_em" });
+        @export(&setInspectLayoutMetrics, .{ .name = "uniform_set_inspect_layout_metrics" });
+    } else {
+        @export(&setFontMaxSize, .{ .name = "uniform_set_font_max_size" });
+    }
 }
 
 fn renderImpl(input_size_u32: u32) u32 {
@@ -206,9 +276,16 @@ fn resetUniforms() void {
     background_color_rgba = DEFAULT_BACKGROUND_COLOR_RGBA;
     font_weight = DEFAULT_FONT_WEIGHT;
     requested_max_font_size = DEFAULT_REQUESTED_MAX_FONT_SIZE;
+    plain_font_size = DEFAULT_FONT_SIZE;
+    measure = DEFAULT_MEASURE;
+    alignment = DEFAULT_ALIGNMENT;
+    line_height_em = DEFAULT_LINE_HEIGHT_EM;
+    inspect_layout_metrics = false;
 }
 
 fn renderSvg(input: []const u8, output: []u8) RenderError!usize {
+    if (PLAIN_TEXT_INPUT) return renderPlainSvg(input, output);
+
     const fields = try parseForm(input);
     const title_count = try normalizeText(fields.title, &title_codepoints);
     const subtitle_count = try normalizeText(fields.subtitle, &subtitle_codepoints);
@@ -233,6 +310,9 @@ fn renderSvg(input: []const u8, output: []u8) RenderError!usize {
         layout.title_scale,
         layout.title_line_advance,
         title_baseline,
+        PADDING_X,
+        @as(f32, @floatFromInt(WIDTH)) - 2 * PADDING_X,
+        0,
         font_weight == 700,
     );
 
@@ -248,7 +328,72 @@ fn renderSvg(input: []const u8, output: []u8) RenderError!usize {
             layout.subtitle_scale,
             layout.subtitle_line_advance,
             subtitle_baseline,
+            PADDING_X,
+            @as(f32, @floatFromInt(WIDTH)) - 2 * PADDING_X,
+            0,
             false,
+        );
+    }
+    try out.write("</svg>\n");
+    return out.index;
+}
+
+fn renderPlainSvg(input: []const u8, output: []u8) RenderError!usize {
+    const codepoint_count = try normalizeText(input, &title_codepoints);
+    const text = title_codepoints[0..codepoint_count];
+    const scale = @as(f32, @floatFromInt(plain_font_size)) / regular.UNITS_PER_EM;
+    const max_width_units: i32 = if (plain_font_size == 0)
+        std.math.maxInt(i32)
+    else blk: {
+        const value = @as(f32, @floatFromInt(measure)) / scale;
+        if (value < 1) return error.TextDoesNotFit;
+        if (value >= @as(f32, @floatFromInt(std.math.maxInt(i32)))) break :blk std.math.maxInt(i32);
+        break :blk @intFromFloat(@floor(value));
+    };
+    const line_count = try wrapLines(text, max_width_units, &title_lines, font_weight == 700);
+    const line_advance = @as(f32, @floatFromInt(plain_font_size)) * line_height_em;
+    const font_height = (regular.ASCENDER - regular.DESCENDER) * scale;
+    const height = if (line_count == 0)
+        @as(f32, 0)
+    else
+        font_height + @as(f32, @floatFromInt(line_count - 1)) * line_advance;
+    if (!std.math.isFinite(height)) return error.TextDoesNotFit;
+
+    var out = Writer{ .bytes = output };
+    try out.write("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"");
+    try out.integer(measure);
+    try out.write("\" height=\"");
+    try out.float(height);
+    try out.write("\" viewBox=\"0 0 ");
+    try out.integer(measure);
+    try out.write(" ");
+    try out.float(height);
+    try out.write("\">");
+
+    try writeTextGroup(
+        &out,
+        "text",
+        text,
+        title_lines[0..line_count],
+        plain_font_size,
+        scale,
+        line_advance,
+        regular.ASCENDER * scale,
+        0,
+        @floatFromInt(measure),
+        alignment,
+        font_weight == 700,
+    );
+    if (inspect_layout_metrics) {
+        try writeLayoutMetrics(
+            &out,
+            title_lines[0..line_count],
+            scale,
+            line_advance,
+            regular.ASCENDER * scale,
+            @floatFromInt(measure),
+            height,
+            alignment,
         );
     }
     try out.write("</svg>\n");
@@ -264,13 +409,18 @@ fn writeTextGroup(
     scale: f32,
     line_advance: f32,
     first_baseline: f32,
+    origin_x: f32,
+    available_width: f32,
+    line_alignment: f32,
     use_bold: bool,
 ) RenderError!void {
     try out.write("<g fill=\"");
     try out.color(text_color_rgba);
     try out.write("\" stroke=\"none\" data-role=\"");
     try out.write(role);
-    try out.write("\" data-font-family=\"Inter Display\" data-font-weight=\"");
+    try out.write("\" data-font-family=\"");
+    try out.write(FONT_FAMILY);
+    try out.write("\" data-font-weight=\"");
     try out.integer(if (use_bold) @as(u32, 700) else 400);
     try out.write("\" data-font-size=\"");
     try out.integer(font_size);
@@ -278,6 +428,8 @@ fn writeTextGroup(
 
     for (line_set, 0..) |line, line_index| {
         const baseline_y = first_baseline + @as(f32, @floatFromInt(line_index)) * line_advance;
+        const line_width = @as(f32, @floatFromInt(line.width_units)) * scale;
+        const line_x = origin_x + @max(available_width - line_width, 0) * line_alignment;
         var cursor_units: i32 = 0;
         var index = line.start;
         while (index < line.end) : (index += 1) {
@@ -287,11 +439,11 @@ fn writeTextGroup(
                 try out.write("<path d=\"");
                 try out.write(path);
                 try out.write("\" transform=\"translate(");
-                try out.float(PADDING_X + @as(f32, @floatFromInt(cursor_units)) * scale);
+                try out.float(line_x + @as(f32, @floatFromInt(cursor_units)) * scale);
                 try out.write(" ");
                 try out.float(baseline_y);
                 try out.write(") scale(");
-                try out.float(scale);
+                try out.scale(scale);
                 try out.write(")\"/>");
             }
             cursor_units += glyphAdvance(glyph_index, use_bold);
@@ -302,6 +454,50 @@ fn writeTextGroup(
         }
     }
     try out.write("</g>");
+}
+
+fn writeLayoutMetrics(
+    out: *Writer,
+    line_set: []const Line,
+    scale: f32,
+    line_advance: f32,
+    first_baseline: f32,
+    width: f32,
+    height: f32,
+    line_alignment: f32,
+) RenderError!void {
+    try out.write("<g data-inspect=\"layout_metrics\" fill=\"none\" stroke-width=\"1\" pointer-events=\"none\">");
+    try writeMetricLine(out, "measure_start", 0, 0, 0, height, "#8e8e93");
+    try writeMetricLine(out, "measure_end", width, 0, width, height, "#8e8e93");
+    for (line_set, 0..) |line, line_index| {
+        const baseline = first_baseline + @as(f32, @floatFromInt(line_index)) * line_advance;
+        const ascender = baseline - regular.ASCENDER * scale;
+        const descender = baseline - regular.DESCENDER * scale;
+        const line_width = @as(f32, @floatFromInt(line.width_units)) * scale;
+        const line_start = @max(width - line_width, 0) * line_alignment;
+        try writeMetricLine(out, "ascender", 0, ascender, width, ascender, "#00a6ff");
+        try writeMetricLine(out, "baseline", 0, baseline, width, baseline, "#ff2d55");
+        try writeMetricLine(out, "descender", 0, descender, width, descender, "#ff9500");
+        try writeMetricLine(out, "line_start", line_start, ascender, line_start, descender, "#34c759");
+        try writeMetricLine(out, "line_end", line_start + line_width, ascender, line_start + line_width, descender, "#34c759");
+    }
+    try out.write("</g>");
+}
+
+fn writeMetricLine(out: *Writer, metric: []const u8, x1: f32, y1: f32, x2: f32, y2: f32, stroke: []const u8) RenderError!void {
+    try out.write("<line data-metric=\"");
+    try out.write(metric);
+    try out.write("\" x1=\"");
+    try out.float(x1);
+    try out.write("\" y1=\"");
+    try out.float(y1);
+    try out.write("\" x2=\"");
+    try out.float(x2);
+    try out.write("\" y2=\"");
+    try out.float(y2);
+    try out.write("\" stroke=\"");
+    try out.write(stroke);
+    try out.write("\"/>");
 }
 
 fn parseForm(input: []const u8) RenderError!FormFields {
@@ -372,7 +568,7 @@ fn normalizeText(input: []const u8, output: []u32) RenderError!usize {
 
         if (codepoint == '\n') {
             if (count > 0 and output[count - 1] == ' ') count -= 1;
-            if (!at_line_start and count < output.len) {
+            if ((PLAIN_TEXT_INPUT or !at_line_start) and count < output.len) {
                 output[count] = '\n';
                 count += 1;
             }
@@ -393,7 +589,10 @@ fn normalizeText(input: []const u8, output: []u32) RenderError!usize {
         count += 1;
         at_line_start = false;
     }
-    while (count > 0 and (output[count - 1] == ' ' or output[count - 1] == '\n')) count -= 1;
+    while (count > 0 and output[count - 1] == ' ') count -= 1;
+    if (!PLAIN_TEXT_INPUT) {
+        while (count > 0 and output[count - 1] == '\n') count -= 1;
+    }
     return count;
 }
 
@@ -456,11 +655,20 @@ fn wrapLines(text: []const u32, max_width_units: i32, line_output: []Line, use_b
     if (text.len == 0) return 0;
     var line_count: usize = 0;
     var position: usize = 0;
-    while (position < text.len) {
+    while (position <= text.len) {
         if (line_count >= line_output.len) return error.TooManyLines;
+        if (position == text.len) {
+            if (text[text.len - 1] == '\n') {
+                line_output[line_count] = .{ .start = position, .end = position, .width_units = 0 };
+                line_count += 1;
+            }
+            break;
+        }
         while (position < text.len and text[position] == ' ') position += 1;
         if (position >= text.len) break;
         if (text[position] == '\n') {
+            line_output[line_count] = .{ .start = position, .end = position, .width_units = 0 };
+            line_count += 1;
             position += 1;
             continue;
         }
@@ -617,9 +825,9 @@ test "render resets all uniforms to authored defaults" {
     const input = "title=A";
     @memcpy(input_buf[0..input.len], input);
     _ = uniform_set_text_color_rgba(0x11223344);
-    _ = uniform_set_background_color_rgba(0xaabbccff);
+    _ = setBackgroundColorRgba(0xaabbccff);
     _ = uniform_set_font_weight(400);
-    _ = uniform_set_font_max_size(64);
+    _ = setFontMaxSize(64);
     const configured_size = renderImpl(input.len);
     const configured = output_buf[0..configured_size];
     try std.testing.expect(std.mem.indexOf(u8, configured, "fill=\"#aabbcc\"") != null);

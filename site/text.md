@@ -84,6 +84,8 @@ Related tool: [Unicode converter](/unicode).
 - [`text-to-og-image-font8x8.wasm`](/text/text-to-og-image-font8x8.wasm) renders text as a 1200×630 BMP with a small bitmap font.
 - [`text-to-og-image-dejavu-sans-mono.wasm`](/text/text-to-og-image-dejavu-sans-mono.wasm) renders text as a 1200×630 BMP with DejaVu Sans Mono.
 - [`text-to-og-image-svg-inter.wasm`](/text/text-to-og-image-svg-inter.wasm) renders form-encoded title and subtitle fields as an Open Graph SVG with Inter.
+- [`text-to-svg-inter.wasm`](/text/text-to-svg-inter.wasm) renders one plain text value as wrapped Inter paths on a transparent, intrinsically sized SVG canvas.
+- [`text-to-svg-jetbrains-mono-v2.304.wasm`](/text/text-to-svg-jetbrains-mono-v2.304.wasm) renders one plain text value as wrapped, monospaced JetBrains Mono 2.304 paths without ligatures.
 - [`text-to-og-image-svg-dejavu-sans-mono.wasm`](/text/text-to-og-image-svg-dejavu-sans-mono.wasm) renders form-encoded title and subtitle fields as an Open Graph SVG with DejaVu Sans Mono.
 - [`text-to-path-svg-dejavu-sans-mono.wasm`](/text/text-to-path-svg-dejavu-sans-mono.wasm) renders text as SVG glyph paths.
 - [`text-to-path-svg-dejavu-sans-mono-bold.wasm`](/text/text-to-path-svg-dejavu-sans-mono-bold.wasm) renders text as bold SVG glyph paths.

@@ -191,6 +191,7 @@ pub fn glyphIndex(codepoint: u32) ?usize {
 }
 
 pub fn kerning(left: usize, right: usize) i16 {
+    if (kern_pairs.len == 0) return 0;
     const key = @as(u32, @intCast(left)) * 65536 + @as(u32, @intCast(right));
     var low: usize = 0;
     var high: usize = kern_pairs.len;

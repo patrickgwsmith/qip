@@ -614,6 +614,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
 
 ## TODO
 
+- [ ] Make transparent text-to-SVG components emit `fill="currentColor"` and remove their `text_color_rgba` uniforms. Define opaque black as Tideland SVG Rendered's unresolved `currentColor` default, use `svg-recolor-current-color.wasm` for explicit colors, and either add `currentColor` support to QIP's native SVG rasterizers or document that recoloring is required before rasterization.
 - [ ] Redesign `/view-source`. Its source-file walker does not follow symlinked component directories. Define which source files the router can publish before changing that behavior.
 - [ ] Add a `--double` flag for `qipx bench` that doubles the input and plots the performance. So we should see if rendering is `O(n)` where n is the size of the input or not. It could keep doubling the input. I imagine it would only work for text input and uncompressed ktx2 input, as those should be trivial to “double”.
 - [x] Move Content component trees to repository paths that match qip.dev: `application/`, `bytes/`, `font/`, `image/`, `multipart/`, and `text/`.
