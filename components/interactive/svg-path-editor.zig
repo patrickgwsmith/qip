@@ -109,6 +109,7 @@ var edited_path: ?usize = null;
 var primary_down = false;
 var alt_down = false;
 var shift_down = false;
+var space_down = false;
 var interaction_mode: InteractionMode = .idle;
 var drag_path: i32 = -1;
 var drag_anchor: i32 = -1;
@@ -192,6 +193,7 @@ fn resetState() void {
     primary_down = false;
     alt_down = false;
     shift_down = false;
+    space_down = false;
     interaction_mode = .idle;
     drag_path = -1;
     drag_anchor = -1;
@@ -862,6 +864,10 @@ export fn key_event(key: i32, flags: i32) i32 {
         shift_down = (flags & FLAG_DOWN) != 0;
         return 0;
     }
+    if (key == 0x20) {
+        space_down = (flags & FLAG_DOWN) != 0;
+        return 0;
+    }
     if ((flags & FLAG_DOWN) == 0) return 0;
     switch (key) {
         'p', 'P' => {
@@ -1252,7 +1258,14 @@ fn drag(doc: Point) bool {
         }
     } else if (drag_anchor >= 0) {
         const a = &anchors[@as(usize, p.anchor_start) + @as(usize, @intCast(drag_anchor))];
-        if (interaction_mode == .drag_in_handle) {
+        if (space_down and (interaction_mode == .drag_pen_handle or interaction_mode == .drag_pen_close)) {
+            a.p.x += dx;
+            a.p.y += dy;
+            a.hin.x += dx;
+            a.hin.y += dy;
+            a.hout.x += dx;
+            a.hout.y += dy;
+        } else if (interaction_mode == .drag_in_handle) {
             a.hin = local;
             if (!alt_down) a.hout = .{ .x = 2 * a.p.x - local.x, .y = 2 * a.p.y - local.y };
         } else if (interaction_mode == .drag_out_handle or interaction_mode == .drag_pen_handle or interaction_mode == .drag_pen_close) {

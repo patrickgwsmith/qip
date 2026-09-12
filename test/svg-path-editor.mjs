@@ -112,6 +112,27 @@ test("pen drags publish the active anchor and mirrored handles in the overlay", 
   assert.equal((svg.match(/<circle class="qip-hit-selected"/g) || []).length, 1);
 });
 
+test("Space moves the current pen point without collapsing its handles", () => {
+  const exports = instance();
+  initialize(exports);
+  exports.begin_update_at(1n);
+  exports.key_event("P".codePointAt(0), 1);
+  exports.pointer_event(1, 50, 100);
+  exports.pointer_event(0, 50, 100);
+  exports.pointer_event(1, 100, 100);
+  exports.pointer_event(1, 130, 100);
+  exports.key_event(0x20, 1);
+  exports.pointer_event(1, 150, 100);
+  exports.key_event(0x20, 0);
+  exports.pointer_event(1, 170, 100);
+  exports.pointer_event(0, 170, 100);
+  exports.finish_update();
+  const svg = output(exports, decode(exports.render(0)));
+  assert.match(svg, /d="M50 100 C50 100 70 100 120 100"/);
+  assert.match(svg, /M120\.00 100\.00L70\.00 100\.00/);
+  assert.match(svg, /M120\.00 100\.00L170\.00 100\.00/);
+});
+
 test("Shift-click selects multiple anchors for a shared nudge", () => {
   const exports = instance();
   initialize(exports, '<svg xmlns="http://www.w3.org/2000/svg"><path d="M100 100 L200 100 L300 100"/></svg>');
