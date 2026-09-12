@@ -10,6 +10,25 @@ Benchmarking is not a substitute for a correctness test. Keep a deterministic
 test fixture and expected output first; then time the exact artifact that passed
 that test.
 
+## Profile Site WARC Recipes
+
+Use the site report to time the archive recipes that run during a static-site
+build. It renders the real site five times, then reports the mean, minimum, and
+maximum duration for each WARC recipe.
+
+```sh
+make -j qip
+make benchmark-site-warc-recipes
+```
+
+Pass `--runs` to change the sample count. The report includes the router's WARC
+recipes only. It does not include the final link checks or tar conversion in
+`site-static`.
+
+```sh
+node tools/benchmark-site-warc-recipes.mjs --runs 10
+```
+
 See [Empirical Component Optimization](/docs/empirical-optimization) for the
 full correctness, inspection, hypothesis, measurement, and iteration loop.
 

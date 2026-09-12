@@ -1,4 +1,4 @@
-.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report
+.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
 
 default: qip compliance components recipes
 
@@ -1065,6 +1065,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-data-uri-comply.mjs
 	node --test test/mermaid-to-unicode-html.mjs
 	node --test test/warc-content-size.mjs
+	node --test test/site-warc-recipe-report.mjs
 	node --test test/warc-connect-search-params-comply.mjs
 	node --test test/warc-text-uri-list-to-redirect.mjs
 	node --test test/qip-wasm-checks.mjs
@@ -1374,6 +1375,9 @@ score: qip
 
 strict-profile-report: components
 	@for dir in $(COMPONENT_DIRS); do node tools/report-strict-profile.mjs "$$dir" || exit; done
+
+benchmark-site-warc-recipes: qip
+	node tools/benchmark-site-warc-recipes.mjs
 
 wasm-safety-report: qip components
 	@pass=0; \
