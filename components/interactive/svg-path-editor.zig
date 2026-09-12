@@ -117,6 +117,7 @@ var last_pointer: Point = .{};
 var marquee_start: Point = .{};
 var marquee_end: Point = .{};
 var draft_path: i32 = -1;
+var editing = true;
 
 const svg_mime = "image/svg+xml";
 export fn input_ptr() i32 {
@@ -142,6 +143,10 @@ export fn output_content_type_ptr() i32 {
 }
 export fn output_content_type_size() i32 {
     return svg_mime.len;
+}
+export fn uniform_set_editing(value: u32) u32 {
+    editing = value != 0;
+    return @intFromBool(editing);
 }
 
 fn failure(offset: usize, mode: u32) u64 {
@@ -806,6 +811,7 @@ fn writeAddedPathsAndOverlay(w: *Writer) !void {
         try writePathD(w, p);
         try w.bytes("\" fill=\"none\" stroke=\"#111827\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/>");
     };
+    if (!editing) return;
     try w.bytes("<g data-qip-editor-overlay=\"true\" data-qip-editor-mode=\"");
     try w.bytes(if (editor_mode == .pen) "pen" else "selection");
     try w.bytes("\" data-qip-edited-path=\"");

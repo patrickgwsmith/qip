@@ -68,6 +68,21 @@ For example, `inspect_layout_metrics` can add baselines and bounds to an SVG,
 while `inspect_out_of_gamut` could mark pixels clipped by a color conversion.
 Components for nonvisual formats do not need to provide inspection uniforms.
 
+## Editor Controls
+
+An interactive SVG editor can export an `editing` uniform. This uniform makes
+the component active for editing. It does not control read-only inspection
+marks.
+
+Use an `i32` setter named `uniform_set_editing`. A value of `0` disables
+editing and removes the editor controls. A nonzero value enables editing and
+includes the editor controls. The setter returns `0` or `1`.
+
+Mark each editor control subtree with `data-qip-editor-overlay="true"`. A host
+enables the uniform while the user edits the document. A host disables the
+uniform before it stores or exports the document. The data attribute lets a
+host remove editor controls from a component that does not provide the uniform.
+
 ## Content Reset Semantics
 
 Content uniforms apply to one render only. Each render starts with authored

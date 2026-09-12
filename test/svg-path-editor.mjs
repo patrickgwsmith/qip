@@ -61,6 +61,17 @@ test("empty input creates a valid stable scene with one overlay", () => {
   assert.equal(output(exports, repeated), svg);
 });
 
+test("editing disables and enables interaction", () => {
+  const exports = instance();
+  initialize(exports);
+  assert.equal(exports.uniform_set_editing(0), 0);
+  const clean = output(exports, decode(exports.render(0)));
+  assert.doesNotMatch(clean, /data-qip-editor-overlay/);
+  assert.equal(exports.uniform_set_editing(7), 1);
+  const editable = output(exports, decode(exports.render(0)));
+  assert.match(editable, /data-qip-editor-overlay="true"/);
+});
+
 test("malformed initialization rejects recoverably and can be retried", () => {
   const exports = instance();
   assert.equal(initialize(exports, "<svg><g></svg>").failed, true);

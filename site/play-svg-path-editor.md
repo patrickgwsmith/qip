@@ -1,6 +1,6 @@
 # SVG Path Editor
 
-Edit cubic SVG paths without converting the rest of the document to an editor-specific format. The component preserves elements and attributes that it does not edit. It adds a marked overlay to each rendered SVG for controls and selection feedback.
+Edit cubic SVG paths without converting the rest of the document to an editor-specific format. The component preserves elements and attributes that it does not edit. It adds a marked overlay to each rendered SVG for controls and selection feedback. Set the `editing` uniform to `0` to disable editing and render the SVG without the overlay.
 
 - Press `P` for the Pen tool. Click to add a corner or drag to pull mirrored cubic handles. Click the first anchor to close the path, press `Enter` to keep it open, or press `Escape` to cancel it.
 - Press `V` for the Selection tool. Click a path or anchor, drag it, or drag an empty area to select anchors with a marquee.
