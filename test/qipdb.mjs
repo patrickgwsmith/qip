@@ -246,6 +246,7 @@ test("question mark toggles the keyboard cheatsheet", async () => {
   assert.match(help, /↑ \/ Alt-\[.*step back.*F \/ Shift-F11.*finish function/);
   assert.match(help, /Space \/ C \/ F5.*continue.*R.*restart/);
   assert.match(help, /R.*restart.*I.*counters/);
+  assert.match(help, /B S.*next SIMD.*B M W.*next memory write/);
   assert.match(help, /X I \/ X O.*input\/output.*X R \/ X W.*last read\/write/);
   assert.match(help, /X ↑ \/ X ↓.*page memory.*Backspace \/ Enter \/ Esc.*edit\/accept\/cancel/);
   sendKey(instance, 3n, 0x3f);
@@ -392,6 +393,65 @@ test("deep CommonMark control flow stays inside the instruction column", async (
   assert.match(paused, /executed=5572/);
   assertTerminalWidth(paused);
   assert.match(paused, /^=> {1,5}f\d+ /m);
+});
+
+test("b s stops before the next SIMD instruction", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(bmpDoubleSIMDPath),
+  ]);
+  const input = bmp32(2, 1, [0x10, 0x20, 0x30, 0xff, 0x40, 0x50, 0x60, 0xff]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes], ["input", input]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  renderedText(instance, debuggerInput.length);
+
+  sendKey(instance, 2n, 0x62); // b
+  assert.match(renderedText(instance, 0), /^BREAK  S next SIMD  M memory  Esc cancel$/m);
+  sendKey(instance, 3n, 0x73); // s
+  const stopped = renderedText(instance, 0);
+  assert.doesNotMatch(stopped, /^BREAK/m);
+  assert.match(stopped, /^=> .* v128\.load64_zero 0/m);
+});
+
+test("b m w stops before the next memory write", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(bulkMemoryPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  renderedText(instance, debuggerInput.length);
+
+  sendKey(instance, 2n, 0x62); // b
+  sendKey(instance, 3n, 0x77); // w is not a complete shortcut.
+  assert.match(renderedText(instance, 0), /^BREAK  S next SIMD  M memory  Esc cancel$/m);
+  sendKey(instance, 4n, 0x6d); // m
+  assert.match(renderedText(instance, 0), /^BREAK MEMORY  W next write  Esc cancel$/m);
+  sendKey(instance, 5n, 0x77); // w
+  const stopped = renderedText(instance, 0);
+  assert.doesNotMatch(stopped, /^BREAK/m);
+  assert.match(stopped, /executed=3/);
+  assert.match(stopped, /^=> f\d+ .* memory\.copy/m);
+  assert.match(stopped, /MEMORY  64 KiB  pages=1  reads=0 writes=0/);
+});
+
+test("breakpoint scans stop at the instruction budget", async () => {
+  const [debuggerBytes, targetBytes] = await Promise.all([
+    readFile(debuggerPath),
+    readFile(infiniteLoopPath),
+  ]);
+  const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+  const debuggerInput = multipart([["component", targetBytes]]);
+  new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+  renderedText(instance, debuggerInput.length);
+
+  sendKey(instance, 2n, 0x62); // b
+  sendKeyWithBudget(instance, 3n, 0x73, 7); // s
+  const paused = renderedText(instance, 0);
+  assert.match(paused, /executed=7/);
+  assert.match(paused, /paused: 7-instruction budget/);
 });
 
 test("SIMD component matches native Wasm SHA-256 output", async () => {
