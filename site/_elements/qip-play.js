@@ -143,6 +143,7 @@ function qipPlayMapKeyboardEventToKeysym(event) {
   if (key === "Tab") return 0xff09;
   if (key === "Backspace") return 0xff08;
   if (key === "Delete") return 0xffff;
+  if (key === "Alt") return event.location === 2 ? 0xffea : 0xffe9;
   if (key === " ") return 0x20;
 
   if (key.length === 1) {
@@ -242,7 +243,24 @@ async function qipPlayLoadModuleBytes(sourceURL) {
 }
 
 function qipPlayGetInputElement(playElement) {
-  return playElement.querySelector('input[name="input"]');
+  return playElement.querySelector('input[name="input"], textarea[name="input"]');
+}
+
+function qipPlayGetInputSource(playElement) {
+  return qipPlayDirectChildren(playElement, "source").find((source) =>
+    (source.getAttribute("name") || "").trim() === "input" &&
+    (source.getAttribute("type") || "").trim().toLowerCase() !== "application/wasm"
+  ) || null;
+}
+
+function qipPlayOutputCapacity(exportsObj, contentType = "") {
+  const utf8 = typeof exportsObj.output_utf8_cap === "function";
+  const bytes = typeof exportsObj.output_bytes_cap === "function";
+  if (utf8 === bytes) throw new Error("qip-play module must export exactly one output capacity getter");
+  if (contentType === "image/svg+xml" && !utf8) {
+    throw new Error("qip-play SVG output must declare output_utf8_cap");
+  }
+  return qipPlayReadI32Export(exportsObj, utf8 ? "output_utf8_cap" : "output_bytes_cap");
 }
 
 function qipPlayCustomProperty(computedStyle, propertyName, fallback) {
@@ -306,6 +324,10 @@ class QIPPlayElement extends HTMLElement {
     this._initialFrame = null;
 
     this._canvas = null;
+    this._presentationElement = null;
+    this._contentType = "";
+    this._svgBlobURL = "";
+    this._svgLoadGeneration = 0;
     this._ctx = null;
     this._imageData = null;
     this._presentationConvert = null;
@@ -356,6 +378,8 @@ class QIPPlayElement extends HTMLElement {
     this._activeKeyRepeats = new Map();
     this._pendingEvents = [];
     this._eventSequence = 0;
+    this._shiftKeyDown = false;
+    this._altKeyDown = false;
     this._nextWakeAtMS = 0;
     this._timeOriginMS = 0;
   }
@@ -390,12 +414,14 @@ class QIPPlayElement extends HTMLElement {
       document.removeEventListener("visibilitychange", this._boundVisibilityChange);
     }
     this._boundVisibilityChange = null;
+    this._revokeSVGBlobURL();
   }
 
   async _init() {
     const stepRecords = qipPlaySourceSteps(this);
     const sourceElement = stepRecords[0].sourceElement;
     const inputElement = qipPlayGetInputElement(this);
+    const inputSource = qipPlayGetInputSource(this);
     const policy = qipPlayReadModulePolicy(this);
     const loaded = [];
     for (let index = 0; index < stepRecords.length; index++) {
@@ -426,7 +452,7 @@ class QIPPlayElement extends HTMLElement {
           moduleBytes: moduleBytes.byteLength,
           exports: exportsObj,
           memory: exportsObj.memory,
-          outputCapacity: qipPlayReadI32Export(exportsObj, "output_bytes_cap"),
+          outputCapacity: 0,
           renderN: 0,
           lastRenderMS: 0,
         });
@@ -452,7 +478,6 @@ class QIPPlayElement extends HTMLElement {
     const exportsObj = primary.exports;
 
     const requiredExports = [
-      "output_bytes_cap",
       "output_content_type_ptr",
       "output_content_type_size",
       "begin_update_at",
@@ -468,6 +493,7 @@ class QIPPlayElement extends HTMLElement {
     let precedingOutputType = qipPlayReadDeclaredContentType(
       primary.exports, primary.memory, "output_content_type_ptr", "output_content_type_size",
     );
+    primary.outputCapacity = qipPlayOutputCapacity(primary.exports, precedingOutputType);
     for (const stage of loaded.slice(1)) {
       precedingOutputType = qipPlayValidatePostStage(stage, precedingOutputType);
     }
@@ -482,27 +508,25 @@ class QIPPlayElement extends HTMLElement {
     this._debugStats = this.hasAttribute("debug");
     this._logTimings = this.hasAttribute("log");
 
-    this._setupInputBinding(inputElement);
+    await this._setupInitialInput(inputSource, inputElement);
 
     this._outputCapacity = primary.outputCapacity;
-    const contentTypePtr = qipPlayReadI32Export(exportsObj, "output_content_type_ptr");
-    const contentTypeSize = qipPlayReadI32Export(exportsObj, "output_content_type_size");
-    const contentType = new TextDecoder("utf-8", { fatal: true }).decode(
-      qipPlayReadSlice(this._memory, contentTypePtr, contentTypeSize, "output content type"),
-    );
-    if (contentType !== "image/ktx2") {
-      throw new Error("qip-play pixel output must declare image/ktx2");
+    const contentType = precedingOutputType;
+    if (contentType !== "image/ktx2" && contentType !== "image/svg+xml") {
+      throw new Error("qip-play presentation output must declare image/ktx2 or image/svg+xml");
     }
+    this._contentType = contentType;
     const initial = this._runInitialContentRender();
-    const parsed = this._readKTX2Output(initial.rendered);
-    this._renderWidth = parsed.width;
-    this._renderHeight = parsed.height;
-    this._expectedOutputBytes = parsed.sourceBytes.byteLength;
+    const parsed = contentType === "image/ktx2" ? this._readKTX2Output(initial.rendered) : null;
+    this._renderWidth = parsed?.width || 800;
+    this._renderHeight = parsed?.height || 600;
+    this._expectedOutputBytes = parsed?.sourceBytes.byteLength || 0;
     this._outputBytes = initial.rendered.outputLen;
     this._initialFrame = { ...initial, parsed };
 
     const presentation = qipPlayPresentation(this, this._renderWidth);
-    this._installPresentation(parsed);
+    if (parsed) this._installPresentation(parsed);
+    else this._installSVGPresentation();
 
     this._stats = document.createElement("aside");
     this._stats.setAttribute("aria-label", "qip-play stats");
@@ -515,16 +539,19 @@ class QIPPlayElement extends HTMLElement {
     this._stats.style.lineHeight = "1.35";
     this._updateStats();
 
-    if (this._initialFrame) {
+    if (this._initialFrame && parsed) {
       this._presentPixels(
         this._initialFrame.parsed.pixels,
         this._initialFrame.renderMS,
         "initial",
       );
       this._initialFrame = null;
+    } else if (this._initialFrame) {
+      this._presentSVGOutput(this._initialFrame.rendered, this._initialFrame.renderMS, "initial");
+      this._initialFrame = null;
     }
 
-    this.replaceChildren(this._canvas);
+    this.replaceChildren(this._presentationElement || this._canvas);
     if (inputElement) {
       this.appendChild(inputElement);
     }
@@ -581,27 +608,82 @@ class QIPPlayElement extends HTMLElement {
     return this._isIntersecting && !document.hidden;
   }
 
-  _setupInputBinding(inputElement) {
-    if (!inputElement) {
-      return;
-    }
+  async _setupInitialInput(inputSource, inputElement) {
+    if (!inputSource && !inputElement) return;
     if (
       !("input_ptr" in this._exports) ||
       !("input_utf8_cap" in this._exports)
     ) {
       throw new Error(
-        '<qip-play><input name="input"> requires module exports input_ptr and input_utf8_cap',
+        '<qip-play> SVG input requires module exports input_ptr and input_utf8_cap',
       );
     }
     this._inputElement = inputElement;
-    if (inputElement) {
-      this._boundInputChange = () => {
-        this._writeInputText(String(inputElement.value ?? ""));
-      };
-      inputElement.addEventListener("input", this._boundInputChange);
-      inputElement.addEventListener("change", this._boundInputChange);
+    if (inputSource) {
+      const declaredInputType = qipPlayReadDeclaredContentType(
+        this._exports, this._memory, "input_content_type_ptr", "input_content_type_size",
+      );
+      const sourceType = (inputSource.getAttribute("type") || "").trim().toLowerCase();
+      if (declaredInputType === "" || sourceType !== declaredInputType) {
+        throw new Error('<qip-play> <source name="input"> type must exactly match the module input content type');
+      }
+      const src = (inputSource.getAttribute("src") || "").trim();
+      if (src === "") throw new Error('<qip-play> <source name="input"> requires a non-empty src');
+      const response = await fetch(new URL(src, document.baseURI).toString());
+      if (!response.ok) throw new Error("failed to fetch qip-play input source (" + String(response.status) + ")");
+      this._writeInputText(await response.text());
+    } else {
+      this._writeInputText(String(inputElement.value ?? inputElement.textContent ?? ""));
     }
-    this._writeInputText(String(inputElement.value ?? ""));
+  }
+
+  _installSVGPresentation() {
+    const image = document.createElement("img");
+    const cssPresentation = qipPlayPresentation(this, 800);
+    image.alt = this.getAttribute("aria-label") || "Interactive SVG editor";
+    image.draggable = false;
+    image.style.display = "block";
+    image.style.width = cssPresentation.canvasWidth;
+    image.style.height = cssPresentation.canvasHeight;
+    image.style.touchAction = this.getAttribute("touch-action")?.trim() || "none";
+    image.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
+    this.removeAttribute("tabindex");
+    this._canvas = image;
+    this._presentationElement = image;
+    this._renderWidth = 800;
+    this._renderHeight = 600;
+  }
+
+  _revokeSVGBlobURL() {
+    if (this._svgBlobURL) URL.revokeObjectURL(this._svgBlobURL);
+    this._svgBlobURL = "";
+  }
+
+  _presentSVGOutput(rendered, renderMS, reason) {
+    if (rendered.outputLen < 0 || rendered.outputLen > rendered.outputCapacity) {
+      throw new Error("qip-play Timed render returned output outside output_utf8_cap");
+    }
+    const source = qipPlayReadSlice(rendered.memory, rendered.outputPtr, rendered.outputLen, "output_ptr/output_utf8_cap");
+    // Copy before the next component render can reuse its output buffer.
+    const blob = new Blob([source.slice()], { type: "image/svg+xml" });
+    const nextURL = URL.createObjectURL(blob);
+    const previousURL = this._svgBlobURL;
+    const generation = ++this._svgLoadGeneration;
+    this._svgBlobURL = nextURL;
+    this._canvas.onload = () => {
+      if (generation !== this._svgLoadGeneration) return;
+      if (previousURL) URL.revokeObjectURL(previousURL);
+    };
+    this._canvas.onerror = () => {
+      if (generation === this._svgLoadGeneration) URL.revokeObjectURL(nextURL);
+    };
+    this._canvas.src = nextURL;
+    this._renderN++;
+    this._drawN++;
+    this._hasRenderedFrame = true;
+    this._lastRenderMS = renderMS;
+    this._updateStats();
+    if (this._logTimings && reason === "initial") console.log("[qip-play] initial_render_ms=%s", qipPlayFormatMS(renderMS));
   }
 
   _installPresentation(parsed) {
@@ -623,6 +705,7 @@ class QIPPlayElement extends HTMLElement {
     if (initial) this.removeAttribute("tabindex");
 
     this._canvas = canvas;
+    this._presentationElement = canvas;
     this._ctx = replacement.ctx;
     this._imageData = replacement.imageData;
     this._presentationConvert = replacement.convert;
@@ -789,7 +872,7 @@ class QIPPlayElement extends HTMLElement {
           candidate.memory,
           candidate.inputPtr,
           candidate.inputCapacity,
-          "qip-play post-processing input_ptr/input_bytes_cap",
+          "qip-play post-processing input_ptr/input capacity",
         );
         destination.set(inputBytes, 0);
         for (const uniform of qipPlayExtractUniforms(candidate.sourceElement)) {
@@ -870,8 +953,8 @@ class QIPPlayElement extends HTMLElement {
     this._finishedAtMS = begunAtMS;
     this._nextWakeAtMS = nextWakeAtMS;
     if (shouldRender) {
-      const parsed = this._readKTX2Output(rendered);
-      this._presentKTX2Output(parsed, renderMS);
+      if (this._contentType === "image/svg+xml") this._presentSVGOutput(rendered, renderMS);
+      else this._presentKTX2Output(this._readKTX2Output(rendered), renderMS);
     } else {
       this._updateStats();
     }
@@ -1039,6 +1122,8 @@ class QIPPlayElement extends HTMLElement {
     const flags = qipPlayBuildKeyFlags(event, isDown);
     const eventNowMS = this._eventNowMS();
     this._queueKeyEvent(keysym | 0, flags | 0, eventNowMS);
+    if (keysym === 0xffe1 || keysym === 0xffe2) this._shiftKeyDown = isDown;
+    if (keysym === 0xffe9 || keysym === 0xffea) this._altKeyDown = isDown;
     if (isDown) {
       this._startKeyRepeat(keyID, keysym, event);
     } else {
@@ -1057,6 +1142,10 @@ class QIPPlayElement extends HTMLElement {
     }
 
     if (this._canvas.style.touchAction === "none") event.preventDefault();
+    if (event.type === "pointerdown" && typeof this._canvas.setPointerCapture === "function") {
+      this._canvas.setPointerCapture(event.pointerId);
+      this._canvas.focus();
+    }
 
     const coords = qipPlayCanvasXY(
       this._canvas,
@@ -1066,12 +1155,27 @@ class QIPPlayElement extends HTMLElement {
     );
     const buttonMask = qipPlayMapDOMButtonsToMask(event.buttons | 0);
     const eventNowMS = this._eventNowMS();
+    if (typeof this._exports.key_event === "function") {
+      const shiftDown = Boolean(event.shiftKey);
+      const altDown = Boolean(event.altKey);
+      if (shiftDown !== this._shiftKeyDown) {
+        this._queueKeyEvent(0xffe1, qipPlayBuildKeyFlags(event, shiftDown), eventNowMS);
+        this._shiftKeyDown = shiftDown;
+      }
+      if (altDown !== this._altKeyDown) {
+        this._queueKeyEvent(0xffe9, qipPlayBuildKeyFlags(event, altDown), eventNowMS);
+        this._altKeyDown = altDown;
+      }
+    }
     this._queuePointerEvent(
       buttonMask | 0,
       coords.x | 0,
       coords.y | 0,
       eventNowMS,
     );
+    if ((event.type === "pointerup" || event.type === "pointercancel") && typeof this._canvas.releasePointerCapture === "function" && this._canvas.hasPointerCapture?.(event.pointerId)) {
+      this._canvas.releasePointerCapture(event.pointerId);
+    }
     this._resumeLoop();
   }
 
@@ -1145,6 +1249,8 @@ class QIPPlayElement extends HTMLElement {
       this._stopKeyRepeat(keyID, true);
       this._queueKeyEvent(repeatState.keysym, repeatState.flags & ~3, timeMS);
     }
+    this._shiftKeyDown = false;
+    this._altKeyDown = false;
     if (typeof this._exports?.pointer_event === "function") {
       this._queuePointerEvent(0, -1, -1, timeMS);
     }
@@ -1294,10 +1400,8 @@ class QIPPlayElement extends HTMLElement {
     if (!wakeDue && !eventsDue) {
       this._needsRender = false;
       const presentation = this._runPresentationPipeline(0);
-      this._presentKTX2Output(
-        this._readKTX2Output(presentation.rendered),
-        presentation.renderMS,
-      );
+      if (this._contentType === "image/svg+xml") this._presentSVGOutput(presentation.rendered, presentation.renderMS);
+      else this._presentKTX2Output(this._readKTX2Output(presentation.rendered), presentation.renderMS);
       return;
     }
     const renderRequested = this._canPresent() && (this._needsRender || wakeDue);

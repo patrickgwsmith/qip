@@ -20,8 +20,8 @@ select later frames, and omits event exports because playback needs no input.
 
 Use the [Content Component Contract](/docs/content-component) alone when each
 render is a finite input-to-output operation and no state must survive. A
-component that returns HTML or SVG is also Content, but it does not use this
-KTX2 GUI contract.
+Time and Events component can also return SVG. `<qip-play>` presents that SVG,
+but it does not make the component a KTX2 GUI component.
 
 ## Contract Composition
 
@@ -131,7 +131,13 @@ coalescing them to one time is correct for that interface.
 
 ## Browser Presentation
 
-`<qip-play>` decodes KTX2 output and scales the resulting canvas. A page can
+`<qip-play>` selects a presenter from the final pipeline content type. It
+decodes KTX2 output into a canvas. It presents `image/svg+xml` output through
+a focusable, non-draggable image backed by a Blob URL. The image boundary keeps
+scripts in component output inert. The host revokes replaced Blob URLs and
+ignores late load events for replaced frames.
+
+A page can
 set `canvas-width` and `canvas-height`, or the
 `--qip-play-canvas-width` and `--qip-play-canvas-height` CSS properties.
 Attributes take precedence.
@@ -147,6 +153,18 @@ Browsers without `IntersectionObserver` keep the component running.
 Pointer coordinates are converted from the displayed canvas box to rendered
 pixel coordinates. This permits a high-resolution rendered image to use a
 smaller CSS presentation size.
+
+An SVG component can initialize from a direct
+`<source name="input" type="image/svg+xml">`, from an `input` or `textarea`
+named `input`, or from empty input. A named source takes precedence when both
+forms exist. Input is initialization-only: replace the component instance to
+load another document. `<qip-play>` maps the displayed image to the SVG
+component's fixed 800 by 600 event surface and keeps pointer capture during a
+drag.
+
+An editor owns any SVG elements that it adds for presentation. The SVG path
+editor uses one `g[data-qip-editor-overlay="true"]`, removes an existing marked
+overlay during initialization, and writes one current overlay on render.
 
 For linear Display P3 RGBA32F output, `<qip-play>` first tries a float16 linear
 Display P3 canvas. It then tries transfer-encoded float16 Display P3. If the
@@ -169,7 +187,7 @@ host-loop, output, and browser tests.
 
 ## When Not To Use This Contract
 
-Use ordinary Content for a finite image render, HTML document, or SVG. Use the
+Use ordinary Content for a finite image render, HTML document, or non-interactive SVG. Use the
 [TUI component contract](/docs/tui-components) when the presentation is a text
 grid and the host is a terminal. Use application-native UI when the interface
 needs platform controls, accessibility semantics, text input services, or

@@ -231,7 +231,7 @@ that the previous image remains published. The PS2 test verifies renderless
 selection and its next-frame schedule. Reset restores the initial frame in
 both components.
 
-The final GUI component test covers ten different application and game
+The final GUI component test covers nine different application and game
 shapes:
 
 ```sh
@@ -242,7 +242,6 @@ make -j components/interactive/gameboy-camera.wasm \
   components/interactive/org_planner.wasm \
   components/interactive/peon-gold.wasm \
   components/interactive/textedit.wasm \
-  components/interactive/vector-editor.wasm \
   components/interactive/vertical-shooter.wasm \
   components/interactive/windows95-desktop.wasm
 node --test test/final-interactive-components.mjs
@@ -251,6 +250,14 @@ node --test test/final-interactive-components.mjs
 It checks the KTX2 Content ABI, absence of legacy exports, output isolation,
 component-specific wake results, and traps for lifecycle misuse. Zig inline
 tests retain detailed editor, desktop, and game-state regression cases.
+
+The SVG path editor uses generic Time and Events output instead of the KTX2
+GUI contract. Test its UTF-8 SVG ABI and retained-state lifecycle separately:
+
+```sh
+make components/interactive/svg-path-editor.wasm
+node --test test/svg-path-editor.mjs test/qip-play-svg.mjs
+```
 
 ## Test Semantic Pointer Targets
 

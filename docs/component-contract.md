@@ -56,8 +56,9 @@ path:
 
 1. A pipeline module with `tile_rgba32float_64x64` uses Tile. Other pipeline
    modules use Content, even if they also export Time and Events.
-2. `<qip-play>` uses the GUI contract and requires one of its supported KTX2
-   output profiles.
+2. `<qip-play>` runs Time and Events components and presents either a supported
+   KTX2 profile or `image/svg+xml`. KTX2 components use the GUI contract; SVG
+   components retain the generic Time and Events contract.
 3. `qip tui` and `qipx tui` use the TUI contract for the first stage. Later
    stages are finite Content transforms over each rendered frame.
 4. `qip form` uses Form.

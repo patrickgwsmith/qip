@@ -68,6 +68,14 @@ test("qip-step groups ordered stages while sources remain alternatives", () => {
   assert.throws(() => qipPlaySourceSteps(play), /cannot mix direct <source>/);
 });
 
+test("a named data source is not mistaken for a direct Wasm stage", () => {
+  const input = node("source", { name: "input", src: "/example.svg", type: "image/svg+xml" });
+  const wasm = node("source", { src: "/interactive/svg-path-editor.wasm", type: "application/wasm" });
+  const steps = qipPlaySourceSteps(node("qip-play", {}, [input, wasm]));
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].sourceElement, wasm);
+});
+
 function declaredCandidate(inputType, outputType) {
   const memory = new WebAssembly.Memory({ initial: 1 });
   const encodedInput = new TextEncoder().encode(inputType);

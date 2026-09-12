@@ -17,7 +17,7 @@ More interactive pages:
 - [Perlin Noise](/play-perlin-noise)
 - [Peon Gold Loop](/play-peon-gold)
 - [Paint](/play-paint)
-- [Vector Editor](/play-vector-editor)
+- [SVG Path Editor](/play-svg-path-editor)
 - [Spreadsheet](/play-spreadsheet)
 - [Calculator](/play-calculator)
 - [Graph Calculator](/play-graph-calculator)

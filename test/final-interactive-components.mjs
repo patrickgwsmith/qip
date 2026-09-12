@@ -6,7 +6,6 @@ import test from "node:test";
 
 const specs = [
   { name: "gameboy-camera", width: 320, height: 220, event: (exports) => exports.key_event(0xff53, 1), wake: 17n },
-  { name: "vector-editor", width: 960, height: 640, event: (exports) => exports.key_event("C".codePointAt(0), 1), wake: 1n },
   { name: "liars-dice", width: 920, height: 580, event: (exports) => exports.key_event("R".codePointAt(0), 1) },
   { name: "org_planner", width: 600, height: 450, event: (exports) => exports.pointer_event(1, 120, 20), wake: 101n },
   { name: "peon-gold", width: 320, height: 220, event: (exports) => exports.key_event(0xff53, 1), wake: 16n },

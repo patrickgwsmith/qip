@@ -79,7 +79,10 @@ function qipPlaySelectStepSources(stepElement) {
 
 function qipPlaySourceSteps(element) {
   const wrappedSteps = qipPlayDirectChildren(element, "qip-step");
-  const directSources = qipPlayDirectChildren(element, "source");
+  // A named non-Wasm source is initialization data, not a pipeline stage.
+  const directSources = qipPlayDirectChildren(element, "source").filter(
+    (source) => (source.getAttribute("type") || "application/wasm").trim().toLowerCase() === "application/wasm",
+  );
   if (wrappedSteps.length > 0) {
     if (directSources.length > 0) {
       throw new Error("<qip-play> cannot mix direct <source> children with <qip-step>");
@@ -124,7 +127,7 @@ function qipPlayValidatePostStage(stage, precedingOutputType) {
   let expectedInputType = null;
   let expectedOutputType = null;
   for (const candidate of stage.candidates) {
-    for (const name of ["input_ptr", "input_bytes_cap", "output_bytes_cap", "render"]) {
+    for (const name of ["input_ptr", "render"]) {
       if (!(name in candidate.exports)) {
         throw new Error("qip-play post-processing step " + stage.label + " missing export " + name);
       }
@@ -144,6 +147,13 @@ function qipPlayValidatePostStage(stage, precedingOutputType) {
     if (inputType === "" || outputType === "") {
       throw new Error("qip-play post-processing alternatives must declare exact input and output content types");
     }
+    const inputUTF8 = typeof candidate.exports.input_utf8_cap === "function";
+    const inputBytes = typeof candidate.exports.input_bytes_cap === "function";
+    const outputUTF8 = typeof candidate.exports.output_utf8_cap === "function";
+    const outputBytes = typeof candidate.exports.output_bytes_cap === "function";
+    if (inputUTF8 === inputBytes || outputUTF8 === outputBytes) {
+      throw new Error("qip-play post-processing alternatives must declare exactly one input and output capacity getter");
+    }
     if (expectedInputType === null) {
       expectedInputType = inputType;
       expectedOutputType = outputType;
@@ -152,8 +162,9 @@ function qipPlayValidatePostStage(stage, precedingOutputType) {
     }
     candidate.inputType = inputType;
     candidate.outputType = outputType;
-    candidate.inputCapacity = qipPlayReadI32Export(candidate.exports, "input_bytes_cap");
+    candidate.inputCapacity = qipPlayReadI32Export(candidate.exports, inputUTF8 ? "input_utf8_cap" : "input_bytes_cap");
     candidate.inputPtr = qipPlayReadI32Export(candidate.exports, "input_ptr");
+    candidate.outputCapacity = qipPlayReadI32Export(candidate.exports, outputUTF8 ? "output_utf8_cap" : "output_bytes_cap");
   }
   if (expectedInputType !== precedingOutputType) {
     throw new Error(
