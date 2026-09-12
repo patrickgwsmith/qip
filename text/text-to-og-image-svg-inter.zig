@@ -184,7 +184,7 @@ export fn output_content_type_size() u32 {
     return @intCast(OUTPUT_CONTENT_TYPE.len);
 }
 
-export fn uniform_set_text_color_rgba(value: u32) u32 {
+fn setTextColorRgba(value: u32) callconv(.c) u32 {
     text_color_rgba = value;
     return text_color_rgba;
 }
@@ -192,12 +192,6 @@ export fn uniform_set_text_color_rgba(value: u32) u32 {
 fn setBackgroundColorRgba(value: u32) callconv(.c) u32 {
     background_color_rgba = value;
     return background_color_rgba;
-}
-
-comptime {
-    if (!PLAIN_TEXT_INPUT) {
-        @export(&setBackgroundColorRgba, .{ .name = "uniform_set_background_color_rgba" });
-    }
 }
 
 export fn uniform_set_font_weight(value: u32) u32 {
@@ -247,6 +241,8 @@ comptime {
         @export(&setLineHeightEm, .{ .name = "uniform_set_line_height_em" });
         @export(&setInspectLayoutMetrics, .{ .name = "uniform_set_inspect_layout_metrics" });
     } else {
+        @export(&setTextColorRgba, .{ .name = "uniform_set_text_color_rgba" });
+        @export(&setBackgroundColorRgba, .{ .name = "uniform_set_background_color_rgba" });
         @export(&setFontMaxSize, .{ .name = "uniform_set_font_max_size" });
     }
 }
@@ -415,7 +411,11 @@ fn writeTextGroup(
     use_bold: bool,
 ) RenderError!void {
     try out.write("<g fill=\"");
-    try out.color(text_color_rgba);
+    if (PLAIN_TEXT_INPUT) {
+        try out.write("currentColor");
+    } else {
+        try out.color(text_color_rgba);
+    }
     try out.write("\" stroke=\"none\" data-role=\"");
     try out.write(role);
     try out.write("\" data-font-family=\"");
@@ -824,7 +824,7 @@ test "switches between regular and bold and formats colors" {
 test "render resets all uniforms to authored defaults" {
     const input = "title=A";
     @memcpy(input_buf[0..input.len], input);
-    _ = uniform_set_text_color_rgba(0x11223344);
+    _ = setTextColorRgba(0x11223344);
     _ = setBackgroundColorRgba(0xaabbccff);
     _ = uniform_set_font_weight(400);
     _ = setFontMaxSize(64);

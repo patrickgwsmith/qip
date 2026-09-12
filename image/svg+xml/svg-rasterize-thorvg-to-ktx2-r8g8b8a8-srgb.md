@@ -15,6 +15,12 @@ the SVG intrinsic size. ThorVG preserves the drawing aspect ratio inside the
 requested viewport. `background_color_rgba` accepts `0xRRGGBBAA` and defaults
 to transparent. Uniforms reset after each invocation.
 
+ThorVG resolves `currentColor` through the SVG `color` property and its
+inheritance, with opaque black as the initial value. This wrapper does not
+expose `current_color_rgba`; declare `color` in the SVG or run
+`svg-recolor-current-color.wasm` when an external value must be baked into the
+document.
+
 This first wrapper includes only the CPU renderer and SVG loader. It does not
 load files, external resources, embedded PNG/JPEG/WebP images, animation, GPU
 engines, or fonts. SVG `<text>` is therefore out of scope.

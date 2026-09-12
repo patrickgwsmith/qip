@@ -4,7 +4,7 @@
 paths on a transparent SVG canvas. `measure` sets the maximum line width and
 the SVG width. The component derives the SVG height from the font metrics,
 line count, and line height. It does not add padding, shrink text, truncate
-text, or vertically center the result.
+text, or vertically center the result. The paths inherit `currentColor`.
 
 ```bash
 printf '%s' 'A transparent text layer that wraps onto additional lines.' |
@@ -15,7 +15,6 @@ printf '%s' 'A transparent text layer that wraps onto additional lines.' |
 
 The component accepts these uniforms:
 
-- `text_color_rgba`: packed `0xRRGGBBAA`; the default is `0x101010ff`.
 - `font_weight`: values below 550 select Regular 400; other values select Bold
   700. The default is 400.
 - `font_size`: the exact font size in SVG user units. The default is 64. Zero
@@ -36,6 +35,23 @@ The component accepts these uniforms:
 The SVG inspection group has `data-inspect="layout_metrics"`. Its lines use
 `data-metric` values so a host can identify or remove them without relying on
 their diagnostic colors.
+
+To set an explicit color, follow this component with
+`svg-recolor-current-color.wasm`:
+
+```bash
+printf '%s' 'A colored text layer.' |
+  qip run \
+    text/text-to-svg-inter.wasm \
+    image/svg+xml/svg-recolor-current-color.wasm \
+      -u color_rgba=0x2563ebff \
+  > text.svg
+```
+
+Without `color_rgba`, the recoloring component resolves `currentColor` to
+opaque black. QIP's native SVG rasterizers and ThorVG also resolve
+`currentColor` to opaque black. Set a native rasterizer's
+`current_color_rgba` uniform to override it without rewriting the SVG.
 
 Each render resets the uniforms to these authored defaults. Explicit newlines,
 including empty lines, are preserved. Repeated spaces collapse, tabs and

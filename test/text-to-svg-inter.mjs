@@ -4,9 +4,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const componentPath = "text/text-to-svg-inter.wasm";
+const recolorPath = "image/svg+xml/svg-recolor-current-color.wasm";
 
-async function instantiate() {
-  const { instance } = await WebAssembly.instantiate(await readFile(componentPath), {});
+async function instantiate(path = componentPath) {
+  const { instance } = await WebAssembly.instantiate(await readFile(path), {});
   return instance;
 }
 
@@ -44,6 +45,7 @@ test("renders intrinsic wrapped Inter paths without padding", async () => {
   assert.equal(contentType(instance, "output"), "image/svg+xml");
   assert.equal(instance.exports.uniform_set_background_color_rgba, undefined);
   assert.equal(instance.exports.uniform_set_font_max_size, undefined);
+  assert.equal(instance.exports.uniform_set_text_color_rgba, undefined);
   assert.match(svg, /^<svg [^>]*width="320" height="[^"]+" viewBox="0 0 320 /);
   assert.match(svg, /data-role="text"[^>]*data-font-family="Inter Display"/);
   assert.match(svg, /translate\(0\.000 /);
@@ -53,23 +55,32 @@ test("renders intrinsic wrapped Inter paths without padding", async () => {
 
 test("applies exact font size, weight, alignment, and resets them", async () => {
   const instance = await instantiate();
-  instance.exports.uniform_set_text_color_rgba(0x11223344);
   assert.equal(instance.exports.uniform_set_font_weight(700), 700);
   assert.equal(instance.exports.uniform_set_font_size(80), 80);
   assert.equal(instance.exports.uniform_set_measure(400), 400);
   assert.equal(instance.exports.uniform_set_alignment(2), 1);
   const configured = render(instance, "AV");
-  assert.match(configured, /fill="#11223344"/);
+  assert.match(configured, /fill="currentColor"/);
   assert.match(configured, /data-font-weight="700"/);
   assert.match(configured, /data-font-size="80"/);
   assert.ok(transforms(configured)[0].x > 200);
 
   const defaults = render(instance, "AV");
   assert.match(defaults, /^<svg [^>]*width="1080"/);
-  assert.match(defaults, /fill="#101010"/);
+  assert.match(defaults, /fill="currentColor"/);
   assert.match(defaults, /data-font-weight="400"/);
   assert.match(defaults, /data-font-size="64"/);
   assert.equal(transforms(defaults)[0].x, 0);
+});
+
+test("composes with currentColor recoloring", async () => {
+  const text = await instantiate();
+  const svg = render(text, "AV");
+  const recolor = await instantiate(recolorPath);
+
+  recolor.exports.uniform_set_color_rgba(0x11223344);
+  assert.match(render(recolor, svg), /fill="#11223344"/);
+  assert.match(render(recolor, svg), /fill="#000000"/);
 });
 
 test("line height advances later baselines without moving the first", async () => {

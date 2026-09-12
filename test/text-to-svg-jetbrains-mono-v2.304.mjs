@@ -33,6 +33,7 @@ test("renders intrinsic JetBrains Mono paths without ligatures", async () => {
   const svg = render(instance, "!=");
   assert.equal(instance.exports.uniform_set_background_color_rgba, undefined);
   assert.equal(instance.exports.uniform_set_font_max_size, undefined);
+  assert.equal(instance.exports.uniform_set_text_color_rgba, undefined);
   assert.match(svg, /^<svg [^>]*width="600" height="[^"]+"/);
   assert.match(svg, /data-role="text"[^>]*data-font-family="JetBrains Mono NL"/);
   assert.equal((svg.match(/<path\b/g) ?? []).length, 2);
@@ -53,7 +54,6 @@ test("uses equal advances in Regular and Bold", async () => {
 
 test("applies intrinsic layout uniforms and resets them", async () => {
   const instance = await instantiate();
-  instance.exports.uniform_set_text_color_rgba(0x11223344);
   instance.exports.uniform_set_font_weight(700);
   instance.exports.uniform_set_font_size(64);
   instance.exports.uniform_set_measure(400);
@@ -64,14 +64,14 @@ test("applies intrinsic layout uniforms and resets them", async () => {
   const positions = transforms(configured);
   assert.equal(positions[1].y - positions[0].y, 96);
   assert.ok(positions[0].x > 100);
-  assert.match(configured, /fill="#11223344"/);
+  assert.match(configured, /fill="currentColor"/);
   assert.match(configured, /data-font-weight="700"/);
   assert.match(configured, /data-inspect="layout_metrics"/);
 
   const defaults = render(instance, "A\nB");
   const defaultPositions = transforms(defaults);
   assert.match(defaults, /^<svg [^>]*width="1080"/);
-  assert.match(defaults, /fill="#101010"/);
+  assert.match(defaults, /fill="currentColor"/);
   assert.match(defaults, /data-font-weight="400"/);
   assert.match(defaults, /data-font-size="64"/);
   assert.equal(defaultPositions[0].x, 0);

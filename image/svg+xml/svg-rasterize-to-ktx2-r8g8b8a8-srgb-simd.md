@@ -8,3 +8,8 @@ This component exists to measure the RGBA8 output tradeoff without comparing
 different rasterization quality. Its float working image requires 16 bytes per
 pixel, so it retains the 512 MiB fixed-memory cost even though its KTX2 output
 uses 4 bytes per pixel.
+
+`current_color_rgba` resolves `currentColor` paint in `fill` and `stroke`
+attributes and defaults to opaque black. This limited SVG subset does not
+implement the CSS `color` property or its inheritance. The uniform supplies
+one document-wide current color instead and resets after each render.

@@ -9,7 +9,6 @@ const ktx2_float = if (ANTIALIAS) @import("ktx2_rgba32float") else struct {};
 
 // TODO(svg): Required paint parsing to be practical for SVG icons/text:
 // - Add css color functions: rgb(), rgba(), hsl(), hsla()
-// - Add currentColor support for fill/stroke
 // Not required for this module:
 // - No var() / CSS custom properties
 // - No calc() in paint values
@@ -26,10 +25,12 @@ const WORK_CAP: u32 = MAX_PIXELS * WORK_PIXEL_SIZE + OUTPUT_HEADER_SIZE;
 const INPUT_CONTENT_TYPE = "image/svg+xml";
 const OUTPUT_CONTENT_TYPE = if (OUTPUT_KTX2) "image/ktx2" else "image/bmp";
 const DEFAULT_BACKGROUND_COLOR_RGBA: u32 = 0x00000000;
+const DEFAULT_CURRENT_COLOR_RGBA: u32 = 0x000000FF;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [WORK_CAP]u8 = undefined;
 var background_color_rgba: u32 = DEFAULT_BACKGROUND_COLOR_RGBA;
+var current_color_rgba: u32 = DEFAULT_CURRENT_COLOR_RGBA;
 var output_width: u32 = 0;
 var output_height: u32 = 0;
 
@@ -86,6 +87,11 @@ export fn uniform_set_background_color_rgba(value: u32) u32 {
     return background_color_rgba;
 }
 
+export fn uniform_set_current_color_rgba(value: u32) u32 {
+    current_color_rgba = value;
+    return current_color_rgba;
+}
+
 export fn uniform_set_width(value: u32) u32 {
     if (!ANTIALIAS) return 0;
     output_width = @min(value, MAX_DIMENSION);
@@ -98,8 +104,9 @@ export fn uniform_set_height(value: u32) u32 {
     return output_height;
 }
 
-fn resetBackgroundColorUniform() void {
+fn resetUniforms() void {
     background_color_rgba = DEFAULT_BACKGROUND_COLOR_RGBA;
+    current_color_rgba = DEFAULT_CURRENT_COLOR_RGBA;
     output_width = 0;
     output_height = 0;
 }
@@ -280,6 +287,7 @@ fn hexVal(c: u8) u8 {
 }
 
 fn parseColor(value: []const u8) ?Color {
+    if (strEq(value, "currentColor")) return colorFromRgba(current_color_rgba);
     if (value.len == 4 and value[0] == '#') {
         const r = hexVal(value[1]);
         const g = hexVal(value[2]);
@@ -2098,7 +2106,7 @@ const RenderOutcome = struct {
 };
 
 noinline fn renderOutcome(input_size: u32) RenderOutcome {
-    defer resetBackgroundColorUniform();
+    defer resetUniforms();
     const output_size = renderImpl(input_size) orelse {
         return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
     };
@@ -2146,10 +2154,12 @@ test "render rejects unsupported dimensions, resets its uniform, and recovers" {
     const invalid = "<svg/>";
     @memcpy(input_buf[0..invalid.len], invalid);
     _ = uniform_set_background_color_rgba(0xff0000ff);
+    _ = uniform_set_current_color_rgba(0x11223344);
     const rejected = renderOutcome(invalid.len);
     try std.testing.expectEqual(@as(u1, 1), rejected.failed);
     try std.testing.expectEqual(@as(u32, 0), rejected.output_size_or_failure);
     try std.testing.expectEqual(DEFAULT_BACKGROUND_COLOR_RGBA, background_color_rgba);
+    try std.testing.expectEqual(DEFAULT_CURRENT_COLOR_RGBA, current_color_rgba);
 
     const valid = "<svg width=\"1\" height=\"1\"></svg>";
     @memcpy(input_buf[0..valid.len], valid);
@@ -2157,6 +2167,14 @@ test "render rejects unsupported dimensions, resets its uniform, and recovers" {
     const accepted = renderOutcome(valid.len);
     try std.testing.expectEqual(@as(u1, 0), accepted.failed);
     try std.testing.expectEqual(DEFAULT_BACKGROUND_COLOR_RGBA, background_color_rgba);
+    try std.testing.expectEqual(DEFAULT_CURRENT_COLOR_RGBA, current_color_rgba);
+}
+
+test "currentColor defaults to black and accepts a uniform override" {
+    defer resetUniforms();
+    try std.testing.expectEqual(colorFromRgba(DEFAULT_CURRENT_COLOR_RGBA), parseColor("currentColor").?);
+    _ = uniform_set_current_color_rgba(0x11223344);
+    try std.testing.expectEqual(colorFromRgba(0x11223344), parseColor("currentColor").?);
 }
 
 fn pixelAt(buf: []const u8, width: u32, height: u32, x: u32, y: u32) Color {

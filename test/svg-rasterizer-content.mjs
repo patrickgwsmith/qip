@@ -10,12 +10,14 @@ const modules = [
     path: new URL("../image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm", import.meta.url),
     pixelOffset: 54,
     red: [0, 0, 255, 255],
+    currentColor: [0x33, 0x22, 0x11, 0xff],
   },
   {
     name: "KTX2",
     path: new URL("../image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm", import.meta.url),
     pixelOffset: 224,
     red: [255, 0, 0, 255],
+    currentColor: [0x11, 0x22, 0x33, 0xff],
   },
 ];
 
@@ -83,6 +85,36 @@ for (const module of modules) {
     assert.deepEqual(
       [...new Uint8Array(exports.memory.buffer, transparent.pointer + module.pixelOffset, 4)],
       [0, 0, 0, 0],
+    );
+  });
+
+  test(`${module.name} SVG rasterizer resolves currentColor and resets its uniform`, async () => {
+    const exports = await instantiate(module.path);
+    const inputSize = writeInput(
+      exports,
+      '<svg width="1" height="1"><rect width="1" height="1" fill="currentColor"/></svg>',
+    );
+
+    const black = decodeResult(exports.render(inputSize));
+    assert.equal(black.failed, 0);
+    assert.deepEqual(
+      [...new Uint8Array(exports.memory.buffer, black.pointer + module.pixelOffset, 4)],
+      [0, 0, 0, 255],
+    );
+
+    assert.equal(exports.uniform_set_current_color_rgba(0x112233ff), 0x112233ff);
+    const configured = decodeResult(exports.render(inputSize));
+    assert.equal(configured.failed, 0);
+    assert.deepEqual(
+      [...new Uint8Array(exports.memory.buffer, configured.pointer + module.pixelOffset, 4)],
+      module.currentColor,
+    );
+
+    const reset = decodeResult(exports.render(inputSize));
+    assert.equal(reset.failed, 0);
+    assert.deepEqual(
+      [...new Uint8Array(exports.memory.buffer, reset.pointer + module.pixelOffset, 4)],
+      [0, 0, 0, 255],
     );
   });
 }

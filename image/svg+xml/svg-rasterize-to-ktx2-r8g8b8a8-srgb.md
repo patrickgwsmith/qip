@@ -9,8 +9,10 @@ pipelines. Use the BMP variant only when the next stage requires BMP.
 The SVG root must declare numeric `width` and `height` attributes or a
 `viewBox`. A viewBox-only document uses the viewBox dimensions. The
 `background_color_rgba` uniform accepts `0xRRGGBBAA` and defaults to transparent
-black. The output retains straight alpha when no opaque background is
-requested. The uniform resets to its default after each render.
+black. `current_color_rgba` resolves `currentColor` paint in `fill` and
+`stroke` attributes and defaults to opaque black. The output retains straight
+alpha when no opaque background is requested. The uniforms reset to their
+defaults after each render.
 
 ```sh
 ./qip run \
@@ -22,3 +24,7 @@ requested. The uniform resets to its default after each render.
 SVG input is limited to 1 MiB. Output images are limited to 25,000,000 pixels
 and 8192 pixels on either axis. Missing, zero, or excessive dimensions reject
 the input.
+
+This limited SVG subset does not implement the CSS `color` property or its
+inheritance. The `current_color_rgba` uniform supplies one document-wide
+current color instead.

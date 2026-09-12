@@ -71,6 +71,24 @@ test("matched-quality RGBA8 renderer quantizes fractional coverage once", async 
   );
 });
 
+test("matched-quality RGBA8 renderer resolves currentColor", async () => {
+  const exports = await instantiateAt(rgba8RasterizerPath);
+  const svg = '<svg width="1" height="1"><rect width="1" height="1" fill="currentColor"/></svg>';
+
+  let result = render(exports, svg);
+  assert.deepEqual(
+    [...new Uint8Array(exports.memory.buffer, result.pointer + pixelOffset, 4)],
+    [0, 0, 0, 255],
+  );
+
+  assert.equal(exports.uniform_set_current_color_rgba(0xff0000ff) >>> 0, 0xff0000ff);
+  result = render(exports, svg);
+  assert.deepEqual(
+    [...new Uint8Array(exports.memory.buffer, result.pointer + pixelOffset, 4)],
+    [255, 0, 0, 255],
+  );
+});
+
 function render(exports, source, width = 0, height = 0) {
   const input = typeof source === "string" ? encoder.encode(source) : source;
   new Uint8Array(exports.memory.buffer, exports.input_ptr(), input.length).set(input);
@@ -117,6 +135,18 @@ test("RGBA32F SVG rasterizer produces fractional SIMD coverage", async () => {
   closeTo(pixel(view, 2, 1, 0), [1, 0, 0, 3 / 16]);
   closeTo(pixel(view, 2, 0, 1), [1, 0, 0, 3 / 16]);
   closeTo(pixel(view, 2, 1, 1), [1, 0, 0, 1 / 16]);
+});
+
+test("RGBA32F SVG rasterizer resolves currentColor", async () => {
+  const exports = await instantiate();
+  const svg = '<svg width="1" height="1"><rect width="1" height="1" fill="currentColor"/></svg>';
+
+  let result = render(exports, svg);
+  closeTo(pixel(inspectKtx2(exports, result, 1, 1), 1, 0, 0), [0, 0, 0, 1]);
+
+  assert.equal(exports.uniform_set_current_color_rgba(0xff0000ff) >>> 0, 0xff0000ff);
+  result = render(exports, svg);
+  closeTo(pixel(inspectKtx2(exports, result, 1, 1), 1, 0, 0), [1, 0, 0, 1]);
 });
 
 test("RGBA32F SVG rasterizer scan-converts path spans", async () => {

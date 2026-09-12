@@ -22,6 +22,11 @@ SVG input is limited to 1 MiB. Output images are limited to 25,000,000 pixels
 and 8192 pixels on either axis. The maximum KTX2 output is about 381.5 MiB, so
 the component declares 512 MiB of fixed Wasm memory.
 
+`current_color_rgba` resolves `currentColor` paint in `fill` and `stroke`
+attributes and defaults to opaque black. This limited SVG subset does not
+implement the CSS `color` property or its inheritance. The uniform supplies
+one document-wide current color instead and resets after each render.
+
 The 4 by 4 coverage grid is a bounded, deterministic quality baseline, not an
 analytic area-coverage rasterizer like Skia's CPU path. Scanline spans avoid
 retesting every edge at every pixel, but coverage still has 17 alpha levels.
