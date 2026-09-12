@@ -145,6 +145,19 @@ test("data-uri-to-css-url expands its maximum input in one memory page", async (
   assert.ok(bytes.length <= 1024, `module grew to ${bytes.length} bytes`);
 });
 
+test("data-uri-to-css-url moves a maximum-size clean input", async () => {
+  const { exports, readI32 } = await instantiateModule(
+    new URL("../text/uri-list/data-uri-to-css-url.wasm", import.meta.url),
+  );
+  const inputLength = readI32("input_utf8_cap");
+  const input = Buffer.concat([Buffer.from("data:,"), Buffer.alloc(inputLength - 6, 0x61)]);
+  new Uint8Array(exports.memory.buffer, readI32("input_ptr"), input.length).set(input);
+  const outputLength = renderSize(exports, input.length);
+  const output = Buffer.from(new Uint8Array(exports.memory.buffer, renderedOutputPointer(exports), outputLength));
+  assert.equal(outputLength, inputLength + 7);
+  assert.deepEqual(output, Buffer.concat([Buffer.from('url("'), input, Buffer.from('")')]));
+});
+
 test("the two modules compose into a CSS url value", async () => {
   const svg = Buffer.from('<svg fill="none"><path d="m6 8 4 4 4-4"/></svg>');
   const expectedUri = Buffer.from(encodeSvgDataUri(svg));

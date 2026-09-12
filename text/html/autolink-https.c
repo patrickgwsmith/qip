@@ -1,8 +1,11 @@
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define INPUT_CAP (1024 * 1024)
-#define OUTPUT_CAP (4 * 1024 * 1024)
+// A link adds a second URL and 15 wrapper bytes. Each URL has at least nine
+// bytes, and adjacent URLs need at least one stop byte between them.
+#define MAX_LINKS ((INPUT_CAP + 1) / 10)
+#define OUTPUT_CAP (2 * INPUT_CAP + 14 * MAX_LINKS + 1)
 
 static unsigned char input_buffer[INPUT_CAP];
 static unsigned char output_buffer[OUTPUT_CAP];
@@ -18,8 +21,7 @@ uint32_t input_utf8_cap() {
     return INPUT_CAP;
 }
 
-static uint32_t
-output_ptr() {
+static uint32_t output_ptr() {
     return (uint32_t)(uintptr_t)output_buffer;
 }
 
@@ -42,14 +44,18 @@ static int is_ws(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
+static int is_ascii_alnum(unsigned char c) {
+    return (c >= '0' && c <= '9') ||
+           (c >= 'A' && c <= 'Z') ||
+           (c >= 'a' && c <= 'z');
+}
+
 static int is_url_stop(unsigned char c) {
     return is_ws(c) || c == '<' || c == '>' || c == '"' || c == '\'' || c == '`';
 }
 
 static unsigned char ascii_lower(unsigned char c) {
-    if (c >= 'A' && c <= 'Z') {
-        return (unsigned char)(c + ('a' - 'A'));
-    }
+    if (c >= 'A' && c <= 'Z') return (unsigned char)(c + ('a' - 'A'));
     return c;
 }
 
@@ -65,206 +71,277 @@ static int starts_with_https(const unsigned char *s, uint32_t i, uint32_t n) {
            s[i + 7] == '/';
 }
 
-static int equals_ci(const unsigned char *s, uint32_t len, const char *lit) {
-    uint32_t i = 0;
-    while (lit[i] != '\0' && i < 32) {
-        if (i >= len) return 0;
-        if (ascii_lower(s[i]) != (unsigned char)lit[i]) return 0;
-        i++;
-    }
-    return i == len;
+static int can_start_url(const unsigned char *s, uint32_t i) {
+    if (i == 0) return 1;
+    unsigned char previous = s[i - 1];
+    return !is_ascii_alnum(previous) && previous != '_';
 }
 
-static void update_html_context(const unsigned char *s, uint32_t tag_start, uint32_t tag_end, int *raw_text_mode, int *anchor_depth, int *literal_depth) {
+typedef enum {
+    ELEMENT_OTHER,
+    ELEMENT_A,
+    ELEMENT_PRE,
+    ELEMENT_CODE,
+    ELEMENT_STYLE,
+    ELEMENT_TITLE,
+    ELEMENT_SCRIPT,
+    ELEMENT_TEXTAREA,
+} element_kind;
+
+#define PACK1(a) ((uint64_t)(a))
+#define PACK3(a, b, c) (PACK1(a) | ((uint64_t)(b) << 8) | ((uint64_t)(c) << 16))
+#define PACK4(a, b, c, d) (PACK3(a, b, c) | ((uint64_t)(d) << 24))
+#define PACK5(a, b, c, d, e) (PACK4(a, b, c, d) | ((uint64_t)(e) << 32))
+#define PACK6(a, b, c, d, e, f) (PACK5(a, b, c, d, e) | ((uint64_t)(f) << 40))
+#define PACK8(a, b, c, d, e, f, g, h) (PACK6(a, b, c, d, e, f) | ((uint64_t)(g) << 48) | ((uint64_t)(h) << 56))
+
+static element_kind classify_element(const unsigned char *name, uint32_t len) {
+    if (len > 8) return ELEMENT_OTHER;
+    uint64_t packed = 0;
+    for (uint32_t i = 0; i < len; i++) {
+        packed |= (uint64_t)ascii_lower(name[i]) << (i * 8);
+    }
+    switch (packed) {
+        case PACK1('a'): return ELEMENT_A;
+        case PACK3('p', 'r', 'e'): return ELEMENT_PRE;
+        case PACK4('c', 'o', 'd', 'e'): return ELEMENT_CODE;
+        case PACK5('s', 't', 'y', 'l', 'e'): return ELEMENT_STYLE;
+        case PACK5('t', 'i', 't', 'l', 'e'): return ELEMENT_TITLE;
+        case PACK6('s', 'c', 'r', 'i', 'p', 't'): return ELEMENT_SCRIPT;
+        case PACK8('t', 'e', 'x', 't', 'a', 'r', 'e', 'a'): return ELEMENT_TEXTAREA;
+    }
+    return ELEMENT_OTHER;
+}
+
+static int is_raw_element(element_kind kind) {
+    return kind == ELEMENT_SCRIPT || kind == ELEMENT_STYLE ||
+           kind == ELEMENT_TITLE || kind == ELEMENT_TEXTAREA;
+}
+
+static uint32_t find_tag_end(const unsigned char *s, uint32_t start, uint32_t n) {
+    unsigned char quote = 0;
+    for (uint32_t p = start + 1; p < n; p++) {
+        unsigned char c = s[p];
+        if (quote != 0) {
+            if (c == quote) quote = 0;
+        } else if (c == '"' || c == '\'') {
+            quote = c;
+        } else if (c == '>') {
+            return p + 1;
+        }
+    }
+    return n;
+}
+
+static uint32_t find_comment_end(const unsigned char *s, uint32_t start, uint32_t n) {
+    for (uint32_t p = start + 4; p + 2 < n; p++) {
+        if (s[p] == '-' && s[p + 1] == '-' && s[p + 2] == '>') return p + 3;
+    }
+    return n;
+}
+
+static void update_html_context(
+    const unsigned char *s,
+    uint32_t tag_start,
+    uint32_t tag_end,
+    element_kind *raw_element,
+    uint32_t *anchor_depth,
+    uint32_t *literal_depth
+) {
     uint32_t p = tag_start + 1;
-    uint32_t steps = 0;
-    while (p < tag_end && is_ws(s[p]) && steps < INPUT_CAP) { p++; steps++; }
-    if (p >= tag_end) return;
-    if (s[p] == '!' || s[p] == '?') return;
+    while (p < tag_end && is_ws(s[p])) p++;
+    if (p >= tag_end || s[p] == '!' || s[p] == '?') return;
 
     int closing = 0;
     if (s[p] == '/') {
         closing = 1;
         p++;
+        while (p < tag_end && is_ws(s[p])) p++;
     }
-    steps = 0;
-    while (p < tag_end && is_ws(s[p]) && steps < INPUT_CAP) { p++; steps++; }
-    if (p >= tag_end) return;
 
     uint32_t name_start = p;
-    steps = 0;
-    while (p < tag_end && steps < INPUT_CAP) {
-        unsigned char c = s[p];
-        int alpha_num = (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
-        if (!alpha_num) break;
-        p++;
-        steps++;
-    }
-    uint32_t name_len = p - name_start;
-    if (name_len == 0) return;
+    while (p < tag_end && is_ascii_alnum(s[p])) p++;
+    if (p == name_start) return;
 
-    if (equals_ci(s + name_start, name_len, "script")) {
-        if (closing && *raw_text_mode == 1) *raw_text_mode = 0;
-        if (!closing) *raw_text_mode = 1;
+    uint32_t tail = tag_end;
+    while (tail > p && is_ws(s[tail - 1])) tail--;
+    int self_closing = tail > p && s[tail - 1] == '/';
+    element_kind kind = classify_element(s + name_start, p - name_start);
+
+    if (is_raw_element(kind)) {
+        if (!closing && !self_closing) *raw_element = kind;
         return;
     }
-    if (equals_ci(s + name_start, name_len, "style")) {
-        if (closing && *raw_text_mode == 2) *raw_text_mode = 0;
-        if (!closing) *raw_text_mode = 2;
-        return;
-    }
-
-    if (equals_ci(s + name_start, name_len, "a")) {
+    if (kind == ELEMENT_A) {
         if (closing) {
-            if (*anchor_depth > 0) *anchor_depth -= 1;
-        } else {
-            *anchor_depth += 1;
+            if (*anchor_depth > 0) (*anchor_depth)--;
+        } else if (!self_closing) {
+            (*anchor_depth)++;
         }
         return;
     }
-
-    if (equals_ci(s + name_start, name_len, "pre") ||
-        equals_ci(s + name_start, name_len, "code") ||
-        equals_ci(s + name_start, name_len, "textarea")) {
+    if (kind == ELEMENT_PRE || kind == ELEMENT_CODE) {
         if (closing) {
-            if (*literal_depth > 0) *literal_depth -= 1;
-        } else {
-            *literal_depth += 1;
+            if (*literal_depth > 0) (*literal_depth)--;
+        } else if (!self_closing) {
+            (*literal_depth)++;
         }
     }
 }
 
+static int raw_close_at(const unsigned char *s, uint32_t p, uint32_t n, element_kind raw_element) {
+    if (p + 3 >= n || s[p] != '<' || s[p + 1] != '/') return 0;
+    uint32_t name_start = p + 2;
+    uint32_t name_len = 0;
+    while (name_start + name_len < n && is_ascii_alnum(s[name_start + name_len])) name_len++;
+    if (classify_element(s + name_start, name_len) != raw_element) return 0;
+    if (name_start + name_len >= n) return 0;
+    unsigned char after = s[name_start + name_len];
+    return is_ws(after) || after == '>' || after == '/';
+}
+
+static uint32_t find_raw_close_end(const unsigned char *s, uint32_t start, uint32_t n, element_kind raw_element) {
+    for (uint32_t p = start; p < n; p++) {
+        if (!raw_close_at(s, p, n, raw_element)) continue;
+        uint32_t end = find_tag_end(s, p, n);
+        if (end > p && s[end - 1] == '>') return end;
+        return 0;
+    }
+    return 0;
+}
+
 static uint32_t trim_url_end(const unsigned char *s, uint32_t start, uint32_t end) {
-    uint32_t steps = 0;
-    while (end > start + 8 && steps < INPUT_CAP) {
+    uint32_t round_open = 0, round_close = 0;
+    uint32_t square_open = 0, square_close = 0;
+    uint32_t curly_open = 0, curly_close = 0;
+    for (uint32_t p = start + 8; p < end; p++) {
+        switch (s[p]) {
+            case '(': round_open++; break;
+            case ')': round_close++; break;
+            case '[': square_open++; break;
+            case ']': square_close++; break;
+            case '{': curly_open++; break;
+            case '}': curly_close++; break;
+        }
+    }
+
+    while (end > start + 8) {
         unsigned char c = s[end - 1];
         if (c == '.' || c == ',' || c == ';' || c == ':' || c == '!' || c == '?') {
             end--;
-            steps++;
-            continue;
+        } else if (c == ')' && round_close > round_open) {
+            round_close--;
+            end--;
+        } else if (c == ']' && square_close > square_open) {
+            square_close--;
+            end--;
+        } else if (c == '}' && curly_close > curly_open) {
+            curly_close--;
+            end--;
+        } else {
+            break;
         }
-        if (c == ')' || c == ']' || c == '}') {
-            unsigned char open = c == ')' ? '(' : (c == ']' ? '[' : '{');
-            uint32_t opens = 0;
-            uint32_t closes = 0;
-            uint32_t scan_steps = 0;
-            for (uint32_t p = start + 8; p < end && scan_steps < INPUT_CAP; p++, scan_steps++) {
-                if (s[p] == open) opens++;
-                if (s[p] == c) closes++;
-            }
-            if (closes > opens) {
-                end--;
-                steps++;
-                continue;
-            }
-        }
-        break;
     }
     return end;
 }
 
-static int write_slice(uint32_t *out_idx, const unsigned char *s, uint32_t len) {
-    if (*out_idx + len > OUTPUT_CAP) {
-        return 0;
-    }
-    for (uint32_t i = 0; i < len && i < OUTPUT_CAP; i++) {
-        output_buffer[*out_idx + i] = s[i];
-    }
-    *out_idx += len;
-    return 1;
+__attribute__((noinline))
+static uint32_t write_slice(uint32_t out_idx, const unsigned char *s, uint32_t len) {
+    if (len > OUTPUT_CAP - out_idx) return UINT32_MAX;
+    __builtin_memcpy(output_buffer + out_idx, s, len);
+    return out_idx + len;
 }
 
-static int write_escaped_attr(uint32_t *out_idx, const unsigned char *s, uint32_t len) {
-    for (uint32_t i = 0; i < len && i < INPUT_CAP; i++) {
-        unsigned char c = s[i];
-        if (c == '&') {
-            if (!write_slice(out_idx, (const unsigned char *)"&amp;", 5)) return 0;
-        } else if (c == '<') {
-            if (!write_slice(out_idx, (const unsigned char *)"&lt;", 4)) return 0;
-        } else if (c == '>') {
-            if (!write_slice(out_idx, (const unsigned char *)"&gt;", 4)) return 0;
-        } else if (c == '"') {
-            if (!write_slice(out_idx, (const unsigned char *)"&quot;", 6)) return 0;
-        } else {
-            if (!write_slice(out_idx, &c, 1)) return 0;
-        }
-    }
-    return 1;
+static uint64_t result(uint32_t output_size) {
+    return ((uint64_t)output_ptr() << 32) | output_size;
 }
 
 __attribute__((export_name("render")))
 uint64_t render(uint32_t input_size) {
-    if (input_size > INPUT_CAP) {
-        input_size = INPUT_CAP;
-    }
+    if (input_size > INPUT_CAP) input_size = INPUT_CAP;
 
+    static const unsigned char link_open[] = "<a href=\"";
+    static const unsigned char link_middle[] = "\">";
+    static const unsigned char link_close[] = "</a>";
     uint32_t out_idx = 0;
     uint32_t i = 0;
-    uint32_t tag_start = 0;
-    int in_tag = 0;
-    unsigned char tag_quote = 0;
-    int raw_text_mode = 0; /* 0=none, 1=script, 2=style */
-    int anchor_depth = 0;
-    int literal_depth = 0;
-    uint32_t render_steps = 0;
+    element_kind raw_element = ELEMENT_OTHER;
+    uint32_t anchor_depth = 0;
+    uint32_t literal_depth = 0;
 
-    while (i < input_size && render_steps < INPUT_CAP) {
-        render_steps++;
-        unsigned char c = input_buffer[i];
+#define WRITE_SLICE(bytes, len) do { \
+    uint32_t next_out_idx = write_slice(out_idx, (bytes), (len)); \
+    if (next_out_idx == UINT32_MAX) __builtin_trap(); \
+    out_idx = next_out_idx; \
+} while (0)
 
-        if (in_tag) {
-            if (!write_slice(&out_idx, &c, 1)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            if (tag_quote != 0) {
-                if (c == tag_quote) {
-                    tag_quote = 0;
-                }
-            } else {
-                if (c == '"' || c == '\'') {
-                    tag_quote = c;
-                } else if (c == '>') {
-                    in_tag = 0;
-                    update_html_context(input_buffer, tag_start, i, &raw_text_mode, &anchor_depth, &literal_depth);
-                }
-            }
-            i++;
+    while (i < input_size) {
+        if (raw_element != ELEMENT_OTHER) {
+            uint32_t end = find_raw_close_end(input_buffer, i, input_size, raw_element);
+            if (end == 0) end = input_size;
+            WRITE_SLICE(input_buffer + i, end - i);
+            i = end;
+            if (end < input_size || (end > 0 && input_buffer[end - 1] == '>')) raw_element = ELEMENT_OTHER;
             continue;
         }
 
-        if (c == '<') {
-            tag_start = i;
-            in_tag = 1;
-            tag_quote = 0;
-            if (!write_slice(&out_idx, &c, 1)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            i++;
+        if (i + 3 < input_size && input_buffer[i] == '<' && input_buffer[i + 1] == '!' && input_buffer[i + 2] == '-' && input_buffer[i + 3] == '-') {
+            uint32_t end = find_comment_end(input_buffer, i, input_size);
+            WRITE_SLICE(input_buffer + i, end - i);
+            i = end;
             continue;
         }
 
-        if (raw_text_mode == 0 && anchor_depth == 0 && literal_depth == 0 && starts_with_https(input_buffer, i, input_size)) {
-            uint32_t start = i;
-            uint32_t j = i + 8;
-            uint32_t url_steps = 0;
-            while (j < input_size && !is_url_stop(input_buffer[j]) && url_steps < INPUT_CAP) {
-                j++;
-                url_steps++;
+        if (input_buffer[i] == '<') {
+            uint32_t end = find_tag_end(input_buffer, i, input_size);
+            WRITE_SLICE(input_buffer + i, end - i);
+            if (end > i && input_buffer[end - 1] == '>') {
+                update_html_context(input_buffer, i, end - 1, &raw_element, &anchor_depth, &literal_depth);
             }
-            uint32_t url_end = trim_url_end(input_buffer, start, j);
-            uint32_t url_len = url_end - start;
-            if (url_len == 8) {
-                if (!write_slice(&out_idx, &c, 1)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-                i++;
-                continue;
-            }
-            if (!write_slice(&out_idx, (const unsigned char *)"<a href=\"", 9)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            if (!write_escaped_attr(&out_idx, input_buffer + start, url_len)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            if (!write_slice(&out_idx, (const unsigned char *)"\">", 2)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            if (!write_slice(&out_idx, input_buffer + start, url_len)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            if (!write_slice(&out_idx, (const unsigned char *)"</a>", 4)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-            i = url_end;
+            i = end;
             continue;
         }
-        if (!write_slice(&out_idx, &c, 1)) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-        i++;
+
+        if (anchor_depth != 0 || literal_depth != 0) {
+            uint32_t end = i + 1;
+            while (end < input_size && input_buffer[end] != '<') end++;
+            WRITE_SLICE(input_buffer + i, end - i);
+            i = end;
+            continue;
+        }
+
+        uint32_t candidate = i;
+        while (candidate < input_size) {
+            unsigned char c = input_buffer[candidate];
+            if (c == '<') break;
+            if ((c == 'h' || c == 'H') && can_start_url(input_buffer, candidate) && starts_with_https(input_buffer, candidate, input_size)) break;
+            candidate++;
+        }
+        if (candidate > i) {
+            WRITE_SLICE(input_buffer + i, candidate - i);
+            i = candidate;
+            continue;
+        }
+        if (candidate == input_size || input_buffer[candidate] == '<') continue;
+
+        uint32_t end = candidate + 8;
+        while (end < input_size && !is_url_stop(input_buffer[end])) end++;
+        uint32_t url_end = trim_url_end(input_buffer, candidate, end);
+        uint32_t url_len = url_end - candidate;
+        if (url_len == 8) {
+            WRITE_SLICE(input_buffer + candidate, 1);
+            i = candidate + 1;
+            continue;
+        }
+
+        WRITE_SLICE(link_open, sizeof(link_open) - 1);
+        WRITE_SLICE(input_buffer + candidate, url_len);
+        WRITE_SLICE(link_middle, sizeof(link_middle) - 1);
+        WRITE_SLICE(input_buffer + candidate, url_len);
+        WRITE_SLICE(link_close, sizeof(link_close) - 1);
+        i = url_end;
     }
 
-    return ((uint64_t)output_ptr() << 32) | (uint32_t)(out_idx);
+#undef WRITE_SLICE
+    return result(out_idx);
 }

@@ -36,7 +36,7 @@ export fn output_content_type_size() u32 {
     return @intCast(OUTPUT_CONTENT_TYPE.len);
 }
 
-fn mustEscape(byte: u8) bool {
+inline fn mustEscape(byte: u8) bool {
     return byte == '"' or byte == '\'' or byte == '\\' or byte <= 0x1F or byte == 0x7F;
 }
 
@@ -51,6 +51,13 @@ fn renderImpl(input_size_in: u32) u32 {
     for (buffer[0..input_size]) |byte| encoded_size += if (mustEscape(byte)) 3 else 1;
     const output_size = PREFIX.len + encoded_size + SUFFIX.len;
     if (output_size > BUFFER_CAP) @trap();
+
+    if (encoded_size == input_size) {
+        @memmove(buffer[PREFIX.len .. PREFIX.len + input_size], buffer[0..input_size]);
+        @memcpy(buffer[0..PREFIX.len], PREFIX);
+        @memcpy(buffer[output_size - SUFFIX.len .. output_size], SUFFIX);
+        return @intCast(output_size);
+    }
 
     @memcpy(buffer[output_size - SUFFIX.len .. output_size], SUFFIX);
     var read = input_size;

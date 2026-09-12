@@ -19,7 +19,7 @@ Related tool: [Markdown to HTML](/markdown-to-html).
 
 - [`html-accessible-name-unique-validator.wasm`](/text/html/html-accessible-name-unique-validator.wasm) rejects duplicate accessible names in the supported interactive-element subset.
 - [`html-add-highlight-stylesheet-night-owl.wasm`](/text/html/html-add-highlight-stylesheet-night-owl.wasm) adds the Night Owl syntax-highlight stylesheet.
-- [`html-link-extractor.wasm`](/text/html/html-link-extractor.wasm) replaces each absolute HTTPS link with a line containing that URL.
+- [`html-link-extractor.wasm`](/text/html/html-link-extractor.wasm) writes each anchor `href` and its simplified accessible name on one line.
 - [`html-page-wrap.wasm`](/text/html/html-page-wrap.wasm) wraps an HTML fragment in the repository's page shell.
 - [`html-to-accessibility-tree.wasm`](/text/html/html-to-accessibility-tree.wasm) renders supported HTML as a Markdown accessibility tree.
 - [`html-id-reference-validator.wasm`](/text/html/html-id-reference-validator.wasm) rejects same-document ID references that do not resolve to a valid target.

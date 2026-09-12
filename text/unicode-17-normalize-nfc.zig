@@ -1,6 +1,7 @@
 // Normalize UTF-8 input to NFC. Traps on invalid input or overflow.
 
 const testing = @import("std").testing;
+const singletons = @import("lib/unicode-17-nfc-singletons.zig");
 
 const INPUT_CAP: usize = 1024 * 1024;
 const OUTPUT_CAP: usize = INPUT_CAP * 4;
@@ -9,7 +10,6 @@ const MAX_CODEPOINTS: usize = INPUT_CAP * 2;
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
 var tmp_a: [MAX_CODEPOINTS]u32 = undefined;
-var tmp_b: [MAX_CODEPOINTS]u32 = undefined;
 
 export fn input_ptr() u32 {
     return @as(u32, @intCast(@intFromPtr(&input_buf)));
@@ -126,6 +126,9 @@ fn decompose(cp: u32, out: []u32, out_len: *usize) bool {
     if (isHangulSyllable(cp)) {
         return decomposeHangul(cp, out, out_len);
     }
+    if (singletonDecomposition(cp)) |mapped| {
+        return decompose(mapped, out, out_len);
+    }
     if (findIndex(decomp_codepoints, cp)) |idx| {
         const start = decomp_index[idx];
         const len = decomp_lens[idx];
@@ -137,6 +140,21 @@ fn decompose(cp: u32, out: []u32, out_len: *usize) bool {
         return true;
     }
     return appendCp(out, out_len, cp);
+}
+
+fn singletonDecomposition(cp: u32) ?u32 {
+    if (cp >= 0xF900 and cp <= 0xFAD9) {
+        const mapped = singletons.bmp_cjk_values[cp - 0xF900];
+        return if (mapped == 0) null else mapped;
+    }
+    if (cp >= 0x2F800 and cp <= 0x2FA1D) {
+        return singletons.supplementary_cjk_values[cp - 0x2F800];
+    }
+    if (cp < 0x0340 or cp > 0x232A) return null;
+    if (findIndex(&singletons.sparse_keys, cp)) |idx| {
+        return singletons.sparse_values[idx];
+    }
+    return null;
 }
 
 fn reorderCanonical(buf: []u32, len: usize) void {
@@ -185,6 +203,7 @@ fn composePair(starter: u32, comb: u32) ?u32 {
     if (isLV(starter) and isT(comb)) {
         return starter + (comb - TBase);
     }
+    if (comb < 0x0300) return null;
 
     if (findIndex(comp_starters, starter)) |idx| {
         const start = comp_index[idx];
@@ -226,31 +245,7 @@ fn composeNFC(input: []const u32, len: usize, out: []u32) ?usize {
             continue;
         }
 
-        if (starter_valid and (isL(starter) and isV(cp))) {
-            const comp = composePair(starter, cp) orelse @trap();
-            out[starter_index] = comp;
-            starter = comp;
-            last_ccc = 0;
-            continue;
-        }
-        if (starter_valid and (isLV(starter) and isT(cp))) {
-            const comp = composePair(starter, cp) orelse @trap();
-            out[starter_index] = comp;
-            starter = comp;
-            last_ccc = 0;
-            continue;
-        }
-
-        if (ccc == 0) {
-            if (!appendCp(out, &out_len, cp)) @trap();
-            starter = cp;
-            starter_index = out_len - 1;
-            starter_valid = true;
-            last_ccc = 0;
-            continue;
-        }
-
-        if (starter_valid and last_ccc < ccc) {
+        if (starter_valid and (last_ccc < ccc or last_ccc == 0)) {
             if (composePair(starter, cp)) |comp| {
                 out[starter_index] = comp;
                 starter = comp;
@@ -259,7 +254,14 @@ fn composeNFC(input: []const u32, len: usize, out: []u32) ?usize {
         }
 
         if (!appendCp(out, &out_len, cp)) @trap();
-        last_ccc = ccc;
+        if (ccc == 0) {
+            starter = cp;
+            starter_index = out_len - 1;
+            starter_valid = true;
+            last_ccc = 0;
+        } else {
+            last_ccc = ccc;
+        }
     }
 
     return out_len;
@@ -305,6 +307,13 @@ fn renderImpl(input_size_in: u32) u32 {
     if (input_size > INPUT_CAP) @trap();
     const input = input_buf[0..input_size];
 
+    for (input) |byte| {
+        if (byte >= 0x80) break;
+    } else {
+        @memcpy(output_buf[0..input_size], input);
+        return input_size_in;
+    }
+
     var decomp_len: usize = 0;
     var idx: usize = 0;
     while (idx < input.len) {
@@ -314,12 +323,12 @@ fn renderImpl(input_size_in: u32) u32 {
 
     reorderCanonical(tmp_a[0..decomp_len], decomp_len);
 
-    const comp_len = composeNFC(tmp_a[0..decomp_len], decomp_len, tmp_b[0..]) orelse @trap();
+    const comp_len = composeNFC(tmp_a[0..decomp_len], decomp_len, tmp_a[0..]) orelse @trap();
 
     var out_len: usize = 0;
     var i: usize = 0;
     while (i < comp_len) : (i += 1) {
-        if (!writeUtf8(tmp_b[0..comp_len][i], output_buf[0..], &out_len)) @trap();
+        if (!writeUtf8(tmp_a[i], output_buf[0..], &out_len)) @trap();
     }
 
     return @as(u32, @intCast(out_len));
@@ -366,6 +375,13 @@ fn expectDecompositionFits(cp: u32) !void {
 
 test "all canonical decompositions fit scratch and output bounds" {
     for (decomp_codepoints) |cp| try expectDecompositionFits(cp);
+    for (singletons.sparse_keys) |cp| try expectDecompositionFits(cp);
+    for (singletons.bmp_cjk_values, 0..) |mapped, index| {
+        if (mapped != 0) try expectDecompositionFits(0xF900 + @as(u32, @intCast(index)));
+    }
+    for (singletons.supplementary_cjk_values, 0..) |_, index| {
+        try expectDecompositionFits(0x2F800 + @as(u32, @intCast(index)));
+    }
 
     var cp: u32 = SBase;
     while (cp < SBase + SCount) : (cp += 1) {

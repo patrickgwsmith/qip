@@ -18,6 +18,7 @@ ordinal) — see `compliance/hosts/uppercase-node/` and `compliance/hosts/upperc
 ```sh
 cd tools/casegen
 go run .                 # rewrites tables + fixtures, exits nonzero on oracle mismatch
+go run . -nfc-singletons-only
 cd ../..
 make text/unicode-17-lowercase.wasm
 node --test test/unicode-17-lowercase.mjs
@@ -78,7 +79,8 @@ tag's oracle.
 
 - Tables come from the UCD directly (UnicodeData.txt Simple_Lowercase_Mapping,
   SpecialCasing.txt unconditional entries, DerivedCoreProperties.txt Cased +
-  Case_Ignorable). x/text is *only* the oracle, never the data source — so the
+  Case_Ignorable, and canonical singleton decompositions from UnicodeData.txt).
+  x/text is *only* the case-conversion oracle, never the data source — so the
   component's Unicode version is pinned by the committed UCD files, not by
   whatever Go release built the generator.
 - Invalid UTF-8 bytes pass through unchanged as uncased characters, matching

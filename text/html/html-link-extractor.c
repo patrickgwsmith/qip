@@ -3,6 +3,7 @@
 
 #define INPUT_CAP 65536
 #define OUTPUT_CAP 65536
+#define MAX_INDEXED_IDS 1024
 
 static unsigned char input_buffer[INPUT_CAP];
 static unsigned char output_buffer[OUTPUT_CAP];
@@ -90,6 +91,17 @@ typedef struct {
     uint32_t id_start;
     uint32_t id_len;
 } Attrs;
+
+typedef struct {
+    uint32_t start;
+    uint32_t len;
+    uint32_t tag_pos;
+} IdEntry;
+
+static IdEntry id_index[MAX_INDEXED_IDS];
+static uint32_t id_index_count;
+static int id_index_built;
+static int id_index_overflow;
 
 static int is_whitespace(unsigned char c) {
     return c == 32 || c == 9 || c == 10 || c == 12 || c == 13;
@@ -277,7 +289,7 @@ static int attr_type(uint32_t start, uint32_t len) {
     if (match_ci(start, len, "aria-label", 10)) {
         return ATTR_ARIA_LABEL;
     }
-    if (match_ci(start, len, "aria-labelledby", 14)) {
+    if (match_ci(start, len, "aria-labelledby", 15)) {
         return ATTR_ARIA_LABELLEDBY;
     }
     if (match_ci(start, len, "alt", 3)) {
@@ -306,10 +318,59 @@ static uint32_t skip_to_gt(uint32_t pos, uint32_t limit) {
     return pos;
 }
 
+static uint32_t skip_comment(uint32_t pos, uint32_t limit) {
+    if (pos + 2 >= limit || input_buffer[pos] != '!' ||
+        input_buffer[pos + 1] != '-' || input_buffer[pos + 2] != '-') {
+        return skip_to_gt(pos, limit);
+    }
+    pos += 3;
+    while (pos + 2 < limit) {
+        if (input_buffer[pos] == '-' && input_buffer[pos + 1] == '-' &&
+            input_buffer[pos + 2] == '>') {
+            return pos + 3;
+        }
+        pos++;
+    }
+    return limit;
+}
+
+static uint32_t skip_raw_text(uint32_t pos, uint32_t limit, int type) {
+    const char *name = type == TAG_SCRIPT ? "script" : "style";
+    uint32_t name_len = type == TAG_SCRIPT ? 6u : 5u;
+    while (pos < limit) {
+        if (input_buffer[pos] != '<' || pos + 2 >= limit ||
+            input_buffer[pos + 1] != '/') {
+            pos++;
+            continue;
+        }
+        uint32_t name_start = skip_whitespace(pos + 2, limit);
+        uint32_t name_end = name_start;
+        while (name_end < limit && is_name_char(input_buffer[name_end])) {
+            name_end++;
+        }
+        if (match_ci(name_start, name_end - name_start, name, name_len)) {
+            return skip_to_gt(name_end, limit);
+        }
+        pos++;
+    }
+    return limit;
+}
+
 static void append_byte(TextState *st, unsigned char b) {
     if (st->out < OUTPUT_CAP) {
         output_buffer[st->out] = b;
         st->out++;
+    }
+}
+
+static void append_range(TextState *st, uint32_t start, uint32_t len) {
+    uint32_t available = OUTPUT_CAP - st->out;
+    if (len > available) {
+        len = available;
+    }
+    if (len > 0) {
+        __builtin_memcpy(output_buffer + st->out, input_buffer + start, len);
+        st->out += len;
     }
 }
 
@@ -350,17 +411,23 @@ static void append_decoded_range(TextState *st, uint32_t start, uint32_t len) {
     uint32_t pos = start;
     uint32_t end = start + len;
     while (pos < end) {
-        if (input_buffer[pos] == '&') {
-            uint32_t consumed = 0;
-            uint32_t codepoint = 0;
-            if (decode_entity(pos, end, &consumed, &codepoint)) {
-                append_codepoint(st, codepoint);
-                pos += consumed;
-                continue;
-            }
+        uint32_t plain_start = pos;
+        while (pos < end && input_buffer[pos] != '&') {
+            pos++;
         }
-        append_byte(st, input_buffer[pos]);
-        pos++;
+        append_range(st, plain_start, pos - plain_start);
+        if (pos == end) {
+            break;
+        }
+        uint32_t consumed = 0;
+        uint32_t codepoint = 0;
+        if (decode_entity(pos, end, &consumed, &codepoint)) {
+            append_codepoint(st, codepoint);
+            pos += consumed;
+        } else {
+            append_byte(st, input_buffer[pos]);
+            pos++;
+        }
     }
 }
 
@@ -404,10 +471,14 @@ static void append_normalized_range(TextState *st, uint32_t start, uint32_t len)
         if (st->text_started && st->prev_space) {
             append_byte(st, ' ');
         }
-        append_byte(st, c);
+        uint32_t plain_start = pos;
+        do {
+            pos++;
+        } while (pos < end && input_buffer[pos] != '&' &&
+                 !is_whitespace(input_buffer[pos]));
+        append_range(st, plain_start, pos - plain_start);
         st->text_started = 1;
         st->prev_space = 0;
-        pos++;
     }
 }
 
@@ -539,7 +610,11 @@ static void append_text_from_range(TextState *st, uint32_t pos, uint32_t end) {
             continue;
         }
 
-        if (c == '!' || c == '?') {
+        if (c == '!') {
+            pos = skip_comment(pos, end);
+            continue;
+        }
+        if (c == '?') {
             pos = skip_to_gt(pos, end);
             continue;
         }
@@ -554,6 +629,11 @@ static void append_text_from_range(TextState *st, uint32_t pos, uint32_t end) {
         Attrs attrs = {0};
         pos = parse_attributes(pos, end, &attrs);
 
+        if ((type == TAG_SCRIPT || type == TAG_STYLE) && !attrs.self_closing) {
+            pos = skip_raw_text(pos, end, type);
+            continue;
+        }
+
         if (type == TAG_IMG && attrs.alt_present) {
             append_normalized_range(st, attrs.alt_start, attrs.alt_len);
         }
@@ -565,6 +645,7 @@ static void append_text_from_range(TextState *st, uint32_t pos, uint32_t end) {
 
 static uint32_t find_element_end(uint32_t pos, uint32_t input_size,
                                  uint32_t tag_start, uint32_t tag_len, int type) {
+    uint32_t depth = 0;
     while (pos < input_size) {
         if (input_buffer[pos] != '<') {
             pos++;
@@ -585,12 +666,19 @@ static uint32_t find_element_end(uint32_t pos, uint32_t input_size,
             }
             uint32_t end_len = pos - end_start;
             if (match_ci_range(end_start, end_len, tag_start, tag_len)) {
-                return tag_pos;
+                if (depth == 0) {
+                    return tag_pos;
+                }
+                depth--;
             }
             pos = skip_to_gt(pos, input_size);
             continue;
         }
-        if (c == '!' || c == '?') {
+        if (c == '!') {
+            pos = skip_comment(pos, input_size);
+            continue;
+        }
+        if (c == '?') {
             pos = skip_to_gt(pos, input_size);
             continue;
         }
@@ -600,11 +688,21 @@ static uint32_t find_element_end(uint32_t pos, uint32_t input_size,
             pos++;
         }
         uint32_t start_len = pos - start_start;
-        if ((type == TAG_P || type == TAG_LI) &&
-            match_ci_range(start_start, start_len, tag_start, tag_len)) {
-            return tag_pos;
+        int start_type = tag_type(start_start, start_len);
+        Attrs attrs = {0};
+        pos = parse_attributes(pos, input_size, &attrs);
+        if (match_ci_range(start_start, start_len, tag_start, tag_len)) {
+            if (type == TAG_P || type == TAG_LI) {
+                return tag_pos;
+            }
+            if (!attrs.self_closing && start_type != TAG_IMG && start_type != TAG_BR) {
+                depth++;
+            }
         }
-        pos = skip_to_gt(pos, input_size);
+        if ((start_type == TAG_SCRIPT || start_type == TAG_STYLE) &&
+            !attrs.self_closing) {
+            pos = skip_raw_text(pos, input_size, start_type);
+        }
     }
     return input_size;
 }
@@ -622,7 +720,15 @@ static void append_text_for_id(TextState *st, uint32_t id_start, uint32_t id_len
             return;
         }
         unsigned char c = input_buffer[pos];
-        if (c == '/' || c == '!' || c == '?') {
+        if (c == '/') {
+            pos = skip_to_gt(pos, input_size);
+            continue;
+        }
+        if (c == '!') {
+            pos = skip_comment(pos, input_size);
+            continue;
+        }
+        if (c == '?') {
             pos = skip_to_gt(pos, input_size);
             continue;
         }
@@ -636,6 +742,11 @@ static void append_text_for_id(TextState *st, uint32_t id_start, uint32_t id_len
         int type = tag_type(tag_start, tag_len);
         Attrs attrs = {0};
         pos = parse_attributes(pos, input_size, &attrs);
+
+        if ((type == TAG_SCRIPT || type == TAG_STYLE) && !attrs.self_closing) {
+            pos = skip_raw_text(pos, input_size, type);
+            continue;
+        }
 
         if (!attrs.id_present ||
             !match_exact(attrs.id_start, attrs.id_len, id_start, id_len)) {
@@ -659,8 +770,93 @@ static void append_text_for_id(TextState *st, uint32_t id_start, uint32_t id_len
     }
 }
 
+static void append_text_for_element(TextState *st, uint32_t tag_pos,
+                                    uint32_t input_size) {
+    uint32_t pos = tag_pos + 1;
+    pos = skip_whitespace(pos, input_size);
+    uint32_t tag_start = pos;
+    while (pos < input_size && is_name_char(input_buffer[pos])) {
+        pos++;
+    }
+    uint32_t tag_len = pos - tag_start;
+    int type = tag_type(tag_start, tag_len);
+    Attrs attrs = {0};
+    pos = parse_attributes(pos, input_size, &attrs);
+
+    if (type == TAG_IMG) {
+        if (attrs.alt_present) {
+            append_normalized_range(st, attrs.alt_start, attrs.alt_len);
+        }
+        return;
+    }
+    if (attrs.self_closing || type == TAG_BR) {
+        return;
+    }
+
+    uint32_t content_end = find_element_end(pos, input_size, tag_start, tag_len, type);
+    append_text_from_range(st, pos, content_end);
+}
+
+static void build_id_index(uint32_t input_size) {
+    id_index_built = 1;
+    id_index_count = 0;
+    id_index_overflow = 0;
+    uint32_t pos = 0;
+    while (pos < input_size) {
+        if (input_buffer[pos] != '<') {
+            pos++;
+            continue;
+        }
+        uint32_t tag_pos = pos++;
+        if (pos >= input_size) {
+            break;
+        }
+        unsigned char c = input_buffer[pos];
+        if (c == '/') {
+            pos = skip_to_gt(pos, input_size);
+            continue;
+        }
+        if (c == '!') {
+            pos = skip_comment(pos, input_size);
+            continue;
+        }
+        if (c == '?') {
+            pos = skip_to_gt(pos, input_size);
+            continue;
+        }
+
+        pos = skip_whitespace(pos, input_size);
+        uint32_t tag_start = pos;
+        while (pos < input_size && is_name_char(input_buffer[pos])) {
+            pos++;
+        }
+        int type = tag_type(tag_start, pos - tag_start);
+        Attrs attrs = {0};
+        pos = parse_attributes(pos, input_size, &attrs);
+
+        if (attrs.id_present) {
+            if (id_index_count == MAX_INDEXED_IDS) {
+                id_index_overflow = 1;
+                return;
+            }
+            id_index[id_index_count++] = (IdEntry){
+                attrs.id_start,
+                attrs.id_len,
+                tag_pos,
+            };
+        }
+        if ((type == TAG_SCRIPT || type == TAG_STYLE) && !attrs.self_closing) {
+            pos = skip_raw_text(pos, input_size, type);
+        }
+    }
+}
+
 static void append_labelledby(TextState *st, uint32_t start, uint32_t len,
                               uint32_t input_size) {
+    if (!id_index_built) {
+        build_id_index(input_size);
+    }
+
     uint32_t i = 0;
     while (i < len) {
         while (i < len && is_whitespace(input_buffer[start + i])) {
@@ -677,7 +873,17 @@ static void append_labelledby(TextState *st, uint32_t start, uint32_t len,
         if (st->text_started) {
             st->prev_space = 1;
         }
-        append_text_for_id(st, id_start, id_len, input_size);
+        if (id_index_overflow) {
+            append_text_for_id(st, id_start, id_len, input_size);
+            continue;
+        }
+        for (uint32_t id = 0; id < id_index_count; id++) {
+            if (match_exact(id_index[id].start, id_index[id].len,
+                            id_start, id_len)) {
+                append_text_for_element(st, id_index[id].tag_pos, input_size);
+                break;
+            }
+        }
     }
 }
 
@@ -708,6 +914,7 @@ uint64_t render(uint32_t input_size) {
     uint32_t labelledby_len = 0;
 
     TextState state = {0, 0, 0, 0};
+    id_index_built = 0;
 
     while (pos < input_size) {
         if (input_buffer[pos] != '<') {
@@ -756,7 +963,11 @@ uint64_t render(uint32_t input_size) {
             continue;
         }
 
-        if (c == '!' || c == '?') {
+        if (c == '!') {
+            pos = skip_comment(pos, input_size);
+            continue;
+        }
+        if (c == '?') {
             pos = skip_to_gt(pos, input_size);
             continue;
         }
@@ -802,6 +1013,11 @@ uint64_t render(uint32_t input_size) {
                 inside_a = 0;
                 emit = 0;
             }
+            continue;
+        }
+
+        if ((type == TAG_SCRIPT || type == TAG_STYLE) && !attrs.self_closing) {
+            pos = skip_raw_text(pos, input_size, type);
             continue;
         }
 

@@ -23,7 +23,7 @@ const PathAndQuery = struct {
     query: []const u8,
 };
 
-fn asciiLower(ch: u8) u8 {
+inline fn asciiLower(ch: u8) u8 {
     if (ch >= 'A' and ch <= 'Z') return ch + 32;
     return ch;
 }
@@ -46,8 +46,15 @@ fn endsWithIgnoreCase(s: []const u8, suffix: []const u8) bool {
     return eqlIgnoreCase(s[s.len - suffix.len ..], suffix);
 }
 
-fn isTokenSeparator(ch: u8) bool {
-    return ch == ' ' or ch == '\t' or ch == '\n' or ch == '\r' or ch == '"' or ch == '\'' or ch == '<' or ch == '>' or ch == '(' or ch == ')' or ch == '[' or ch == ']' or ch == '{' or ch == '}';
+const token_separators: [126]u8 = blk: {
+    var table = [_]u8{0} ** 126;
+    for (" \t\n\r\"'<>()[]{}") |ch| table[ch] = 1;
+    break :blk table;
+};
+
+inline fn isTokenSeparator(ch: u8) bool {
+    if (ch >= token_separators.len) return false;
+    return token_separators[ch] != 0;
 }
 
 fn trimTrailingPunctuation(s: []const u8) []const u8 {
@@ -71,18 +78,17 @@ fn isVideoIdChar(ch: u8) bool {
     return (ch >= 'A' and ch <= 'Z') or (ch >= 'a' and ch <= 'z') or (ch >= '0' and ch <= '9') or ch == '-' or ch == '_';
 }
 
-fn parseVideoIdPrefix(s: []const u8) ?[]const u8 {
-    if (s.len < 11) return null;
-    for (s[0..11]) |ch| {
+fn parseVideoId(s: []const u8) ?[]const u8 {
+    if (s.len != 11) return null;
+    for (s) |ch| {
         if (!isVideoIdChar(ch)) return null;
     }
-    if (s.len > 11 and isVideoIdChar(s[11])) return null;
-    return s[0..11];
+    return s;
 }
 
 fn parseIdFromPathSegment(s: []const u8) ?[]const u8 {
     const end = findDelimiter(s);
-    return parseVideoIdPrefix(s[0..end]);
+    return parseVideoId(s[0..end]);
 }
 
 fn parsePathAndQuery(rest: []const u8) PathAndQuery {
@@ -119,7 +125,7 @@ fn parseQueryForVideoId(query: []const u8) ?[]const u8 {
             const key = pair[0..eq];
             const value = pair[eq + 1 ..];
             if (eqlIgnoreCase(key, "v")) {
-                if (parseVideoIdPrefix(value)) |id| return id;
+                if (parseVideoId(value)) |id| return id;
             }
         }
         if (next_amp == query.len) break;
@@ -138,6 +144,18 @@ fn hostIsYouTube(host: []const u8) bool {
     if (eqlIgnoreCase(host, "youtube-nocookie.com")) return true;
     if (endsWithIgnoreCase(host, ".youtube-nocookie.com")) return true;
     return false;
+}
+
+fn isValidPort(port: []const u8) bool {
+    if (port.len == 0) return false;
+
+    var value: u32 = 0;
+    for (port) |ch| {
+        if (ch < '0' or ch > '9') return false;
+        value = value * 10 + (ch - '0');
+        if (value > 65535) return false;
+    }
+    return true;
 }
 
 fn extractFromYouTubeHost(rest: []const u8) ?[]const u8 {
@@ -179,6 +197,7 @@ fn extractVideoIdFromToken(token: []const u8) ?[]const u8 {
 
     var host = token[pos..host_end];
     if (std.mem.indexOfScalar(u8, host, ':')) |colon| {
+        if (!isValidPort(host[colon + 1 ..])) return null;
         host = host[0..colon];
     }
     const rest = token[host_end..];
@@ -203,9 +222,15 @@ fn extractAll(input: []const u8, output: []u8) u32 {
         if (i >= input.len) break;
 
         const start = i;
-        while (i < input.len and !isTokenSeparator(input[i])) : (i += 1) {}
+        var has_dot = false;
+        while (i < input.len and !isTokenSeparator(input[i])) : (i += 1) {
+            has_dot = has_dot | (input[i] == '.');
+        }
         const token = trimTrailingPunctuation(input[start..i]);
         if (token.len == 0) continue;
+
+        const first = asciiLower(token[0]);
+        if (first != 'h' and first != 'w' and first != 'y' and !has_dot) continue;
 
         if (extractVideoIdFromToken(token)) |id| {
             if (found > 0) {
@@ -263,6 +288,18 @@ test "ignores non-youtube hosts" {
     const input = "https://example.com/watch?v=dQw4w9WgXcQ";
     const out_len = extractAll(input, output_buf[0..]);
     try std.testing.expectEqual(@as(u32, 0), out_len);
+}
+
+test "rejects suffixes attached to an id" {
+    const input = "https://youtu.be/dQw4w9WgXcQ.jpg https://youtube.com/watch?v=dQw4w9WgXcQ%20junk";
+    try std.testing.expectEqual(@as(u32, 0), extractAll(input, output_buf[0..]));
+}
+
+test "validates optional ports" {
+    const input = "https://www.youtube.com:443/watch?v=dQw4w9WgXcQ https://youtube.com:not-a-port/watch?v=9bZkp7q19f0";
+    const out_len = extractAll(input, output_buf[0..]);
+    try std.testing.expectEqual(@as(u32, 11), out_len);
+    try std.testing.expectEqualStrings("dQw4w9WgXcQ", output_buf[0..11]);
 }
 
 test "many IDs stay within the input-size output bound" {

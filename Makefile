@@ -32,6 +32,9 @@ compliance/unicode-17-lowercase.comply.wasm: compliance/unicode-17-lowercase.com
 compliance/unicode-17-uppercase.comply.wasm: compliance/unicode-17-uppercase.comply.zig compliance/unicode-17-uppercase-tables.zig compliance/unicode-17-uppercase-fixtures.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/unicode-17-normalize-nfc.comply.wasm: compliance/unicode-17-normalize-nfc.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/currency-format-usd-en-us.comply.wasm: compliance/currency-format-usd-en-us.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -81,6 +84,7 @@ text/currency-format-ja-jp.wasm: text/lib/currency-format-ja-jp-table.zig
 text/currency-format-zh-cn.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
 text/currency-format-zh-cn.wasm: text/lib/currency-format-zh-cn-table.zig
 image/svg+xml/svg-to-data-uri.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
+text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += -mcpu=generic+bulk_memory
 text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
 
 text/html/html-code-syntax-highlight-css.wasm: text/html/lib/syntax-highlight-css.zig
@@ -108,6 +112,18 @@ compliance/mermaid-to-unicode-html.comply.wasm: compliance/mermaid-to-unicode-ht
 compliance/warc-connect-search-params.comply.wasm: compliance/warc-connect-search-params.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/youtube-id-extractor.comply.wasm: compliance/youtube-id-extractor.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/autolink-https.comply.wasm: compliance/autolink-https.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/html-link-extractor.comply.wasm: compliance/html-link-extractor.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm: compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.zig $(wildcard compliance/jpeg-to-bmp-b8g8r8a8-srgb-fixtures/*)
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -133,6 +149,7 @@ $(COMMONMARK_COMPLY_TARGETS):
 compliance: $(patsubst compliance/%.wat,compliance/%.wasm,$(wildcard compliance/*.wat))
 compliance: compliance/unicode-17-lowercase.comply.wasm
 compliance: compliance/unicode-17-uppercase.comply.wasm
+compliance: compliance/unicode-17-normalize-nfc.comply.wasm
 compliance: compliance/currency-format-usd-en-us.comply.wasm
 compliance: compliance/currency-format-en-us.comply.wasm
 compliance: compliance/currency-format-en-in.comply.wasm
@@ -149,6 +166,10 @@ compliance: compliance/data-uri-to-css-url.comply.wasm
 compliance: compliance/rgb-to-hex.comply.wasm
 compliance: compliance/mermaid-to-unicode-html.comply.wasm
 compliance: compliance/warc-connect-search-params.comply.wasm
+compliance: compliance/youtube-id-extractor.comply.wasm
+compliance: compliance/shortcode-to-emoji.comply.wasm
+compliance: compliance/autolink-https.comply.wasm
+compliance: compliance/html-link-extractor.comply.wasm
 compliance: compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm
 compliance: compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm
 compliance: compliance/base64-decode.comply.wasm
@@ -823,6 +844,8 @@ image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm: $(LCMS_CLANG_RAW_WASM)
 
 text/unicode-17-lowercase.wasm: text/lib/unicode-17-lowercase-tables.zig text/lib/utf8.zig
 text/unicode-17-uppercase.wasm: text/lib/unicode-17-uppercase-tables.zig text/lib/utf8.zig
+text/unicode-17-normalize-nfc.wasm: ZIG_WASM_FLAGS += -mcpu=generic+bulk_memory
+text/unicode-17-normalize-nfc.wasm: text/lib/unicode-17-nfc-singletons.zig
 text/iso-4217-alpha-to-numeric.wasm: text/lib/iso-4217-alpha-numeric-table.zig
 
 bytes/zlib-compress-dynamic-huffman-opt.wasm: bytes/lib/deflate.zig
@@ -836,6 +859,12 @@ image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: image/png/png-to-ktx2-r8g8b8a8-srgb.zi
 
 text/html/html-to-svg-inter-paths.wasm: text/html/html-to-svg-inter-paths.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inter_regular --dep inter_bold -Mroot=$< -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
+
+text/html/autolink-https.wasm: text/html/autolink-https.c
+	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_utf8_cap -mbulk-memory -Oz -o $@
+
+text/html/html-link-extractor.wasm: text/html/html-link-extractor.c
+	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_utf8_cap -mbulk-memory -Oz -o $@
 
 define COMPONENT_C_RULE
 $(1)/%.wasm: $(1)/%.c
@@ -1013,10 +1042,14 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/html-id-validator.mjs
 	node --test test/css-expression-to-value.mjs
 	node --test test/html-adjacent.mjs
+	node --test test/html-link-extractor.mjs
+	node --test test/youtube-id-extractor.mjs
+	node --test test/shortcode-to-emoji.mjs
 	node --test test/html-to-accessibility-tree.mjs
 	node --test test/luhn.mjs
 	node --test test/unicode-17-lowercase.mjs
 	node --test test/unicode-17-uppercase-comply.mjs
+	node --test test/unicode-17-normalize-nfc.mjs
 	node --test test/unicode-17-lowercase-comply.mjs
 	node --test test/currency-format-usd-en-us-comply.mjs
 	node --test test/currency-format-en-us-comply.mjs
@@ -1122,10 +1155,15 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply bytes/crc32-hex.wasm --with compliance/crc32-hex.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/trim.wasm --with compliance/trim.comply.wasm
 	$(QIP_BIN) comply text/markdown/extract-title-text.wasm --with compliance/extract-title-text.comply.wasm
+	$(QIP_BIN) comply text/youtube-id-extractor.wasm --with compliance/youtube-id-extractor.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --with compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
 	$(QIP_BIN) comply text/utf8-must-be-ascii.wasm --with compliance/reject-non-ascii.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
 	$(QIP_BIN) comply text/unicode-17-lowercase.wasm --with compliance/unicode-17-lowercase.comply.wasm
 	$(QIP_BIN) comply text/unicode-17-uppercase.wasm --with compliance/unicode-17-uppercase.comply.wasm
+	$(QIP_BIN) comply text/unicode-17-normalize-nfc.wasm --with compliance/unicode-17-normalize-nfc.comply.wasm
 	$(QIP_BIN) comply text/currency-format-usd-en-us.wasm --with compliance/currency-format-usd-en-us.comply.wasm
 	$(QIP_BIN) comply text/currency-format-en-us.wasm --with compliance/currency-format-en-us.comply.wasm
 	$(QIP_BIN) comply text/currency-format-en-in.wasm --with compliance/currency-format-en-in.comply.wasm

@@ -1,7 +1,8 @@
 const std = @import("std");
 
 const INPUT_CAP: u32 = 0x20000;
-const OUTPUT_CAP: u32 = 0x40000;
+// The shortest shortcode is three bytes. Its emoji can use seven UTF-8 bytes.
+const OUTPUT_CAP: u32 = INPUT_CAP * 7 / 3 + 1;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -909,22 +910,26 @@ fn shortcodeRange(first: u8) struct { start: usize, end: usize } {
     };
 }
 
-fn shortcodeNameEqual(input: []const u8, name: []const u8) bool {
-    if (input.len != name.len) return false;
-    var i: usize = 0;
-    while (i < input.len) : (i += 1) {
-        if (input[i] != name[i]) return false;
-    }
-    return true;
+fn shortcodeOrder(a: []const u8, b: []const u8) std.math.Order {
+    if (a.len < b.len) return .lt;
+    if (a.len > b.len) return .gt;
+    return std.mem.order(u8, a, b);
 }
 
 fn lookupEmoji(name: []const u8) ?[]const u8 {
     if (name.len == 0) return null;
     const range = shortcodeRange(name[0]);
-    var i = range.start;
-    while (i < range.end) : (i += 1) {
-        const entry = EmojiEntries[i];
-        if (shortcodeNameEqual(name, entry.name)) return entry.emoji;
+    var low = range.start;
+    var high = range.end;
+
+    while (low < high) {
+        const middle = low + (high - low) / 2;
+        const entry = EmojiEntries[middle];
+        switch (shortcodeOrder(entry.name, name)) {
+            .eq => return entry.emoji,
+            .lt => low = middle + 1,
+            .gt => high = middle,
+        }
     }
     return null;
 }
@@ -954,8 +959,16 @@ const Writer = struct {
     }
 };
 
-fn isShortcodeChar(ch: u8) bool {
-    return std.ascii.isAlphanumeric(ch) or ch == '_' or ch == '+' or ch == '-';
+const shortcode_chars: [256]u8 = blk: {
+    var table = [_]u8{0} ** 256;
+    for ("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_+-") |ch| {
+        table[ch] = 1;
+    }
+    break :blk table;
+};
+
+inline fn isShortcodeChar(ch: u8) bool {
+    return shortcode_chars[ch] != 0;
 }
 
 fn renderImpl(input_size: u32) u32 {
@@ -963,25 +976,25 @@ fn renderImpl(input_size: u32) u32 {
     var w = Writer.init(output_buf[0..]);
     var i: usize = 0;
     while (i < input.len) {
-        if (input[i] == ':') {
-            const start = i;
-            i += 1;
-            var j = i;
-            while (j < input.len and isShortcodeChar(input[j])) : (j += 1) {}
-            if (j < input.len and input[j] == ':' and j > i) {
-                const name = input[i..j];
-                if (lookupEmoji(name)) |emoji| {
-                    w.writeSlice(emoji);
-                    i = j + 1;
-                    continue;
-                }
+        const colon = std.mem.indexOfScalarPos(u8, input, i, ':') orelse {
+            w.writeSlice(input[i..]);
+            break;
+        };
+        if (colon > i) w.writeSlice(input[i..colon]);
+
+        const name_start = colon + 1;
+        var name_end = name_start;
+        while (name_end < input.len and isShortcodeChar(input[name_end])) : (name_end += 1) {}
+        if (name_end < input.len and input[name_end] == ':' and name_end > name_start) {
+            if (lookupEmoji(input[name_start..name_end])) |emoji| {
+                w.writeSlice(emoji);
+                i = name_end + 1;
+                continue;
             }
-            w.writeByte(':');
-            i = start + 1;
-            continue;
         }
-        w.writeByte(input[i]);
-        i += 1;
+
+        w.writeByte(':');
+        i = name_start;
     }
     return @as(u32, @intCast(w.idx));
 }
@@ -1017,6 +1030,36 @@ test "custom emoji remains" {
     const input = "Ship :octocat:";
     const written = runString(input, out[0..]);
     try std.testing.expectEqualStrings("Ship :octocat:", out[0..written]);
+}
+
+test "the maximum input can expand without exhausting output" {
+    var input_len: usize = 0;
+    while (input_len + 3 <= input_buf.len) : (input_len += 3) {
+        @memcpy(input_buf[input_len..][0..3], ":a:");
+    }
+    @memset(input_buf[input_len..], 'x');
+
+    const written = renderImpl(input_buf.len);
+    const expected = (input_len / 3) * "🅰️".len + (input_buf.len - input_len);
+    try std.testing.expectEqual(@as(u32, @intCast(expected)), written);
+    try std.testing.expect(written <= output_buf.len);
+}
+
+test "emoji entries fit the output bound and can all be found" {
+    for (EmojiEntries) |entry| {
+        try std.testing.expect(entry.emoji.len * 3 <= (entry.name.len + 2) * 7);
+        try std.testing.expectEqualStrings(entry.emoji, lookupEmoji(entry.name) orelse return error.MissingEmoji);
+    }
+
+    for (EmojiEntries[1..], 1..) |entry, i| {
+        const previous = EmojiEntries[i - 1];
+        if (previous.name[0] != entry.name[0]) continue;
+
+        try std.testing.expect(previous.name.len <= entry.name.len);
+        if (previous.name.len == entry.name.len) {
+            try std.testing.expect(!std.mem.lessThan(u8, entry.name, previous.name));
+        }
+    }
 }
 
 fn runString(input: []const u8, out: []u8) usize {

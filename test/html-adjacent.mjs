@@ -51,6 +51,23 @@ test("autolink-https respects HTML literal contexts and URL punctuation", async 
   assert.equal(render(exports, literal), literal);
 });
 
+test("autolink-https accepts its worst-case expansion at full capacity", async () => {
+  const exports = await load("text/html/autolink-https.wasm");
+  const inputCapacity = readI32Export(exports, "input_utf8_cap");
+  const shortUrl = "https://x";
+  const link = `<a href="${shortUrl}">${shortUrl}</a>`;
+  const urlCount = Math.floor((inputCapacity + 1) / (shortUrl.length + 1));
+  const prefix = `${shortUrl} `.repeat(urlCount - 1);
+  const finalUrl = shortUrl + "x".repeat(inputCapacity - prefix.length - shortUrl.length);
+  const input = prefix + finalUrl;
+  const expected = `${link} `.repeat(urlCount - 1) +
+    `<a href="${finalUrl}">${finalUrl}</a>`;
+
+  assert.equal(input.length, inputCapacity);
+  assert.equal(expected.length, readI32Export(exports, "output_utf8_cap"));
+  assert.equal(render(exports, input), expected);
+});
+
 test("html-wcag-contrast-aa uses the document cascade and HTML void elements", async () => {
   const exports = await load("text/html/html-wcag-contrast-aa.wasm");
   const pass = '<p id="message" class="muted">Readable</p><style>#message{color:#111}.muted{color:#aaa;background:#fff}</style>';
