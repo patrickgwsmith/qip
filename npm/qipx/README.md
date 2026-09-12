@@ -51,7 +51,9 @@ npx @qip.dev/qipx qip.dev tui \
 ```
 
 Press `s` or ↓ to step into the next instruction, Space to continue, and
-`Ctrl-C` to leave the debugger.
+`Ctrl-C` to leave the debugger. Press `b s` to stop before the next SIMD
+instruction. Press `b m w` to stop before the next instruction that writes
+linear memory.
 
 Multiple components run left to right. Hosts apply to every missing component
 in the pipeline:

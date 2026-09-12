@@ -64,6 +64,8 @@ npx @qip.dev/qipx qip.dev tui \
 ```
 
 Press ↓ to step instruction by instruction seeing state of memory and every variable. Press Space to continue to completion and `Ctrl-C` to exit.
+Press `b s` to stop before the next SIMD instruction. Press `b m w` to stop
+before the next instruction that writes linear memory.
 
 Multiple components run left to right like a unix pipeline:
 

@@ -10,6 +10,9 @@ Benchmarking is not a substitute for a correctness test. Keep a deterministic
 test fixture and expected output first; then time the exact artifact that passed
 that test.
 
+See [Empirical Component Optimization](/docs/empirical-optimization) for the
+full correctness, inspection, hypothesis, measurement, and iteration loop.
+
 ## The Default: `qip bench`
 
 Build once, then run the benchmark without another build or test process in

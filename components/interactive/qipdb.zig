@@ -87,6 +87,7 @@ var memory_view_bytes: usize = MEMORY_VIEW_BYTES;
 var memory_address_entry = false;
 var memory_address_value: u32 = 0;
 var memory_address_digits: u8 = 0;
+var breakpoint_entry: BreakpointEntry = .none;
 var help_visible = false;
 var host_input_stop_visible = false;
 var step_replay_available = false;
@@ -107,6 +108,8 @@ var variable_format: VariableFormat = .hex;
 
 const Phase = enum { initializing, ready, updating };
 const VariableFormat = enum { hex, decimal, ascii };
+const BreakpointEntry = enum { none, condition, memory };
+const BreakpointKind = enum { simd, memory_write };
 
 const MultipartError = error{
     InvalidBoundary,
@@ -347,6 +350,18 @@ export fn key_event(x11_key: i32, flags: i32) i32 {
         return 1;
     }
     if ((flags & (FLAG_CTRL | FLAG_ALT | FLAG_META)) != 0) return 0;
+    if (breakpoint_entry != .none) {
+        const breakpoint = breakpointForKey(x11_key) orelse return 1;
+        const accesses_before = machine.counters.memory_reads + machine.counters.memory_writes;
+        continueToBreakpoint(breakpoint, instruction_budget);
+        output_digest_valid = false;
+        const following_output = followCompletedOutput();
+        const following_store = !following_output and followCurrentStoreTarget();
+        if (!following_output and !following_store and machine.counters.memory_reads + machine.counters.memory_writes != accesses_before) {
+            followLastMemoryAccess();
+        }
+        return 1;
+    }
     if (x11_key == '?') {
         help_visible = !help_visible;
         return 1;
@@ -373,13 +388,17 @@ export fn key_event(x11_key: i32, flags: i32) i32 {
     }
 
     if (machine.status == .halted or machine.status == .trapped) switch (x11_key) {
-        XK_F5, XK_F10, XK_F11, XK_DOWN, ' ', 'c', 'C', 'n', 'N', 's', 'S', 'f', 'F' => return 1,
+        XK_F5, XK_F10, XK_F11, XK_DOWN, ' ', 'b', 'B', 'c', 'C', 'n', 'N', 's', 'S', 'f', 'F' => return 1,
         else => {},
     };
 
     const accesses_before = machine.counters.memory_reads + machine.counters.memory_writes;
     var execution_command = false;
     switch (x11_key) {
+        'b', 'B' => {
+            breakpoint_entry = .condition;
+            return 1;
+        },
         XK_F5, ' ', 'c', 'C' => {
             execution_command = true;
             continueExecution(instruction_budget);
@@ -441,6 +460,7 @@ export fn key_event(x11_key: i32, flags: i32) i32 {
             step_replay_target = std.math.maxInt(u32);
             clearRecentValueWrite();
             output_digest_valid = false;
+            breakpoint_entry = .none;
         },
         else => return 0,
     }
@@ -451,6 +471,33 @@ export fn key_event(x11_key: i32, flags: i32) i32 {
         followLastMemoryAccess();
     }
     return 1;
+}
+
+fn breakpointForKey(x11_key: i32) ?BreakpointKind {
+    if (x11_key == XK_ESCAPE) {
+        breakpoint_entry = .none;
+        return null;
+    }
+    return switch (breakpoint_entry) {
+        .none => null,
+        .condition => switch (x11_key) {
+            's', 'S' => finishBreakpointEntry(.simd),
+            'm', 'M' => blk: {
+                breakpoint_entry = .memory;
+                break :blk null;
+            },
+            else => null,
+        },
+        .memory => switch (x11_key) {
+            'w', 'W' => finishBreakpointEntry(.memory_write),
+            else => null,
+        },
+    };
+}
+
+fn finishBreakpointEntry(kind: BreakpointKind) BreakpointKind {
+    breakpoint_entry = .none;
+    return kind;
 }
 
 fn stepInto() void {
@@ -486,6 +533,52 @@ fn continueExecution(budget: u32) void {
     step_replay_available = true;
     step_replay_count = @intCast(machine.counters.instructions);
     step_replay_target = machine.last_executed_instruction;
+}
+
+fn continueToBreakpoint(kind: BreakpointKind, budget: u32) void {
+    const was_at_host_input = atHostInputStop();
+    host_input_stop_visible = false;
+    const can_replay = step_replay_available and step_replay_count == machine.counters.instructions;
+    const instructions_before = machine.counters.instructions;
+    clearRecentValueWrite();
+    last_command_budget = budget;
+    machine.budget_exhausted = false;
+
+    var executed: u32 = 0;
+    if (!was_at_host_input and machine.status == .ready) {
+        _ = machine.step();
+        executed = 1;
+    }
+    while (machine.status == .ready and !currentMatchesBreakpoint(kind)) {
+        if (executed >= budget) {
+            machine.budget_exhausted = true;
+            break;
+        }
+        _ = machine.step();
+        executed += 1;
+    }
+
+    if (!can_replay or machine.counters.instructions == instructions_before or machine.counters.instructions > REPLAY_INSTRUCTION_CAP) {
+        disableStepReplay();
+        return;
+    }
+    step_replay_available = true;
+    step_replay_count = @intCast(machine.counters.instructions);
+    step_replay_target = machine.last_executed_instruction;
+}
+
+fn currentMatchesBreakpoint(kind: BreakpointKind) bool {
+    const instruction = machine.current() orelse return false;
+    return switch (kind) {
+        .simd => instruction.op == 0xfd,
+        .memory_write => isMemoryWriteInstruction(instruction),
+    };
+}
+
+fn isMemoryWriteInstruction(instruction: interpreter.Instruction) bool {
+    if (instruction.op >= 0x36 and instruction.op <= 0x3e) return true;
+    if (instruction.op == 0xfc) return instruction.immediate == 10 or instruction.immediate == 11;
+    return instruction.op == 0xfd and interpreter.simdSubopcode(instruction) == 11;
 }
 
 fn finishFrame(budget: u32) void {
@@ -746,6 +839,7 @@ export fn render(input_size: u32) packed struct(u64) {
         memory_address_entry = false;
         memory_address_value = 0;
         memory_address_digits = 0;
+        breakpoint_entry = .none;
         help_visible = false;
         host_input_stop_visible = false;
         counters_expanded = false;
@@ -1138,6 +1232,8 @@ fn renderText() usize {
 
     renderCounters(&out, load_error == null);
 
+    if (breakpoint_entry != .none) renderBreakpointPrompt(&out);
+
     if (help_visible) {
         renderHelp(&out);
         out.text("\n");
@@ -1199,6 +1295,22 @@ fn renderText() usize {
     }
 
     return out.offset;
+}
+
+fn renderBreakpointPrompt(out: *Writer) void {
+    out.styled(SGR_BOLD, if (breakpoint_entry == .memory) "BREAK MEMORY" else "BREAK");
+    out.text("  ");
+    if (breakpoint_entry == .memory) {
+        out.styled(SGR_CONTROL_KEY, "W");
+        out.text(" next write  ");
+    } else {
+        out.styled(SGR_CONTROL_KEY, "S");
+        out.text(" next SIMD  ");
+        out.styled(SGR_CONTROL_KEY, "M");
+        out.text(" memory  ");
+    }
+    out.styled(SGR_CONTROL_KEY, "Esc");
+    out.text(" cancel\n");
 }
 
 fn renderMemorySize(out: *Writer, byte_count: usize) void {
@@ -1454,6 +1566,11 @@ fn renderHelp(out: *Writer) void {
     out.text(" restart        ");
     out.styled(SGR_CONTROL_KEY, "I");
     out.text(" counters\n");
+    out.text("    ");
+    out.styled(SGR_CONTROL_KEY, "B S");
+    out.text(" next SIMD      ");
+    out.styled(SGR_CONTROL_KEY, "B M W");
+    out.text(" next memory write\n");
     out.text("  MEMORY\n");
     out.text("    ");
     out.styled(SGR_CONTROL_KEY, "M");
@@ -3274,6 +3391,17 @@ test "uses a taller viewport for more instruction lines" {
 
 test "measures styled lines without a fixed line-count limit" {
     try std.testing.expectEqual(@as(usize, 5), visibleTextWidth("\x1b[1mAé中\x1b[0mBC"));
+}
+
+test "identifies instructions that write linear memory" {
+    const base = interpreter.Instruction{ .op = 0x01, .function_index = 0, .byte_offset = 0 };
+    try std.testing.expect(isMemoryWriteInstruction(.{ .op = 0x36, .function_index = 0, .byte_offset = 0 }));
+    try std.testing.expect(isMemoryWriteInstruction(.{ .op = 0xfc, .function_index = 0, .byte_offset = 0, .immediate = 10 }));
+    try std.testing.expect(isMemoryWriteInstruction(.{ .op = 0xfc, .function_index = 0, .byte_offset = 0, .immediate = 11 }));
+    try std.testing.expect(isMemoryWriteInstruction(.{ .op = 0xfd, .function_index = 0, .byte_offset = 0, .immediate = 11 }));
+    try std.testing.expect(!isMemoryWriteInstruction(.{ .op = 0x21, .function_index = 0, .byte_offset = 0 }));
+    try std.testing.expect(!isMemoryWriteInstruction(.{ .op = 0xfc, .function_index = 0, .byte_offset = 0, .immediate = 12 }));
+    try std.testing.expect(!isMemoryWriteInstruction(base));
 }
 
 test "assigns opcode colors by instruction family" {

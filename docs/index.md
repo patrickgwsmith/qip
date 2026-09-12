@@ -132,6 +132,10 @@ Server Component and Client Component example.
 <li><a href="/docs/zig-components">Writing QIP Components In Zig</a></li>
 <li><a href="/docs/c-wasm-toolchains">Building C Libraries As QIP Components</a></li>
 <li><a href="/docs/benchmarking-components">Benchmarking Components</a></li>
+<li><a href="/docs/empirical-optimization">Empirical Component Optimization</a></li>
+<li><a href="/docs/optimizing-autolink-https-with-qipdb">Optimizing autolink-https With qipdb</a></li>
+<li><a href="/docs/optimizing-zero-copy-candidates">Optimizing Two Zero-Copy Candidates</a></li>
+<li><a href="/docs/optimizing-html-link-extractor-with-qipdb">Optimizing HTML Link Extraction With qipdb</a></li>
 <li><a href="/docs/tracing">Tracing</a></li>
 <li><a href="/docs/qip-content-interpreter">Running A Content Component In The QIP Interpreter</a></li>
 <li><a href="/docs/wasm-counts">Counting A WebAssembly Module</a></li>
