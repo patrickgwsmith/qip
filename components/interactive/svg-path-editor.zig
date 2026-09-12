@@ -119,7 +119,10 @@ var marquee_end: Point = .{};
 var draft_path: i32 = -1;
 var editing = true;
 
-const svg_mime = "image/svg+xml";
+// Keep separate arrays. The optimizer can merge equal constants and replace
+// one metadata function with a call. Static hosts require a direct pointer.
+var input_svg_mime = "image/svg+xml".*;
+var output_svg_mime = "image/svg+xml".*;
 export fn input_ptr() i32 {
     return @intCast(@intFromPtr(&input_buf));
 }
@@ -133,16 +136,16 @@ export fn failure_modes_per_input_offset() i32 {
     return 3;
 }
 export fn input_content_type_ptr() i32 {
-    return @intCast(@intFromPtr(svg_mime.ptr));
+    return @intCast(@intFromPtr(&input_svg_mime));
 }
 export fn input_content_type_size() i32 {
-    return svg_mime.len;
+    return input_svg_mime.len;
 }
 export fn output_content_type_ptr() i32 {
-    return @intCast(@intFromPtr(svg_mime.ptr));
+    return @intCast(@intFromPtr(&output_svg_mime));
 }
 export fn output_content_type_size() i32 {
-    return svg_mime.len;
+    return output_svg_mime.len;
 }
 export fn uniform_set_editing(value: u32) u32 {
     editing = value != 0;

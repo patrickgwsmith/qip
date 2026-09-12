@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { wasmMustComplyWithComponentContract } from "../npm/qipx/qipx.mjs";
 
 const moduleBytes = await readFile("components/interactive/svg-path-editor.wasm");
+
+test("SVG editor metadata functions are static", () => {
+  assert.doesNotThrow(() => wasmMustComplyWithComponentContract(moduleBytes));
+});
 
 function instance() {
   return new WebAssembly.Instance(new WebAssembly.Module(moduleBytes), {}).exports;
