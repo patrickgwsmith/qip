@@ -257,6 +257,8 @@ main:has(> nav:first-child + article) > article {
 main:has(> nav:first-child + article) > nav:first-child {
     position: sticky;
     top: 1lh;
+    max-height: calc(100dvh - 2lh);
+    overflow-y: auto;
     font-size: 0.875rem;
 
     ol {
@@ -300,6 +302,8 @@ main:has(> nav:first-child + article) > nav:first-child {
     }
     main:has(> nav:first-child + article) > nav:first-child {
         position: static;
+        max-height: none;
+        overflow-y: visible;
     }
 }
 
