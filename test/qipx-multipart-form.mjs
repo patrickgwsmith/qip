@@ -128,7 +128,7 @@ test("TUI commands reserve stdin and reject <-", () => {
     ["./qip", ["tui"]],
     [process.execPath, ["npm/qipx/cli.mjs", "tui"]],
   ]) {
-    const result = run(command, [...prefix, "-F", "input=<-", "components/interactive/qipdb.wasm"], "hello");
+    const result = run(command, [...prefix, "-F", "input=<-", "tui/qipdb.wasm"], "hello");
     assert.notEqual(result.status, 0);
     assert.match(result.stderr.toString(), /cannot use -F name=@- or name=<- because stdin carries terminal events/);
   }

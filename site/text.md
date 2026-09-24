@@ -154,4 +154,4 @@ Related tool: [component recipe finder](/recipes).
 - [`hello.wasm`](/text/hello.wasm), [`hello-naive.wasm`](/text/hello-naive.wasm), [`hello-c.wasm`](/text/hello-c.wasm), [`hello-zig.wasm`](/text/hello-zig.wasm), [`hello-odin.wasm`](/text/hello-odin.wasm), and [`hello-assemblyscript.wasm`](/text/hello-assemblyscript.wasm) are equivalent small components for implementation and benchmark comparisons.
 - [`infinite-loop.wasm`](/text/infinite-loop.wasm) is an intentional non-terminating test fixture for host execution limits. Do not use it in a content pipeline.
 
-Looking for raster formats instead? See the [image content components](/image).
+Looking for other components? See [image](/image), [TUI](/tui), and [GUI](/gui).

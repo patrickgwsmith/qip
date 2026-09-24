@@ -6,5 +6,5 @@ Hover easing and icon bounces advance in Timed updates. An update can finish
 without replacing the last published KTX2 frame.
 
 <qip-play debug canvas-width="900px" canvas-height="auto">
-  <source src="/interactive/dock-magnification.wasm" type="application/wasm" />
+  <source src="/gui/dock-magnification.wasm" type="application/wasm" />
 </qip-play>

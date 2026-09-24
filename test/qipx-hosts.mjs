@@ -10,7 +10,7 @@ import { main } from "../npm/qipx/cli.mjs";
 const repository = join(dirname(fileURLToPath(import.meta.url)), "..");
 const trimWasm = await readFile(join(repository, "text/trim.wasm"));
 const identityWasm = await readFile(join(repository, "bytes/identity.wasm"));
-const debuggerWasm = await readFile(join(repository, "components/interactive/qipdb.wasm"));
+const debuggerWasm = await readFile(join(repository, "tui/qipdb.wasm"));
 const validUTF8Wasm = await readFile(join(repository, "text/utf8-must-be-valid.wasm"));
 const rejectInvalidUTF8Wasm = await readFile(join(repository, "compliance/reject-invalid-utf8.wasm"));
 

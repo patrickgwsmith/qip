@@ -11,7 +11,7 @@ const specs = [
 ];
 
 const modules = Object.fromEntries(
-  await Promise.all(specs.map(async ([name]) => [name, await readFile(`components/interactive/${name}.wasm`)])),
+  await Promise.all(specs.map(async ([name]) => [name, await readFile(`gui/${name}.wasm`)])),
 );
 
 function instantiate(bytes) {

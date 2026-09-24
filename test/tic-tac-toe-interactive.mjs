@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const wasm = await readFile("components/interactive/tic-tac-toe-sun-moon.wasm");
+const wasm = await readFile("gui/tic-tac-toe-sun-moon.wasm");
 
 function instantiate() {
   return new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;

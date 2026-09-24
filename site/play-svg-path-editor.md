@@ -11,5 +11,5 @@ This increment does not edit quadratic (`Q`, `T`) or arc (`A`) commands. It pres
 
 <qip-play aria-label="SVG path editor" canvas-width="min(100%, 800px)">
   <source name="input" src="/example.svg" type="image/svg+xml">
-  <source src="/interactive/svg-path-editor.wasm" type="application/wasm">
+  <source src="/gui/svg-path-editor.wasm" type="application/wasm">
 </qip-play>

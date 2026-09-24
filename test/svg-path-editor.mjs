@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { wasmMustComplyWithComponentContract } from "../npm/qipx/qipx.mjs";
 
-const moduleBytes = await readFile("components/interactive/svg-path-editor.wasm");
+const moduleBytes = await readFile("gui/svg-path-editor.wasm");
 
 test("SVG editor metadata functions are static", () => {
   assert.doesNotThrow(() => wasmMustComplyWithComponentContract(moduleBytes));

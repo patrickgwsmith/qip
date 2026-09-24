@@ -95,7 +95,7 @@ function tracedExports(actual, lines) {
 }
 
 function makeElement(component, lines) {
-  const wasm = readFileSync(`components/interactive/${component}.wasm`);
+  const wasm = readFileSync(`gui/${component}.wasm`);
   const actual = new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;
   const element = new QIPPlayElement();
   element._exports = tracedExports(actual, lines);

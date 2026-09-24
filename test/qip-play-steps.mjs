@@ -51,7 +51,7 @@ function instantiate(path) {
 }
 
 test("qip-step groups ordered stages while sources remain alternatives", () => {
-  const primary = node("source", { src: "/interactive/macintosh-1bit.wasm", type: "application/wasm" });
+  const primary = node("source", { src: "/gui/macintosh-1bit.wasm", type: "application/wasm" });
   const ignored = node("source", { src: "/unsupported", type: "application/example" });
   const effect = node("source", { src: "/image/duotone.wasm", type: "application/wasm" });
   const play = node("qip-play", {}, [
@@ -70,7 +70,7 @@ test("qip-step groups ordered stages while sources remain alternatives", () => {
 
 test("a named data source is not mistaken for a direct Wasm stage", () => {
   const input = node("source", { name: "input", src: "/example.svg", type: "image/svg+xml" });
-  const wasm = node("source", { src: "/interactive/svg-path-editor.wasm", type: "application/wasm" });
+  const wasm = node("source", { src: "/gui/svg-path-editor.wasm", type: "application/wasm" });
   const steps = qipPlaySourceSteps(node("qip-play", {}, [input, wasm]));
   assert.equal(steps.length, 1);
   assert.equal(steps[0].sourceElement, wasm);
@@ -134,9 +134,9 @@ test("post-step alternatives require identical exact content types", () => {
 });
 
 test("a post step uses the first source whose render accepts the frame", () => {
-  const primaryModule = instantiate("components/interactive/macintosh-1bit.wasm");
+  const primaryModule = instantiate("gui/macintosh-1bit.wasm");
   const effectModule = instantiate("image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
-  const primarySource = node("source", { src: "/interactive/macintosh-1bit.wasm" });
+  const primarySource = node("source", { src: "/gui/macintosh-1bit.wasm" });
   const rejectedSource = node("source", { src: "/image/reject.wasm" });
   const acceptedSource = node("source", { src: "/image/duotone.wasm" });
   const rejectedMemory = new WebAssembly.Memory({ initial: 64 });
@@ -210,7 +210,7 @@ test("a post step uses the first source whose render accepts the frame", () => {
 });
 
 test("finite post-processing runs after the Interactive render and reports each step", () => {
-  const primaryModule = instantiate("components/interactive/macintosh-1bit.wasm");
+  const primaryModule = instantiate("gui/macintosh-1bit.wasm");
   const effectModule = instantiate("image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm");
   const primarySource = node("source");
   const effectSource = node("source");

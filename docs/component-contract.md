@@ -33,7 +33,7 @@ Timed              Content + begin_update_at + finish_update
 Eventful           Timed + key, pointer, or other events
 ```
 
-For example, `components/interactive/gif-player.wasm` begins as fallible
+For example, `gui/gif-player.wasm` begins as fallible
 Content. A Content host can supply a GIF and receive its first KTX2 frame. A
 Timed host can then select later frames at their deadlines. The player has no
 event exports because playback needs no keyboard or pointer input.

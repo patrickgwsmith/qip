@@ -13,7 +13,7 @@ Controls:
 - `I`: invert
 
 <qip-play>
-  <source src="/interactive/paint.wasm" type="application/wasm" />
+  <source src="/gui/paint.wasm" type="application/wasm" />
 </qip-play>
 
 Each update changes the bitmap, undo buffer, tool, and drag state together.

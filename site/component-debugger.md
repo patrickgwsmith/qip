@@ -133,7 +133,7 @@ console logging add some overhead, so compare several keypresses.
 <script type="module">
 import "/elements/qip-tui.js";
 import { parseCSV } from "/elements/qip-search.js";
-const debuggerModuleBytesPromise = fetch("/interactive/qipdb.wasm").then(async (response) => {
+const debuggerModuleBytesPromise = fetch("/tui/qipdb.wasm").then(async (response) => {
   if (!response.ok) throw Error("Could not fetch debugger: HTTP " + response.status);
   return new Uint8Array(await response.arrayBuffer());
 });
@@ -510,5 +510,5 @@ table with up to 4,096 entries. It supports active function-index element
 segments and typed `call_indirect`, but not table mutation. An unsupported
 component shows the reason in the debugger screen.
 
-Download: <a href="/interactive/qipdb.wasm" download>qipdb.wasm</a>
-(<qip-content-size src="/interactive/qipdb.wasm"></qip-content-size>).
+Download: <a href="/tui/qipdb.wasm" download>qipdb.wasm</a>
+(<qip-content-size src="/tui/qipdb.wasm"></qip-content-size>).

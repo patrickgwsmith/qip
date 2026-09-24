@@ -241,7 +241,7 @@ These checks run after the module bytes are fetched and before `WebAssembly.comp
 
 ```html
 <qip-play>
-  <source src="/interactive/snake.wasm" type="application/wasm" />
+  <source src="/gui/snake.wasm" type="application/wasm" />
 </qip-play>
 ```
 
@@ -252,7 +252,7 @@ post-processing components:
 ```html
 <qip-play debug>
   <qip-step name="desktop">
-    <source src="/interactive/macintosh-1bit.wasm" type="application/wasm" />
+    <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
   </qip-step>
   <qip-step name="duotone">
     <source src="/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm"
@@ -329,7 +329,7 @@ does not instantiate the component again.
 
 ```html
 <qip-tui aria-label="Calendar" height="28rem">
-  <source src="/interactive/calendar-gregorian.wasm" type="application/wasm" />
+  <source src="/tui/calendar-gregorian.wasm" type="application/wasm" />
 </qip-tui>
 ```
 

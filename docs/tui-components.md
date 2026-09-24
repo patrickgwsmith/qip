@@ -18,7 +18,7 @@ and `uniform_set_lines` when present. Resizing redraws retained state. The
 Run the calendar with no input or options:
 
 ```sh
-qipx tui components/interactive/calendar-gregorian.wasm
+qipx tui tui/calendar-gregorian.wasm
 ```
 
 Press Up for the previous month and Down for the next month. Press `Ctrl-C` to
@@ -52,7 +52,7 @@ For example, the component debugger needs a Wasm component and its input:
 qipx tui \
   -F component=@text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Component hosts can precede the command and provide missing components:
@@ -60,7 +60,7 @@ Component hosts can precede the command and provide missing components:
 ```sh
 qipx qip.dev tui \
   -F component=@text/wc.wasm \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 The first stage must implement the TUI contract. Later stages must be ordinary
@@ -69,7 +69,7 @@ Content components. They transform every rendered frame from left to right:
 ```sh
 qipx tui \
   -F component=@text/wc.wasm \
-  components/interactive/qipdb.wasm \
+  tui/qipdb.wasm \
   text/strip-ansi-sgr.wasm
 ```
 

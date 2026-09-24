@@ -227,14 +227,13 @@ but it does not require that integration method.
 
 ## Examples
 
-- `calculator.zig` updates only when it receives keyboard or pointer events.
-- `snake.zig` combines events with scheduled fixed steps.
-- `gif-player.zig` schedules frames but exports no event functions.
-- `qipdb.zig` renders text instead of pixels.
+- `gui/calculator.zig` updates only when it receives keyboard or pointer events.
+- `gui/snake.zig` combines events with scheduled fixed steps.
+- `gui/gif-player.zig` schedules frames but exports no event functions.
+- `tui/qipdb.zig` renders text instead of pixels.
 
-These components are in `components/interactive/`; the directory name is
-historical. GUI and terminal hosts use the same update contract even though
-they present different output formats.
+GUI and terminal hosts use the same update contract even though they present
+different output formats. The component paths are under `gui/` and `tui/`.
 
 ## Limits
 

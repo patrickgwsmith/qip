@@ -8,7 +8,7 @@ const modules = Object.fromEntries(
   await Promise.all(
     ["formula-1-map", "page-load-waterfall"].map(async (name) => [
       name,
-      await readFile(`components/interactive/${name}.wasm`),
+      await readFile(`gui/${name}.wasm`),
     ]),
   ),
 );

@@ -7,7 +7,7 @@ import test from "node:test";
 const width = 512;
 const height = 342;
 const pixelCount = width * height;
-const wasm = await readFile("components/interactive/macintosh-1bit.wasm");
+const wasm = await readFile("gui/macintosh-1bit.wasm");
 
 function instantiate() {
   return new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;

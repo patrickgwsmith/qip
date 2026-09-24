@@ -8,7 +8,7 @@ Topic and scenario selections are retained as component state. The component
 has no animation wake and publishes a new KTX2 frame only from `render`.
 
 <qip-play>
-  <source src="/interactive/web-mechanics.wasm" type="application/wasm" />
+  <source src="/gui/web-mechanics.wasm" type="application/wasm" />
 </qip-play>
 
 ## What to notice

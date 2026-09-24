@@ -17,5 +17,5 @@ Controls:
 - `Enter` restarts after game over
 
 <qip-play>
-  <source src="/interactive/vertical-shooter.wasm" type="application/wasm" />
+  <source src="/gui/vertical-shooter.wasm" type="application/wasm" />
 </qip-play>

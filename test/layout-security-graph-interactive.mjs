@@ -8,7 +8,7 @@ const wasm = Object.fromEntries(
   await Promise.all(
     ["layout-systems", "browser-security", "graph-calculator"].map(async (name) => [
       name,
-      await readFile(`components/interactive/${name}.wasm`),
+      await readFile(`gui/${name}.wasm`),
     ]),
   ),
 );

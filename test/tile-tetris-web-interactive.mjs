@@ -8,7 +8,7 @@ const wasm = Object.fromEntries(
   await Promise.all(
     ["tile-world-12x12", "tetris", "web-mechanics"].map(async (name) => [
       name,
-      await readFile(`components/interactive/${name}.wasm`),
+      await readFile(`gui/${name}.wasm`),
     ]),
   ),
 );

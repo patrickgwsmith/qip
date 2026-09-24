@@ -6,7 +6,7 @@ Straight port (line-for-line GLSL translation, libm `pow`/`atan2`):
 
 <qip-play canvas-width="640px" canvas-height="360px">
   <source
-    src="/interactive/god-rays.wasm"
+    src="/gui/god-rays.wasm"
     type="application/wasm"
     data-uniform-density="0.3"
     data-uniform-spotty="0.3"
@@ -41,7 +41,7 @@ Optimized port (polynomial `pow`/`atan2`, hoisted angle, saturated-mix branch sk
 
 <qip-play canvas-width="640px" canvas-height="360px">
   <source
-    src="/interactive/god-rays-optimized.wasm"
+    src="/gui/god-rays-optimized.wasm"
     type="application/wasm"
     data-uniform-density="0.3"
     data-uniform-spotty="0.3"

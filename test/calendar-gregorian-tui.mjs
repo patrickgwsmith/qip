@@ -7,7 +7,7 @@ import {
   renderedOutputPointer,
 } from "./lib/content-component-host.mjs";
 
-const wasm = await readFile("components/interactive/calendar-gregorian.wasm");
+const wasm = await readFile("tui/calendar-gregorian.wasm");
 
 function instantiate() {
   return new WebAssembly.Instance(new WebAssembly.Module(wasm)).exports;

@@ -275,8 +275,8 @@ Multipart fields: -F name=value, -F name=@path, or -F 'name=<path'.\n\
 -F name=@- and -F 'name=<-' are unavailable because stdin carries keys.\n\
 Quote arguments containing < in a shell.\n\n\
 Examples:\n\
-  qipx tui components/interactive/calendar-gregorian.wasm\n\
-  qipx tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm\n"
+  qipx tui tui/calendar-gregorian.wasm\n\
+  qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n"
 }
 
 fn bench_usage() -> &'static str {

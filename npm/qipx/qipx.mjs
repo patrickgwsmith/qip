@@ -38,8 +38,8 @@ function multipartHelp(command) {
   if (command === "run") lines.push("Dry run plans form files without reading file contents or stdin.");
   lines.push("", "Examples:");
   if (command === "tui") {
-    lines.push("  qipx tui components/interactive/calendar-gregorian.wasm");
-    lines.push("  qipx tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm");
+    lines.push("  qipx tui tui/calendar-gregorian.wasm");
+    lines.push("  qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm");
   } else if (command === "bench") {
     lines.push("  qipx bench -F 'data=<input.txt' bytes/identity.wasm");
     lines.push("  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm");

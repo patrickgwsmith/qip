@@ -137,7 +137,7 @@ test("Rust qipx reads -F name=<- from stdin without a filename", () => {
 });
 
 test("Rust qipx tui reserves stdin for keys when -F uses <-", () => {
-  const rust = run(rustCLI, ["tui", "-F", "data=<-", "components/interactive/calendar-gregorian.wasm"], "hello");
+  const rust = run(rustCLI, ["tui", "-F", "data=<-", "tui/calendar-gregorian.wasm"], "hello");
   assert.equal(rust.status, 1);
   assert.match(rust.stderr, /cannot use -F name=@- or name=<- because stdin carries terminal events/);
 });
@@ -157,7 +157,7 @@ test("Rust qipx runs a component with empty input", () => {
 });
 
 test("Rust qipx runs a true inputless generator", () => {
-  const rust = run(rustCLI, ["run", "components/interactive/calendar-gregorian.wasm"]);
+  const rust = run(rustCLI, ["run", "tui/calendar-gregorian.wasm"]);
   assert.equal(rust.status, 0, rust.stderr);
   assert.match(rust.stdout, /January 2024/);
 });
@@ -401,7 +401,7 @@ test("Rust qipx resolves and caches a missing component over verified HTTPS", { 
 });
 
 test("Rust qipx tui requires a terminal", () => {
-  const rust = run(rustCLI, ["tui", "components/interactive/calendar-gregorian.wasm"]);
+  const rust = run(rustCLI, ["tui", "tui/calendar-gregorian.wasm"]);
   assert.equal(rust.status, 1);
   assert.match(rust.stderr, /requires terminal stdin and stdout/);
 });
@@ -410,7 +410,7 @@ test("Rust qipx tui renders and handles an arrow key in a terminal", { skip: pro
   const script = `import os, pty, select, signal, sys, time
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'components/interactive/calendar-gregorian.wasm'])
+    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'tui/calendar-gregorian.wasm'])
 data = b''
 deadline = time.monotonic() + 5
 sent_down = False
@@ -502,7 +502,7 @@ test("Rust qipx tui restores the screen on SIGTERM", { skip: process.platform ==
   const script = `import os, pty, select, signal, sys, time
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'components/interactive/calendar-gregorian.wasm'])
+    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'tui/calendar-gregorian.wasm'])
 data = b''
 deadline = time.monotonic() + 5
 sent = False

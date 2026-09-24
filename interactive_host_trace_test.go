@@ -25,7 +25,7 @@ func TestGoHostDecisionsMatchSharedInteractiveTrace(t *testing.T) {
 		return fmt.Sprint(wake)
 	}
 	instantiate := func(name string) api.Module {
-		compiled := compileWasmModuleForTest(t, ctx, runtime, "components/interactive/"+name+".wasm")
+		compiled := compileWasmModuleForTest(t, ctx, runtime, "gui/"+name+".wasm")
 		t.Cleanup(func() { compiled.Close(ctx) })
 		mod, err := runtime.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().WithName("trace-"+name))
 		if err != nil {

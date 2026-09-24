@@ -14,5 +14,5 @@ can deal the next card without replacing the published KTX2 frame; the host
 renders when it needs to present the new state.
 
 <qip-play>
-  <source src="/interactive/aces-up.wasm" type="application/wasm"></source>
+  <source src="/gui/aces-up.wasm" type="application/wasm"></source>
 </qip-play>

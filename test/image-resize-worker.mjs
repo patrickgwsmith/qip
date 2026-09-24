@@ -30,7 +30,7 @@ function module(path) {
 
 function initialKTX2() {
   const exports = new WebAssembly.Instance(
-    module("components/interactive/macintosh-1bit.wasm"),
+    module("gui/macintosh-1bit.wasm"),
     {},
   ).exports;
   const size = renderSize(exports, 0);

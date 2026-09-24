@@ -18,5 +18,5 @@ Controls:
 - Mouse: click `+`/`-` and action buttons.
 
 <qip-play>
-  <source src="/interactive/liars-dice.wasm" type="application/wasm" />
+  <source src="/gui/liars-dice.wasm" type="application/wasm" />
 </qip-play>

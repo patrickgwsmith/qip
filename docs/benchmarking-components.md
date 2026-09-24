@@ -69,7 +69,7 @@ every sample:
 ./qip bench \
   -F component=@text/hello.wasm \
   -r 100 \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Use `-F name=value` for a text field, `-F name=@path` for file bytes, or
@@ -272,7 +272,7 @@ rendering:
 
 ```sh
 node tools/bench-qip-play.mjs \
-  components/interactive/dock-magnification.wasm
+  gui/dock-magnification.wasm
 ```
 
 Do not turn a Node test into a timing assertion. Use `node --test` to instantiate

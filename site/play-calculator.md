@@ -15,5 +15,5 @@ Controls:
 - `C`: clear
 
 <qip-play>
-  <source src="/interactive/calculator.wasm" type="application/wasm" />
+  <source src="/gui/calculator.wasm" type="application/wasm" />
 </qip-play>

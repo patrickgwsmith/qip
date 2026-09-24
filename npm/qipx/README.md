@@ -47,7 +47,7 @@ Then open the same component in the interactive debugger:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Press `s` or ↓ to step into the next instruction, Space to continue, and
@@ -145,7 +145,7 @@ Run a TUI component in the terminal:
 qipx tui \
   -F component=@text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 The first component is retained across key events and scheduled updates.
@@ -255,7 +255,7 @@ Use repeatable `-F` or `--form` fields to benchmark a component that accepts
 qipx bench \
   -F component=@text/hello.wasm \
   --runs 100 \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Benchmark forms use the same canonical bytes as `qipx run` and Go `qip bench`.

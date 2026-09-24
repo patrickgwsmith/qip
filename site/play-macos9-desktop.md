@@ -15,5 +15,5 @@ Controls:
 </style>
 
 <qip-play id="macos9-desktop" canvas-width="320px" canvas-height="220px">
-  <source src="/interactive/macos9-desktop.wasm" type="application/wasm" />
+  <source src="/gui/macos9-desktop.wasm" type="application/wasm" />
 </qip-play>

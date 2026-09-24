@@ -39,7 +39,7 @@ site/
     application/warc/20-check-links.wasm
   _components/
     form/contact.wasm
-    interactive/side-scroller-platformer.wasm
+    gui/side-scroller-platformer.wasm
   _elements/
     qip-edit.js
     qip-search.js

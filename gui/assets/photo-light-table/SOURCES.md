@@ -6,8 +6,8 @@ These photos are saved locally so the interactive module builds and runs offline
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
 CLANG_MODULE_CACHE_PATH=/private/tmp/qip-swift-module-cache \
 swift tools/generate-photo-light-table-assets.swift \
-  components/interactive/assets/photo-light-table/source \
-  components/interactive/assets/photo-light-table/tga \
+  gui/assets/photo-light-table/source \
+  gui/assets/photo-light-table/tga \
   256
 ```
 

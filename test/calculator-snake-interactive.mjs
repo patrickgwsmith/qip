@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const calculatorWasm = await readFile("components/interactive/calculator.wasm");
-const snakeWasm = await readFile("components/interactive/snake.wasm");
+const calculatorWasm = await readFile("gui/calculator.wasm");
+const snakeWasm = await readFile("gui/snake.wasm");
 
 function instantiate(bytes) {
   return new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports;

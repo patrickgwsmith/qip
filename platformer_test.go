@@ -14,7 +14,7 @@ func TestSideScrollerPlatformerIsWinnable(t *testing.T) {
 	runtime := wasmruntime.New(ctx)
 	defer runtime.Close(ctx)
 
-	compiled := compileWasmModuleForTest(t, ctx, runtime, "components/interactive/side-scroller-platformer.wasm")
+	compiled := compileWasmModuleForTest(t, ctx, runtime, "gui/side-scroller-platformer.wasm")
 	defer compiled.Close(ctx)
 
 	mod, err := runtime.InstantiateModule(ctx, compiled, wazero.NewModuleConfig().WithName("test-side-scroller-platformer"))

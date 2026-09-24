@@ -19,5 +19,5 @@ Data notes:
 - Share prices use Nasdaq quarter-end closes, or the previous trading day when the quarter ended on a market holiday or weekend.
 
 <qip-play canvas-width="760px" canvas-height="auto">
-  <source src="/interactive/shutterstock-earnings.wasm" type="application/wasm" />
+  <source src="/gui/shutterstock-earnings.wasm" type="application/wasm" />
 </qip-play>

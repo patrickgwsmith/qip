@@ -9,5 +9,5 @@ KTX2 frame. A host can retain pan and zoom changes while the component is
 offscreen.
 
 <qip-play canvas-width="960px" canvas-height="auto">
-  <source src="/interactive/formula-1-map.wasm" type="application/wasm" />
+  <source src="/gui/formula-1-map.wasm" type="application/wasm" />
 </qip-play>

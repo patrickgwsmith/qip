@@ -110,7 +110,7 @@ make -j \
   text/html/html-link-extractor.wasm \
   compliance/html-link-extractor.comply.wasm \
   application/wasm/wasm-counts.wasm \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 
 ./qip comply \
   text/html/html-link-extractor.wasm \
@@ -145,7 +145,7 @@ to expand the counters:
 npx @qip.dev/qipx tui \
   -F component=@text/html/html-link-extractor.wasm \
   -F input=@/tmp/html-link-extractor-label-heavy.html \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 The shipped artifact has SHA-256

@@ -11,7 +11,7 @@ function instantiate(path) {
 }
 
 function canonicalHeader() {
-  const desktop = instantiate("components/interactive/macintosh-1bit.wasm");
+  const desktop = instantiate("gui/macintosh-1bit.wasm");
   const size = renderSize(desktop, 0);
   return Uint8Array.from(new Uint8Array(
     desktop.memory.buffer,

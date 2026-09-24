@@ -5,5 +5,5 @@ them during an update, and `render` publishes the current view as KTX2.
 The component does not expose the slider values as uniforms.
 
 <qip-play canvas-width="1120px" canvas-height="auto">
-  <source src="/interactive/shadow-rendering.wasm" type="application/wasm" />
+  <source src="/gui/shadow-rendering.wasm" type="application/wasm" />
 </qip-play>

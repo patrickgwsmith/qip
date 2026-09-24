@@ -6,7 +6,7 @@ import test from "node:test";
 
 const modules = Object.fromEntries(
   await Promise.all(
-    ["aces-up", "god-rays"].map(async (name) => [name, await readFile(`components/interactive/${name}.wasm`)]),
+    ["aces-up", "god-rays"].map(async (name) => [name, await readFile(`gui/${name}.wasm`)]),
   ),
 );
 

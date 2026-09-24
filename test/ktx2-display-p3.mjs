@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const chronographWasm = await readFile("components/interactive/chronograph.wasm");
+const chronographWasm = await readFile("gui/chronograph.wasm");
 const transferWasm = await readFile(
   "image/ktx2/ktx2-rgba32float-display-p3-linear-to-ktx2-rgba32float-display-p3.wasm",
 );

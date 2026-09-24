@@ -267,7 +267,7 @@ func TestNormalizeRunArgs(t *testing.T) {
 
 func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 	in := []string{
-		"components/interactive/qipdb.wasm",
+		"tui/qipdb.wasm",
 		"-F",
 		"component=@text/hello.wasm",
 		"--form",
@@ -283,7 +283,7 @@ func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 		"input=hello",
 		"-r",
 		"3",
-		"components/interactive/qipdb.wasm",
+		"tui/qipdb.wasm",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args=%v, want %v", got, want)
@@ -874,7 +874,7 @@ func TestRunInteractiveModuleOutputsInitialContent(t *testing.T) {
 		os.Args[0],
 		"-test.run=TestHelperRunModuleCLI",
 		"--",
-		"components/interactive/tile-world-12x12.wasm",
+		"gui/tile-world-12x12.wasm",
 	)
 	cmd.Env = append(os.Environ(), "QIP_HELPER_RUN_MODULE_CLI=1")
 	var stdout bytes.Buffer

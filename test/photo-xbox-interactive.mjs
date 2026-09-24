@@ -8,7 +8,7 @@ const modules = Object.fromEntries(
   await Promise.all(
     ["photo-light-table", "xbox-dashboard"].map(async (name) => [
       name,
-      await readFile(`components/interactive/${name}.wasm`),
+      await readFile(`gui/${name}.wasm`),
     ]),
   ),
 );

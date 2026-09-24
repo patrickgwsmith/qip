@@ -12,5 +12,5 @@ canonical KTX2 image.
 - Press `Enter`, `Space`, or `R` to reset.
 
 <qip-play>
-  <source src="/interactive/tic-tac-toe-sun-moon.wasm" type="application/wasm"></source>
+  <source src="/gui/tic-tac-toe-sun-moon.wasm" type="application/wasm"></source>
 </qip-play>

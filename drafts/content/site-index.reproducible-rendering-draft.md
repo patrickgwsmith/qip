@@ -100,7 +100,7 @@ Load the exact same Markdown component in the browser with the `<qip-preview>` c
 Interactive QIP Components receive keyboard & pointer events and render out pixels.
 
 <qip-play log>
-  <source src="/components/interactive/sudoku.wasm" type="application/wasm" />
+  <source src="/gui/sudoku.wasm" type="application/wasm" />
 </qip-play>
 
 See [`/play`](/play) for more interactive examples, or [`/charts`](/charts) for chart-focused components.
@@ -132,7 +132,7 @@ site/
   index.md
   docs/router.md
   _recipes/text/markdown/10-markdown-basic.wasm
-  _components/interactive/sudoku.wasm
+  _gui/sudoku.wasm
 ```
 
 ```bash

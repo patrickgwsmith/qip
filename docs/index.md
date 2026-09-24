@@ -31,6 +31,9 @@ implementations such as Swift.
 
 ## QIP Spec
 
+Browse runnable components by kind: [text](/text), [image](/image),
+[TUI](/tui), and [GUI](/gui).
+
 If you want to send someone the current QIP spec, send them these pages:
 
 - [QIP Component Contracts](/docs/component-contract): the component types, their execution models, maturity, and how hosts distinguish them.

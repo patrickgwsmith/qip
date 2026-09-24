@@ -9,7 +9,7 @@ frame time while playback is active, and the current update time when no wake
 is needed.
 
 <qip-play>
-  <source src="/interactive/page-load-waterfall.wasm" type="application/wasm" />
+  <source src="/gui/page-load-waterfall.wasm" type="application/wasm" />
 </qip-play>
 
 ## What to notice

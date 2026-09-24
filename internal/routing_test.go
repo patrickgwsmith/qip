@@ -47,7 +47,7 @@ func TestBuildContentRoutesSkipsReservedRouterDirectories(t *testing.T) {
 	mustWrite("index.md")
 	mustWrite("_recipes/text/markdown/10-markdown.wasm")
 	mustWrite("_forms/contact.wasm")
-	mustWrite("_components/interactive/game.wasm")
+	mustWrite("_components/gui/game.wasm")
 	mustWrite("_elements/qip-edit.js")
 	mustWrite("_og/card.png")
 
@@ -57,7 +57,7 @@ func TestBuildContentRoutesSkipsReservedRouterDirectories(t *testing.T) {
 	}
 	for _, requestPath := range []string{
 		"/_recipes/text/markdown/10-markdown.wasm",
-		"/_components/interactive/game.wasm",
+		"/_components/gui/game.wasm",
 		"/_elements/qip-edit.js",
 	} {
 		if _, ok := routes[requestPath]; ok {

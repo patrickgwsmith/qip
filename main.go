@@ -383,8 +383,8 @@ func multipartHelp(command string) string {
 	text += "Quote arguments containing < in a shell.\n\nExamples:\n"
 	switch command {
 	case "tui":
-		return text + "  qip tui components/interactive/calendar-gregorian.wasm\n" +
-			"  qip tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm"
+		return text + "  qip tui tui/calendar-gregorian.wasm\n" +
+			"  qip tui -F 'component=<text/wc.wasm' tui/qipdb.wasm"
 	case "bench":
 		return text + "  qip bench -F 'data=<input.txt' bytes/identity.wasm\n" +
 			"  printf hello | qip bench -F 'data=<-' bytes/identity.wasm"

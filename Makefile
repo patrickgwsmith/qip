@@ -194,11 +194,11 @@ endif
 ZIG_TEST_FLAGS ?=
 
 CONTENT_COMPONENT_DIRS := application bytes font image multipart text
-COMPONENT_DIRS := components $(CONTENT_COMPONENT_DIRS)
+COMPONENT_DIRS := components gui tui $(CONTENT_COMPONENT_DIRS)
 
 COMPONENT_WAT_FILES := $(shell find $(COMPONENT_DIRS) -type f -name '*.wat')
 COMPONENT_C_FILES := $(shell find $(COMPONENT_DIRS) -type f -name '*.c')
-COMPONENT_ZIG_FILES := $(shell find $(COMPONENT_DIRS) \( -path 'components/interactive/assets' -o -type d -name 'lib' \) -prune -o -type f -name '*.zig' -print)
+COMPONENT_ZIG_FILES := $(shell find $(COMPONENT_DIRS) \( -path 'gui/assets' -o -type d -name 'lib' \) -prune -o -type f -name '*.zig' -print)
 
 COMPONENT_WAT_TARGETS := $(patsubst %.wat,%.wasm,$(COMPONENT_WAT_FILES))
 COMPONENT_C_TARGETS := $(patsubst %.c,%.wasm,$(COMPONENT_C_FILES))
@@ -342,13 +342,13 @@ image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: image/sv
 image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
-components/interactive/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
+tui/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 
-components/interactive/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-components/interactive/qipdb.wasm: components/interactive/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
+tui/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+tui/qipdb.wasm: tui/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
-components/interactive/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 
 application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 application/wasm/qip-content-interpreter.wasm: application/wasm/qip-content-interpreter.zig application/wasm/lib/wasm-interpreter.zig
@@ -363,26 +363,26 @@ test/fixtures/wasm-debugger-call-indirect.wasm: test/fixtures/wasm-debugger-call
 test/fixtures/qip-content-interpreter-uniforms.wasm: test/fixtures/qip-content-interpreter-uniforms.wat
 	wat2wasm $< -o $@
 
-components/interactive/cover-flow.wasm: components/interactive/cover-flow.zig image/lib/ktx2-rgba8-srgb.zig
+gui/cover-flow.wasm: gui/cover-flow.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/god-rays-optimized.wasm: components/interactive/god-rays-optimized.zig image/lib/ktx2-rgba8-srgb.zig
+gui/god-rays-optimized.wasm: gui/god-rays-optimized.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/tic-tac-toe-sun-moon.wasm: components/interactive/tic-tac-toe-sun-moon.zig image/lib/ktx2-rgba8-srgb.zig
+gui/tic-tac-toe-sun-moon.wasm: gui/tic-tac-toe-sun-moon.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/side-scroller-platformer.wasm components/interactive/spreadsheet.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
+gui/side-scroller-platformer.wasm gui/spreadsheet.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/gameboy-camera.wasm components/interactive/liars-dice.wasm components/interactive/macos9-desktop.wasm components/interactive/macosx-leopard-desktop.wasm components/interactive/org_planner.wasm components/interactive/peon-gold.wasm components/interactive/textedit.wasm components/interactive/vertical-shooter.wasm components/interactive/windows95-desktop.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
+gui/gameboy-camera.wasm gui/liars-dice.wasm gui/macos9-desktop.wasm gui/macosx-leopard-desktop.wasm gui/org_planner.wasm gui/peon-gold.wasm gui/textedit.wasm gui/vertical-shooter.wasm gui/windows95-desktop.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-components/interactive/aces-up.wasm components/interactive/browser-security.wasm components/interactive/calculator.wasm components/interactive/chronograph.wasm components/interactive/cover-flow-lofi.wasm components/interactive/dock-magnification.wasm components/interactive/formula-1-map.wasm components/interactive/gif-player.wasm components/interactive/god-rays.wasm components/interactive/graph-calculator.wasm components/interactive/ieee-754-floats.wasm components/interactive/layout-systems.wasm components/interactive/macintosh-1bit.wasm components/interactive/mandelbrot.wasm components/interactive/moon-phases.wasm components/interactive/openai-anthropic-arr.wasm components/interactive/page-load-waterfall.wasm components/interactive/paint.wasm components/interactive/perlin-noise.wasm components/interactive/photo-light-table.wasm components/interactive/ps2-menu.wasm components/interactive/render-counts.wasm components/interactive/shadow-rendering.wasm components/interactive/shutterstock-earnings.wasm components/interactive/snake.wasm components/interactive/sudoku.wasm components/interactive/tetris.wasm components/interactive/tile-world-12x12.wasm components/interactive/web-mechanics.wasm components/interactive/webos-card-view.wasm components/interactive/xbox-dashboard.wasm: components/interactive/%.wasm: components/interactive/%.zig image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter components/interactive/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter components/interactive/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
+gui/aces-up.wasm gui/browser-security.wasm gui/calculator.wasm gui/chronograph.wasm gui/cover-flow-lofi.wasm gui/dock-magnification.wasm gui/formula-1-map.wasm gui/gif-player.wasm gui/god-rays.wasm gui/graph-calculator.wasm gui/ieee-754-floats.wasm gui/layout-systems.wasm gui/macintosh-1bit.wasm gui/mandelbrot.wasm gui/moon-phases.wasm gui/openai-anthropic-arr.wasm gui/page-load-waterfall.wasm gui/paint.wasm gui/perlin-noise.wasm gui/photo-light-table.wasm gui/ps2-menu.wasm gui/render-counts.wasm gui/shadow-rendering.wasm gui/shutterstock-earnings.wasm gui/snake.wasm gui/sudoku.wasm gui/tetris.wasm gui/tile-world-12x12.wasm gui/web-mechanics.wasm gui/webos-card-view.wasm gui/xbox-dashboard.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter gui/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter gui/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
 
-components/interactive/chronograph.wasm: components/interactive/assets/inter_display_bold_chronograph_digits.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
-components/interactive/openai-anthropic-arr.wasm: components/interactive/assets/inter_display_chart_ascii.zig
+gui/chronograph.wasm: gui/assets/inter_display_bold_chronograph_digits.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+gui/openai-anthropic-arr.wasm: gui/assets/inter_display_chart_ascii.zig
 
 application/wasm/wasm-strict-profile.wasm: ZIG_WASM_MAX_MEMORY = 20971520
 application/wasm/wasm-strict-profile.wasm: application/wasm/wasm-strict-profile.zig application/wasm/lib/wasm-reader.zig
@@ -1274,7 +1274,7 @@ test-zig: $(ZIG_TEST_FILES)
 		echo "zig test $$f"; \
 		if [ "$$f" = "application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "application/pdf/pdf-extract-text.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "components/interactive/qipdb.zig" ]; then \
+		elif [ "$$f" = "tui/qipdb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
 		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
@@ -1294,13 +1294,13 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "application/zip/zip-list-entries-csv.zig" ] || [ "$$f" = "application/zip/zip-list-files-csv.zig" ] || [ "$$f" = "application/zip/zip-extract-file.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "components/interactive/liars-dice.zig" ] || [ "$$f" = "components/interactive/macos9-desktop.zig" ] || [ "$$f" = "components/interactive/macosx-leopard-desktop.zig" ] || [ "$$f" = "components/interactive/org_planner.zig" ] || [ "$$f" = "components/interactive/peon-gold.zig" ] || [ "$$f" = "components/interactive/textedit.zig" ] || [ "$$f" = "components/interactive/vertical-shooter.zig" ] || [ "$$f" = "components/interactive/windows95-desktop.zig" ]; then \
+		elif [ "$$f" = "gui/liars-dice.zig" ] || [ "$$f" = "gui/macos9-desktop.zig" ] || [ "$$f" = "gui/macosx-leopard-desktop.zig" ] || [ "$$f" = "gui/org_planner.zig" ] || [ "$$f" = "gui/peon-gold.zig" ] || [ "$$f" = "gui/textedit.zig" ] || [ "$$f" = "gui/vertical-shooter.zig" ] || [ "$$f" = "gui/windows95-desktop.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-look-warm-fade.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "components/interactive/chronograph.zig" ]; then \
+		elif [ "$$f" = "gui/chronograph.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
-		elif [ "$$f" = "components/interactive/macintosh-1bit.zig" ]; then \
+		elif [ "$$f" = "gui/macintosh-1bit.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/lib/ktx2-rgba32float-display-p3.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
@@ -1320,7 +1320,7 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float --dep ktx2_rgba32float_display_p3_linear --dep ktx2_rgba32float_display_p3 -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig --dep ktx2_rgba32float_display_p3_linear -Mktx2_rgba32float_display_p3=image/lib/ktx2-rgba32float-display-p3.zig || status=1; \
 		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-b8g8r8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_bgra8_srgb -Mroot="$$f" -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig || status=1; \
-		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "components/interactive/aces-up.zig" ] || [ "$$f" = "components/interactive/gameboy-camera.zig" ] || [ "$$f" = "components/interactive/gif-player.zig" ] || [ "$$f" = "components/interactive/god-rays-optimized.zig" ] || [ "$$f" = "components/interactive/god-rays.zig" ] || [ "$$f" = "components/interactive/tic-tac-toe-sun-moon.zig" ] || [ "$$f" = "components/interactive/browser-security.zig" ] || [ "$$f" = "components/interactive/calculator.zig" ] || [ "$$f" = "components/interactive/chronograph.zig" ] || [ "$$f" = "components/interactive/cover-flow-lofi.zig" ] || [ "$$f" = "components/interactive/dock-magnification.zig" ] || [ "$$f" = "components/interactive/formula-1-map.zig" ] || [ "$$f" = "components/interactive/graph-calculator.zig" ] || [ "$$f" = "components/interactive/ieee-754-floats.zig" ] || [ "$$f" = "components/interactive/layout-systems.zig" ] || [ "$$f" = "components/interactive/mandelbrot.zig" ] || [ "$$f" = "components/interactive/moon-phases.zig" ] || [ "$$f" = "components/interactive/openai-anthropic-arr.zig" ] || [ "$$f" = "components/interactive/page-load-waterfall.zig" ] || [ "$$f" = "components/interactive/paint.zig" ] || [ "$$f" = "components/interactive/perlin-noise.zig" ] || [ "$$f" = "components/interactive/photo-light-table.zig" ] || [ "$$f" = "components/interactive/ps2-menu.zig" ] || [ "$$f" = "components/interactive/render-counts.zig" ] || [ "$$f" = "components/interactive/shadow-rendering.zig" ] || [ "$$f" = "components/interactive/shutterstock-earnings.zig" ] || [ "$$f" = "components/interactive/side-scroller-platformer.zig" ] || [ "$$f" = "components/interactive/snake.zig" ] || [ "$$f" = "components/interactive/spreadsheet.zig" ] || [ "$$f" = "components/interactive/sudoku.zig" ] || [ "$$f" = "components/interactive/tetris.zig" ] || [ "$$f" = "components/interactive/tile-world-12x12.zig" ] || [ "$$f" = "components/interactive/web-mechanics.zig" ] || [ "$$f" = "components/interactive/webos-card-view.zig" ] || [ "$$f" = "components/interactive/xbox-dashboard.zig" ] || [ "$$f" = "components/interactive/cover-flow.zig" ]; then \
+		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "gui/aces-up.zig" ] || [ "$$f" = "gui/gameboy-camera.zig" ] || [ "$$f" = "gui/gif-player.zig" ] || [ "$$f" = "gui/god-rays-optimized.zig" ] || [ "$$f" = "gui/god-rays.zig" ] || [ "$$f" = "gui/tic-tac-toe-sun-moon.zig" ] || [ "$$f" = "gui/browser-security.zig" ] || [ "$$f" = "gui/calculator.zig" ] || [ "$$f" = "gui/chronograph.zig" ] || [ "$$f" = "gui/cover-flow-lofi.zig" ] || [ "$$f" = "gui/dock-magnification.zig" ] || [ "$$f" = "gui/formula-1-map.zig" ] || [ "$$f" = "gui/graph-calculator.zig" ] || [ "$$f" = "gui/ieee-754-floats.zig" ] || [ "$$f" = "gui/layout-systems.zig" ] || [ "$$f" = "gui/mandelbrot.zig" ] || [ "$$f" = "gui/moon-phases.zig" ] || [ "$$f" = "gui/openai-anthropic-arr.zig" ] || [ "$$f" = "gui/page-load-waterfall.zig" ] || [ "$$f" = "gui/paint.zig" ] || [ "$$f" = "gui/perlin-noise.zig" ] || [ "$$f" = "gui/photo-light-table.zig" ] || [ "$$f" = "gui/ps2-menu.zig" ] || [ "$$f" = "gui/render-counts.zig" ] || [ "$$f" = "gui/shadow-rendering.zig" ] || [ "$$f" = "gui/shutterstock-earnings.zig" ] || [ "$$f" = "gui/side-scroller-platformer.zig" ] || [ "$$f" = "gui/snake.zig" ] || [ "$$f" = "gui/spreadsheet.zig" ] || [ "$$f" = "gui/sudoku.zig" ] || [ "$$f" = "gui/tetris.zig" ] || [ "$$f" = "gui/tile-world-12x12.zig" ] || [ "$$f" = "gui/web-mechanics.zig" ] || [ "$$f" = "gui/webos-card-view.zig" ] || [ "$$f" = "gui/xbox-dashboard.zig" ] || [ "$$f" = "gui/cover-flow.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig" ] || [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \

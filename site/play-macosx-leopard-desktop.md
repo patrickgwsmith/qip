@@ -9,5 +9,5 @@ Controls:
 - `R`: reset icon positions
 
 <qip-play>
-  <source src="/interactive/macosx-leopard-desktop.wasm" type="application/wasm" />
+  <source src="/gui/macosx-leopard-desktop.wasm" type="application/wasm" />
 </qip-play>

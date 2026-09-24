@@ -10,7 +10,7 @@ let fontPath = repositoryRoot
     .path
 let outputPath = CommandLine.arguments.count > 1
     ? CommandLine.arguments[1]
-    : "components/interactive/assets/inter_display_chart_ascii.zig"
+    : "gui/assets/inter_display_chart_ascii.zig"
 
 guard let provider = CGDataProvider(url: URL(fileURLWithPath: fontPath) as CFURL),
       let cgFont = CGFont(provider) else {

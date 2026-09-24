@@ -114,7 +114,7 @@ make -j \
   text/html/autolink-https.wasm \
   compliance/autolink-https.comply.wasm \
   application/wasm/wasm-counts.wasm \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 
 ./qip comply \
   text/html/autolink-https.wasm \
@@ -145,7 +145,7 @@ Open the component and fixture in qipdb:
 npx @qip.dev/qipx tui \
   -F component=@text/html/autolink-https.wasm \
   -F input=@fixtures/autolink-https-canonical.html \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Press Space to finish execution. Press `i` to expand the counters.

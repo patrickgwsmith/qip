@@ -444,10 +444,10 @@ function usage() {
     `  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.\n` +
     `Quote arguments containing < in a shell.\n\n` +
     `Examples:\n` +
-    `  qiptui qip.dev/interactive/calendar-gregorian.wasm\n` +
-    `  qiptui -F 'component=@text/wc.wasm' components/interactive/qipdb.wasm\n` +
-    `  qiptui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm\n\n` +
-    `A leading host or a hosted path such as qip.dev/interactive/calendar-gregorian.wasm uses HTTPS.\n` +
+    `  qiptui qip.dev/tui/calendar-gregorian.wasm\n` +
+    `  qiptui -F 'component=@text/wc.wasm' tui/qipdb.wasm\n` +
+    `  qiptui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n\n` +
+    `A leading host or a hosted path such as qip.dev/tui/calendar-gregorian.wasm uses HTTPS.\n` +
     `Hosted components are downloaded into memory for each run.\n`;
 }
 

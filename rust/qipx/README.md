@@ -38,7 +38,7 @@ plan. It does not fetch components, read command input, or call `render`.
 ## Run a terminal component
 
 ```sh
-qipx tui components/interactive/calendar-gregorian.wasm
+qipx tui tui/calendar-gregorian.wasm
 ```
 
 TUI mode needs terminal stdin and stdout. It retains the first component

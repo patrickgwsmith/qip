@@ -10,7 +10,7 @@ Controls:
 - Pointer hover and click are also supported
 
 <qip-play>
-  <source src="/interactive/xbox-dashboard.wasm" type="application/wasm" />
+  <source src="/gui/xbox-dashboard.wasm" type="application/wasm" />
 </qip-play>
 
 The dashboard pulse follows update time. `finish_update` schedules the next

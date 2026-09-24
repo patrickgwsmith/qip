@@ -12,7 +12,7 @@ frame until the host renders again.
 
 <qip-play id="moon-phase-play">
   <input id="moon-phase-date" name="input" type="hidden" value="2026-05-31" />
-  <source src="/interactive/moon-phases.wasm" type="application/wasm" />
+  <source src="/gui/moon-phases.wasm" type="application/wasm" />
 </qip-play>
 
 <script>

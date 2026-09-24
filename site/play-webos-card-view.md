@@ -12,5 +12,5 @@ Controls:
 - Keyboard: `Left/Right` switch, `Up` close card, `Enter` open, `Esc` back
 
 <qip-play>
-  <source src="/interactive/webos-card-view.wasm" type="application/wasm" />
+  <source src="/gui/webos-card-view.wasm" type="application/wasm" />
 </qip-play>

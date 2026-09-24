@@ -6,7 +6,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { ContentComponentHost } from "./lib/content-component-host.mjs";
 
-const debuggerPath = fileURLToPath(new URL("../components/interactive/qipdb.wasm", import.meta.url));
+const debuggerPath = fileURLToPath(new URL("../tui/qipdb.wasm", import.meta.url));
 const targetPath = fileURLToPath(new URL("../text/hello.wasm", import.meta.url));
 const wcPath = fileURLToPath(new URL("../text/wc.wasm", import.meta.url));
 const infiniteLoopPath = fileURLToPath(new URL("../text/infinite-loop.wasm", import.meta.url));

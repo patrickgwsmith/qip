@@ -81,7 +81,7 @@ encoding.
 
 ### First Timed Implementation
 
-`components/interactive/god-rays-optimized.zig` is the first event-free Timed
+`gui/god-rays-optimized.zig` is the first event-free Timed
 component. A new instance starts with the time-zero transaction open. The host
 sets all 26 declared uniforms, calls `render(0)`, and calls `commit()`. Later
 transactions start with a strictly increasing `begin_at(now_ms)`. They may
@@ -101,7 +101,7 @@ machine.
 
 ### First Interactive Implementation
 
-`components/interactive/tic-tac-toe-sun-moon.zig` adds timestamp-free key and
+`gui/tic-tac-toe-sun-moon.zig` adds timestamp-free key and
 pointer events to the Timed lifecycle. It has no uniforms, so its complete
 uniform set is empty. The component copies committed game state into staged
 state at `begin_at`, applies ordered events to the staged state, and publishes

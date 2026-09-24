@@ -5,7 +5,7 @@ Events can change that state without replacing the published KTX2 chart until
 the host calls `render`.
 
 <qip-play canvas-width="820px" canvas-height="auto">
-  <source src="/interactive/openai-anthropic-arr.wasm" type="application/wasm" />
+  <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
 </qip-play>
 
 <script type="module">

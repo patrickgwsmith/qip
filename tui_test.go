@@ -96,7 +96,7 @@ func TestWriteTUIFrameExpandsLineFeedsAfterRawMode(t *testing.T) {
 }
 
 func TestTUISessionRendersDebuggerThroughContentStep(t *testing.T) {
-	debugger, err := os.ReadFile("components/interactive/qipdb.wasm")
+	debugger, err := os.ReadFile("tui/qipdb.wasm")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ let defaultFontPath = repositoryRoot
 let fontPath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : defaultFontPath
 let outputPath = CommandLine.arguments.count > 2
     ? CommandLine.arguments[2]
-    : "components/interactive/assets/inter_display_bold_chronograph_digits.zig"
+    : "gui/assets/inter_display_bold_chronograph_digits.zig"
 
 guard let provider = CGDataProvider(url: URL(fileURLWithPath: fontPath) as CFURL),
       let cgFont = CGFont(provider) else {

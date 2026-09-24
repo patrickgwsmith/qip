@@ -460,7 +460,7 @@ test("qip-play suspends offscreen wakes but keeps input eligible", () => {
 });
 
 test("qip-play performs one late update and render after re-entering the viewport", () => {
-  const wasm = readFileSync("components/interactive/chronograph.wasm");
+  const wasm = readFileSync("gui/chronograph.wasm");
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), {});
   const element = new QIPPlayElement();
   element._exports = instance.exports;
@@ -507,7 +507,7 @@ test("qip-play performs one late update and render after re-entering the viewpor
 });
 
 test("qip-play runs initial Content render and separate Timed KTX2 updates", () => {
-  const wasm = readFileSync("components/interactive/god-rays-optimized.wasm");
+  const wasm = readFileSync("gui/god-rays-optimized.wasm");
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), {});
   const element = new QIPPlayElement();
   element._exports = instance.exports;
@@ -559,7 +559,7 @@ test("qip-play runs initial Content render and separate Timed KTX2 updates", () 
 });
 
 test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", () => {
-  const wasm = readFileSync("components/interactive/chronograph.wasm");
+  const wasm = readFileSync("gui/chronograph.wasm");
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), {});
   instance.exports.uniform_set_current_seconds(15.2);
   instance.exports.uniform_set_hdr(1);
@@ -653,7 +653,7 @@ test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", ()
 });
 
 test("qip-play batches timestamp-free Interactive events inside an update", () => {
-  const wasm = readFileSync("components/interactive/tic-tac-toe-sun-moon.wasm");
+  const wasm = readFileSync("gui/tic-tac-toe-sun-moon.wasm");
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), {});
   const element = new QIPPlayElement();
   element._exports = instance.exports;
@@ -698,7 +698,7 @@ test("qip-play batches timestamp-free Interactive events inside an update", () =
 });
 
 test("qip-play combines a scheduled Timed wake with an Interactive event", () => {
-  const wasm = readFileSync("components/interactive/snake.wasm");
+  const wasm = readFileSync("gui/snake.wasm");
   const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm), {});
   const element = new QIPPlayElement();
   element._exports = instance.exports;

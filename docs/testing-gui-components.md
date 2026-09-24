@@ -10,12 +10,12 @@ component should not repeat the host's event-queue tests.
 Build the component, instantiate it without imports, then call the same exports a host calls:
 
 ```sh
-make -j components/interactive/calculator.wasm
+make -j gui/calculator.wasm
 node --test test/calculator-snake-interactive.mjs
 ```
 
 ```js
-const bytes = await readFile("components/interactive/calculator.wasm");
+const bytes = await readFile("gui/calculator.wasm");
 const { instance } = await WebAssembly.instantiate(bytes, {});
 const game = instance.exports;
 
@@ -48,7 +48,7 @@ linear-memory region.
 The first Timed component has a direct contract test:
 
 ```sh
-make -j components/interactive/god-rays-optimized.wasm
+make -j gui/god-rays-optimized.wasm
 node --test test/god-rays-optimized-timed.mjs
 ```
 
@@ -61,7 +61,7 @@ the KTX2 bytes. Invalid call order traps as a host protocol violation.
 The first event-driven update test uses Tic-Tac-Toe:
 
 ```sh
-make -j components/interactive/tic-tac-toe-sun-moon.wasm
+make -j gui/tic-tac-toe-sun-moon.wasm
 node --test test/tic-tac-toe-interactive.mjs
 ```
 
@@ -74,7 +74,7 @@ while an ignored event does not.
 Calculator and Snake cover the next combinations:
 
 ```sh
-make -j components/interactive/calculator.wasm components/interactive/snake.wasm
+make -j gui/calculator.wasm gui/snake.wasm
 node --test test/calculator-snake-interactive.mjs
 ```
 
@@ -86,7 +86,7 @@ that lifecycle misuse traps instead of becoming a correctable user rejection.
 Spreadsheet and Side Scroller cover the current update lifecycle directly:
 
 ```sh
-make -j components/interactive/spreadsheet.wasm components/interactive/side-scroller-platformer.wasm
+make -j gui/spreadsheet.wasm gui/side-scroller-platformer.wasm
 node --test test/spreadsheet-platformer-update.mjs
 ```
 
@@ -98,7 +98,7 @@ also check KTX2 output, output isolation, and trapping lifecycle violations.
 Cover Flow and Shadow Rendering test event-owned retained state:
 
 ```sh
-make -j components/interactive/cover-flow.wasm components/interactive/shadow-rendering.wasm
+make -j gui/cover-flow.wasm gui/shadow-rendering.wasm
 node --test test/cover-flow-shadow-interactive.mjs
 ```
 
@@ -110,7 +110,7 @@ Render Counts, Mandelbrot, and Perlin Noise cover update diagnostics,
 event-only retained state, and held-key animation:
 
 ```sh
-make -j components/interactive/render-counts.wasm components/interactive/mandelbrot.wasm components/interactive/perlin-noise.wasm
+make -j gui/render-counts.wasm gui/mandelbrot.wasm gui/perlin-noise.wasm
 node --test test/render-counts-mandelbrot-perlin.mjs
 ```
 
@@ -122,7 +122,7 @@ Moon Phases, Cover Flow Lofi, and Dock Magnification cover source input and two
 more animation shapes:
 
 ```sh
-make -j components/interactive/moon-phases.wasm components/interactive/cover-flow-lofi.wasm components/interactive/dock-magnification.wasm
+make -j gui/moon-phases.wasm gui/cover-flow-lofi.wasm gui/dock-magnification.wasm
 node --test test/moon-cover-lofi-dock-interactive.mjs
 ```
 
@@ -135,7 +135,7 @@ Layout Systems, Browser Security, and Graph Calculator cover event-driven
 components which do not schedule future work:
 
 ```sh
-make -j components/interactive/layout-systems.wasm components/interactive/browser-security.wasm components/interactive/graph-calculator.wasm
+make -j gui/layout-systems.wasm gui/browser-security.wasm gui/graph-calculator.wasm
 node --test test/layout-security-graph-interactive.mjs
 ```
 
@@ -148,7 +148,7 @@ Aces Up and the original God Rays port cover a scheduled game transition and a
 large, event-free uniform set:
 
 ```sh
-make -j components/interactive/aces-up.wasm components/interactive/god-rays.wasm
+make -j gui/aces-up.wasm gui/god-rays.wasm
 node --test test/aces-god-rays-interactive.mjs
 ```
 
@@ -160,7 +160,7 @@ Sudoku and WebOS Card View cover a deterministic generated document and a
 continuously scheduled interface animation:
 
 ```sh
-make -j components/interactive/sudoku.wasm components/interactive/webos-card-view.wasm
+make -j gui/sudoku.wasm gui/webos-card-view.wasm
 node --test test/sudoku-ui.mjs test/sudoku-webos-interactive.mjs
 ```
 
@@ -172,7 +172,7 @@ Tile World, Tetris, and Web Mechanics cover bounded game-loop catch-up and a
 further event-only component:
 
 ```sh
-make -j components/interactive/tile-world-12x12.wasm components/interactive/tetris.wasm components/interactive/web-mechanics.wasm
+make -j gui/tile-world-12x12.wasm gui/tetris.wasm gui/web-mechanics.wasm
 node --test test/tile-tetris-web-interactive.mjs
 ```
 
@@ -185,7 +185,7 @@ IEEE 754 Floats and the two financial charts cover retained selections on
 larger, event-driven renderers:
 
 ```sh
-make -j components/interactive/ieee-754-floats.wasm components/interactive/shutterstock-earnings.wasm components/interactive/openai-anthropic-arr.wasm
+make -j gui/ieee-754-floats.wasm gui/shutterstock-earnings.wasm gui/openai-anthropic-arr.wasm
 node --test test/floats-financial-charts-interactive.mjs
 ```
 
@@ -197,7 +197,7 @@ Formula 1 Map and Page Load Waterfall cover pointer-heavy retained state and a
 short scheduled animation:
 
 ```sh
-make -j components/interactive/formula-1-map.wasm components/interactive/page-load-waterfall.wasm
+make -j gui/formula-1-map.wasm gui/page-load-waterfall.wasm
 node --test test/map-waterfall-interactive.mjs
 ```
 
@@ -210,7 +210,7 @@ Photo Light Table and Xbox Dashboard cover selection animation and continuous
 animation:
 
 ```sh
-make -j components/interactive/photo-light-table.wasm components/interactive/xbox-dashboard.wasm
+make -j gui/photo-light-table.wasm gui/xbox-dashboard.wasm
 node --test test/photo-xbox-interactive.mjs
 ```
 
@@ -222,7 +222,7 @@ same initial KTX2 bytes.
 Paint and PS2 Menu cover an editable document and another time-driven menu:
 
 ```sh
-make -j components/interactive/paint.wasm components/interactive/ps2-menu.wasm
+make -j gui/paint.wasm gui/ps2-menu.wasm
 node --test test/paint-ps2-interactive.mjs
 ```
 
@@ -235,15 +235,15 @@ The final GUI component test covers nine different application and game
 shapes:
 
 ```sh
-make -j components/interactive/gameboy-camera.wasm \
-  components/interactive/liars-dice.wasm \
-  components/interactive/macos9-desktop.wasm \
-  components/interactive/macosx-leopard-desktop.wasm \
-  components/interactive/org_planner.wasm \
-  components/interactive/peon-gold.wasm \
-  components/interactive/textedit.wasm \
-  components/interactive/vertical-shooter.wasm \
-  components/interactive/windows95-desktop.wasm
+make -j gui/gameboy-camera.wasm \
+  gui/liars-dice.wasm \
+  gui/macos9-desktop.wasm \
+  gui/macosx-leopard-desktop.wasm \
+  gui/org_planner.wasm \
+  gui/peon-gold.wasm \
+  gui/textedit.wasm \
+  gui/vertical-shooter.wasm \
+  gui/windows95-desktop.wasm
 node --test test/final-interactive-components.mjs
 ```
 
@@ -255,7 +255,7 @@ The SVG path editor uses generic Time and Events output instead of the KTX2
 GUI contract. Test its UTF-8 SVG ABI and retained-state lifecycle separately:
 
 ```sh
-make components/interactive/svg-path-editor.wasm
+make gui/svg-path-editor.wasm
 node --test test/svg-path-editor.mjs test/qip-play-svg.mjs
 ```
 

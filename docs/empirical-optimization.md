@@ -138,7 +138,7 @@ make -j \
   text/rgb-to-hex.wasm \
   compliance/rgb-to-hex.comply.wasm \
   application/wasm/wasm-counts.wasm \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 
 cp text/rgb-to-hex.wasm /tmp/rgb-to-hex-before.wasm
 printf 'rgb(101, 79, 240)' > /tmp/rgb-input.txt
@@ -168,7 +168,7 @@ Open the same input in qipdb:
 npx @qip.dev/qipx tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Press Space to finish execution. Press `i` to expand the counters. The detailed

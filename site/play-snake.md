@@ -12,5 +12,5 @@ Controls:
 - `R`: restart
 
 <qip-play>
-  <source src="/interactive/snake.wasm" type="application/wasm" />
+  <source src="/gui/snake.wasm" type="application/wasm" />
 </qip-play>

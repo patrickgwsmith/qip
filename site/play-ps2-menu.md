@@ -11,7 +11,7 @@ Controls:
 - Pointer hover and click are also supported
 
 <qip-play>
-  <source src="/interactive/ps2-menu.wasm" type="application/wasm" />
+  <source src="/gui/ps2-menu.wasm" type="application/wasm" />
 </qip-play>
 
 The menu pulse and temporary flash follow update time. `finish_update`

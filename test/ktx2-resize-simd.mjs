@@ -48,7 +48,7 @@ function instantiate(path) {
 }
 
 function rgba8KTX2(width, height) {
-  const desktop = instantiate("components/interactive/macintosh-1bit.wasm");
+  const desktop = instantiate("gui/macintosh-1bit.wasm");
   const renderedSize = renderSize(desktop, 0);
   const rendered = new Uint8Array(
     desktop.memory.buffer,

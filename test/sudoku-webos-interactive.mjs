@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const wasm = await readFile("components/interactive/webos-card-view.wasm");
+const wasm = await readFile("gui/webos-card-view.wasm");
 
 function instantiate() {
   return new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;

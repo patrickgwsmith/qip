@@ -4,8 +4,8 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const coverFlowWasm = await readFile("components/interactive/cover-flow.wasm");
-const shadowRenderingWasm = await readFile("components/interactive/shadow-rendering.wasm");
+const coverFlowWasm = await readFile("gui/cover-flow.wasm");
+const shadowRenderingWasm = await readFile("gui/shadow-rendering.wasm");
 
 function instantiate(bytes) {
   return new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports;

@@ -18,5 +18,5 @@ Supported:
 - Simple formulas with integer cell references, such as `=B2*C2` and `=D2+D3`
 
 <qip-play>
-  <source src="/interactive/spreadsheet.wasm" type="application/wasm" />
+  <source src="/gui/spreadsheet.wasm" type="application/wasm" />
 </qip-play>

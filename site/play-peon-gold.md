@@ -24,5 +24,5 @@ HUD:
 - Right color tabs: command mode (`smart`, `move`, `harvest`)
 
 <qip-play>
-  <source src="/interactive/peon-gold.wasm" type="application/wasm" />
+  <source src="/gui/peon-gold.wasm" type="application/wasm" />
 </qip-play>

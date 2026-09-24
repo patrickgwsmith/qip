@@ -8,7 +8,7 @@ Topic and scenario selections are retained as component state. The component
 has no timed animation and publishes a new KTX2 frame only from `render`.
 
 <qip-play>
-  <source src="/interactive/browser-security.wasm" type="application/wasm" />
+  <source src="/gui/browser-security.wasm" type="application/wasm" />
 </qip-play>
 
 ## What to notice

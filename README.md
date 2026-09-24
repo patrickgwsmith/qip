@@ -60,7 +60,7 @@ Then open the same component in the interactive qipdb debugger:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Press ↓ to step instruction by instruction seeing state of memory and every variable. Press Space to continue to completion and `Ctrl-C` to exit.
@@ -88,7 +88,7 @@ Start with the small `rgb-to-hex` component:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Inspect a larger Commonmark Markdown component with tables and indirect calls:
@@ -97,7 +97,7 @@ Inspect a larger Commonmark Markdown component with tables and indirect calls:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@text/markdown/commonmark.0.31.2.wasm \
   -F 'input=# Hello from qipdb' \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Debug a PNG decodee with SIMD acceleration passing a image file as input:
@@ -106,7 +106,7 @@ Debug a PNG decodee with SIMD acceleration passing a image file as input:
 npx @qip.dev/qipx qip.dev tui \
   -F component=@image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm \
   -F input=@qip-logo.png \
-  interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 qipdb deliberately supports a bounded
@@ -577,8 +577,8 @@ deno test --allow-read --allow-write --allow-run --allow-sys --allow-env test/tr
 ```
 
 You can clone this repository to use its components. Content component paths
-match their qip.dev URLs and start with a top-level MIME type. Components for
-other contracts remain under `components/` until they get permanent paths.
+match their qip.dev URLs and start with a top-level MIME type. Interactive
+components use `tui/` and `gui/`; their paths also match qip.dev URLs.
 
 ```text
 application/
@@ -587,9 +587,10 @@ font/
 image/
 multipart/
 text/
+tui/
+gui/
 components/
   form/
-  interactive/
   rgba/
 ```
 
@@ -620,9 +621,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
 - [ ] Redesign `/view-source`. Its source-file walker does not follow symlinked component directories. Define which source files the router can publish before changing that behavior.
 - [ ] Add a `--double` flag for `qipx bench` that doubles the input and plots the performance. So we should see if rendering is `O(n)` where n is the size of the input or not. It could keep doubling the input. I imagine it would only work for text input and uncompressed ktx2 input, as those should be trivial to “double”.
 - [x] Move Content component trees to repository paths that match qip.dev: `application/`, `bytes/`, `font/`, `image/`, `multipart/`, and `text/`.
-- [ ] Move interactive components to contract-specific paths:
-  - [ ] `components/interactive/calendar-gregorian.wasm` -> `tui/calendar-gregorian.wasm`
-  - [ ] `components/interactive/textedit.zig` -> `gui/textedit.zig`
+- [x] Move interactive components to contract-specific `tui/` and `gui/` paths.
 - [ ] Make TUI like `https://allweeks.exe.xyz/2026`
 - [ ] Decide whether to add a post-link pass that removes unused one-slot WebAssembly tables emitted by `zig cc`.
 - [ ] Decide whether the component debugger should show fixed table entries alongside locals and globals.

@@ -14,7 +14,7 @@ A visual, interactive organization planner for organizing and modeling teams. Bu
 - **Accent Branding**: Customize each employee's outline branding using 5 glowing theme circles (electric violet, vibrant blue, mint emerald, glow orange, and neon pink).
 
 <qip-play>
-  <source src="/interactive/org_planner.wasm" type="application/wasm" />
+  <source src="/gui/org_planner.wasm" type="application/wasm" />
 </qip-play>
 
 ---

@@ -16,5 +16,5 @@ Controls:
 - Feature toggles: `L` lighting, `S` spring easing
 
 <qip-play canvas-width="720px" canvas-height="auto">
-  <source src="/interactive/cover-flow.wasm" type="application/wasm" />
+  <source src="/gui/cover-flow.wasm" type="application/wasm" />
 </qip-play>

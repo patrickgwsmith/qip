@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const wasm = await readFile("components/interactive/chronograph.wasm");
+const wasm = await readFile("gui/chronograph.wasm");
 
 function instantiate() {
   return new WebAssembly.Instance(new WebAssembly.Module(wasm), {}).exports;

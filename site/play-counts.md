@@ -8,5 +8,5 @@ Only `render` publishes output. An update can finish without changing the
 displayed KTX2 frame; the next render presents its state.
 
 <qip-play>
-  <source src="/interactive/render-counts.wasm" type="application/wasm" />
+  <source src="/gui/render-counts.wasm" type="application/wasm" />
 </qip-play>

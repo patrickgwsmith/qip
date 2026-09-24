@@ -134,4 +134,4 @@ Related tool: [image vectorizer](/image/vectorize).
 
 - [`jp2-to-bmp-b8g8r8a8-srgb.wasm`](/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm) decodes JPEG 2000 to an 8-bit sRGB BMP image.
 
-Looking for source formats and markup instead? See the [text content components](/text).
+Looking for other components? See [text](/text), [TUI](/tui), and [GUI](/gui).

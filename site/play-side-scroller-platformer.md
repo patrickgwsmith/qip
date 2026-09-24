@@ -17,5 +17,5 @@ Controls:
 - `R` / Enter: restart
 
 <qip-play>
-  <source src="/interactive/side-scroller-platformer.wasm" type="application/wasm" />
+  <source src="/gui/side-scroller-platformer.wasm" type="application/wasm" />
 </qip-play>

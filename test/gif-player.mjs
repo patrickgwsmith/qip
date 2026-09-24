@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { decodeRenderResult } from "./lib/content-component-host.mjs";
 
-const wasm = readFileSync("components/interactive/gif-player.wasm");
+const wasm = readFileSync("gui/gif-player.wasm");
 const gif = Uint8Array.from([
   0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0, 0x80, 0, 0,
   0, 0, 0, 255, 0, 0,

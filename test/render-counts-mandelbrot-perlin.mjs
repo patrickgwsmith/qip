@@ -4,9 +4,9 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const renderCountsWasm = await readFile("components/interactive/render-counts.wasm");
-const mandelbrotWasm = await readFile("components/interactive/mandelbrot.wasm");
-const perlinNoiseWasm = await readFile("components/interactive/perlin-noise.wasm");
+const renderCountsWasm = await readFile("gui/render-counts.wasm");
+const mandelbrotWasm = await readFile("gui/mandelbrot.wasm");
+const perlinNoiseWasm = await readFile("gui/perlin-noise.wasm");
 
 function instantiate(bytes) {
   return new WebAssembly.Instance(new WebAssembly.Module(bytes), {}).exports;

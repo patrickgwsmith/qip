@@ -9,5 +9,5 @@ Controls:
 - `R`: reset icon positions
 
 <qip-play>
-  <source src="/interactive/windows95-desktop.wasm" type="application/wasm" />
+  <source src="/gui/windows95-desktop.wasm" type="application/wasm" />
 </qip-play>

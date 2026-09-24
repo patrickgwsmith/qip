@@ -21,7 +21,7 @@ test("text grid floors whole cells and keeps at least one", () => {
 });
 
 test("shared session retains a calendar state across key events and render", async () => {
-  const bytes = await readFile(new URL("../components/interactive/calendar-gregorian.wasm", import.meta.url));
+  const bytes = await readFile(new URL("../tui/calendar-gregorian.wasm", import.meta.url));
   const { instance } = await WebAssembly.instantiate(bytes, {});
   const session = new QIPInteractiveSession(instance.exports, instance.exports.memory);
   const initial = instance.exports.render(0);

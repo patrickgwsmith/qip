@@ -94,6 +94,8 @@ QIP uses a narrower boundary: explicit input, output, memory, and zero host acce
 
 Use QIP components for text, images, documents, archives, interactive UI, or any MIME type.
 
+Browse the [text](/text), [image](/image), [TUI](/tui), and [GUI](/gui) component collections.
+
 Just like the web is `request -> response`, QIP components are `input -> output`. Yet QIP components are not tied to HTML or JavaScript: they take any content as input and render any content as output.
 
 Your components can render Markdown into HTML, URLs into QR codes, SVG into bitmap images, SQLite databases into CSV, or WARC archives into deployable websites. Missing something? Prompt a small component and add it to your collection.
@@ -218,10 +220,10 @@ Use `<qip-play>` to render them in the browser, or use our SDK to render them in
 
 <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
   <qip-play canvas-width="min(180px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
-    <source class="home-chronograph-source" src="/interactive/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="0" />
+    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="0" />
   </qip-play>
   <qip-play canvas-width="min(180px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
-    <source class="home-chronograph-source" src="/interactive/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="1" />
+    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="1" />
   </qip-play>
 </div>
 
@@ -256,7 +258,7 @@ displays expand it to device pixels without smoothing.
   <figure>
     <qip-play canvas-width="512px" canvas-height="342px">
       <qip-step name="desktop">
-        <source src="/interactive/macintosh-1bit.wasm" type="application/wasm" />
+        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
       </qip-step>
     </qip-play>
     <figcaption>RGBA8 sRGB</figcaption>
@@ -264,7 +266,7 @@ displays expand it to device pixels without smoothing.
   <figure>
     <qip-play debug canvas-width="512px" canvas-height="342px">
       <qip-step name="desktop">
-        <source src="/interactive/macintosh-1bit.wasm" type="application/wasm" />
+        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
       </qip-step>
       <qip-step name="duotone">
         <source
@@ -278,7 +280,7 @@ displays expand it to device pixels without smoothing.
   <figure>
     <qip-play canvas-width="512px" canvas-height="342px">
       <qip-step name="desktop">
-        <source src="/interactive/macintosh-1bit.wasm" type="application/wasm" />
+        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
       </qip-step>
       <qip-step name="duotone">
         <source
@@ -295,7 +297,7 @@ displays expand it to device pixels without smoothing.
   <figure>
     <qip-play canvas-width="512px" canvas-height="342px">
       <qip-step name="desktop">
-        <source src="/interactive/macintosh-1bit.wasm" type="application/wasm" />
+        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
       </qip-step>
       <qip-step name="duotone">
         <source
@@ -320,19 +322,19 @@ example break out the cost and memory of each `<qip-step>`.
 ---
 
 <qip-play canvas-width="720px" canvas-height="auto">
-  <source src="/interactive/cover-flow.wasm" type="application/wasm" />
+  <source src="/gui/cover-flow.wasm" type="application/wasm" />
 </qip-play>
 
 ---
 
 <qip-play canvas-width="820px" canvas-height="auto">
-  <source src="/interactive/openai-anthropic-arr.wasm" type="application/wasm" />
+  <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
 </qip-play>
 
 ---
 
 <qip-play canvas-width="min(762px, 100%)" canvas-height="auto">
-  <source src="/interactive/sudoku.wasm" type="application/wasm" />
+  <source src="/gui/sudoku.wasm" type="application/wasm" />
 </qip-play>
 
 ---

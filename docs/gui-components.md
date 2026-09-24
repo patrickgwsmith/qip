@@ -13,10 +13,10 @@ and presentation, [Time and Events](/docs/time-and-events) owns state updates
 and input, and the KTX2 profile gives the browser host a predictable pixel
 buffer to display.
 
-This composition is used by the applications and games in
-`components/interactive/`. It is also suitable for animation without user
-input. The GIF player accepts `image/gif` as fallible Content, adds time to
-select later frames, and omits event exports because playback needs no input.
+Most applications and games in `gui/` use this composition. It is also
+suitable for animation without user input. The GIF player accepts `image/gif`
+as fallible Content, adds time to select later frames, and omits event exports
+because playback needs no input.
 
 Use the [Content Component Contract](/docs/content-component) alone when each
 render is a finite input-to-output operation and no state must survive. A

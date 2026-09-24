@@ -86,7 +86,7 @@ Open the representative input in qipdb:
 npx @qip.dev/qipx tui \
   -F component=@text/rgb-to-hex.wasm \
   -F 'input=rgb(101, 79, 240)' \
-  components/interactive/qipdb.wasm
+  tui/qipdb.wasm
 ```
 
 Press Space to finish execution, then `i` to expand the static and runtime

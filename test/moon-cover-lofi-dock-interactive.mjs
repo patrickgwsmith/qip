@@ -5,9 +5,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const paths = {
-  moon: "components/interactive/moon-phases.wasm",
-  cover: "components/interactive/cover-flow-lofi.wasm",
-  dock: "components/interactive/dock-magnification.wasm",
+  moon: "gui/moon-phases.wasm",
+  cover: "gui/cover-flow-lofi.wasm",
+  dock: "gui/dock-magnification.wasm",
 };
 
 const wasm = Object.fromEntries(

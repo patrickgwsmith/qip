@@ -103,7 +103,7 @@ func TestExecuteDryRunDoesNotCallRender(t *testing.T) {
 
 func TestDryRunTreatsInteractiveInitializationAsContent(t *testing.T) {
 	config, err := parseRunCommandArgs([]string{
-		"components/interactive/tile-world-12x12.wasm",
+		"gui/tile-world-12x12.wasm",
 	}, "dry run")
 	if err != nil {
 		t.Fatalf("parseRunCommandArgs: %v", err)
@@ -115,7 +115,7 @@ func TestDryRunTreatsInteractiveInitializationAsContent(t *testing.T) {
 	}
 	got := output.String()
 	for _, expected := range []string{
-		"components/interactive/tile-world-12x12.wasm — Content",
+		"gui/tile-world-12x12.wasm — Content",
 		"Input:  encoding=raw bytes, type=unspecified, capacity=none",
 		"Output: encoding=raw bytes, type=image/ktx2",
 	} {

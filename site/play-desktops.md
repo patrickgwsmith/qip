@@ -3,17 +3,17 @@
 ## Windows 95
 
 <qip-play>
-  <source src="/interactive/windows95-desktop.wasm" type="application/wasm" />
+  <source src="/gui/windows95-desktop.wasm" type="application/wasm" />
 </qip-play>
 
 ## Mac OS 9
 
 <qip-play>
-  <source src="/interactive/macos9-desktop.wasm" type="application/wasm" />
+  <source src="/gui/macos9-desktop.wasm" type="application/wasm" />
 </qip-play>
 
 ## Mac OS X Tiger
 
 <qip-play>
-  <source src="/interactive/macosx-leopard-desktop.wasm" type="application/wasm" />
+  <source src="/gui/macosx-leopard-desktop.wasm" type="application/wasm" />
 </qip-play>

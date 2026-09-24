@@ -13,5 +13,5 @@ Controls:
 - Keyboard: `Left/Right` or `A/D`
 
 <qip-play>
-  <source src="/interactive/cover-flow-lofi.wasm" type="application/wasm" />
+  <source src="/gui/cover-flow-lofi.wasm" type="application/wasm" />
 </qip-play>
