@@ -53,7 +53,7 @@ const C_ANTHROPIC: Color = .{ 0xFF, 0x8B, 0x52, 0xFF };
 const MIN_MONTH: i32 = 0; // 2023-12
 const MAX_MONTH: i32 = 33; // 2026-09, leaving space after the latest point
 const ARR_LINEAR_MAX_B: f64 = 70.0;
-const ARR_LOG_MIN_B: f64 = 0.1;
+const ARR_LOG_MIN_B: f64 = 0.01;
 const ARR_LOG_MAX_B: f64 = 100.0;
 
 const Series = enum {
@@ -82,18 +82,36 @@ const ARRPoint = struct {
 // run-rate figures from public reporting, not audited revenue statements.
 const OPENAI_POINTS = [_]ARRPoint{
     .{ .month = 0, .label = "2023", .arr_b = 2.0, .note = "OPENAI CFO: $2B ARR IN 2023." },
-    .{ .month = 12, .label = "2024", .arr_b = 6.0, .note = "OPENAI CFO: $6B ARR IN 2024." },
+    // https://www.bloomberg.com/news/articles/2024-06-12/openai-doubles-annualized-revenue-to-3-4-billion-information
+    .{ .month = 6, .label = "JUN 24", .arr_b = 3.4, .note = "BLOOMBERG: ALTMAN REPORTED A $3.4B ANNUAL PACE." },
+    // https://www.investing.com/news/stock-market-news/openais-annualized-revenue-hits-10-billion-up-from-55-billion-in-december-2024-4087508
+    .{ .month = 12, .label = "2024", .arr_b = 5.5, .note = "OPENAI / REUTERS: $5.5B RUN RATE AT YEAR-END." },
     .{ .month = 18, .label = "JUN 25", .arr_b = 10.0, .note = "FT: OPENAI ARR NEARLY DOUBLED TO $10B." },
     .{ .month = 19, .label = "JUL 25", .arr_b = 12.0, .note = "REUTERS / THE INFORMATION: $12B ANNUALIZED REVENUE." },
-    .{ .month = 24, .label = "2025", .arr_b = 20.0, .note = "OPENAI CFO: $20B+ ARR IN 2025." },
-    .{ .month = 27, .label = "MAR 26", .arr_b = 24.0, .note = "OPENAI UPDATE: $2B MONTHLY REVENUE, ABOUT $24B ANNUALIZED." },
+    // https://www.axios.com/newsletters/axios-ai-plus-efcf11cf-d66b-453c-9d1f-d50774376983
+    .{ .month = 20, .label = "AUG 25", .arr_b = 13.0, .note = "AXIOS, AUG 1: OPENAI ARR REACHED $13B." },
+    // https://www.theinformation.com/articles/openai-discussed-raising-tens-billions-valuation-around-750-billion
+    .{ .month = 23, .label = "NOV 25", .arr_b = 19.0, .note = "THE INFORMATION: ARR TOPPED $19B IN NOVEMBER." },
+    // https://www.investing.com/news/stock-market-news/openai-tops-25-billion-in-annualized-revenue-last-month-the-information-reports-4542796
+    .{ .month = 24, .label = "2025", .arr_b = 21.4, .note = "THE INFORMATION / REUTERS: $21.4B AT YEAR-END." },
+    .{ .month = 26, .label = "FEB 26", .arr_b = 25.0, .note = "THE INFORMATION / REUTERS: ARR TOPPED $25B." },
     .{ .month = 32, .label = "AUG 26", .arr_b = 40.0, .note = "SOURCE: BLOOMBERG, AUG 13 2026. ANNUALIZED REVENUE TOPPED $40B." },
 };
 
 const ANTHROPIC_POINTS = [_]ARRPoint{
-    .{ .month = 13, .label = "JAN 25", .arr_b = 1.0, .note = "FT IMPLIED: $3B IN MAY AFTER TRIPLING FROM JANUARY." },
+    // https://www.anthropic.com/news/anthropic-expands-global-leadership-in-enterprise-ai-naming-chris-ciauri-as-managing-director-of
+    .{ .month = 1, .label = "JAN 24", .arr_b = 0.087, .note = "ANTHROPIC: $87M RUN RATE AT START OF 2024." },
+    .{ .month = 13, .label = "JAN 25", .arr_b = 1.0, .note = "ANTHROPIC: ABOUT $1B AT START OF 2025." },
     .{ .month = 14, .label = "FEB 25", .arr_b = 1.2, .note = "WSJ: ANNUALIZED REVENUE ABOUT $1.2B." },
+    // https://www.investing.com/news/stock-market-news/exclusiveanthropic-hits-3-billion-in-annualized-revenue-on-business-demand-for-ai-4073600
+    .{ .month = 15, .label = "MAR 25", .arr_b = 2.0, .note = "REUTERS: RUN RATE CROSSED $2B AT MARCH-END." },
     .{ .month = 17, .label = "MAY 25", .arr_b = 3.0, .note = "FT: ANTHROPIC ARR TRIPLED TO $3B BETWEEN JANUARY AND MAY." },
+    // https://www.theinformation.com/articles/investors-float-deal-valuing-anthropic-100-billion
+    .{ .month = 18, .label = "JUN 25", .arr_b = 4.0, .note = "THE INFORMATION: ANNUALIZED REVENUE TOPPED $4B." },
+    // https://www.anthropic.com/news/anthropic-raises-series-f-at-usd183b-post-money-valuation
+    .{ .month = 20, .label = "AUG 25", .arr_b = 5.0, .note = "ANTHROPIC: RUN-RATE REVENUE TOPPED $5B." },
+    // https://reutersbest.com/anthropic-aims-to-nearly-triple-annualized-revenue-in-2026/
+    .{ .month = 22, .label = "OCT 25", .arr_b = 7.0, .note = "ANTHROPIC / REUTERS: RUN RATE APPROACHED $7B." },
     .{ .month = 24, .label = "2025", .arr_b = 9.0, .note = "ANTHROPIC / PRESS REPORTS: $9B RUN-RATE AT END 2025." },
     .{ .month = 26, .label = "FEB 26", .arr_b = 14.0, .note = "GUARDIAN: ANNUALISED REVENUE REACHED $14B." },
     .{ .month = 27, .label = "MAR 26", .arr_b = 19.0, .note = "AXIOS: $19B RUN-RATE IN EARLY MARCH." },
@@ -328,7 +346,7 @@ fn drawChart() void {
 
 fn drawYAxis() void {
     const linear_ticks = [_]f64{ 0, 10, 20, 30, 40, 50, 60, 70 };
-    const log_ticks = [_]f64{ 0.1, 1, 10, 100 };
+    const log_ticks = [_]f64{ 0.01, 0.1, 1, 10, 100 };
     // Fade one axis out before the other appears so unlike tick values never
     // overlap while the data geometry moves between the two scales.
     drawYAxisTicks(linear_ticks[0..], .linear, clampF64((0.5 - scale_mix) * 2.0, 0, 1));
@@ -345,6 +363,8 @@ fn drawYAxisTicks(ticks: []const f64, mode: ScaleMode, opacity: f64) void {
         if (y > CHART_Y + 1 and y < CHART_Y + CHART_H - 1) fillRect(CHART_X + 1, y, CHART_W - 2, 1, grid_color);
         const label = if (value == 0)
             std.fmt.bufPrint(&buf, "${d:.0}B", .{value}) catch ""
+        else if (value < 0.1)
+            std.fmt.bufPrint(&buf, "${d:.0}M", .{value * 1000.0}) catch ""
         else if (value < 1)
             std.fmt.bufPrint(&buf, "${d:.1}B", .{value}) catch ""
         else
@@ -383,7 +403,10 @@ fn drawDetail() void {
     fillRect(DETAIL_X + 14, DETAIL_Y + 17, 18, 4, color);
 
     var line: [128]u8 = undefined;
-    const detail = std.fmt.bufPrint(&line, "{s}  {s}  ARR ${d:.1}B", .{ series_name, p.label, p.arr_b }) catch "";
+    const detail = if (p.arr_b < 1)
+        std.fmt.bufPrint(&line, "{s}  {s}  ARR ${d:.0}M", .{ series_name, p.label, p.arr_b * 1000.0 }) catch ""
+    else
+        std.fmt.bufPrint(&line, "{s}  {s}  ARR ${d:.1}B", .{ series_name, p.label, p.arr_b }) catch "";
     drawText(DETAIL_X + 42, DETAIL_Y + 12, detail, C_INK);
     drawText(DETAIL_X + 42, DETAIL_Y + 36, p.note, C_MUTED);
 }
