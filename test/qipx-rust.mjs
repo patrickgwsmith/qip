@@ -120,6 +120,38 @@ test("Rust qipx applies uniforms to the preceding stage", () => {
   }
 });
 
+test("Rust qipx matches Node for SVG rasterization, SIMD resizing, and WebP encoding", () => {
+  const args = ["run",
+    "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell-simd.wasm",
+    "-u", "width=32", "-u", "height=32",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm"];
+  const input = readFileSync("qip-logo.svg");
+  const node = spawnSync(process.execPath, ["npm/qipx/cli.mjs", ...args], { input });
+  const rust = spawnSync(rustCLI, args, { input });
+  assert.equal(node.status, 0, node.stderr.toString());
+  assert.equal(rust.status, 0, rust.stderr.toString());
+  assert.equal(rust.stdout.toString("ascii", 0, 4), "RIFF");
+  assert.equal(rust.stdout.toString("ascii", 8, 12), "WEBP");
+  assert.deepEqual(rust.stdout, node.stdout);
+});
+
+test("Rust qipx matches Node for PNG decoding, SIMD shrinking, and WebP encoding", () => {
+  const args = ["run",
+    "image/png/png-to-ktx2-r8g8b8a8-srgb.wasm",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3-simd.wasm",
+    "-u", "width=64", "-u", "height=64",
+    "image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm"];
+  const input = readFileSync("qip-logo.png");
+  const node = spawnSync(process.execPath, ["npm/qipx/cli.mjs", ...args], { input });
+  const rust = spawnSync(rustCLI, args, { input });
+  assert.equal(node.status, 0, node.stderr.toString());
+  assert.equal(rust.status, 0, rust.stderr.toString());
+  assert.equal(rust.stdout.toString("ascii", 0, 4), "RIFF");
+  assert.equal(rust.stdout.toString("ascii", 8, 12), "WEBP");
+  assert.deepEqual(rust.stdout, node.stdout);
+});
+
 test("Rust qipx converts unsigned and hex i32 uniforms like the Node CLI", () => {
   for (const value of ["4294967295", "0xffffffff", "4294967296"]) {
     const args = ["run", "test/fixtures/qipx-rust-uniform-u32.wasm", "-u", `value=${value}`];
