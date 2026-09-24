@@ -93,3 +93,21 @@ test("openai-anthropic-arr animates scale changes for 300 milliseconds", () => {
   assert.notEqual(linearFrame, midpoint);
   assert.notEqual(linearFrame, logFrame);
 });
+
+test("openai-anthropic-arr uses the full milestone hover area for its tooltip", () => {
+  const exports = instantiate(modules["openai-anthropic-arr"]);
+  const size = qipRenderSize(exports, 0);
+  const initial = digest(exports, size);
+
+  exports.begin_update_at(1n);
+  assert.equal(exports.pointer_event(0, 1426, 212), 1); // 24 logical pixels above the July 2026 Anthropic point.
+  assert.equal(exports.finish_update(), 1n);
+  assert.equal(qipRenderSize(exports, 0), size);
+  assert.notEqual(digest(exports, size), initial);
+
+  exports.begin_update_at(2n);
+  assert.equal(exports.pointer_event(0, -1, -1), 1);
+  assert.equal(exports.finish_update(), 2n);
+  assert.equal(qipRenderSize(exports, 0), size);
+  assert.equal(digest(exports, size), initial);
+});

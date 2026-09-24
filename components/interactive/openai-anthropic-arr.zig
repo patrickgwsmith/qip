@@ -131,6 +131,7 @@ var output_buf: [OUTPUT_BYTES]u8 = undefined;
 var pixel_buf: [PIXEL_BYTES]u8 = undefined;
 var selected_series: Series = .anthropic;
 var selected_idx: usize = ANTHROPIC_POINTS.len - 1;
+var hovered_point: ?HitPoint = null;
 var scale_mode: ScaleMode = .log;
 var scale_mix: f64 = 1.0;
 var scale_tween_from: f64 = 1.0;
@@ -200,12 +201,17 @@ export fn pointer_event(button_mask: i32, x: i32, y: i32) i32 {
         if (hit(logical_x, logical_y, LOG_BUTTON_X, BUTTON_Y, LOG_BUTTON_W, BUTTON_H)) changed = setScaleMode(.log);
     }
 
-    if (nearestPoint(logical_x, logical_y)) |hit_point| {
+    const nearest = nearestPoint(logical_x, logical_y);
+    if (nearest) |hit_point| {
         if (selected_series != hit_point.series or selected_idx != hit_point.index) {
             selected_series = hit_point.series;
             selected_idx = hit_point.index;
             changed = true;
         }
+    }
+    if (!std.meta.eql(hovered_point, nearest)) {
+        hovered_point = nearest;
+        changed = true;
     }
 
     primary_down = down;
@@ -328,6 +334,7 @@ fn drawFrame() void {
     scaleButton(LOG_BUTTON_X, BUTTON_Y, LOG_BUTTON_W, "Log", scale_mode == .log, 0);
 
     drawChart();
+    drawHoverTooltip();
     drawDetail();
 }
 
@@ -423,6 +430,49 @@ fn selectedPoint() ARRPoint {
         .openai => OPENAI_POINTS[selected_idx],
         .anthropic => ANTHROPIC_POINTS[selected_idx],
     };
+}
+
+fn pointForHit(hit_point: HitPoint) ARRPoint {
+    return switch (hit_point.series) {
+        .openai => OPENAI_POINTS[hit_point.index],
+        .anthropic => ANTHROPIC_POINTS[hit_point.index],
+    };
+}
+
+fn drawHoverTooltip() void {
+    const hit_point = hovered_point orelse return;
+    const point = pointForHit(hit_point);
+    const name: []const u8 = switch (hit_point.series) {
+        .openai => "OpenAI",
+        .anthropic => "Anthropic",
+    };
+    const accent = switch (hit_point.series) {
+        .openai => C_OPENAI,
+        .anthropic => C_ANTHROPIC,
+    };
+    var title_buf: [48]u8 = undefined;
+    const title = if (point.arr_b < 1)
+        std.fmt.bufPrint(&title_buf, "{s}  ${d:.0}M", .{ name, point.arr_b * 1000.0 }) catch return
+    else
+        std.fmt.bufPrint(&title_buf, "{s}  ${d:.1}B", .{ name, point.arr_b }) catch return;
+    const tooltip_w = @max(textWidth(title), textWidth(point.label)) + 28;
+    const tooltip_h: i32 = 48;
+    const point_x = monthToX(point.month);
+    const point_y = arrToY(point.arr_b);
+    const tooltip_x = if (point_x + 12 + tooltip_w <= DETAIL_X + DETAIL_W)
+        point_x + 12
+    else
+        point_x - tooltip_w - 12;
+    const tooltip_y = if (point_y - tooltip_h - 12 >= CHART_Y)
+        point_y - tooltip_h - 12
+    else
+        point_y + 12;
+
+    fillRect(tooltip_x, tooltip_y, tooltip_w, tooltip_h, C_PANEL);
+    drawBorder(tooltip_x, tooltip_y, tooltip_w, tooltip_h, C_ACTIVE_EDGE);
+    fillRect(tooltip_x + 1, tooltip_y + 1, 4, tooltip_h - 2, accent);
+    drawText(tooltip_x + 14, tooltip_y + 4, title, C_INK);
+    drawText(tooltip_x + 14, tooltip_y + 24, point.label, C_MUTED);
 }
 
 const HitPoint = struct {

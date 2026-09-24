@@ -6,7 +6,7 @@ let repositoryRoot = URL(fileURLWithPath: #filePath)
     .deletingLastPathComponent()
     .deletingLastPathComponent()
 let fontPath = repositoryRoot
-    .appendingPathComponent("fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf")
+    .appendingPathComponent("fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf")
     .path
 let outputPath = CommandLine.arguments.count > 1
     ? CommandLine.arguments[1]
@@ -77,7 +77,7 @@ for codepoint in codepoints {
 }
 
 var output = ""
-output += "// Generated from fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf.\n"
+output += "// Generated from fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf.\n"
 output += "// Regenerate with: swift tools/generate-inter-display-chart-font.swift\n"
 output += "// Inter is licensed under SIL Open Font License 1.1; see fixtures/inter-4.1/LICENSE.txt.\n\n"
 output += "pub const GLYPH_W: usize = \(glyphW);\n"

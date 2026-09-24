@@ -41,7 +41,7 @@ Keyboard shortcuts work when the page or chart has focus.
 
 Controls:
 
-- Hover the chart or use the arrow keys to inspect a milestone
+- Hover a point to see its amount and date in a tooltip; use the arrow keys to inspect other milestones
 - `1` or `O`: latest OpenAI point
 - `2` or `A`: latest Anthropic point
 - `L`: animate between linear and log scale over 300 milliseconds
