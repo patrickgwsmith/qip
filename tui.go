@@ -104,7 +104,7 @@ func tuiCmd(args []string) {
 			gameOver("%v", parseErr)
 		}
 		if assignment.filePath == "-" {
-			gameOver("qip tui cannot use -F name=@- because stdin carries terminal events")
+			gameOver("qip tui cannot use -F name=@- or name=<- because stdin carries terminal events")
 		}
 	}
 

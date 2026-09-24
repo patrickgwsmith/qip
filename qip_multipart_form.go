@@ -17,6 +17,7 @@ type formAssignment struct {
 	name     string
 	value    string
 	filePath string
+	fileMode byte
 }
 
 type formAssignmentList []string
@@ -48,7 +49,8 @@ func parseFormAssignment(value string) (formAssignment, error) {
 		return formAssignment{}, err
 	}
 	part := formAssignment{name: name, value: body}
-	if strings.HasPrefix(body, "@") {
+	if strings.HasPrefix(body, "@") || strings.HasPrefix(body, "<") {
+		part.fileMode = body[0]
 		part.filePath = body[1:]
 		part.value = ""
 		if part.filePath == "" {
@@ -112,7 +114,7 @@ func planMultipartFormInput(values []string, hosts []qinternal.ComponentHost) (m
 		fields[index] = field
 	}
 	if stdinParts > 1 {
-		return multipartFormPlan{}, errors.New("only one -F field may read from stdin with @-")
+		return multipartFormPlan{}, errors.New("only one -F field may read from stdin with @- or <-")
 	}
 	return multipartFormPlan{fields: fields}, nil
 }
@@ -137,15 +139,17 @@ func buildMultipartFormInputFromPlan(plan multipartFormPlan, stdin io.Reader) ([
 			var err error
 			if assignment.filePath == "-" {
 				body, err = io.ReadAll(stdin)
-				filename = "-"
+				if assignment.fileMode == '@' {
+					filename = "-"
+				}
 			} else {
 				body, err = resolveMultipartFormFile(assignment.filePath, field.sourcePlan)
-				if err == nil {
+				if err == nil && assignment.fileMode == '@' {
 					filename, err = canonicalFormFilename(assignment.filePath)
 				}
 			}
 			if err != nil {
-				return nil, "", fmt.Errorf("read -F %s=@%s: %w", assignment.name, assignment.filePath, err)
+				return nil, "", fmt.Errorf("read -F %s=%c%s: %w", assignment.name, assignment.fileMode, assignment.filePath, err)
 			}
 		}
 		if multipartBodyContainsBoundary(body) {

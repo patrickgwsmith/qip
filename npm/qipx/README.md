@@ -91,9 +91,11 @@ qipx qip.dev run \
   > component-input.tar
 ```
 
-Use `@-` to read one file field from stdin. `--form` is an exact alias for
-`-F`. Multipart form input and `-i` are mutually exclusive. Go `qip` and
-Node.js `qipx` use the same fixed QIP boundary and produce byte-identical
+Use `-F 'name=<path'` to read file bytes into a regular field without a
+filename. Quote `<` in a shell. `@-` reads one file field from stdin and `<-`
+reads one regular field; TUI mode reserves stdin for keys. `--form` is an exact
+alias for `-F`. Multipart form input and `-i` are mutually exclusive. Go `qip`
+and Node.js `qipx` use the same fixed QIP boundary and produce byte-identical
 multipart bodies for the same fields.
 
 When hosts are present, a missing safe relative `.wasm` file referenced by

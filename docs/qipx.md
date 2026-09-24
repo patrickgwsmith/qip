@@ -94,14 +94,16 @@ qipx run \
   > debugger-input.tar
 ```
 
-`-F name=value` adds a UTF-8 field. `-F name=@path` adds the file's exact
-bytes and sends only its final path segment as `filename`. `-F name=@-` reads
-one file field from stdin and sends `filename="-"`. Only one field may use
-`@-`. `--form` is an exact alias for `-F`. Multipart form input and `-i` are
-mutually exclusive.
+`-F name=value` adds a UTF-8 field. `-F 'name=@path'` adds the file's exact
+bytes and sends only its final path segment as `filename`. `-F 'name=<path'`
+reads the same bytes into a regular field without a filename. Quote arguments
+that contain `<` in a shell. `@-` and `<-` read one field from stdin; `@-`
+sends `filename="-"`, while `<-` does not. Only one field may read stdin.
+TUI mode allows neither form because stdin carries keys. `--form` is an exact
+alias for `-F`. Multipart form input and `-i` are mutually exclusive.
 
 Go `qip` and Node.js `qipx` produce byte-identical bodies. They preserve flag
-order, use `Content-Type: application/octet-stream` for file fields, use CRLF
+order, use `Content-Type: application/octet-stream` for `@` fields, use CRLF
 framing, and use the component contract's default boundary:
 
 ```text

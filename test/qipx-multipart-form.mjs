@@ -10,6 +10,7 @@ import {
   buildMultipartFormInput,
   canonicalFormContentType,
 } from "../npm/qipx/qipx.mjs";
+import { multipart as buildTUIForm } from "../npm/qiptui/qiptui.mjs";
 
 const boundary = "uuid-00000000-0000-0000-0000-000000000000";
 const identity = "bytes/identity.wasm";
@@ -63,19 +64,65 @@ test("@- has the same stdin and filename behavior in both CLIs", () => {
   assert.match(go.stdout.toString("latin1"), /name="component"; filename="-"/);
 });
 
+test("<file sends a text field with identical bytes in Go, qipx, and qiptui", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "qip-form-text-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, "input.txt");
+  await writeFile(path, "hello\n");
+  const fields = [`data=<${path}`];
+  const expected = Buffer.from(
+    `--${boundary}\r\nContent-Disposition: form-data; name="data"\r\n\r\n` +
+    `hello\n\r\n--${boundary}--\r\n`,
+  );
+  const built = await buildMultipartFormInput(fields);
+  assert.deepEqual(Buffer.from(built.bytes), expected);
+  assert.deepEqual(await buildTUIForm(fields), expected);
+
+  const go = run("./qip", ["run", "-F", fields[0], identity]);
+  assert.equal(go.status, 0, go.stderr.toString());
+  const node = run(process.execPath, ["npm/qipx/cli.mjs", "run", "-F", fields[0], identity]);
+  assert.equal(node.status, 0, node.stderr.toString());
+  assert.deepEqual(go.stdout, expected);
+  assert.deepEqual(node.stdout, expected);
+});
+
+test("<- reads stdin as a text field in Go and qipx", () => {
+  const input = Buffer.from("hello\n");
+  const args = ["run", "-F", "data=<-", identity];
+  const go = run("./qip", args, input);
+  assert.equal(go.status, 0, go.stderr.toString());
+  const node = run(process.execPath, ["npm/qipx/cli.mjs", ...args], input);
+  assert.equal(node.status, 0, node.stderr.toString());
+  assert.deepEqual(go.stdout, node.stdout);
+  assert.doesNotMatch(go.stdout.toString(), /filename=/);
+});
+
+test("TUI commands reserve stdin and reject <-", () => {
+  for (const [command, prefix] of [
+    ["./qip", ["tui"]],
+    [process.execPath, ["npm/qipx/cli.mjs", "tui"]],
+  ]) {
+    const result = run(command, [...prefix, "-F", "input=<-", "components/interactive/qipdb.wasm"], "hello");
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr.toString(), /cannot use -F name=@- or name=<- because stdin carries terminal events/);
+  }
+});
+
 test("multipart execution consumes its precomputed source plan", async () => {
-  let observedPlan;
-  await buildMultipartFormInput(["component=@text/example.wasm"], {
-    hosts: [{ origin: "https://components.example" }],
-    loadFile: (_path, plan) => {
-      observedPlan = plan;
-      return Buffer.from([0x00, 0x61, 0x73, 0x6d]);
-    },
-  });
-  assert.deepEqual(observedPlan, __cliInternals.planMultipartFormInput(
-    ["component=@text/example.wasm"],
-    [{ origin: "https://components.example" }],
-  ).fields[0].sourcePlan);
+  for (const field of ["component=@text/example.wasm", "component=<text/example.wasm"]) {
+    let observedPlan;
+    await buildMultipartFormInput([field], {
+      hosts: [{ origin: "https://components.example" }],
+      loadFile: (_path, plan) => {
+        observedPlan = plan;
+        return Buffer.from([0x00, 0x61, 0x73, 0x6d]);
+      },
+    });
+    assert.deepEqual(observedPlan, __cliInternals.planMultipartFormInput(
+      [field],
+      [{ origin: "https://components.example" }],
+    ).fields[0].sourcePlan);
+  }
 });
 
 test("both CLIs reject raw input with -F and still require a component", () => {

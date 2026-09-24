@@ -59,17 +59,37 @@ func TestBuildMultipartFormInputFromStdin(t *testing.T) {
 	}
 }
 
-func TestPlanMultipartFormInputIncludesFileSources(t *testing.T) {
-	plan, err := planMultipartFormInput(
-		[]string{"mode=step", "component=@text/example.wasm"},
-		[]qinternal.ComponentHost{{Origin: "https://components.example"}},
-	)
+func TestBuildMultipartFormTextFieldFromFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "input.txt")
+	if err := os.WriteFile(path, []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	actual, _, err := buildMultipartFormInput([]string{"data=<" + path}, strings.NewReader("unused"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(plan.fields) != 2 || plan.fields[0].sourcePlan.FilePath != "" {
-		t.Fatalf("unexpected fields: %#v", plan.fields)
+	want := "--" + canonicalFormBoundary + "\r\n" +
+		"Content-Disposition: form-data; name=\"data\"\r\n\r\n" +
+		"hello\n\r\n--" + canonicalFormBoundary + "--\r\n"
+	if string(actual) != want {
+		t.Fatalf("multipart bytes differ\nactual: %q\nwant:   %q", actual, want)
 	}
+}
+
+func TestBuildMultipartFormTextFieldFromStdin(t *testing.T) {
+	actual, _, err := buildMultipartFormInput([]string{"data=<-"}, strings.NewReader("hello\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(actual, []byte("filename=")) || bytes.Contains(actual, []byte("application/octet-stream")) {
+		t.Fatalf("text field has file headers: %q", actual)
+	}
+	if !bytes.Contains(actual, []byte("\r\n\r\nhello\n\r\n")) {
+		t.Fatalf("text field has wrong body: %q", actual)
+	}
+}
+
+func TestPlanMultipartFormInputIncludesFileSources(t *testing.T) {
 	want := qinternal.ComponentSourcePlan{
 		FilePath: "text/example.wasm",
 		Sources: []qinternal.ComponentSource{
@@ -77,8 +97,20 @@ func TestPlanMultipartFormInputIncludesFileSources(t *testing.T) {
 			{Kind: "https", URL: "https://components.example/text/example.wasm"},
 		},
 	}
-	if !reflect.DeepEqual(plan.fields[1].sourcePlan, want) {
-		t.Fatalf("source plan=%#v, want %#v", plan.fields[1].sourcePlan, want)
+	for _, field := range []string{"component=@text/example.wasm", "component=<text/example.wasm"} {
+		plan, err := planMultipartFormInput(
+			[]string{"mode=step", field},
+			[]qinternal.ComponentHost{{Origin: "https://components.example"}},
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(plan.fields) != 2 || plan.fields[0].sourcePlan.FilePath != "" {
+			t.Fatalf("unexpected fields: %#v", plan.fields)
+		}
+		if !reflect.DeepEqual(plan.fields[1].sourcePlan, want) {
+			t.Fatalf("field=%q source plan=%#v, want %#v", field, plan.fields[1].sourcePlan, want)
+		}
 	}
 }
 
@@ -119,7 +151,9 @@ func TestMultipartFormInputRejectsAmbiguousOrUnsupportedValues(t *testing.T) {
 		{[]string{"missing-equals"}, "", "requires <name=value>"},
 		{[]string{"=empty-name"}, "", "requires <name=value>"},
 		{[]string{"component=@"}, "", "empty file path"},
+		{[]string{"component=<"}, "", "empty file path"},
 		{[]string{"one=@-", "two=@-"}, "", "only one -F field"},
+		{[]string{"one=@-", "two=<-"}, "", "only one -F field"},
 		{[]string{"component=@-"}, marker, "contains the multipart boundary"},
 	}
 	for _, test := range tests {

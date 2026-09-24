@@ -23,7 +23,7 @@ async function tuiCommand(argv, hosts) {
   if (options.inputFromCLI && options.input === "-") throw new Error("qipx tui cannot read -i - because stdin carries terminal events");
   for (const value of options.formValues) {
     if (qipx.parseFormAssignment(value).filePath === "-") {
-      throw new Error("qipx tui cannot use -F name=@- because stdin carries terminal events");
+      throw new Error("qipx tui cannot use -F name=@- or name=<- because stdin carries terminal events");
     }
   }
 

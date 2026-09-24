@@ -27,10 +27,10 @@ function usage() {
     `       qipx [host ...] bench (-i <input> | -F <name=value>) [options] <component.wasm> [...]\n\n` +
     `Hosts:\n` +
     `  Hosts are dotted DNS names with optional ports. Missing relative .wasm files,\n` +
-    `  including @path form fields, are requested over HTTPS in host order and saved.\n\n` +
+    `  including @path and <path form fields, use HTTPS in host order and are saved.\n\n` +
     `Options:\n` +
     `  -i, --input <path>              Read input from a file instead of stdin\n` +
-    `  -F, --form <name=value>         Add multipart text or file input (repeatable; @path or @-)\n` +
+    `  -F, --form <name=value>         Add multipart input (repeatable; @path, <path, @-, or <-)\n` +
     `  -o, --output <path>             Write output to a file instead of stdout\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  --capacities-must-fit           Reject stages whose max output cannot fit next input\n` +
@@ -50,7 +50,7 @@ function tuiUsage() {
   return `Usage: qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\n` +
     `Input:\n` +
     `  -i, --input <path>              Read initial input from a file\n` +
-    `  -F, --form <name=value>         Construct multipart input (repeatable; @path)\n\n` +
+    `  -F, --form <name=value>         Construct multipart input (repeatable; @path or <path)\n\n` +
     `Execution:\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
@@ -58,7 +58,7 @@ function tuiUsage() {
     `The first component must be Interactive. Later components transform each\n` +
     `frame as ordinary Content stages; the final output must be UTF-8 text.\n` +
     `With hosts, missing safe relative .wasm files used by -F are downloaded.\n` +
-    `Terminal stdin carries key events, so -i - and -F name=@- are unavailable.\n`;
+    `Terminal stdin carries key events, so -i -, -F name=@-, and -F name=<- are unavailable.\n`;
 }
 
 const downloadByteLimit = 16 * 1024 * 1024;
@@ -1697,10 +1697,11 @@ function parseFormAssignment(value) {
   const name = value.slice(0, equals);
   const rawValue = value.slice(equals + 1);
   validateFormQuotedValue(name, "field name");
-  if (!rawValue.startsWith("@")) return { name, value: rawValue, filePath: "" };
+  const fileMode = rawValue[0] === "@" || rawValue[0] === "<" ? rawValue[0] : "";
+  if (!fileMode) return { name, value: rawValue, filePath: "", fileMode };
   const filePath = rawValue.slice(1);
   if (!filePath) throw new Error(`-F ${JSON.stringify(value)} has an empty file path`);
-  return { name, value: "", filePath };
+  return { name, value: "", filePath, fileMode };
 }
 
 function planMultipartFormInput(values, hosts = []) {
@@ -1712,7 +1713,7 @@ function planMultipartFormInput(values, hosts = []) {
     return Object.freeze({ assignment: Object.freeze(assignment), sourcePlan: fileSourcePlan });
   });
   if (fields.filter(({ assignment }) => assignment.filePath === "-").length > 1) {
-    throw new Error("only one -F field may read from stdin with @-");
+    throw new Error("only one -F field may read from stdin with @- or <-");
   }
   return Object.freeze({ fields: Object.freeze(fields) });
 }
@@ -1753,15 +1754,15 @@ async function buildMultipartFormInputFromPlan(formPlan, { stdin, loadFile } = {
       body = encoder.encode(assignment.value);
     } else if (assignment.filePath === "-") {
       body = stdin === undefined ? await readStdin() : bytes(stdin);
-      filename = "-";
+      if (assignment.fileMode === "@") filename = "-";
     } else {
       try {
         body = bytes(await (loadFile
           ? loadFile(assignment.filePath, fileSourcePlan)
           : loadMultipartFile(assignment.filePath, fileSourcePlan)));
-        filename = canonicalFormFilename(assignment.filePath);
+        if (assignment.fileMode === "@") filename = canonicalFormFilename(assignment.filePath);
       } catch (error) {
-        throw new Error(`read -F ${assignment.name}=@${assignment.filePath}: ${error.message ?? error}`);
+        throw new Error(`read -F ${assignment.name}=${assignment.fileMode}${assignment.filePath}: ${error.message ?? error}`);
       }
     }
     if (multipartBodyContainsBoundary(body)) {
