@@ -1,0 +1,23 @@
+[package]
+name = "qipx"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+description = "Run, test, and benchmark QIP WebAssembly components"
+license = "Apache-2.0"
+repository = "https://github.com/royalicing/qip"
+readme = "README.md"
+keywords = ["webassembly", "wasm", "cli", "qip"]
+categories = ["command-line-utilities", "wasm"]
+
+[dependencies]
+wasmtime = { version = "49", default-features = false, features = ["std", "runtime", "cranelift"] }
+wasmparser = "0.258"
+sha2 = "0.10"
+ureq = { version = "3.4", default-features = false, features = ["rustls", "gzip"] }
+url = "2.5"
+crossterm = "0.29"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+signal-hook = "0.3"

@@ -1,0 +1,13 @@
+(module
+  (memory (export "memory") 1 1)
+  (data (i32.const 0) "\1b[2J")
+  (func (export "output_utf8_cap") (result i32)
+    i32.const 4)
+  (func (export "render") (param i32) (result i64)
+    i64.const 4)
+  (func (export "begin_update_at") (param i64))
+  (func (export "key_event") (param i32 i32) (result i32)
+    i32.const 0)
+  (func (export "finish_update") (result i64)
+    i64.const 0)
+)
