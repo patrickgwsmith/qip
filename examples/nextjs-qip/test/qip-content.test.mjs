@@ -15,7 +15,6 @@ const component = await readFile(
     exampleDir,
     "..",
     "..",
-    "components",
     "text",
     "html",
     "html-code-syntax-highlight-tsx.wasm",
