@@ -10,6 +10,11 @@ The host owns terminal mode, screen redraws, timing, and key decoding. The
 component produces complete text frames and cannot issue general terminal
 commands. A frame may be plain text or use the supported SGR styles.
 
+In a browser, `<qip-tui>` presents the same frames in a focusable, resizable
+grid. It measures available width and height and supplies `uniform_set_columns`
+and `uniform_set_lines` when present. Resizing redraws retained state. The
+[browser element guide](/docs/qip-elements#qip-tui) shows markup and limits.
+
 Run the calendar with no input or options:
 
 ```sh

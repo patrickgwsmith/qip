@@ -21,6 +21,7 @@ func TestSiteElementEntrypointsRegisterOneElementEach(t *testing.T) {
 		{path: "site/_elements/qip-form.js", registered: `customElements.define("qip-form"`},
 		{path: "site/_elements/qip-view.js", registered: `customElements.define("qip-view"`, excluded: []string{`customElements.define("qip-edit"`}},
 		{path: "site/_elements/qip-play.js", registered: `customElements.define("qip-play"`, excluded: []string{`customElements.define("qip-step"`}},
+		{path: "site/_elements/qip-tui.js", registered: `customElements.define("qip-tui"`},
 		{path: "site/_elements/qip-wasm-policy.js", registered: `customElements.define("qip-wasm-policy"`},
 	}
 	for _, tt := range tests {

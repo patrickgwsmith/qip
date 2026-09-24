@@ -1,6 +1,6 @@
 # Browser Elements
 
-QIP provides three custom elements organized around the user's relationship to a component. Use `<qip-view>` to consume a result, `<qip-edit>` to author inputs, and `<qip-play>` to interact with a running component.
+QIP provides three general custom elements organized around the user's relationship to a component. Use `<qip-view>` to consume a result, `<qip-edit>` to author inputs, and `<qip-play>` to interact with a running graphical component. `<qip-tui>` hosts a running text-grid component in the browser.
 
 ```text
 view    consume
@@ -15,12 +15,14 @@ These names describe the user experience, not implementation concepts such as re
 | `<qip-view>` | Consume | The page or application | Finite rendering | The complete output can be rendered at build time or on the server; client activation can be optional |
 | `<qip-edit>` | Author | User-editable form controls | Reactive finite rendering | The initial output can be pre-rendered, but client activation is required for editing |
 | `<qip-play>` | Interact | The running QIP component | Persistent, stateful session | A fallback, poster, or initial snapshot can be pre-rendered, but interaction requires activation |
+| `<qip-tui>` | Interact in a text grid | The running QIP component | Persistent, stateful session | An initial text frame can be pre-rendered, but interaction requires activation |
 
 ## Choosing An Element
 
 1. Use `<qip-view>` when the user consumes a result whose source is owned by the page or application.
 2. Use `<qip-edit>` when the user changes source inputs and QIP reactively updates the outputs.
 3. Use `<qip-play>` when the component owns an ongoing stateful session and responds to interaction over time.
+4. Use `<qip-tui>` for the same persistent interaction when the component emits TUI text frames and takes keyboard input.
 
 The distinction is the overall user experience, not the presence of a particular form-control attribute:
 
@@ -315,6 +317,39 @@ presentation, and canonical KTX2 output. `calculator` uses the
 application-style path. `snake` combines events with fixed-step scheduled
 wakes. See also [GUI Components](/docs/gui-components) and
 [Interactive Rendering Performance](/docs/interactive-rendering-performance).
+
+## `<qip-tui>`
+
+`<qip-tui>` hosts a keyboard-driven TUI component in a resizable browser text
+grid. It starts at its parent width, and users can
+drag its bottom-right corner to reduce its width or change its height. The host
+measures the monospace cell size and supplies `columns` and `lines` uniforms
+when the component exports them. A resize renders the retained state again; it
+does not instantiate the component again.
+
+```html
+<qip-tui aria-label="Calendar" height="28rem">
+  <source src="/interactive/calendar-gregorian.wasm" type="application/wasm" />
+</qip-tui>
+```
+
+Use `<qip-step>` wrappers when a finite Content component must transform each
+frame. The first step owns the TUI state and keyboard events; later steps
+accept and emit exact content types. The final step must emit `text/plain`.
+The browser retains the first post-processing alternative that accepts the
+initial frame, as `<qip-play>` does.
+
+The component must export `key_event`, the Time and Events functions, and
+UTF-8 output. It can declare `text/plain` as its output content type. The host
+validates the terminal's narrow ANSI SGR
+profile through `ansi-sgr-to-html.wasm` before presenting the frame. It accepts
+at most 256 KiB of frame text. Its `load({moduleBytes, inputBytes})` method also
+lets an application provide bytes it has already fetched. The
+[component debugger](/component-debugger) uses this path for local files.
+
+Use `<qip-play>` for KTX2 or SVG frames, pointer coordinates, or image-specific
+canvas behavior. Use ordinary HTML when the interface needs native controls,
+text editing services, or semantic document navigation.
 
 ## Pre-Rendering
 

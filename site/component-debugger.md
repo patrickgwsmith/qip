@@ -49,25 +49,12 @@ Everything runs locally in your browser.
   height: 1px;
   opacity: 0;
 }
-.debugger-screen {
-  box-sizing: border-box;
-  width: min(100%, calc(80ch + 2rem + 2px));
-  justify-self: start;
-  min-height: 36rem;
-  margin: 0;
-  padding: 1rem;
-  overflow: auto;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-radius: 0.5rem;
-  background: #111;
-  color: #e8e8e8;
-  font: 13px/1.25 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  white-space: pre;
-  tab-size: 2;
+qip-tui {
+  width: 100%;
 }
-.debugger-screen:focus {
+qip-tui pre:focus {
   outline: 3px solid color-mix(in srgb, #1689ff 65%, transparent);
-  outline-offset: 2px;
+  outline-offset: -3px;
 }
 .debugger-text-input {
   display: grid;
@@ -112,7 +99,7 @@ Everything runs locally in your browser.
     <span>Text input <code id="debugger-text-input-pointer"></code></span>
     <textarea id="debugger-text" rows="4" spellcheck="false" placeholder="Enter the component input"></textarea>
   </label>
-  <pre id="debugger-screen" class="debugger-screen" tabindex="0" aria-label="Debugger screen">Loading…</pre>
+  <qip-tui id="debugger-tui" manual-keys aria-label="Debugger screen"></qip-tui>
   <div class="debugger-controls" aria-label="Debugger controls and keyboard shortcuts">
     <button type="button" data-debug-key="32">Continue <kbd>Space</kbd></button>
     <button type="button" data-debug-key="110">Step over <kbd>N</kbd> <kbd>F10</kbd></button>
@@ -137,29 +124,23 @@ for the last write. Press `M` to switch between memory bytes and the page map.
 While examine mode is active, Up and Down Arrow page through memory.
 
 Open the browser console and press a debugger key to see render timings. The
-page reports the complete synchronous update, the `innerHTML` assignment, a
-forced style and layout pass, and the wait for the next animation frame. To
+page reports the complete synchronous update, a forced style and layout pass,
+and the wait for the next animation frame. To
 measure paint and compositing, record the keypress in the browser's Performance
 panel. The page adds timestamp markers to that recording. Developer Tools and
 console logging add some overhead, so compare several keypresses.
 
 <script type="module">
+import "/elements/qip-tui.js";
 import { parseCSV } from "/elements/qip-search.js";
-import { contentComponent, contentTypeUTF8 } from "/qip-runner.js";
-
-const debuggerModulePromise = WebAssembly.compileStreaming(
-  fetch("/interactive/qipdb.wasm"),
-);
-const plainText = contentTypeUTF8("text/plain");
-const htmlText = contentTypeUTF8("text/html");
-const ansiHTMLPromise = WebAssembly.compileStreaming(
-  fetch("/text/ansi-sgr-to-html.wasm"),
-).then((module) => contentComponent(plainText, module, htmlText));
-const ansiHTMLPrefix = "<!doctype html><meta charset=\"utf-8\"><" + "pre>";
-const ansiHTMLSuffix = "</" + "pre>";
+const debuggerModuleBytesPromise = fetch("/interactive/qipdb.wasm").then(async (response) => {
+  if (!response.ok) throw Error("Could not fetch debugger: HTTP " + response.status);
+  return new Uint8Array(await response.arrayBuffer());
+});
 const catalogURL = "/data/component-catalog.csv";
 const catalogHeader = "path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,output_capacity_bytes";
-const screen = document.getElementById("debugger-screen");
+const tui = document.getElementById("debugger-tui");
+const screen = tui.screen;
 const status = document.getElementById("debugger-status");
 const componentSelect = document.getElementById("debugger-component");
 const fileInput = document.getElementById("debugger-file");
@@ -169,8 +150,6 @@ const textInputPanel = document.getElementById("debugger-text-input");
 const textInputPointer = document.getElementById("debugger-text-input-pointer");
 const textInput = document.getElementById("debugger-text");
 let instance = null;
-let ansiToHTML = null;
-let updateTime = 1n;
 let currentComponent = null;
 let currentInput = null;
 let textInputTimer = 0;
@@ -189,8 +168,6 @@ function beginRenderMeasurement(key) {
   const measurement = {
     label,
     start: performance.now(),
-    innerHTMLStart: 0,
-    innerHTMLEnd: 0,
   };
   console.time(label + ": synchronous update");
   console.timeStamp(label + ": start");
@@ -208,13 +185,8 @@ function finishRenderMeasurement(measurement) {
   const layoutEnd = performance.now();
 
   console.log(measurement.label, {
-    "keypress handler through innerHTML": elapsedMilliseconds(
-      measurement.start,
-      synchronousEnd,
-    ),
-    "innerHTML assignment": elapsedMilliseconds(
-      measurement.innerHTMLStart,
-      measurement.innerHTMLEnd,
+    "keypress handler through screen update": elapsedMilliseconds(
+      measurement.start, synchronousEnd,
     ),
     "forced style and layout": elapsedMilliseconds(layoutStart, layoutEnd),
     "keypress handler through layout": elapsedMilliseconds(
@@ -278,27 +250,6 @@ function readI32Export(exports, name) {
   const value = exports[name]();
   if (!Number.isInteger(value) || value < 0) throw Error(name + " returned an invalid value");
   return value;
-}
-
-function renderText(inputSize, measurement = null) {
-  const bits = BigInt.asUintN(64, instance.exports.render(inputSize));
-  if ((bits & (1n << 63n)) !== 0n) throw Error("Debugger rejected its input");
-  const size = Number(bits & 0xffff_ffffn);
-  const pointer = Number((bits >> 32n) & 0x7fff_ffffn);
-  const capacity = readI32Export(instance.exports, "output_utf8_cap");
-  if (size > capacity || pointer + size > instance.exports.memory.buffer.byteLength) {
-    throw Error("Debugger returned output outside its declared buffer");
-  }
-  const ansi = new TextDecoder("utf-8", { fatal: true }).decode(
-    new Uint8Array(instance.exports.memory.buffer, pointer, size),
-  );
-  const document = ansiToHTML(ansi);
-  if (!document.startsWith(ansiHTMLPrefix) || !document.endsWith(ansiHTMLSuffix)) {
-    throw Error("ANSI renderer returned an unexpected HTML document");
-  }
-  if (measurement) measurement.innerHTMLStart = performance.now();
-  screen.innerHTML = document.slice(ansiHTMLPrefix.length, -ansiHTMLSuffix.length);
-  if (measurement) measurement.innerHTMLEnd = performance.now();
 }
 
 function replacedBoundary(body, from, to) {
@@ -373,25 +324,13 @@ async function loadTarget(component, input = null, focusScreen = true) {
   textInputPointer.textContent = "";
   if (bytes.byteLength > 1024 * 1024) throw Error("Component exceeds the debugger's 1 MiB module limit");
   if (input && input.bytes.byteLength > 8 * 1024 * 1024) throw Error("Input exceeds the debugger's 8 MiB component-input limit");
-  const [module, ansiRenderer] = await Promise.all([debuggerModulePromise, ansiHTMLPromise]);
-  ansiToHTML = ansiRenderer;
-  instance = (await WebAssembly.instantiate(module, {}));
   const formBytes = await debuggerForm(component, input);
-  const inputPointer = readI32Export(instance.exports, "input_ptr");
-  const inputCapacity = readI32Export(instance.exports, "input_bytes_cap");
-  if (formBytes.byteLength > inputCapacity) throw Error("Component and input exceed the debugger's multipart input limit");
-  if (inputPointer + inputCapacity > instance.exports.memory.buffer.byteLength) {
-    throw Error("Debugger input buffer is outside memory");
-  }
-  new Uint8Array(instance.exports.memory.buffer, inputPointer, formBytes.byteLength).set(formBytes);
-  renderText(formBytes.byteLength);
+  await tui.load({ moduleBytes: await debuggerModuleBytesPromise, inputBytes: formBytes });
+  instance = { exports: tui.exports };
   if (component.acceptsText) {
     const pointer = readI32Export(instance.exports, "target_input_ptr");
     textInputPointer.textContent = "input_ptr=0x" + pointer.toString(16).padStart(8, "0");
   }
-  instance.exports.begin_update_at(1n);
-  instance.exports.finish_update();
-  updateTime = 2n;
   currentComponent = component;
   currentInput = input;
   const inputStatus = input ? " with " + input.name + " (" + input.bytes.byteLength + " B)" : "";
@@ -401,12 +340,10 @@ async function loadTarget(component, input = null, focusScreen = true) {
 
 function dispatch(keysym, shift = false, alt = false, measurement = null) {
   if (!instance) return;
-  instance.exports.begin_update_at(updateTime++);
-  const appliedBudget = instance.exports.uniform_set_instruction_budget(instructionBudget.valueAsNumber);
-  if (appliedBudget !== instructionBudget.valueAsNumber) instructionBudget.value = appliedBudget;
-  instance.exports.key_event(keysym, 1 | (shift ? 1 << 2 : 0) | (alt ? 1 << 4 : 0));
-  instance.exports.finish_update();
-  renderText(0, measurement);
+  tui.sendKey(keysym, 1 | (shift ? 1 << 2 : 0) | (alt ? 1 << 4 : 0), (exports) => {
+    const appliedBudget = exports.uniform_set_instruction_budget(instructionBudget.valueAsNumber);
+    if (appliedBudget !== instructionBudget.valueAsNumber) instructionBudget.value = appliedBudget;
+  });
   if (measurement) finishRenderMeasurement(measurement);
 }
 

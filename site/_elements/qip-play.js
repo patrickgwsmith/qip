@@ -29,6 +29,11 @@ import {
   sourceLabel as qipPlaySourceLabel,
   validatePostStage as qipPlayValidatePostStage,
 } from "./_qip-pipeline.js";
+import {
+  QIPInteractiveSession,
+  mapKeyboardEventToKeysym as qipPlayMapKeyboardEventToKeysym,
+  keyFlags as qipPlayBuildKeyFlags,
+} from "./_qip-interactive-session.js";
 
 function qipPlayToI64(value, label) {
   if (typeof value === "bigint") {
@@ -130,29 +135,6 @@ function qipPlayCompareQueuedEvents(a, b) {
   return a.timeMS - b.timeMS || a.sequence - b.sequence;
 }
 
-function qipPlayMapKeyboardEventToKeysym(event) {
-  const key = event.key || "";
-
-  if (key === "ArrowLeft") return 0xff51;
-  if (key === "ArrowUp") return 0xff52;
-  if (key === "ArrowRight") return 0xff53;
-  if (key === "ArrowDown") return 0xff54;
-  if (key === "Shift") return event.location === 2 ? 0xffe2 : 0xffe1;
-  if (key === "Escape") return 0xff1b;
-  if (key === "Enter") return 0xff0d;
-  if (key === "Tab") return 0xff09;
-  if (key === "Backspace") return 0xff08;
-  if (key === "Delete") return 0xffff;
-  if (key === "Alt") return event.location === 2 ? 0xffea : 0xffe9;
-  if (key === " ") return 0x20;
-
-  if (key.length === 1) {
-    return key.codePointAt(0) | 0;
-  }
-
-  return null;
-}
-
 function qipPlayShouldCaptureMetaKey(event, keysym) {
   // Preserve browser/app-level shortcuts by default, but allow the common
   // text-editing/navigation shortcuts modules expect.
@@ -183,17 +165,6 @@ function qipPlayShouldCaptureMetaKey(event, keysym) {
     default:
       return false;
   }
-}
-
-function qipPlayBuildKeyFlags(event, isDown) {
-  let flags = 0;
-  if (isDown) flags |= 1 << 0;
-  if (event.repeat) flags |= 1 << 1;
-  if (event.shiftKey) flags |= 1 << 2;
-  if (event.ctrlKey) flags |= 1 << 3;
-  if (event.altKey) flags |= 1 << 4;
-  if (event.metaKey) flags |= 1 << 5;
-  return flags;
 }
 
 function qipPlayMapDOMButtonsToMask(buttons) {
@@ -316,6 +287,7 @@ class QIPPlayElement extends HTMLElement {
     this._timeoutTargetMS = 0;
 
     this._exports = null;
+    this._session = null;
     this._memory = null;
     this._uniforms = [];
     this._inputSize = 0;
@@ -500,6 +472,7 @@ class QIPPlayElement extends HTMLElement {
 
     this._exports = exportsObj;
     this._memory = exportsObj.memory;
+    this._session = new QIPInteractiveSession(exportsObj, exportsObj.memory);
     this._steps = loaded;
     this._postStages = loaded.slice(1);
     this._sourceElement = sourceElement;
@@ -905,6 +878,7 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _readFinishedUpdate(begunAtMS) {
+    if (this._session) return this._session.finish(begunAtMS);
     let result;
     try {
       result = this._exports.finish_update();
@@ -922,9 +896,9 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _runBootstrapUpdate() {
-    const begunAtMS = 1;
     const updateStart = qipPlayPerfNow();
-    this._exports.begin_update_at(qipPlayNowMSArg(begunAtMS));
+    const begunAtMS = this._session ? this._session.begin(1) : 1;
+    if (!this._session) this._exports.begin_update_at(qipPlayNowMSArg(begunAtMS));
     this._applyUniforms();
     this._nextWakeAtMS = this._readFinishedUpdate(begunAtMS);
     this._finishedAtMS = begunAtMS;
@@ -933,9 +907,10 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _runUpdate(nowMS, renderRequested) {
-    const begunAtMS = Math.max(Math.floor(nowMS), this._finishedAtMS + 1);
     const updateStart = qipPlayPerfNow();
-    this._exports.begin_update_at(qipPlayNowMSArg(begunAtMS));
+    const requestedAtMS = Math.max(Math.floor(nowMS), this._finishedAtMS + 1);
+    const begunAtMS = this._session ? this._session.begin(requestedAtMS) : requestedAtMS;
+    if (!this._session) this._exports.begin_update_at(qipPlayNowMSArg(begunAtMS));
     this._applyUniforms();
     const eventResult = this._drainEvents(nowMS);
     const shouldRender = this._canPresent() && (renderRequested || eventResult.accepted);
