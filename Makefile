@@ -382,6 +382,7 @@ components/interactive/aces-up.wasm components/interactive/browser-security.wasm
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter components/interactive/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter components/interactive/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
 
 components/interactive/chronograph.wasm: components/interactive/assets/inter_display_bold_chronograph_digits.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+components/interactive/openai-anthropic-arr.wasm: components/interactive/assets/inter_display_chart_ascii.zig
 
 application/wasm/wasm-strict-profile.wasm: ZIG_WASM_MAX_MEMORY = 20971520
 application/wasm/wasm-strict-profile.wasm: application/wasm/wasm-strict-profile.zig application/wasm/lib/wasm-reader.zig

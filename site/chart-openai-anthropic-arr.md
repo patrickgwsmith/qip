@@ -8,16 +8,43 @@ the host calls `render`.
   <source src="/interactive/openai-anthropic-arr.wasm" type="application/wasm" />
 </qip-play>
 
+<script type="module">
+const shortcuts = new Set(["l", "o", "a", "1", "2", "ArrowLeft", "ArrowRight"]);
+
+function forwardChartShortcut(event) {
+  if (event.target !== document.body && event.target !== document.documentElement) return;
+  if (event.ctrlKey || event.altKey || event.metaKey) return;
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const chart = document.querySelector("qip-play canvas");
+  if (!shortcuts.has(key) || !chart) return;
+
+  event.preventDefault();
+  chart.dispatchEvent(new KeyboardEvent(event.type, {
+    key: event.key,
+    code: event.code,
+    repeat: event.repeat,
+    shiftKey: event.shiftKey,
+    bubbles: true,
+    cancelable: true,
+  }));
+}
+
+document.addEventListener("keydown", forwardChartShortcut);
+document.addEventListener("keyup", forwardChartShortcut);
+</script>
+
 <hr>
 
 A reported annualized-revenue overlay for OpenAI and Anthropic, tracking public run-rate milestones from 2023 through August 2026.
+
+Keyboard shortcuts work when the page or chart has focus.
 
 Controls:
 
 - Hover the chart or use the arrow keys to inspect a milestone
 - `1` or `O`: latest OpenAI point
 - `2` or `A`: latest Anthropic point
-- `L`: animate between linear and log scale over 750 milliseconds
+- `L`: animate between linear and log scale over 300 milliseconds
 
 Data notes:
 

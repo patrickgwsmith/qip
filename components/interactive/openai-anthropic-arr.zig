@@ -1,9 +1,10 @@
 const std = @import("std");
 const ktx = @import("ktx2_rgba8_srgb");
-const ui_font = @import("assets/dejavu_sans_mono_56_ascii_subset.zig");
+const ui_font = @import("assets/inter_display_chart_ascii.zig");
 
 const DISPLAY_W: usize = 820;
 const DISPLAY_H: usize = 540;
+const PAGE_MARGIN: i32 = 24;
 const RETINA_SCALE: i32 = 2;
 const RETINA_SCALE_USIZE: usize = 2;
 const RENDER_W: usize = DISPLAY_W * RETINA_SCALE_USIZE;
@@ -16,22 +17,28 @@ const CHART_X: i32 = 74;
 const CHART_Y: i32 = 116;
 const CHART_W: i32 = 680;
 const CHART_H: i32 = 304;
-const DETAIL_X: i32 = 24;
+const DETAIL_X: i32 = PAGE_MARGIN;
 const DETAIL_Y: i32 = 450;
-const DETAIL_W: i32 = 772;
+const DETAIL_W: i32 = @as(i32, @intCast(DISPLAY_W)) - PAGE_MARGIN * 2;
 const DETAIL_H: i32 = 66;
 const BUTTON_Y: i32 = 64;
 const BUTTON_H: i32 = 30;
-const OPENAI_BUTTON_X: i32 = 24;
-const OPENAI_BUTTON_W: i32 = 74;
-const ANTHROPIC_BUTTON_X: i32 = 108;
-const ANTHROPIC_BUTTON_W: i32 = 108;
-const LINEAR_BUTTON_X: i32 = 632;
-const LINEAR_BUTTON_W: i32 = 82;
-const LOG_BUTTON_X: i32 = 724;
-const LOG_BUTTON_W: i32 = 50;
+const BUTTON_PAD_X: i32 = 16;
+const BUTTON_GAP: i32 = 10;
+// One border pixel plus the six-pixel series stripe.
+const LEGEND_ACCENT_SPACE: i32 = 7;
+const OPENAI_BUTTON_W: i32 = textWidth("OpenAI") + LEGEND_ACCENT_SPACE + BUTTON_PAD_X * 2;
+const ANTHROPIC_BUTTON_W: i32 = textWidth("Anthropic") + LEGEND_ACCENT_SPACE + BUTTON_PAD_X * 2;
+const LINEAR_BUTTON_W: i32 = textWidth("Linear") + BUTTON_PAD_X * 2;
+const LOG_BUTTON_W: i32 = textWidth("Log") + BUTTON_PAD_X * 2;
+const OPENAI_BUTTON_X: i32 = PAGE_MARGIN;
+const ANTHROPIC_BUTTON_X: i32 = OPENAI_BUTTON_X + OPENAI_BUTTON_W + BUTTON_GAP;
+const LOG_BUTTON_X: i32 = DETAIL_X + DETAIL_W - LOG_BUTTON_W;
+const LINEAR_BUTTON_X: i32 = LOG_BUTTON_X - BUTTON_GAP - LINEAR_BUTTON_W;
 const FONT_SIZE_LOGICAL: i32 = 14;
-const SCALE_TWEEN_DURATION_MS: i64 = 750;
+// The Inter glyph bitmap has top padding; this centers its visible ink in a button.
+const BUTTON_LABEL_Y_OFFSET: i32 = 5;
+const SCALE_TWEEN_DURATION_MS: i64 = 300;
 const SCALE_TWEEN_FRAME_MS: i64 = 16;
 const BTN_PRIMARY: i32 = 1 << 0;
 const FLAG_KEY_DOWN: i32 = 1 << 0;
@@ -81,43 +88,43 @@ const ARRPoint = struct {
 // Reported annualized revenue / ARR milestones. These are private-company
 // run-rate figures from public reporting, not audited revenue statements.
 const OPENAI_POINTS = [_]ARRPoint{
-    .{ .month = 0, .label = "2023", .arr_b = 2.0, .note = "OPENAI CFO: $2B ARR IN 2023." },
+    .{ .month = 0, .label = "2023", .arr_b = 2.0, .note = "OpenAI's CFO reported $2B ARR in 2023." },
     // https://www.bloomberg.com/news/articles/2024-06-12/openai-doubles-annualized-revenue-to-3-4-billion-information
-    .{ .month = 6, .label = "JUN 24", .arr_b = 3.4, .note = "BLOOMBERG: ALTMAN REPORTED A $3.4B ANNUAL PACE." },
+    .{ .month = 6, .label = "Jun 2024", .arr_b = 3.4, .note = "Bloomberg: Altman reported a $3.4B annual pace." },
     // https://www.investing.com/news/stock-market-news/openais-annualized-revenue-hits-10-billion-up-from-55-billion-in-december-2024-4087508
-    .{ .month = 12, .label = "2024", .arr_b = 5.5, .note = "OPENAI / REUTERS: $5.5B RUN RATE AT YEAR-END." },
-    .{ .month = 18, .label = "JUN 25", .arr_b = 10.0, .note = "FT: OPENAI ARR NEARLY DOUBLED TO $10B." },
-    .{ .month = 19, .label = "JUL 25", .arr_b = 12.0, .note = "REUTERS / THE INFORMATION: $12B ANNUALIZED REVENUE." },
+    .{ .month = 12, .label = "2024", .arr_b = 5.5, .note = "OpenAI told Reuters its year-end run rate was $5.5B." },
+    .{ .month = 18, .label = "Jun 2025", .arr_b = 10.0, .note = "FT: OpenAI's run rate nearly doubled to $10B." },
+    .{ .month = 19, .label = "Jul 2025", .arr_b = 12.0, .note = "Reuters and The Information reported a $12B run rate." },
     // https://www.axios.com/newsletters/axios-ai-plus-efcf11cf-d66b-453c-9d1f-d50774376983
-    .{ .month = 20, .label = "AUG 25", .arr_b = 13.0, .note = "AXIOS, AUG 1: OPENAI ARR REACHED $13B." },
+    .{ .month = 20, .label = "Aug 2025", .arr_b = 13.0, .note = "Axios: OpenAI's run rate reached $13B." },
     // https://www.theinformation.com/articles/openai-discussed-raising-tens-billions-valuation-around-750-billion
-    .{ .month = 23, .label = "NOV 25", .arr_b = 19.0, .note = "THE INFORMATION: ARR TOPPED $19B IN NOVEMBER." },
+    .{ .month = 23, .label = "Nov 2025", .arr_b = 19.0, .note = "The Information: Run rate topped $19B in November." },
     // https://www.investing.com/news/stock-market-news/openai-tops-25-billion-in-annualized-revenue-last-month-the-information-reports-4542796
-    .{ .month = 24, .label = "2025", .arr_b = 21.4, .note = "THE INFORMATION / REUTERS: $21.4B AT YEAR-END." },
-    .{ .month = 26, .label = "FEB 26", .arr_b = 25.0, .note = "THE INFORMATION / REUTERS: ARR TOPPED $25B." },
-    .{ .month = 32, .label = "AUG 26", .arr_b = 40.0, .note = "SOURCE: BLOOMBERG, AUG 13 2026. ANNUALIZED REVENUE TOPPED $40B." },
+    .{ .month = 24, .label = "2025", .arr_b = 21.4, .note = "The Information and Reuters: $21.4B at year-end." },
+    .{ .month = 26, .label = "Feb 2026", .arr_b = 25.0, .note = "The Information and Reuters: Run rate topped $25B." },
+    .{ .month = 32, .label = "Aug 2026", .arr_b = 40.0, .note = "Bloomberg, Aug 13: Annualized revenue topped $40B." },
 };
 
 const ANTHROPIC_POINTS = [_]ARRPoint{
     // https://www.anthropic.com/news/anthropic-expands-global-leadership-in-enterprise-ai-naming-chris-ciauri-as-managing-director-of
-    .{ .month = 1, .label = "JAN 24", .arr_b = 0.087, .note = "ANTHROPIC: $87M RUN RATE AT START OF 2024." },
-    .{ .month = 13, .label = "JAN 25", .arr_b = 1.0, .note = "ANTHROPIC: ABOUT $1B AT START OF 2025." },
-    .{ .month = 14, .label = "FEB 25", .arr_b = 1.2, .note = "WSJ: ANNUALIZED REVENUE ABOUT $1.2B." },
+    .{ .month = 1, .label = "Jan 2024", .arr_b = 0.087, .note = "Anthropic: Run rate was $87M at the start of 2024." },
+    .{ .month = 13, .label = "Jan 2025", .arr_b = 1.0, .note = "Anthropic: Run rate was about $1B at the start of 2025." },
+    .{ .month = 14, .label = "Feb 2025", .arr_b = 1.2, .note = "WSJ: Annualized revenue was about $1.2B." },
     // https://www.investing.com/news/stock-market-news/exclusiveanthropic-hits-3-billion-in-annualized-revenue-on-business-demand-for-ai-4073600
-    .{ .month = 15, .label = "MAR 25", .arr_b = 2.0, .note = "REUTERS: RUN RATE CROSSED $2B AT MARCH-END." },
-    .{ .month = 17, .label = "MAY 25", .arr_b = 3.0, .note = "FT: ANTHROPIC ARR TRIPLED TO $3B BETWEEN JANUARY AND MAY." },
+    .{ .month = 15, .label = "Mar 2025", .arr_b = 2.0, .note = "Reuters: Run rate crossed $2B by the end of March." },
+    .{ .month = 17, .label = "May 2025", .arr_b = 3.0, .note = "FT: Anthropic's run rate reached $3B by May." },
     // https://www.theinformation.com/articles/investors-float-deal-valuing-anthropic-100-billion
-    .{ .month = 18, .label = "JUN 25", .arr_b = 4.0, .note = "THE INFORMATION: ANNUALIZED REVENUE TOPPED $4B." },
+    .{ .month = 18, .label = "Jun 2025", .arr_b = 4.0, .note = "The Information: Annualized revenue topped $4B." },
     // https://www.anthropic.com/news/anthropic-raises-series-f-at-usd183b-post-money-valuation
-    .{ .month = 20, .label = "AUG 25", .arr_b = 5.0, .note = "ANTHROPIC: RUN-RATE REVENUE TOPPED $5B." },
+    .{ .month = 20, .label = "Aug 2025", .arr_b = 5.0, .note = "Anthropic: Run-rate revenue topped $5B." },
     // https://reutersbest.com/anthropic-aims-to-nearly-triple-annualized-revenue-in-2026/
-    .{ .month = 22, .label = "OCT 25", .arr_b = 7.0, .note = "ANTHROPIC / REUTERS: RUN RATE APPROACHED $7B." },
-    .{ .month = 24, .label = "2025", .arr_b = 9.0, .note = "ANTHROPIC / PRESS REPORTS: $9B RUN-RATE AT END 2025." },
-    .{ .month = 26, .label = "FEB 26", .arr_b = 14.0, .note = "GUARDIAN: ANNUALISED REVENUE REACHED $14B." },
-    .{ .month = 27, .label = "MAR 26", .arr_b = 19.0, .note = "AXIOS: $19B RUN-RATE IN EARLY MARCH." },
-    .{ .month = 28, .label = "APR 26", .arr_b = 30.0, .note = "ANTHROPIC: RUN-RATE REVENUE SURPASSED $30B." },
-    .{ .month = 29, .label = "MAY 26", .arr_b = 47.0, .note = "FT / MARKETWATCH: RUN-RATE REVENUE CROSSED $47B." },
-    .{ .month = 31, .label = "JUL 26", .arr_b = 65.0, .note = "SOURCE: BLOOMBERG, AUG 18 2026. RUN RATE HIT $65B AT END-JULY." },
+    .{ .month = 22, .label = "Oct 2025", .arr_b = 7.0, .note = "Anthropic told Reuters its run rate approached $7B." },
+    .{ .month = 24, .label = "2025", .arr_b = 9.0, .note = "Anthropic: Run rate was about $9B at year-end." },
+    .{ .month = 26, .label = "Feb 2026", .arr_b = 14.0, .note = "The Guardian: Annualized revenue reached $14B." },
+    .{ .month = 27, .label = "Mar 2026", .arr_b = 19.0, .note = "Axios: Run rate reached $19B in early March." },
+    .{ .month = 28, .label = "Apr 2026", .arr_b = 30.0, .note = "Anthropic: Run-rate revenue surpassed $30B." },
+    .{ .month = 29, .label = "May 2026", .arr_b = 47.0, .note = "FT and MarketWatch: Run rate crossed $47B." },
+    .{ .month = 31, .label = "Jul 2026", .arr_b = 65.0, .note = "Bloomberg, Aug 18: Run rate hit $65B at July's end." },
 };
 
 var output_buf: [OUTPUT_BYTES]u8 = undefined;
@@ -312,13 +319,13 @@ fn selectedLen() usize {
 
 fn drawFrame() void {
     fillRect(0, 0, @as(i32, @intCast(DISPLAY_W)), @as(i32, @intCast(DISPLAY_H)), C_BG);
-    drawText(24, 20, "OPENAI VS ANTHROPIC ARR RUN-RATE", C_INK);
-    drawText(24, 40, "REPORTED PRIVATE-COMPANY MILESTONES, USD BILLIONS.  HOVER OR USE ARROWS.  L ANIMATE SCALE.", C_MUTED);
+    drawText(PAGE_MARGIN, 20, "OpenAI vs Anthropic revenue run rate", C_INK);
+    drawText(PAGE_MARGIN, 40, "Reported milestones in USD billions. Hover or use arrows to explore. Press L to change the scale.", C_MUTED);
 
-    button(OPENAI_BUTTON_X, BUTTON_Y, OPENAI_BUTTON_W, "OPENAI", C_OPENAI, selected_series == .openai, 0);
-    button(ANTHROPIC_BUTTON_X, BUTTON_Y, ANTHROPIC_BUTTON_W, "ANTHROPIC", C_ANTHROPIC, selected_series == .anthropic, 0);
-    scaleButton(LINEAR_BUTTON_X, BUTTON_Y, LINEAR_BUTTON_W, "LINEAR", scale_mode == .linear, 0);
-    scaleButton(LOG_BUTTON_X, BUTTON_Y, LOG_BUTTON_W, "LOG", scale_mode == .log, 0);
+    button(OPENAI_BUTTON_X, BUTTON_Y, OPENAI_BUTTON_W, "OpenAI", C_OPENAI, selected_series == .openai, 0);
+    button(ANTHROPIC_BUTTON_X, BUTTON_Y, ANTHROPIC_BUTTON_W, "Anthropic", C_ANTHROPIC, selected_series == .anthropic, 0);
+    scaleButton(LINEAR_BUTTON_X, BUTTON_Y, LINEAR_BUTTON_W, "Linear", scale_mode == .linear, 0);
+    scaleButton(LOG_BUTTON_X, BUTTON_Y, LOG_BUTTON_W, "Log", scale_mode == .log, 0);
 
     drawChart();
     drawDetail();
@@ -336,7 +343,7 @@ fn drawChart() void {
     for (year_ticks) |tick_mark| {
         const x = monthToX(tick_mark.month);
         fillRect(x, CHART_Y + 1, 1, CHART_H - 2, C_GRID);
-        drawText(x - 18, CHART_Y + CHART_H + 14, tick_mark.label, C_MUTED);
+        drawText(x - 18, CHART_Y + CHART_H + 6, tick_mark.label, C_MUTED);
     }
 
     drawYAxis();
@@ -390,8 +397,8 @@ fn drawSeries(points: []const ARRPoint, series: Series, color: Color) void {
 fn drawDetail() void {
     const p = selectedPoint();
     const series_name = switch (selected_series) {
-        .openai => "OPENAI",
-        .anthropic => "ANTHROPIC",
+        .openai => "OpenAI",
+        .anthropic => "Anthropic",
     };
     const color = switch (selected_series) {
         .openai => C_OPENAI,
@@ -482,25 +489,24 @@ fn button(x: i32, y: i32, w: i32, label: []const u8, accent: Color, active: bool
     drawBorder(x, y, w, BUTTON_H, if (active) C_ACTIVE_EDGE else C_INK);
     fillRect(x + 1, y + 1, 6, BUTTON_H - 2, accent);
 
-    const label_x = x + 12;
-    const label_w = w - 14;
-    drawButtonLabel(label_x + @divTrunc(label_w - textWidth(label), 2), y, label, underline_idx);
+    drawButtonLabel(x + LEGEND_ACCENT_SPACE + BUTTON_PAD_X, y, label, underline_idx);
 }
 
 fn scaleButton(x: i32, y: i32, w: i32, label: []const u8, active: bool, underline_idx: usize) void {
     fillRect(x, y, w, BUTTON_H, if (active) C_ACTIVE else C_PANEL);
     drawBorder(x, y, w, BUTTON_H, if (active) C_ACTIVE_EDGE else C_INK);
-    drawButtonLabel(x + @divTrunc(w - textWidth(label), 2), y, label, underline_idx);
+    drawButtonLabel(x + BUTTON_PAD_X, y, label, underline_idx);
 }
 
 fn drawButtonLabel(x: i32, button_y: i32, label: []const u8, underline_idx: usize) void {
-    drawText(x, button_y + @divTrunc(BUTTON_H - FONT_SIZE_LOGICAL, 2), label, C_INK);
-    drawAcceleratorUnderline(x, button_y, underline_idx);
+    drawText(x, button_y + BUTTON_LABEL_Y_OFFSET, label, C_INK);
+    drawAcceleratorUnderline(x, button_y, label, underline_idx);
 }
 
-fn drawAcceleratorUnderline(label_x: i32, button_y: i32, underline_idx: usize) void {
-    const advance = @divTrunc(fontAdvance(FONT_SIZE_LOGICAL * RETINA_SCALE) + RETINA_SCALE - 1, RETINA_SCALE);
-    const x = label_x + @as(i32, @intCast(underline_idx)) * advance;
+fn drawAcceleratorUnderline(label_x: i32, button_y: i32, label: []const u8, underline_idx: usize) void {
+    if (underline_idx >= label.len) return;
+    const x = label_x + textWidth(label[0..underline_idx]);
+    const advance = @divTrunc(glyphAdvance(label[underline_idx]) + RETINA_SCALE - 1, RETINA_SCALE);
     fillRect(x, button_y + @divTrunc(BUTTON_H - FONT_SIZE_LOGICAL, 2) + FONT_SIZE_LOGICAL + 1, @max(1, advance - 2), 1, C_INK);
 }
 
@@ -538,42 +544,36 @@ fn lerpColor(a: Color, b: Color, t: f64) Color {
 }
 
 fn drawText(x: i32, y: i32, text: []const u8, c: Color) void {
-    const size_px: i32 = FONT_SIZE_LOGICAL * RETINA_SCALE;
     var cursor_x = x * RETINA_SCALE;
     const text_y = y * RETINA_SCALE;
     var i: usize = 0;
     while (i < text.len and i < 110) : (i += 1) {
-        drawFontChar(cursor_x, text_y, text[i], c, size_px);
-        cursor_x += fontAdvance(size_px);
+        drawFontChar(cursor_x, text_y, text[i], c);
+        cursor_x += glyphAdvance(text[i]);
     }
 }
 
 fn textWidth(text: []const u8) i32 {
-    const advance = fontAdvance(FONT_SIZE_LOGICAL * RETINA_SCALE);
-    return @divTrunc(@as(i32, @intCast(text.len)) * advance + RETINA_SCALE - 1, RETINA_SCALE);
+    var width: i32 = 0;
+    for (text) |ch| width += glyphAdvance(ch);
+    return @divTrunc(width + RETINA_SCALE - 1, RETINA_SCALE);
 }
 
-fn fontAdvance(size_px: i32) i32 {
-    return @max(1, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(ui_font.GLYPH_W)) * fontScale(size_px)))));
+fn glyphAdvance(ch: u8) i32 {
+    const index = glyphIndexForByte(ch) orelse return 0;
+    return ui_font.advances[index];
 }
 
-fn fontScale(size_px: i32) f32 {
-    return @as(f32, @floatFromInt(size_px)) / @as(f32, @floatFromInt(ui_font.GLYPH_H));
-}
-
-fn drawFontChar(x: i32, y: i32, ch: u8, c: Color, size_px: i32) void {
+fn drawFontChar(x: i32, y: i32, ch: u8, c: Color) void {
     const glyph_index = glyphIndexForByte(ch) orelse return;
-    const scale = fontScale(size_px);
-    const w = fontAdvance(size_px);
-    const h = size_px;
     var dy: i32 = 0;
-    while (dy < h) : (dy += 1) {
+    while (dy < @as(i32, @intCast(ui_font.GLYPH_H))) : (dy += 1) {
         var dx: i32 = 0;
-        while (dx < w) : (dx += 1) {
-            const coverage = fontCoverage(glyph_index, dx, dy, scale);
-            if (coverage == 0) continue;
+        while (dx < @as(i32, @intCast(ui_font.GLYPH_W))) : (dx += 1) {
+            const alpha4 = glyphAlpha4(glyph_index, dx, dy);
+            if (alpha4 == 0) continue;
             var cc = c;
-            cc[3] = @as(u8, @intCast(@divTrunc(@as(i32, c[3]) * coverage, 4)));
+            cc[3] = @intCast(@divTrunc(@as(u16, c[3]) * alpha4, 15));
             blendPixelPhysical(x + dx, y + dy, cc);
         }
     }
@@ -586,27 +586,10 @@ fn glyphIndexForByte(ch: u8) ?usize {
     return null;
 }
 
-fn fontCoverage(glyph_index: usize, dx: i32, dy: i32, scale: f32) i32 {
-    const offsets = [_]PointF{
-        .{ .x = 0.25, .y = 0.25 },
-        .{ .x = 0.75, .y = 0.25 },
-        .{ .x = 0.25, .y = 0.75 },
-        .{ .x = 0.75, .y = 0.75 },
-    };
-
-    var covered: i32 = 0;
-    for (offsets) |off| {
-        const sx = @as(i32, @intFromFloat(@floor((@as(f32, @floatFromInt(dx)) + off.x) / scale)));
-        const sy = @as(i32, @intFromFloat(@floor((@as(f32, @floatFromInt(dy)) + off.y) / scale)));
-        if (fontBit(glyph_index, sx, sy)) covered += 1;
-    }
-    return covered;
-}
-
-fn fontBit(glyph_index: usize, sx: i32, sy: i32) bool {
-    if (sx < 0 or sy < 0 or sx >= @as(i32, @intCast(ui_font.GLYPH_W)) or sy >= @as(i32, @intCast(ui_font.GLYPH_H))) return false;
-    const row = ui_font.glyph_rows[glyph_index][@as(usize, @intCast(sy))];
-    return ((row >> @as(u6, @intCast(sx))) & 1) != 0;
+fn glyphAlpha4(glyph_index: usize, x: i32, y: i32) u8 {
+    const pixel_index: usize = @as(usize, @intCast(y)) * ui_font.GLYPH_W + @as(usize, @intCast(x));
+    const byte = ui_font.glyph_alpha4[glyph_index][pixel_index / 2];
+    return if (pixel_index % 2 == 0) byte >> 4 else byte & 0x0F;
 }
 
 fn drawLineAA(x0: i32, y0: i32, x1: i32, y1: i32, c: Color, width_logical: f64) void {
@@ -779,11 +762,11 @@ test "latest milestones cite Bloomberg in hover detail" {
     const anthropic = ANTHROPIC_POINTS[ANTHROPIC_POINTS.len - 1];
     try std.testing.expectEqual(@as(f64, 40.0), openai.arr_b);
     try std.testing.expectEqual(@as(f64, 65.0), anthropic.arr_b);
-    try std.testing.expect(std.mem.indexOf(u8, openai.note, "SOURCE: BLOOMBERG") != null);
-    try std.testing.expect(std.mem.indexOf(u8, anthropic.note, "SOURCE: BLOOMBERG") != null);
+    try std.testing.expect(std.mem.indexOf(u8, openai.note, "Bloomberg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, anthropic.note, "Bloomberg") != null);
 }
 
-test "scale tween interpolates for 750 milliseconds" {
+test "scale tween interpolates for 300 milliseconds" {
     scale_mode = .log;
     scale_mix = 1.0;
     scale_tween_active = false;
@@ -795,13 +778,13 @@ test "scale tween interpolates for 750 milliseconds" {
     const log_y = arrToYForMode(10.0, .log);
     const linear_y = arrToYForMode(10.0, .linear);
 
-    advanceScaleTween(475);
+    advanceScaleTween(250);
     try std.testing.expectApproxEqAbs(@as(f64, 0.5), scale_mix, 0.000_001);
     const middle_y = arrToY(10.0);
     try std.testing.expect(middle_y > @min(log_y, linear_y));
     try std.testing.expect(middle_y < @max(log_y, linear_y));
 
-    advanceScaleTween(850);
+    advanceScaleTween(400);
     try std.testing.expectApproxEqAbs(@as(f64, 0.0), scale_mix, 0.000_001);
     try std.testing.expect(!scale_tween_active);
 }
@@ -812,14 +795,14 @@ test "reversing scale tween starts from its current position" {
     scale_tween_active = false;
     begun_at_ms = 100;
     _ = setScaleMode(.linear);
-    advanceScaleTween(475);
+    advanceScaleTween(250);
     const before_reverse = scale_mix;
 
-    begun_at_ms = 475;
+    begun_at_ms = 250;
     try std.testing.expect(setScaleMode(.log));
     try std.testing.expectApproxEqAbs(before_reverse, scale_tween_from, 0.000_001);
-    try std.testing.expectEqual(@as(i64, 375), scale_tween_duration_ms);
-    advanceScaleTween(850);
+    try std.testing.expectEqual(@as(i64, 150), scale_tween_duration_ms);
+    advanceScaleTween(400);
     try std.testing.expectApproxEqAbs(@as(f64, 1.0), scale_mix, 0.000_001);
     try std.testing.expect(!scale_tween_active);
 }

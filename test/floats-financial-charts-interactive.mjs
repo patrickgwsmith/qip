@@ -68,7 +68,7 @@ test("all three components trap on update lifecycle misuse", () => {
   }
 });
 
-test("openai-anthropic-arr animates scale changes for 750 milliseconds", () => {
+test("openai-anthropic-arr animates scale changes for 300 milliseconds", () => {
   const exports = instantiate(modules["openai-anthropic-arr"]);
   const size = qipRenderSize(exports, 0);
   const logFrame = digest(exports, size);
@@ -80,14 +80,14 @@ test("openai-anthropic-arr animates scale changes for 750 milliseconds", () => {
   const transitionStart = digest(exports, size);
   assert.notEqual(transitionStart, logFrame);
 
-  exports.begin_update_at(376n);
-  assert.equal(exports.finish_update(), 392n);
+  exports.begin_update_at(151n);
+  assert.equal(exports.finish_update(), 167n);
   assert.equal(qipRenderSize(exports, 0), size);
   const midpoint = digest(exports, size);
   assert.notEqual(midpoint, transitionStart);
 
-  exports.begin_update_at(751n);
-  assert.equal(exports.finish_update(), 751n);
+  exports.begin_update_at(301n);
+  assert.equal(exports.finish_update(), 301n);
   assert.equal(qipRenderSize(exports, 0), size);
   const linearFrame = digest(exports, size);
   assert.notEqual(linearFrame, midpoint);
