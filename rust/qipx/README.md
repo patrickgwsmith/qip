@@ -22,9 +22,12 @@ qipx run -F mode=step -F component=@component.wasm multipart/form-data/form-data
 ```
 
 Input comes from stdin and output goes to stdout by default. UTF-8 output gets
-one final line feed on stdout. `-F name=value` builds a multipart text field;
-`-F name=@path` reads exact file bytes; one field may use `@-` to read stdin.
-`-F` and `-i` cannot be combined. Add `-u name=value` after the component that
+one final line feed on stdout. `-F name=value` builds a UTF-8 multipart field;
+`-F name=@path` reads exact file bytes and supplies a filename;
+`-F 'name=<path'` reads exact bytes into a regular field without a filename.
+Quote arguments containing `<` in a shell. One field may use `@-` or `<-` to
+read stdin in the corresponding mode. `-F` and `-i` cannot be combined. Add
+`-u name=value` after the component that
 receives the uniform. `--max-memory` checks the module's declared memory, and
 `--capacities-must-fit` checks each stage's maximum output against the next
 stage's input capacity.
@@ -42,8 +45,8 @@ TUI mode needs terminal stdin and stdout. It retains the first component
 across key events and scheduled updates. Additional stages transform each
 frame. It checks rendered text before writing to the terminal and permits
 only printable UTF-8, line feeds, and a narrow set of ANSI SGR styles. Use
-`Ctrl-C` to exit. TUI mode does not accept `-i -` or `-F name=@-` because stdin
-carries keys.
+`Ctrl-C` to exit. TUI mode does not accept `-i -`, `-F name=@-`, or
+`-F 'name=<-'` because stdin carries keys.
 
 ## Check and benchmark components
 

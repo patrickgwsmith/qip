@@ -19,6 +19,24 @@ test("Rust qipx provides command help", () => {
   }
 });
 
+test("Rust qipx help explains multipart form variants and terminal restrictions", () => {
+  for (const [args, stdinAllowed] of [
+    [["--help"], true],
+    [["bench", "--help"], true],
+    [["tui", "--help"], false],
+  ]) {
+    const rust = run(rustCLI, args);
+    assert.equal(rust.status, 0, rust.stderr);
+    for (const variant of ["name=value", "name=@path", "name=<path", "name=@-", "name=<-", "Examples:"]) {
+      assert.ok(rust.stdout.includes(variant), `${args.join(" ")} help omits ${variant}`);
+    }
+    assert.match(rust.stdout, /Content-Type: application\/octet-stream/);
+    assert.match(rust.stdout, /omits that part header/);
+    assert.match(rust.stdout, /quote/i);
+    if (!stdinAllowed) assert.match(rust.stdout, /stdin carries|stdin.*unavailable/i);
+  }
+});
+
 test("Rust qipx runs a local Content component from stdin", () => {
   const args = ["run", "bytes/identity.wasm"];
   const node = run(process.execPath, ["npm/qipx/cli.mjs", ...args], "hello");
@@ -88,6 +106,47 @@ test("Rust qipx includes file bytes and filename in multipart input", () => {
     assert.match(rust.stdout, /name="upload"; filename="data\.bin"\r\nContent-Type: application\/octet-stream\r\n\r\nabc\r\n/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Rust qipx includes file bytes without a filename for -F name=<path", () => {
+  const directory = mkdtempSync(join(tmpdir(), "qipx-rust-form-text-"));
+  try {
+    const file = join(directory, "data.txt");
+    writeFileSync(file, "hello\n");
+    const rust = run(rustCLI, ["run", "-F", `data=<${file}`, "bytes/identity.wasm"]);
+    assert.equal(rust.status, 0, rust.stderr);
+    assert.equal(rust.stdout,
+      "--uuid-00000000-0000-0000-0000-000000000000\r\n" +
+      'Content-Disposition: form-data; name="data"\r\n\r\n' +
+      "hello\n\r\n" +
+      "--uuid-00000000-0000-0000-0000-000000000000--\r\n");
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Rust qipx reads -F name=<- from stdin without a filename", () => {
+  const rust = run(rustCLI, ["run", "-F", "data=<-", "bytes/identity.wasm"], "hello\n");
+  assert.equal(rust.status, 0, rust.stderr);
+  assert.equal(rust.stdout,
+    "--uuid-00000000-0000-0000-0000-000000000000\r\n" +
+    'Content-Disposition: form-data; name="data"\r\n\r\n' +
+    "hello\n\r\n" +
+    "--uuid-00000000-0000-0000-0000-000000000000--\r\n");
+});
+
+test("Rust qipx tui reserves stdin for keys when -F uses <-", () => {
+  const rust = run(rustCLI, ["tui", "-F", "data=<-", "components/interactive/calendar-gregorian.wasm"], "hello");
+  assert.equal(rust.status, 1);
+  assert.match(rust.stderr, /cannot use -F name=@- or name=<- because stdin carries terminal events/);
+});
+
+test("Rust qipx permits only one multipart field to read stdin", () => {
+  for (const command of [["run"], ["dry", "run"]]) {
+    const rust = run(rustCLI, [...command, "-F", "first=@-", "-F", "second=<-", "bytes/identity.wasm"], "hello");
+    assert.equal(rust.status, 1);
+    assert.match(rust.stderr, /only one -F field may read from stdin with @- or <-/);
   }
 });
 
@@ -222,6 +281,20 @@ test("Rust qipx dry run accepts run options and observes multipart files", () =>
     assert.match(rust.stdout, /Multipart files:/);
     assert.match(rust.stdout, /present \(contents not read\)/);
     assert.match(rust.stdout, /Pipeline compatible: 1 step\(s\)/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Rust qipx dry run plans files supplied as multipart text fields", () => {
+  const directory = mkdtempSync(join(tmpdir(), "qipx-rust-dry-text-field-"));
+  try {
+    const file = join(directory, "input.txt");
+    writeFileSync(file, "hello");
+    const rust = run(rustCLI, ["dry", "run", "-F", `data=<${file}`, "bytes/identity.wasm"]);
+    assert.equal(rust.status, 0, rust.stderr);
+    assert.match(rust.stdout, /Multipart files:/);
+    assert.match(rust.stdout, /present \(contents not read\)/);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

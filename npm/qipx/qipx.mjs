@@ -19,6 +19,38 @@ const { gzipSync } = nodeZlib;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const encoder = new TextEncoder();
 
+function multipartHelp(command) {
+  const lines = [
+    "Multipart fields:",
+    "  -F name=value       UTF-8 text field",
+    "  -F name=@path       Exact file bytes with the basename as filename",
+    "  -F 'name=<path'     Exact file bytes as a regular field, without filename",
+    "@path sends Content-Type: application/octet-stream; <path omits that part header.",
+  ];
+  if (command === "tui") {
+    lines.push("  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.");
+  } else {
+    lines.push("  -F name=@-          Stdin bytes as a file field with filename \"-\"");
+    lines.push("  -F 'name=<-'        Stdin bytes as a regular field without filename");
+    lines.push("Only one field may read stdin.");
+  }
+  lines.push("Quote arguments containing < in a shell.");
+  if (command === "run") lines.push("Dry run plans form files without reading file contents or stdin.");
+  lines.push("", "Examples:");
+  if (command === "tui") {
+    lines.push("  qipx tui components/interactive/calendar-gregorian.wasm");
+    lines.push("  qipx tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm");
+  } else if (command === "bench") {
+    lines.push("  qipx bench -F 'data=<input.txt' bytes/identity.wasm");
+    lines.push("  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm");
+  } else {
+    lines.push("  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm");
+    lines.push("  qipx run -F 'data=<input.txt' bytes/identity.wasm");
+    lines.push("  printf hello | qipx run -F 'data=<-' bytes/identity.wasm");
+  }
+  return `${lines.join("\n")}\n\n`;
+}
+
 function usage() {
   return `Usage: qipx [host ...] run [options] <component.wasm> [component2.wasm ...]\n` +
     `       qipx [host ...] dry run [options] <component.wasm> [component2.wasm ...]\n` +
@@ -37,6 +69,7 @@ function usage() {
     `  -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n` +
     `  dry run                         Validate the pipeline without reading input or rendering\n` +
     `  -h, --help                      Show this help\n\n` +
+    multipartHelp("run") +
     `Uniforms:\n` +
     `  qipx run component.wasm -u width=640 -u height=480\n` +
     `  i32 uniforms are treated as unsigned values; use i64 for signed integers.\n\n` +
@@ -51,6 +84,7 @@ function tuiUsage() {
     `Input:\n` +
     `  -i, --input <path>              Read initial input from a file\n` +
     `  -F, --form <name=value>         Construct multipart input (repeatable; @path or <path)\n\n` +
+    multipartHelp("tui") +
     `Execution:\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
@@ -280,6 +314,7 @@ function benchUsage() {
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n` +
     `  -h, --help                      Show this help\n\n` +
+    multipartHelp("bench") +
     `Components are measured one at a time on reused runtime instances.\n` +
     `With hosts, missing safe relative .wasm files used by -F are downloaded.\n` +
     `With --expose-gc, qipx collects after each component's warmup.\n` +

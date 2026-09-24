@@ -1005,6 +1005,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-multipart-form.mjs
 	node --test test/qipx-hosts.mjs
 	node --test test/qipx-tui.mjs
+	node --test test/qiptui.mjs
 	node --test test/calendar-gregorian-tui.mjs
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/time-series-polylines.mjs

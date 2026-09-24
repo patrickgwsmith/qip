@@ -315,9 +315,9 @@ func helpCmd(args []string) {
 	case "run":
 		fmt.Println(runHelp())
 	case "dry":
-		fmt.Println(strings.Replace(helpDryRun, "-F <name=value>", "-F, --form <name=value>", 1))
+		fmt.Println(strings.Replace(helpDryRun, "-F <name=value>", "-F, --form <name=value>", 1) + "\n\n" + multipartHelp("dry"))
 	case "bench":
-		fmt.Println(usageBench)
+		fmt.Println(usageBench + "\n\n" + multipartHelp("bench"))
 	case "score":
 		fmt.Println(usageScore)
 	case "image":
@@ -341,7 +341,7 @@ func helpCmd(args []string) {
 		fmt.Println()
 		fmt.Println(usageRouteWarc)
 	case "tui":
-		fmt.Println(usageTUI)
+		fmt.Println(usageTUI + "\n\n" + multipartHelp("tui"))
 	case "form":
 		fmt.Println(usageForm)
 	default:
@@ -362,7 +362,39 @@ func runHelp() string {
 		"    - A transform exports render(input_size) -> i64, input_ptr, and input_utf8_cap or input_bytes_cap\n    - An inputless generator exports neither input_ptr nor an input-capacity getter; it must be the first stage and qip calls render(0)\n",
 		1,
 	)
-	return strings.Replace(text, "Usage: qip run", "Usage: qip [host ...] run", 1)
+	return strings.Replace(text, "Usage: qip run", "Usage: qip [host ...] run", 1) + "\n\n" + multipartHelp("run")
+}
+
+func multipartHelp(command string) string {
+	text := "Multipart fields:\n" +
+		"  -F name=value       UTF-8 text field\n" +
+		"  -F name=@path       Exact file bytes with the basename as filename\n" +
+		"  -F 'name=<path'     Exact file bytes as a regular field, without filename\n" +
+		"@path sends Content-Type: application/octet-stream; <path omits that part header.\n"
+	if command == "tui" {
+		text += "  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.\n"
+	} else if command == "dry" {
+		text += "  -F name=@- and -F 'name=<-' are accepted, but dry run does not read stdin.\n"
+	} else {
+		text += "  -F name=@-          Stdin bytes as a file field with filename \"-\"\n" +
+			"  -F 'name=<-'        Stdin bytes as a regular field without filename\n" +
+			"Only one field may read stdin.\n"
+	}
+	text += "Quote arguments containing < in a shell.\n\nExamples:\n"
+	switch command {
+	case "tui":
+		return text + "  qip tui components/interactive/calendar-gregorian.wasm\n" +
+			"  qip tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm"
+	case "bench":
+		return text + "  qip bench -F 'data=<input.txt' bytes/identity.wasm\n" +
+			"  printf hello | qip bench -F 'data=<-' bytes/identity.wasm"
+	case "dry":
+		return text + "  qip dry run -F 'data=<input.txt' bytes/identity.wasm"
+	default:
+		return text + "  qip run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n" +
+			"  qip run -F 'data=<input.txt' bytes/identity.wasm\n" +
+			"  printf hello | qip run -F 'data=<-' bytes/identity.wasm"
+	}
 }
 
 func formCmd(args []string) {

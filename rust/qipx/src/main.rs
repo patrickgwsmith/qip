@@ -171,10 +171,11 @@ fn run() -> Result<(), String> {
         if form_fields.iter().any(|field| {
             field
                 .split_once('=')
-                .is_some_and(|(_, value)| value == "@-")
+                .is_some_and(|(_, value)| value == "@-" || value == "<-")
         }) {
             return Err(
-                "qipx tui cannot use -F name=@- because stdin carries terminal events".into(),
+                "qipx tui cannot use -F name=@- or name=<- because stdin carries terminal events"
+                    .into(),
             );
         }
     }
@@ -240,31 +241,60 @@ fn usage() -> &'static str {
 Hosts: dotted DNS names with optional ports; missing safe relative .wasm files use HTTPS.\n\n\
 Options:\n\
   -i, --input <path>              Read input from a file instead of stdin\n\
-  -F, --form <name=value>         Add multipart text or file input (repeatable; @path or @-)\n\
+  -F, --form <name=value>         Add multipart fields (repeatable)\n\
   -o, --output <path>             Write output to a file instead of stdout\n\
   --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n\
   --capacities-must-fit           Reject stages whose max output cannot fit next input\n\
   -u, --uniform <name=value>      Set a uniform on the preceding component\n\
-  -h, --help                      Show this help\n"
+  -h, --help                      Show this help\n\n\
+Multipart fields:\n\
+  -F name=value                  UTF-8 text field\n\
+  -F name=@path                  File bytes with basename as filename\n\
+  -F 'name=<path'                File bytes as a regular field, without filename\n\
+@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
+  -F name=@-                     Stdin bytes as a file field with filename \"-\"\n\
+  -F 'name=<-'                   Stdin bytes as a regular field without filename\n\
+Quote arguments containing < in a shell. Only one field may read stdin.\n\
+Dry run plans form files without reading file contents or stdin.\n\n\
+Examples:\n\
+  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n\
+  qipx run -F 'data=<input.txt' bytes/identity.wasm\n\
+  printf hello | qipx run -F 'data=<-' bytes/identity.wasm\n"
 }
 
 fn tui_usage() -> &'static str {
     "Usage: qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\n\
   -i, --input <path>              Read initial input from a file\n\
-  -F, --form <name=value>         Construct multipart input (repeatable; @path)\n\
+  -F, --form <name=value>         Construct multipart input (repeatable)\n\
   -u, --uniform <name=value>      Set a uniform on the preceding component\n\
   --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n\
-  --capacities-must-fit           Check capacity between Content stages\n"
+  --capacities-must-fit           Check capacity between Content stages\n\n\
+Multipart fields: -F name=value, -F name=@path, or -F 'name=<path'.\n\
+@path adds a filename; <path sends exact file bytes without a filename.\n\
+@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
+-F name=@- and -F 'name=<-' are unavailable because stdin carries keys.\n\
+Quote arguments containing < in a shell.\n\n\
+Examples:\n\
+  qipx tui components/interactive/calendar-gregorian.wasm\n\
+  qipx tui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm\n"
 }
 
 fn bench_usage() -> &'static str {
     "Usage: qipx [host ...] bench (-i <input> | -F <name=value>) [options] <component.wasm> [...]\n\n\
   -i, --input <path>              Read benchmark input from a file or stdin (-)\n\
-  -F, --form <name=value>         Construct multipart input\n\
+  -F, --form <name=value>         Construct multipart input (repeatable)\n\
   -r, --runs <n>                  Number of measured runs\n\
   --warmup <n>                    Warmup runs per component\n\
   --benchtime <duration>          Target measured time per component (default: 3s)\n\
-  --max-memory <bytes>            Reject large declared memory\n"
+  --max-memory <bytes>            Reject large declared memory\n\n\
+Multipart fields: -F name=value, -F name=@path, or -F 'name=<path'.\n\
+@path adds a filename; <path sends exact file bytes without a filename.\n\
+@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
+-F name=@- or -F 'name=<-' reads stdin; only one field may do so.\n\
+Quote arguments containing < in a shell.\n\n\
+Examples:\n\
+  qipx bench -F 'data=<input.txt' bytes/identity.wasm\n\
+  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm\n"
 }
 
 fn comply_usage() -> &'static str {
@@ -381,6 +411,18 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     if stages.is_empty() {
         return Err("at least one component is required".into());
     }
+    if forms
+        .iter()
+        .filter(|field| {
+            field
+                .split_once('=')
+                .is_some_and(|(_, value)| value == "@-" || value == "<-")
+        })
+        .count()
+        > 1
+    {
+        return Err("only one -F field may read from stdin with @- or <-".into());
+    }
     println!("Sources:");
     for (component_index, stage) in stages.iter().enumerate() {
         if stages.len() > 1 {
@@ -427,9 +469,12 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     let multipart_files: Vec<_> = forms
         .iter()
         .filter_map(|assignment| {
-            assignment
-                .split_once('=')
-                .and_then(|(name, value)| value.strip_prefix('@').map(|path| (name, path)))
+            assignment.split_once('=').and_then(|(name, value)| {
+                value
+                    .strip_prefix('@')
+                    .or_else(|| value.strip_prefix('<'))
+                    .map(|path| (name, path))
+            })
         })
         .filter(|(_, path)| *path != "-")
         .collect();
@@ -1697,19 +1742,23 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
                 "multipart field name {name:?} must use printable ASCII without quotes or backslashes"
             ));
         }
-        let (body, filename) = if let Some(path) = value.strip_prefix('@') {
+        let file = value
+            .strip_prefix('@')
+            .map(|path| ('@', path))
+            .or_else(|| value.strip_prefix('<').map(|path| ('<', path)));
+        let (body, filename) = if let Some((mode, path)) = file {
             if path.is_empty() {
                 return Err(format!("-F {field:?} has an empty file path"));
             }
             let bytes = if path == "-" {
                 if used_stdin {
-                    return Err("-F may read from stdin only once".into());
+                    return Err("only one -F field may read from stdin with @- or <-".into());
                 }
                 used_stdin = true;
                 let mut bytes = Vec::new();
                 io::stdin()
                     .read_to_end(&mut bytes)
-                    .map_err(|e| format!("read -F {name}=@-: {e}"))?;
+                    .map_err(|e| format!("read -F {name}={mode}-: {e}"))?;
                 bytes
             } else {
                 if remote_eligible(path) && !hosts.is_empty() {
@@ -1719,22 +1768,27 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
                         }
                         Ok(())
                     })
-                    .map_err(|e| format!("read -F {name}=@{path}: {e}"))?
+                    .map_err(|e| format!("read -F {name}={mode}{path}: {e}"))?
                 } else {
-                    fs::read(path).map_err(|e| format!("read -F {name}=@{path}: {e}"))?
+                    fs::read(path).map_err(|e| format!("read -F {name}={mode}{path}: {e}"))?
                 }
             };
-            let filename = path.rsplit(['/', '\\']).next().unwrap_or("");
-            if filename.is_empty()
-                || !filename
-                    .bytes()
-                    .all(|byte| (0x20..=0x7e).contains(&byte) && byte != b'"' && byte != b'\\')
-            {
-                return Err(format!(
-                    "multipart filename {filename:?} must use printable ASCII without quotes or backslashes"
-                ));
-            }
-            (bytes, Some(filename))
+            let filename = if mode == '@' {
+                let filename = path.rsplit(['/', '\\']).next().unwrap_or("");
+                if filename.is_empty()
+                    || !filename
+                        .bytes()
+                        .all(|byte| (0x20..=0x7e).contains(&byte) && byte != b'"' && byte != b'\\')
+                {
+                    return Err(format!(
+                        "multipart filename {filename:?} must use printable ASCII without quotes or backslashes"
+                    ));
+                }
+                Some(filename)
+            } else {
+                None
+            };
+            (bytes, filename)
         } else {
             (value.as_bytes().to_vec(), None)
         };

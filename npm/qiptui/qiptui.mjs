@@ -433,9 +433,20 @@ const MAX_MEMORY = 256 * 1024 * 1024;
 function usage() {
   return `Usage: qiptui [host] [options] <component.wasm | host/path.wasm>\n\n` +
     `  -i, --input <file>        Initial input file\n` +
-    `  -F, --form <name=value>  Multipart field; @file or <file reads file bytes\n` +
+    `  -F, --form <name=value>  Add a multipart field (repeatable)\n` +
     `  -u, --uniform <name=n>   Set a numeric component uniform\n` +
     `  -h, --help               Show this help\n\n` +
+    `Multipart fields:\n` +
+    `  -F name=value            UTF-8 text field\n` +
+    `  -F name=@path            Exact file bytes with the basename as filename\n` +
+    `  -F 'name=<path'          Exact file bytes as a regular field, without filename\n` +
+    `@path sends Content-Type: application/octet-stream; <path omits that part header.\n` +
+    `  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.\n` +
+    `Quote arguments containing < in a shell.\n\n` +
+    `Examples:\n` +
+    `  qiptui qip.dev/interactive/calendar-gregorian.wasm\n` +
+    `  qiptui -F 'component=@text/wc.wasm' components/interactive/qipdb.wasm\n` +
+    `  qiptui -F 'component=<text/wc.wasm' components/interactive/qipdb.wasm\n\n` +
     `A leading host or a hosted path such as qip.dev/interactive/calendar-gregorian.wasm uses HTTPS.\n` +
     `Hosted components are downloaded into memory for each run.\n`;
 }

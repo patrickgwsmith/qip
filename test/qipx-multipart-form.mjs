@@ -19,6 +19,32 @@ function run(command, args, input) {
   return spawnSync(command, args, { input, maxBuffer: 4 * 1024 * 1024 });
 }
 
+test("CLI help explains every multipart form variant with quoted examples", () => {
+  const commands = [
+    ["Go run", "./qip", ["help", "run"], true],
+    ["Go dry run", "./qip", ["help", "dry"], false],
+    ["Go bench", "./qip", ["help", "bench"], true],
+    ["Go tui", "./qip", ["help", "tui"], false],
+    ["Node qipx", process.execPath, ["npm/qipx/cli.mjs", "--help"], true],
+    ["Node qipx bench", process.execPath, ["npm/qipx/cli.mjs", "bench", "--help"], true],
+    ["Node qipx tui", process.execPath, ["npm/qipx/cli.mjs", "tui", "--help"], false],
+    ["qiptui", process.execPath, ["npm/qiptui/qiptui.mjs", "--help"], false],
+  ];
+  for (const [label, command, args, stdinAllowed] of commands) {
+    const result = run(command, args);
+    assert.equal(result.status, 0, `${label}: ${result.stderr}`);
+    const help = result.stdout.toString();
+    for (const variant of ["name=value", "name=@path", "name=<path", "name=@-", "name=<-", "Examples:"]) {
+      assert.ok(help.includes(variant), `${label} help omits ${variant}`);
+    }
+    assert.match(help, /Content-Type: application\/octet-stream/);
+    assert.match(help, /omits that part header/);
+    assert.match(help, /quote/i, `${label} help should explain shell quoting`);
+    if (label === "Go dry run") assert.match(help, /does not read stdin/i);
+    else if (!stdinAllowed) assert.match(help, /stdin carries|stdin.*unavailable/i, `${label} help should reserve stdin for keys`);
+  }
+});
+
 test("Go qip and Node qipx construct byte-identical multipart input", async (t) => {
   const directory = await mkdtemp(join(tmpdir(), "qip-form-"));
   t.after(() => rm(directory, { recursive: true, force: true }));
