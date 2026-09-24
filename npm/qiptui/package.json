@@ -1,0 +1,24 @@
+{
+  "name": "qiptui",
+  "version": "0.2.0",
+  "description": "Run QIP terminal components",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/royalicing/qip.git",
+    "directory": "npm/qiptui"
+  },
+  "type": "module",
+  "bin": {
+    "qiptui": "qiptui.mjs"
+  },
+  "files": ["qiptui.mjs"],
+  "keywords": ["qip", "webassembly", "wasm", "tui", "terminal"],
+  "homepage": "https://qip.dev",
+  "bugs": {
+    "url": "https://github.com/royalicing/qip/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0"
+}
