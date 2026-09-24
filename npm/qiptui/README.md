@@ -41,6 +41,13 @@ can grow within that declared limit. Downloads have
 a 16 MiB limit, a 30-second timeout, and at most two redirects within the same
 HTTPS origin.
 
+## Publish
+
+Run `make publish` from this directory. It publishes the version in
+`package.json` and appends that version to `published-versions.txt` only after
+`npm publish` succeeds. Commit the updated log. Add versions published by other
+means to the log by hand.
+
 ## TODO
 
 - Match `qipx`'s pre-execution Wasm checks: reject start functions and
