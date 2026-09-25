@@ -222,6 +222,32 @@ before making a release decision. Browser support can depend on an operating
 system, device, flag, or prefix; inspect the selected browser's statements
 before treating a version number as unconditional support.
 
+### Can I Use finder
+
+Search Can I Use feature titles, slugs, or keywords, such as `WebP`, `css-grid`,
+or `masonry`. Press Enter to see the current status in Chrome, Firefox, Safari,
+and Edge. Use Up and Down to select a browser, then Page Up and Page Down to
+read its version history and support notes. Escape returns to the search.
+
+<qip-tui aria-label="Can I Use finder" height="26rem">
+  <source src="/tui/caniuse-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+<copy-code>
+
+```sh
+npx qiptui qip.dev tui/caniuse-finder.wasm
+```
+
+</copy-code>
+
+This finder contains 554 features from a [Can I Use data](https://github.com/Fyrd/caniuse)
+snapshot updated 24 September 2026. Data from caniuse.com is used under
+[CC BY 4.0](https://github.com/Fyrd/caniuse/blob/main/LICENSE).
+It shows four desktop browsers; the source also covers mobile browsers.
+Support status can depend on flags, prefixes, and the conditions in each feature's notes.
+The snapshot does not update when browser releases change.
+
 ### Media types
 
 Focus the list and type `application/json`, `+xml`, or an RFC number such as

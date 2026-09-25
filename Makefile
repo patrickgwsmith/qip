@@ -356,6 +356,9 @@ tui/emoji-finder.wasm: tui/lib/emoji-data.zig
 tui/browser-compat-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 tui/browser-compat-finder.wasm: tui/lib/browser-compat-data.zig
 
+tui/caniuse-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/caniuse-finder.wasm: tui/lib/caniuse-data.zig
+
 tui/iana-media-type-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 tui/iana-media-type-finder.wasm: tui/lib/iana-media-type-data.zig
 
@@ -1038,6 +1041,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/tld-finder-tui.mjs
 	node --test test/emoji-finder-tui.mjs
 	node --test test/browser-compat-finder-tui.mjs
+	node --test test/caniuse-finder-tui.mjs
 	node --test test/iana-media-type-finder-tui.mjs
 	node --test test/iana-service-port-finder-tui.mjs
 	node --test test/time-zone-converter-tui.mjs
