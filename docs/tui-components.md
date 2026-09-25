@@ -48,8 +48,9 @@ validates every completed frame before writing it to the terminal.
 Use `-i path` for one initial byte input. Use repeatable `-F` or `--form`
 arguments to construct `multipart/form-data`; `-i` and `-F` cannot be combined.
 Use `-F name=@path` to include a file with its filename, or quote
-`-F 'name=<path'` to include the same bytes without a filename. Terminal stdin
-carries key events, so `-i -`, `-F name=@-`, and `-F 'name=<-'` are unavailable.
+`-F 'name=<path'` to include the same bytes without a filename. Use `-i -`,
+`-F name=@-`, or `-F 'name=<-'` to read piped stdin once. In this case, qiptui
+reads keys from the terminal on stderr. Keep stderr attached to a terminal.
 
 For example, the component debugger needs a Wasm component and its input:
 
@@ -66,6 +67,12 @@ A leading host applies to both the TUI and `.wasm` form fields:
 npx qiptui qip.dev \
   -F component=@text/wc.wasm \
   tui/qipdb.wasm
+```
+
+To read a piped EPUB with the text reader:
+
+```sh
+cat book.epub | npx qiptui qip.dev -i - tui/epub-reader.wasm
 ```
 
 `qiptui` accepts one TUI component. A `.wasm` file supplied through `-F` is

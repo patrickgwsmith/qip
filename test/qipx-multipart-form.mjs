@@ -28,7 +28,7 @@ test("CLI help explains every multipart form variant with quoted examples", () =
     ["Node qipx", process.execPath, ["npm/qipx/cli.mjs", "--help"], true],
     ["Node qipx bench", process.execPath, ["npm/qipx/cli.mjs", "bench", "--help"], true],
     ["Node qipx tui", process.execPath, ["npm/qipx/cli.mjs", "tui", "--help"], false],
-    ["qiptui", process.execPath, ["npm/qiptui/qiptui.mjs", "--help"], false],
+    ["qiptui", process.execPath, ["npm/qiptui/qiptui.mjs", "--help"], true],
   ];
   for (const [label, command, args, stdinAllowed] of commands) {
     const result = run(command, args);
@@ -42,6 +42,7 @@ test("CLI help explains every multipart form variant with quoted examples", () =
     assert.match(help, /quote/i, `${label} help should explain shell quoting`);
     if (label === "Go dry run") assert.match(help, /does not read stdin/i);
     else if (!stdinAllowed) assert.match(help, /stdin carries|stdin.*unavailable/i, `${label} help should reserve stdin for keys`);
+    if (label === "qiptui") assert.match(help, /keyboard input then uses terminal stderr/i);
   }
 });
 
