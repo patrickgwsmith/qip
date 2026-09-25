@@ -67,6 +67,13 @@ fn escapeHtml(input: []const u8, out: []u8) usize {
     const needed = escapedLen(input);
     if (needed > out.len) @trap();
 
+    // Every escaped byte expands, so equal lengths mean the input can be
+    // copied as one unchanged run.
+    if (needed == input.len) {
+        @memcpy(out[0..input.len], input);
+        return input.len;
+    }
+
     var index: usize = 0;
     for (input) |b| {
         writeEscapedByte(out, &index, b);

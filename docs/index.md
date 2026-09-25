@@ -139,6 +139,7 @@ Server Component and Client Component example.
 <li><a href="/docs/optimizing-autolink-https-with-qipdb">Optimizing autolink-https With qipdb</a></li>
 <li><a href="/docs/optimizing-zero-copy-candidates">Optimizing Two Zero-Copy Candidates</a></li>
 <li><a href="/docs/optimizing-html-link-extractor-with-qipdb">Optimizing HTML Link Extraction With qipdb</a></li>
+<li><a href="/docs/optimizing-html-escape-with-qipdb">Optimizing HTML Escaping With qipdb</a></li>
 <li><a href="/docs/tracing">Tracing</a></li>
 <li><a href="/docs/qip-content-interpreter">Running A Content Component In The QIP Interpreter</a></li>
 <li><a href="/docs/wasm-counts">Counting A WebAssembly Module</a></li>

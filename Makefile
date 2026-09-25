@@ -118,6 +118,9 @@ compliance/youtube-id-extractor.comply.wasm: compliance/youtube-id-extractor.com
 compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/html-escape.comply.wasm: compliance/html-escape.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/autolink-https.comply.wasm: compliance/autolink-https.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -168,6 +171,7 @@ compliance: compliance/mermaid-to-unicode-html.comply.wasm
 compliance: compliance/warc-connect-search-params.comply.wasm
 compliance: compliance/youtube-id-extractor.comply.wasm
 compliance: compliance/shortcode-to-emoji.comply.wasm
+compliance: compliance/html-escape.comply.wasm
 compliance: compliance/autolink-https.comply.wasm
 compliance: compliance/html-link-extractor.comply.wasm
 compliance: compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm
@@ -1210,6 +1214,7 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/markdown/extract-title-text.wasm --with compliance/extract-title-text.comply.wasm
 	$(QIP_BIN) comply text/youtube-id-extractor.wasm --with compliance/youtube-id-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --with compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
