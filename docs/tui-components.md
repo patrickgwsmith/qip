@@ -75,6 +75,35 @@ To read a piped EPUB with the text reader:
 cat book.epub | npx qiptui qip.dev -i - tui/epub-reader.wasm
 ```
 
+To inspect an Apple property list, pass the file bytes to the plist viewer:
+
+```sh
+npx qiptui -i Settings.plist ./tui/plist-viewer.wasm
+```
+
+For an app's `Info.plist`, use the schema-aware viewer:
+
+```sh
+npx qiptui -i Info.plist ./tui/info-plist-viewer.wasm
+```
+
+It shows readable names in the tree and the selected raw key and expected type
+below it. It recognizes nested dictionaries and array entries, and marks values
+whose type differs from the known key type.
+The bundled key metadata comes from Xcode 27.0. Unknown keys remain visible
+under their raw names. These type hints do not validate a whole app bundle or
+account for values Xcode adds during a build.
+
+The viewer accepts UTF-8 XML plists and `bplist00` binary plists. It shows
+dictionaries and arrays as a tree. Use Up and Down to select a value, Left and
+Right to fold or open a container, Enter to toggle it, `a` to open all containers,
+and Page Up and Page Down
+to move through long trees. It shows data as a byte count. The input limit is
+8 MiB, with at most 32,768 displayed values and 128 nesting levels.
+
+Use another tool to edit or convert a plist, or to read an older OpenStep
+property list. This viewer only presents XML and binary plist values.
+
 `qiptui` accepts one TUI component. A `.wasm` file supplied through `-F` is
 input data for that component, not a second stage that transforms its frames.
 

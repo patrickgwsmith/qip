@@ -1,0 +1,539 @@
+# Xcode 27.0 Info.plist structure definitions: D class kind array-element; K parent key label class
+D	_root_	Dictionary	
+K	_root_	CFBundleIdentifier	Bundle identifier	String
+K	_root_	CFBundleExecutable	Executable file	String
+K	_root_	CFBundleInfoDictionaryVersion	InfoDictionary version	InfoDictVersion
+K	_root_	LSApplicationCategoryType	App Category	ApplicationCategory
+K	_root_	CFBundleName	Bundle name	String
+K	_root_	CFBundleDisplayName	Bundle display name	String
+K	_root_	NSHumanReadableCopyright	Copyright (human-readable)	String
+K	_root_	CFBundleVersion	Bundle version	String
+K	_root_	CFBundleShortVersionString	Bundle version string (short)	String
+K	_root_	CFBundleGetInfoString	Get Info string	String
+K	_root_	CFBundlePackageType	Bundle OS Type code	String
+K	_root_	CFBundleSignature	Bundle creator OS Type code	String
+K	_root_	CFBundleIconFile	Icon file	String
+K	_root_	CFBundleIconFiles	Icon files	StringArray
+K	_root_	CFBundleIcons	Icon files (iOS 5)	CFBundleIcons
+K	_root_	CFBundleIconName	Icon Name	String
+K	_root_	NSMainStoryboardFile	Main storyboard file base name (macOS)	String
+K	_root_	LSRequiresIPhoneOS	Application requires iPhone environment	Boolean
+K	_root_	UIBackgroundModes	Required background modes	BackgroundModeArray
+K	_root_	UIApplicationExitsOnSuspend	Application does not run in background	Boolean
+K	_root_	UIStatusBarStyle	Status bar style	StatusBarStyles
+K	_root_	UIStatusBarHidden	Status bar is initially hidden	Boolean
+K	_root_	UIInterfaceOrientation	Initial interface orientation	InterfaceOrientations
+K	_root_	UIPrerenderedIcon	Icon already includes gloss effects	Boolean
+K	_root_	UIRequiredDeviceCapabilities	Required device capabilities	DeviceCapabilities
+K	_root_	UIRequiresPersistentWiFi	Application uses Wi-Fi	Boolean
+K	_root_	UISupportedExternalAccessoryProtocols	Supported external accessory protocols	StringArray
+K	_root_	UISupportedInterfaceOrientations	Supported interface orientations	InterfaceOrientationArray
+K	_root_	UISupportedInterfaceOrientations~ipad	Supported interface orientations (iPad)	InterfaceOrientationArray
+K	_root_	UISupportedInterfaceOrientations~iphone	Supported interface orientations (iPhone)	InterfaceOrientationArray
+K	_root_	UIViewEdgeAntialiasing	Renders with edge antialiasing	Boolean
+K	_root_	UIViewGroupOpacity	Renders with group opacity	Boolean
+K	_root_	UILaunchScreen	Launch Screen	UILaunchScreenDictionary
+K	_root_	UILaunchScreens	Launch Screens	UILaunchScreensDictionary
+K	_root_	UILaunchImageFile	Launch image	String
+K	_root_	UILaunchImageFile~ipad	Launch image (iPad)	String
+K	_root_	UILaunchImageFile~iphone	Launch image (iPhone)	String
+K	_root_	UILaunchStoryboardName	Launch screen interface file base name	String
+K	_root_	UIAppFonts	Fonts provided by application	StringArray
+K	_root_	UIFileSharingEnabled	Application supports iTunes file sharing	Boolean
+K	_root_	UINewsstandApp	Application presents content in Newsstand	Boolean
+K	_root_	UIMainStoryboardFile	Main storyboard file base name	String
+K	_root_	UIMainStoryboardFile~ipad	Main storyboard file base name (iPad)	String
+K	_root_	UIMainStoryboardFile~iphone	Main storyboard file base name (iPhone)	String
+K	_root_	UIUserInterfaceStyle	Appearance	String
+K	_root_	UIViewControllerBasedStatusBarAppearance	View controller-based status bar appearance	Boolean
+K	_root_	UISupportsDocumentBrowser	Supports Document Browser	Boolean
+K	_root_	ITSWatchOnlyContainer	A container for uploading a standalone watchOS app to the App Store	Boolean
+K	_root_	AVInitialRouteSharingPolicy	AirPlay optimization policy	AVInitialRouteSharingPolicyString
+K	_root_	UIApplicationSceneManifest	Application Scene Manifest	UIApplicationSceneManifestDictionary
+K	_root_	UIApplicationSupportsIndirectInputEvents	Application supports indirect input events	Boolean
+K	_root_	UIRequiresFullScreen	Requires Full Screen	Boolean
+K	_root_	UIRequiresFullScreenIgnoredStartingWithVersion	Requires Full Screen Ignored Starting With Version	String
+K	_root_	CADisableMinimumFrameDurationOnPhone	Disable Minimum Frame Duration on Phone	Boolean
+K	_root_	GCSupportedGameControllers	Supported game controller types	GCSupportedGameControllersArray
+K	_root_	UIApplicationShortcutItems	Home Screen Shortcut Items	UIApplicationShortcutItemsArray
+K	_root_	UIApplicationSupportsPrintCommand	Supports Print Command	Boolean
+K	_root_	LSApplicationQueriesSchemes	Queried URL Schemes	StringArray
+K	_root_	WKBackgroundModes	Required background modes (Watch)	WKBackgroundModeArray
+K	_root_	PUICAutoLaunchAudioOptOut	Opt out of Auto-launch Audio App (Watch)	Boolean
+K	_root_	WKRunsIndependentlyOfCompanionApp	App can run independently of companion iPhone app	Boolean
+K	_root_	WKWatchOnly	App is only available as a standalone watchOS app	Boolean
+K	_root_	NSFallDetectionUsageDescription	Privacy - Fall Detection Usage Description	String
+K	_root_	WKSupportsAlwaysOnDisplay	App Supports Always On Display (Watch)	Boolean
+K	_root_	WKPrefersNetworkUponForeground	App Prefers Network Upon Foreground (Watch)	Boolean
+K	_root_	WKSupportsLiveActivityLaunchAttributeTypes	WatchOS Live Activity Launch Attribute Types	StringArray
+K	_root_	CFBundleDocumentTypes	Document types	DocumentTypeArray
+K	_root_	CFBundleURLTypes	URL types	URLTypeArray
+K	_root_	UTExportedTypeDeclarations	Exported Type Identifiers	UTITypes
+K	_root_	UTImportedTypeDeclarations	Imported Type Identifiers	UTITypes
+K	_root_	LSSupportsOpeningDocumentsInPlace	Supports opening documents in place	Boolean
+K	_root_	INIntentsSupported	Intents eligible for in-app handling	Array
+K	_root_	INIntentsRestrictedWhileLocked	Intents restricted while locked	Array
+K	_root_	INIntentsRestrictedWhileProtectedDataUnavailable	Intents restricted while locked or protected data unavailable	Array
+K	_root_	INSupportedMediaCategories	Supported intent media categories	SupportedMediaCategoriesArray
+K	_root_	CFBundleDevelopmentRegion	Default localization	String
+K	_root_	LSHasLocalizedDisplayName	Application has localized display name	Boolean
+K	_root_	CFBundleLocalizations	Localizations	LanguageCodesArray
+K	_root_	CFBundleAllowMixedLocalizations	Localized resources can be mixed	Boolean
+K	_root_	LSMinimumSystemVersion	Minimum system version	VersionString
+K	_root_	LSMinimumSystemVersionByArchitecture	Minimum system versions, per-architecture	MinSystemVersDict
+K	_root_	LSMultipleInstancesProhibited	Application prohibits multiple instances	Boolean
+K	_root_	LSExecutableArchitectures	Executable architectures	Architectures
+K	_root_	LSArchitecturePriority	Architecture priority	Architectures
+K	_root_	LSBackgroundOnly	Application is background only	Boolean
+K	_root_	LSUIElement	Application is agent (UIElement)	Boolean
+K	_root_	LSUIPresentationMode	Application UI Presentation Mode	PresentationMode
+K	_root_	LSPrefersCarbon	Application prefers Carbon environment	Boolean
+K	_root_	LSPrefersClassic	Application prefers Classic environment	Boolean
+K	_root_	LSRequiresCarbon	Application requires Carbon environment	Boolean
+K	_root_	LSRequiresClassic	Application requires Classic environment	Boolean
+K	_root_	LSVisibleInClassic	Application is visible in Classic	Boolean
+K	_root_	LSRequiresNativeExecution	Application requires native environment	Boolean
+K	_root_	LSEnvironment	Environment variables	Dictionary
+K	_root_	LSFileQuarantineEnabled	File quarantine enabled	Boolean
+K	_root_	LSGetAppDiedEvents	Application should get App Died events	Boolean
+K	_root_	NSAppleScriptEnabled	Scriptable	Boolean
+K	_root_	OSAScriptingDefinition	Scripting definition file name	String
+K	_root_	ATSApplicationFontsPath	Application fonts resource path	String
+K	_root_	CSResourcesFileMapped	Resources should be file-mapped	Boolean
+K	_root_	NSServices	Services	ServicesArray
+K	_root_	NSSupportsSuddenTermination	Application can be killed immediately when user is shutting down or logging out	Boolean
+K	_root_	NSSupportsAutomaticTermination	Application can be killed to reclaim memory or other extraordinary circumstances	Boolean
+K	_root_	APInstallerURL	Installation directory base file URL	String
+K	_root_	APFiles	Installation files	APFilesDict
+K	_root_	NSMainNibFile	Main nib file base name	String
+K	_root_	NSMainNibFile~ipad	Main nib file base name (iPad)	String
+K	_root_	NSMainNibFile~iphone	Main nib file base name (iPhone)	String
+K	_root_	NSPrincipalClass	Principal class	String
+K	_root_	NSViewGestureRecognizerIsExclusive	View gesture recognizer is exclusive	Boolean
+K	_root_	NSApplicationServices	Application Services	NSApplicationServicesDictionary
+K	_root_	NSPrefPaneIconFile	Preference Pane icon file	String
+K	_root_	NSPrefPaneIconLabel	Preference Pane icon label	String
+K	_root_	NSDockTilePlugIn	Dock Tile plugin path	String
+K	_root_	com.apple.PreferenceSync.ExcludeSyncKeys	Preferences sync exclusion keys	StringArray
+K	_root_	CFAppleHelpAnchor	Help file	String
+K	_root_	CFBundleHelpBookFolder	Help Book directory name	String
+K	_root_	CFBundleHelpBookName	Help Book identifier	String
+K	_root_	CFPlugInDynamicRegistration	Plug-in should be registered dynamically	Boolean
+K	_root_	CFPlugInDynamicRegisterFunction	Plug-in dynamic registration function name	String
+K	_root_	CFPlugInFactories	Plug-in factory interfaces	Dictionary
+K	_root_	CFPlugInTypes	Plug-in types	Dictionary
+K	_root_	CFPlugInUnloadFunction	Plug-in unload function name	String
+K	_root_	NSJavaNeeded	Cocoa Java application	Boolean
+K	_root_	NSJavaPath	Java classpaths	StringArray
+K	_root_	NSJavaRoot	Java root directory	String
+K	_root_	QLThumbnailMinimumSize	Quick Look thumbnail minimum size	QLThumbnailMinimumSizeDef
+K	_root_	QLPreviewHeight	Quick Look preview height	QLPreviewHeightDef
+K	_root_	QLPreviewWidth	Quick Look preview width	QLPreviewWidthDef
+K	_root_	QLSupportsConcurrentRequests	Quick Look supports concurrent requests	QLSupportsConcurrentRequestsDef
+K	_root_	QLNeedsToBeRunInMainThread	Quick Look needs to be run in main thread	QLNeedsToBeRunInMainThreadDef
+K	_root_	SMPrivilegedExecutables	Tools owned after installation	Dictionary
+K	_root_	SMAuthorizedClients	Clients allowed to add and remove tool	StringArray
+K	_root_	NSAccessoryTrackingUsageDescription	Privacy - Accessory Tracking Usage Description	String
+K	_root_	NSContactsUsageDescription	Privacy - Contacts Usage Description	String
+K	_root_	NSDesktopFolderUsageDescription	Privacy - Desktop Folder Usage Description	String
+K	_root_	NSDocumentsFolderUsageDescription	Privacy - Documents Folder Usage Description	String
+K	_root_	NSDownloadsFolderUsageDescription	Privacy - Downloads Folder Usage Description	String
+K	_root_	NSCalendarsUsageDescription	Privacy - Calendars Usage Description	String
+K	_root_	NSCalendarsFullAccessUsageDescription	Privacy - Calendars Full Access Usage Description	String
+K	_root_	NSCalendarsWriteOnlyAccessUsageDescription	Privacy - Calendars Write Only Usage Description	String
+K	_root_	NSRemindersFullAccessUsageDescription	Privacy - Reminders Full Access Usage Description	String
+K	_root_	NSRemindersUsageDescription	Privacy - Reminders Usage Description	String
+K	_root_	NSRemovableVolumesUsageDescription	Privacy - Removable Volumes Usage Description	String
+K	_root_	NSPhotoLibraryUsageDescription	Privacy - Photo Library Usage Description	String
+K	_root_	NSPhotoLibraryAddUsageDescription	Privacy - Photo Library Additions Usage Description	String
+K	_root_	NSLocationUsageDescription	Privacy - Location Usage Description	String
+K	_root_	NSLocationAlwaysAndWhenInUseUsageDescription	Privacy - Location Always and When In Use Usage Description	String
+K	_root_	NSMicrophoneUsageDescription	Privacy - Microphone Usage Description	String
+K	_root_	NSAppleMusicUsageDescription	Privacy - Music Usage Description	String
+K	_root_	NSMicrophoneInjectionUsageDescription	Privacy - Microphone Injection Usage Description	String
+K	_root_	NSBluetoothPeripheralUsageDescription	Privacy - Bluetooth Peripheral Usage Description	String
+K	_root_	NSBluetoothAlwaysUsageDescription	Privacy - Bluetooth Always Usage Description	String
+K	_root_	NSCameraUsageDescription	Privacy - Camera Usage Description	String
+K	_root_	NSMotionUsageDescription	Privacy - Motion Usage Description	String
+K	_root_	NSNetworkVolumesUsageDescription	Privacy - Network Volumes Usage Description	String
+K	_root_	NSHealthUpdateUsageDescription	Privacy - Health Update Usage Description	String
+K	_root_	NSHealthShareUsageDescription	Privacy - Health Share Usage Description	String
+K	_root_	NSHealthClinicalHealthRecordsShareUsageDescription	Privacy - Health Records Usage Description	String
+K	_root_	NSAppleMusicUsageDescription	Privacy - Media Library Usage Description	String
+K	_root_	NSHomeKitUsageDescription	Privacy - HomeKit Usage Description	String
+K	_root_	NSLocationWhenInUseUsageDescription	Privacy - Location When In Use Usage Description	String
+K	_root_	NSLocationAlwaysUsageDescription	Privacy - Location Always Usage Description	String
+K	_root_	NSVideoSubscriberAccountUsageDescription	Privacy - TV Provider Usage Description	String
+K	_root_	NSVideoSubscriberAccountUsageDescription	Privacy - Video Subscriber Account Usage Description	String
+K	_root_	NSSiriUsageDescription	Privacy - Siri Usage Description	String
+K	_root_	NSSpeechRecognitionUsageDescription	Privacy - Speech Recognition Usage Description	String
+K	_root_	NFCReaderUsageDescription	Privacy - NFC Scan Usage Description	String
+K	_root_	NSFaceIDUsageDescription	Privacy - Face ID Usage Description	String
+K	_root_	NSFileProviderDomainUsageDescription	Privacy - Access to a File Provide Domain Usage Description	String
+K	_root_	NSFileProviderPresenceUsageDescription	Privacy - File Provider Presence Usage Description	String
+K	_root_	NSAppleEventsUsageDescription	Privacy - AppleEvents Sending Usage Description	String
+K	_root_	NSSystemAdministrationUsageDescription	Privacy - System Administration Usage Description	String
+K	_root_	NSSystemExtensionUsageDescription	Privacy - System Extension Usage Description	String
+K	_root_	OSBundleUsageDescription	Privacy - Driver Extension Usage Description	String
+K	_root_	NSLocalNetworkUsageDescription	Privacy - Local Network Usage Description	String
+K	_root_	NSUserTrackingUsageDescription	Privacy - Tracking Usage Description	String
+K	_root_	NSLocationDefaultAccuracyReduced	Privacy - Location Default Accuracy Reduced	Boolean
+K	_root_	NSLocationTemporaryUsageDescriptionDictionary	Privacy - Location Temporary Usage Description Dictionary	Dictionary
+K	_root_	NSFocusStatusUsageDescription	Privacy - Focus Status Usage Description	String
+K	_root_	NSNearbyInteractionUsageDescription	Privacy - Nearby Interaction Usage Description	String
+K	_root_	NSUserNotificationsUsageDescription	Privacy - User Notifications Usage Description	String
+K	_root_	NSIdentityUsageDescription	Privacy - Identity Usage Description	String
+K	_root_	NSIdentityUsageDescriptionDictionary	Privacy - Identity Usage Description Dictionary	Dictionary
+K	_root_	NSAppDataUsageDescription	Privacy - Other Application Data Usage Description	String
+K	_root_	NSAppBundlesUsageDescription	Privacy - App Management Usage Description	String
+K	_root_	NSFinancialDataUsageDescription	Privacy - Financial Data Usage Description	String
+K	_root_	NSCriticalMessagingUsageDescription	Privacy - Critical Messaging Usage Description	String
+K	_root_	NSWorldSensingUsageDescription	Privacy - World Sensing Usage Description	String
+K	_root_	NSHandsTrackingUsageDescription	Privacy - Hands Tracking Usage Description	String
+K	_root_	NSAlarmKitUsageDescription	Privacy - Alarm Kit Usage Description	String
+K	_root_	UIWantsDetailedSurfaceInfo	Application Wants Detailed Surface Info	Boolean
+K	_root_	NSPhotoLibraryLimitedAccessAPISupport	Application supports limited photo library access	Boolean
+K	_root_	PHPhotoLibraryPreventAutomaticLimitedAccessAlert	Prevent limited photos access alert	Boolean
+K	_root_	NSHighResolutionCapable	High Resolution Capable	Boolean
+K	_root_	MKDirectionsApplicationSupportedModes	Maps routing app supported modes	MKDirectionsApplicationSupportedModesList
+K	_root_	UIStatusBarTintParameters	Status bar tinting parameters	UIStatusBarTintingDictionary
+K	_root_	NSExtensionFileProviderDocumentGroup	App group used for document storage	String
+K	_root_	NSExtensionFileProviderSupportsEnumeration	File Provider supports Enumeration	Boolean
+K	_root_	NSExtensionFileProviderOnlyVisibleInParentApplication	File provider is only visible in parent application	Boolean
+K	_root_	PHProjectExtensionCustomTypesEnabled	Extension defines custom project types	Boolean
+K	_root_	CFBundleSpokenName	Accessibility Bundle Name	String
+K	_root_	UISupportsFullScreenInAssistiveAccess	Supports full screen in Assistive Access	Boolean
+K	_root_	MusicHapticsSupported	Supports Music Haptics	Boolean
+K	_root_	UISupportsAssistiveAccess	Supports Assistive Access	Boolean
+K	_root_	NSAppTransportSecurity	App Transport Security Settings	NSAppTransportSecurityDictionary
+K	_root_	AVGameBypassSystemSpatialAudio	Game Bypasses System Spatial Audio	Boolean
+K	_root_	NSSupportsAutomaticGraphicsSwitching	Supports Automatic Graphics Switching	Boolean
+K	_root_	UIApplicationShortcutWidget	Home Screen Widget	String
+K	_root_	GCSupportsControllerUserInteraction	Supports Controller User Interaction	Boolean
+K	_root_	GCSupportsGameMode	Supports Game Mode (deprecated)	Boolean
+K	_root_	LSSupportsGameMode	Supports Game Mode	Boolean
+K	_root_	GCDisableInferringGameMetadata	Opt out of inferring game knowledge in Games App	Boolean
+K	_root_	UIWhitePointAdaptivityStyle	White Point Adaptivity Style	UIWhitePointAdaptivityStyleType
+K	_root_	BGTaskSchedulerPermittedIdentifiers	Permitted background task scheduler identifiers	Array
+K	_root_	TICapsLockLanguageSwitchCapable	Caps Lock Language Switch Capable	Boolean
+K	_root_	NSWidgetWantsLocation	Widget Wants Location	Boolean
+K	_root_	NSAdvertisingAttributionReportEndpoint	Advertising attribution report endpoint URL	String
+K	_root_	NSCameraPortraitEffectEnabled	Camera — Opt in for Portrait Effect	Boolean
+K	_root_	NSCameraStudioLightEnabled	Camera — Opt in for Studio Light Effect	Boolean
+K	_root_	NSCameraReactionEffectsEnabled	Camera — Opt in for Reaction Effects	Boolean
+K	_root_	NSCameraReactionEffectGesturesEnabledDefault	Camera — Default value of AVCaptureDevice.reactionEffectGesturesEnabled	Boolean
+K	_root_	NSSupportsLiveActivities	Supports Live Activities	Boolean
+K	_root_	NSSupportsLiveActivitiesFrequentUpdates	Supports Live Activities Frequent Updates	Boolean
+K	_root_	NSStickerSharingLevel	Sticker Sharing Level	NSStickerSharingLevelTypes
+K	_root_	NSAccessorySetupKitSupports	AccessorySetupKit - Supports	AccessorySetupKitSupportsArray
+K	_root_	NSAccessorySetupBluetoothCompanyIdentifiers	AccessorySetupKit - Bluetooth Company Identifiers	StringArray
+K	_root_	NSAccessorySetupBluetoothNames	AccessorySetupKit - Bluetooth Names	StringArray
+K	_root_	NSAccessorySetupBluetoothServices	AccessorySetupKit - Bluetooth Services	StringArray
+K	_root_	NSAutoFillRequiresTextContentTypeForOneTimeCodeOnMac	AutoFill requires text content type for one time code on Mac	Boolean
+K	_root_	ITSAppUsesNonExemptEncryption	App Uses Non-Exempt Encryption	Boolean
+K	_root_	ITSEncryptionExportComplianceCode	App Encryption Export Compliance Code	String
+K	_root_	TFInternalTestingOnly	App can be distributed only to internal TestFlight testers	Boolean
+K	_root_	UIAppSupportsHDR	Supports HDR color mode	Boolean
+K	_root_	CLKComplicationPrincipalClass	ClockKit Complication - Principal Class	String
+K	_root_	CLKComplicationSupportedFamilies	ClockKit Complication - Supported Families	ComplicationSupportedFamiliesArray
+K	_root_	com.apple.developer.nfc.readersession.iso7816.select-identifiers	ISO7816 application identifiers for NFC Tag Reader Session	StringArray
+K	_root_	com.apple.developer.nfc.readersession.felica.systemcodes	ISO18092 system codes for NFC Tag Reader Session	StringArray
+K	_root_	LSBundleContainsCoreMLmlmodelc	Bundle contains CoreML models	Boolean
+K	_root_	MetalCaptureEnabled	Metal Capture Enabled	Boolean
+K	_root_	ASWebAuthenticationSessionWebBrowserSupportCapabilities	ASWeb Authentication Session Browser Support Capabilities	ASWebAuthenticationSessionWebBrowserSupportCapabilitiesDictionary
+K	_root_	NSBonjourServices	Bonjour services	StringArray
+K	_root_	ASAccountAuthenticationModificationOptOutOfSecurityPromptsOnSignIn	Opt out of showing account security prompts on app sign in	Boolean
+K	_root_	ASAccountAuthenticationModificationSupportsUpgradeToSignInWithApple	Extension supports upgrade to Sign in with Apple	Boolean
+K	_root_	ASAccountAuthenticationModificationSupportsStrongPasswordUpgrade	Extension supports upgrade to strong password	Boolean
+K	_root_	ASAccountAuthenticationModificationPasswordGenerationRequirements	Strong password generation rules	String
+K	_root_	NSAppClip	App Clip	NSAppClipDictionary
+K	_root_	CoreSpotlightActions	Core Spotlight Custom Actions	CoreSpotlightActionsArray
+K	_root_	NSBluetoothServices	Bluetooth Services	StringArray
+K	_root_	SFSafariCorrespondingIOSAppBundleIdentifier	Safari - Associated iOS App Bundle Identifier	String
+K	_root_	SFSafariCorrespondingIOSExtensionBundleIdentifier	Safari - Associated iOS Extension Bundle Identifier	String
+K	_root_	SFSafariCorrespondingMacOSAppBundleIdentifier	Safari - Associated macOS App Bundle Identifier	String
+K	_root_	SFSafariCorrespondingMacOSExtensionBundleIdentifier	Safari - Associated macOS Extension Bundle Identifier	String
+K	_root_	AdNetworkIdentifiers	AdAttributionKit - Ad Network Identifiers	StringArray
+K	_root_	AttributionCopyEndpoint	AdAttributionKit - Postback Copy URL	String
+K	_root_	EligibleForAdAttributionKitReengagementPostbackCopies	AdAttributionKit - Opt in for Reengagement Postback Copies	Boolean
+K	_root_	EligibleForAdAttributionKitOverlappingConversions	AdAttributionKit - Opt in to receive conversion tags	Boolean
+K	_root_	AdAttributionKitConfigurations	AdAttributionKit - Configurations	AdAttributionKitConfigurationsDictionary
+K	_root_	WiFiAwareServices	Wi-Fi Aware Services	WiFiAwareServicesDictionary
+D	UIApplicationSceneManifestDictionary	Dictionary	
+K	UIApplicationSceneManifestDictionary	UIApplicationSupportsMultipleScenes	Enable Multiple Scenes	Boolean
+K	UIApplicationSceneManifestDictionary	UISceneConfigurations	Scene Configuration	UISceneConfigurationsDictionary
+K	UIApplicationSceneManifestDictionary	UIApplicationSupportsTabbedSceneCollection	Supports Tabbed Scene Collection	Boolean
+K	UIApplicationSceneManifestDictionary	UIApplicationPreferredDefaultSceneSessionRole	Preferred Default Scene Session Role	UIApplicationPreferredDefaultSceneSessionRoleStrings
+D	UISceneConfigurationsDictionary	Dictionary	
+K	UISceneConfigurationsDictionary	UIWindowSceneSessionRoleApplication	Window Application Session Role	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	UIWindowSceneSessionRoleExternalDisplayNonInteractive	External Display Session Role Non-Interactive	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	UIWindowSceneSessionRoleExternalDisplay	External Display Session Role (Legacy)	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	UIWindowSceneSessionRoleVolumetricApplication	Volumetric Window Application Session Role	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	UIWindowSceneSessionRoleAssistiveAccessApplication	Assistive Access Window Application Session Role	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	UISceneSessionRoleImmersiveSpaceApplication	Immersive Space Application Session Role	UISceneConfigurationArray
+K	UISceneConfigurationsDictionary	CPSceneSessionRoleImmersiveSpaceApplication	Compositor Services Immersive Space Application Session Role	UISceneConfigurationArray
+D	UISceneConfigurationArray	Array	UISceneConfigurationDictionary
+D	UISceneConfigurationDictionary	Dictionary	
+K	UISceneConfigurationDictionary	UISceneClassName	Class Name	String
+K	UISceneConfigurationDictionary	UISceneDelegateClassName	Delegate Class Name	String
+K	UISceneConfigurationDictionary	UISceneConfigurationName	Configuration Name	String
+K	UISceneConfigurationDictionary	UISceneStoryboardFile	Storyboard Name	String
+K	UISceneConfigurationDictionary	UISceneInitialImmersionStyle	Initial Immersion Style	UISceneInitialImmersionStyleStrings
+D	UIApplicationPreferredDefaultSceneSessionRoleStrings	String	
+D	UISceneInitialImmersionStyleStrings	String	
+D	NSAppTransportSecurityDictionary	Dictionary	
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoads	Allow Arbitrary Loads	Boolean
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoadsUsageDescription	Allow Arbitrary Loads - Exception Usage	NSATSUsageDescription
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoadsForMedia	Allows Arbitrary Loads for Media	Boolean
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoadsForMediaUsageDescription	Allows Arbitrary Loads - Media Exception Usage	NSATSUsageDescription
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoadsInWebContent	Allow Arbitrary Loads in Web Content	Boolean
+K	NSAppTransportSecurityDictionary	NSAllowsArbitraryLoadsInWebContentUsageDescription	Allow Arbitrary Loads - Web Content Exception Usage	NSATSUsageDescription
+K	NSAppTransportSecurityDictionary	NSAllowsLocalNetworking	Allows Local Networking	Boolean
+K	NSAppTransportSecurityDictionary	NSAllowsLocalNetworkingUsageDescription	Allows Local Networking - Local Networking Exception Usage	NSATSUsageDescription
+K	NSAppTransportSecurityDictionary	NSRequiresNIAPTLSPackageVersion	Requires NIAP TLS Package Version	String
+K	NSAppTransportSecurityDictionary	NSExceptionDomains	Exception Domains	Dictionary
+D	NSATSUsageDescription	Dictionary	
+K	NSATSUsageDescription	NSATSExceptionUsage	Exception Usage	NSATSExceptionUsageDictionary
+K	NSATSUsageDescription	NSATSExceptionServiceType	Exception Service Type	NSATSExceptionServiceTypeDictionary
+K	NSATSUsageDescription	NSATSExceptionFirstPartyDeviceConnectionUsage	First Party Device Connection	NSATSExceptionUsageDictionary
+K	NSATSUsageDescription	NSATSExceptionFirstPartyServiceConnectionUsage	First Party Service Connection	NSATSExceptionFirstPartyServiceConnectionUsageDictionary
+K	NSATSUsageDescription	NSATSExceptionThirdPartyDeviceConnectionUsage	Third Party Device Connection	NSATSExceptionUsageDictionary
+K	NSATSUsageDescription	NSATSExceptionThirdPartyServiceConnectionUsage	Third Party Service Connection	NSATSExceptionThirdPartyServiceConnectionUsageDictionary
+D	NSATSExceptionUsageDictionary	Dictionary	
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageUserChosenContent	User Chosen Content	Boolean
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageContentEncryptedAtRest	Content Encrypted at Rest	Boolean
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageContentAuthenticatedAtRest	Content Authenticated	Boolean
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageContentEncryptedByApplication	Content Encrypted at Application Layer	Boolean
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageContentEncryptedByNetwork	Content Encrypted at Network Layer	Boolean
+K	NSATSExceptionUsageDictionary	NSATSExceptionUsageContentOther	Other	String
+D	NSATSExceptionServiceTypeDictionary	Dictionary	
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyAdvertisements	Advertisements	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyMail	Mail	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyNews	News	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyPodcasts	Podcasts	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyWebDAV	WebDAV	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyRSS	RSS	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyMediaStreaming	Media Streaming	Boolean
+K	NSATSExceptionServiceTypeDictionary	NSThirdPartyOther	Other	String
+D	NSATSExceptionFirstPartyServiceConnectionUsageDictionary	Dictionary	
+K	NSATSExceptionFirstPartyServiceConnectionUsageDictionary	NSATSExceptionFirstPartyServiceConnectionPurpose	Connection Purpose	NSATSExceptionServiceTypeDictionaryArray
+K	NSATSExceptionFirstPartyServiceConnectionUsageDictionary	NSATSExceptionFirstPartyServiceConnectionUsage	Exception Usage	NSATSExceptionUsageDictionary
+D	NSATSExceptionServiceTypeDictionaryArray	Array	NSATSExceptionServiceTypeDictionary
+D	NSATSExceptionThirdPartyServiceConnectionUsageDictionary	Dictionary	
+K	NSATSExceptionThirdPartyServiceConnectionUsageDictionary	NSATSExceptionThirdPartyServiceConnectionPurpose	Connection Purpose	NSATSExceptionServiceTypeDictionaryArray
+K	NSATSExceptionThirdPartyServiceConnectionUsageDictionary	NSATSExceptionThirdPartyServiceConnectionUsage	Exception Usage	NSATSExceptionUsageDictionary
+D	APFilesDict	Dictionary	
+K	APFilesDict	APFileDescriptionKey	Install file description text	String
+K	APFilesDict	APDisplayedAsContainer	Display with folder icon	Boolean
+K	APFilesDict	APFileDestinationPath	File destination path	String
+K	APFilesDict	APFileName	Install file name	String
+K	APFilesDict	APFileSourcePath	Install file source path	String
+K	APFilesDict	APInstallAction	File install action	APInstallActionStrings
+D	APInstallActionStrings	String	
+D	AVInitialRouteSharingPolicyString	String	
+D	DocumentTypeArray	Array	DocumentTypeDict
+D	DocumentTypeDict	Dictionary	
+K	DocumentTypeDict	CFBundleTypeName	Document Type Name	String
+K	DocumentTypeDict	LSHandlerRank	Handler rank	HandlerRank
+K	DocumentTypeDict	CFBundleTypeExtensions	Document Extensions	StringArray
+K	DocumentTypeDict	CFBundleTypeMIMETypes	Document MIME Types	StringArray
+K	DocumentTypeDict	CFBundleTypeOSTypes	Document OS Types	StringArray
+K	DocumentTypeDict	LSItemContentTypes	Document Content Type Identifiers	StringArray
+K	DocumentTypeDict	CFBundleTypeIconFile	Icon File Name	String
+K	DocumentTypeDict	CFBundleTypeIconSystemGenerated	Use system generated icons	Boolean
+K	DocumentTypeDict	CFBundleTypeRole	Role	CFBundleTypeRoles
+K	DocumentTypeDict	LSTypeIsPackage	Document is a package or bundle	Boolean
+K	DocumentTypeDict	NSDocumentClass	Cocoa NSDocument Class	String
+K	DocumentTypeDict	NSExportableAs	Exportable As Document Type Names (Deprecated)	StringArray
+K	DocumentTypeDict	NSExportableTypes	Exportable Type Identifiers	StringArray
+D	SupportedMediaCategoriesArray	Array	SupportedMediaCategory
+D	SupportedMediaCategory	String	
+D	HandlerRank	String	
+D	CFBundleTypeRoles	String	
+D	InfoDictVersion	String	
+D	BackgroundModeArray	Array	BackgroundMode
+D	BackgroundMode	String	
+D	GCSupportedGameControllersArray	Array	GCSupportedGameController
+D	GCSupportedGameController	Dictionary	
+K	GCSupportedGameController	ProfileName	Profile Name	GCSupportedGameControllerProfileName
+D	GCSupportedGameControllerProfileName	String	
+D	UIApplicationShortcutItemsArray	Array	UIApplicationShortcutItemsDict
+D	UIApplicationShortcutItemsDict	Dictionary	
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemType	Shortcut Item Type	String
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemTitle	Title	String
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemSubtitle	Subtitle	String
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemIconType	Icon Type	String
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemIconFile	Icon File	String
+K	UIApplicationShortcutItemsDict	UIApplicationShortcutItemUserInfo	User Info Dictionary	Dictionary
+D	WKBackgroundModeArray	Array	WKBackgroundMode
+D	WKBackgroundMode	String	
+D	URLTypeArray	Array	URLType
+D	URLType	Dictionary	
+K	URLType	CFBundleTypeRole	Document Role	CFBundleTypeRoles
+K	URLType	CFBundleURLIconFile	Document Icon File Name	String
+K	URLType	CFBundleURLName	URL identifier	String
+K	URLType	CFBundleURLSchemes	URL Schemes	StringArray
+D	MinSystemVersDict	Dictionary	
+K	MinSystemVersDict	i386	Intel (32-bit)	VersionString
+K	MinSystemVersDict	x86_64	Intel (64-bit)	VersionString
+K	MinSystemVersDict	ppc	PowerPC (32-bit)	VersionString
+K	MinSystemVersDict	ppc64	PowerPC (64-bit)	VersionString
+D	PresentationMode	Number	
+D	PersistentStoreCoordinatorTypes	String	
+D	ServicesArray	Array	ServiceDict
+D	ServiceDict	Dictionary	
+K	ServiceDict	NSPortName	Incoming service port name	String
+K	ServiceDict	NSMessage	Instance method name	String
+K	ServiceDict	NSSendTypes	Send Types	StringArray
+K	ServiceDict	NSSendFileTypes	Send File Types	StringArray
+K	ServiceDict	NSReturnTypes	Return Types	StringArray
+K	ServiceDict	NSMenuItem	Menu	ServicesMenuItem
+K	ServiceDict	NSKeyEquivalent	Menu key equivalent	ServicesKeyEquivalent
+K	ServiceDict	NSUserData	User Data	*
+K	ServiceDict	NSTimeout	Timeout value (in milliseconds)	String
+D	ServicesMenuItem	Dictionary	
+K	ServicesMenuItem	default	Menu item title	String
+D	ServicesKeyEquivalent	Dictionary	
+K	ServicesKeyEquivalent	default	Key equivalent (with command and shift)	String
+D	UILaunchScreenDictionary	Dictionary	
+K	UILaunchScreenDictionary	UIImageName	Image Name	String
+K	UILaunchScreenDictionary	UIImageRespectsSafeAreaInsets	Image respects safe area insets	Boolean
+K	UILaunchScreenDictionary	UIColorName	Background color	String
+K	UILaunchScreenDictionary	UINavigationBar	Show Navigation bar	UIBarDictionary
+K	UILaunchScreenDictionary	UIToolbar	Show Toolbar	UIBarDictionary
+K	UILaunchScreenDictionary	UITabBar	Show Tab bar	UIBarDictionary
+D	UIBarDictionary	Dictionary	
+K	UIBarDictionary	UIImageName	Image Name	String
+D	UILaunchScreensDictionary	Dictionary	
+K	UILaunchScreensDictionary	UILaunchScreenDefinitions	Launch Screen Definitions	UILaunchScreenDefinitionsArray
+K	UILaunchScreensDictionary	UIURLToLaunchScreenAssociations	URL to Launch Screen Associations	Dictionary
+K	UILaunchScreensDictionary	UIDefaultLaunchScreen	Default Screen Identifier	String
+D	UILaunchScreenDefinitionsArray	Array	UILaunchScreenDefinitionsElement
+D	UILaunchScreenDefinitionsElement	Dictionary	
+K	UILaunchScreenDefinitionsElement	UILaunchScreenIdentifier	Identifier	String
+K	UILaunchScreenDefinitionsElement	UIImageName	Image Name	String
+K	UILaunchScreenDefinitionsElement	UIImageRespectsSafeAreaInsets	Image respects safe area insets	Boolean
+K	UILaunchScreenDefinitionsElement	UIColorName	Background color	String
+K	UILaunchScreenDefinitionsElement	UINavigationBar	Show Navigation bar	UIBarDictionary
+K	UILaunchScreenDefinitionsElement	UIToolbar	Show Toolbar	UIBarDictionary
+K	UILaunchScreenDefinitionsElement	UITabBar	Show Tab bar	UIBarDictionary
+D	UTITypes	Array	UTIType
+D	UTIType	Dictionary	
+K	UTIType	UTTypeConformsTo	Conforms to Type Identifiers	StringArray
+K	UTIType	UTTypeDescription	Description	String
+K	UTIType	UTTypeIconFile	Icon file name (legacy)	String
+K	UTIType	UTTypeIconName	Icon name (legacy)	String
+K	UTIType	UTTypeIconFiles	Icon file names	StringArray
+K	UTIType	UTTypeIcons	Icons	UTTypeIcons
+K	UTIType	UTTypeIdentifier	Identifier	String
+K	UTIType	UTTypeReferenceURL	Reference URL	String
+K	UTIType	UTTypeTagSpecification	Equivalent Types	UTTypeTagSpecification
+D	UTTypeTagSpecification	Dictionary	
+K	UTTypeTagSpecification	com.apple.ostype	OS Types (legacy)	StringArray
+K	UTTypeTagSpecification	com.apple.nspboard-type	Pboard Types (legacy)	StringArray
+K	UTTypeTagSpecification	public.filename-extension	Extensions	StringArray
+K	UTTypeTagSpecification	public.mime-type	MIME Types	StringArray
+D	UTTypeIcons	Dictionary	
+K	UTTypeIcons	UTTypeIconBadgeName	Badge	String
+K	UTTypeIcons	UTTypeIconBackgroundName	Background	String
+K	UTTypeIcons	UTTypeIconText	Text	String
+K	UTTypeIcons	UTTypeSymbolName	Symbol Name	String
+K	UTTypeIcons	UTTypeIconFile	Icon file name	String
+K	UTTypeIcons	UTTypeIconName	Icon name	String
+D	LanguageCodesArray	Array	LanguageCodes
+D	LanguageCodes	String	
+D	NSStickerSharingLevelTypes	String	
+D	AccessorySetupKitSupportsArray	Array	AccessorySetupKitSupports
+D	AccessorySetupKitSupports	String	
+D	ComplicationSupportedFamiliesArray	Array	ComplicationSupportedFamily
+D	ComplicationSupportedFamily	String	
+D	StringArray	Array	String
+D	DeviceCapabilities	Array	DeviceCapability
+D	DeviceCapability	String	
+D	Architectures	Array	Architecture
+D	Architecture	String	
+D	StatusBarStyles	String	
+D	InterfaceOrientationArray	Array	InterfaceOrientations
+D	InterfaceOrientations	String	
+D	VersionString	String	
+D	QLThumbnailMinimumSizeDef	Number	
+D	QLPreviewHeightDef	Number	
+D	QLPreviewWidthDef	Number	
+D	QLSupportsConcurrentRequestsDef	Boolean	
+D	QLNeedsToBeRunInMainThreadDef	Boolean	
+D	NSApplicationServicesDictionary	Dictionary	
+K	NSApplicationServicesDictionary	Browses	Browses	NSApplicationServicesArray
+K	NSApplicationServicesDictionary	Advertises	Advertises	NSApplicationServicesArray
+D	NSApplicationServicesArray	Array	NSApplicationServicesElementDictionary
+D	NSApplicationServicesElementDictionary	Dictionary	
+K	NSApplicationServicesElementDictionary	NSApplicationServiceIdentifier	Service Identifier	String
+K	NSApplicationServicesElementDictionary	NSApplicationServiceUsageDescription	Usage Description	String
+K	NSApplicationServicesElementDictionary	NSApplicationServicePlatformSupport	Supported Platforms	NSApplicationServicePlatformSupportArray
+D	NSApplicationServicePlatformSupportArray	Array	NSApplicationServicePlatforms
+D	NSApplicationServicePlatforms	String	
+D	ApplicationCategory	String	
+D	CFBundleIcons	Dictionary	
+K	CFBundleIcons	CFBundlePrimaryIcon	Primary Icon	CFBundlePrimaryIcon
+K	CFBundleIcons	UINewsstandIcon	Newsstand Icon	UINewsstandIcon
+D	CFBundlePrimaryIcon	Dictionary	
+K	CFBundlePrimaryIcon	CFBundleIconName	Icon name (iOS 11 and Later)	String
+K	CFBundlePrimaryIcon	CFBundleIconFiles	Icon files	StringArray
+K	CFBundlePrimaryIcon	UIPrerenderedIcon	Icon already includes gloss effects	Boolean
+K	CFBundlePrimaryIcon	CFBundleSymbolName	SF Symbol name	String
+D	UINewsstandIcon	Dictionary	
+K	UINewsstandIcon	CFBundleIconFiles	Icon files	StringArray
+K	UINewsstandIcon	UINewsstandBindingType	Binding type	UINewsstandBindingType
+K	UINewsstandIcon	UINewsstandBindingEdge	Binding edge	UINewsstandBindingEdge
+D	UINewsstandBindingType	String	
+D	UINewsstandBindingEdge	String	
+D	MKDirectionsApplicationSupportedModesList	Array	MKDirectionsApplicationSupportedMode
+D	MKDirectionsApplicationSupportedMode	String	
+D	UIStatusBarTintingDictionary	Dictionary	
+K	UIStatusBarTintingDictionary	UINavigationBar	Navigation bar	UINavigationBarDictionary
+D	UIWhitePointAdaptivityStyleType	String	
+D	UINavigationBarDictionary	Dictionary	
+K	UINavigationBarDictionary	BackgroundImage	Background image	String
+K	UINavigationBarDictionary	Style	Style	UIBarStyle
+K	UINavigationBarDictionary	Translucent	Translucent	Boolean
+K	UINavigationBarDictionary	TintColor	TintColor	TintColorDictionary
+D	UIBarStyle	String	
+D	TintColorDictionary	Dictionary	
+K	TintColorDictionary	Red	Red	Number
+K	TintColorDictionary	Green	Green	Number
+K	TintColorDictionary	Blue	Blue	Number
+D	ASWebAuthenticationSessionWebBrowserSupportCapabilitiesDictionary	Dictionary	
+K	ASWebAuthenticationSessionWebBrowserSupportCapabilitiesDictionary	IsSupported	IsSupported	Boolean
+K	ASWebAuthenticationSessionWebBrowserSupportCapabilitiesDictionary	EphemeralBrowserSessionIsSupported	Ephemeral Browser Session Is Supported	Boolean
+D	NSAppClipDictionary	Dictionary	
+K	NSAppClipDictionary	NSAppClipRequestEphemeralUserNotification	Requests ephemeral user notifications	Boolean
+K	NSAppClipDictionary	NSAppClipRequestLocationConfirmation	Requests location confirmation	Boolean
+D	CoreSpotlightActionsArray	Array	CoreSpotlightActionsDictionary
+D	CoreSpotlightActionsDictionary	Dictionary	
+K	CoreSpotlightActionsDictionary	CoreSpotlightActionTitle	User-visible name of the custom action	String
+K	CoreSpotlightActionsDictionary	CoreSpotlightActionSymbolImage	SF Symbols image that represents the custom action	String
+K	CoreSpotlightActionsDictionary	CoreSpotlightActionIdentifier	App-defined identifier for the custom action	String
+D	WiFiAwareServicesDictionary	Dictionary	
+K	WiFiAwareServicesDictionary	service name		WiFiAwareDictionary
+D	WiFiAwareDictionary	Dictionary	
+K	WiFiAwareDictionary	Publishable		Dictionary
+K	WiFiAwareDictionary	Subscribable		Dictionary
+D	AdAttributionKitConfigurationsDictionary	Dictionary	
+K	AdAttributionKitConfigurationsDictionary	AttributionWindows	Attribution Windows	AttributionWindowsDictionary
+K	AdAttributionKitConfigurationsDictionary	AttributionCooldown	Attribution Cooldown	AttributionCooldownDictionary
+D	AttributionWindowsDictionary	Dictionary	
+K	AttributionWindowsDictionary	global		AttributionWindowsGlobalInstallDictionary
+D	AttributionWindowsGlobalInstallDictionary	Dictionary	
+K	AttributionWindowsGlobalInstallDictionary	install	Install Conversions	AttributionWindowsGlobalInstallInstallDictionary
+D	AttributionWindowsGlobalInstallInstallDictionary	Dictionary	
+K	AttributionWindowsGlobalInstallInstallDictionary	view	Days a view ad is valid	Number
+K	AttributionWindowsGlobalInstallInstallDictionary	click	Days a click ad is valid	Number
+D	AttributionWindowsInstallDictionary	Dictionary	
+K	AttributionWindowsInstallDictionary	install	Install Conversions	AttributionWindowsInstallInstallDictionary
+D	AttributionWindowsInstallInstallDictionary	Dictionary	
+K	AttributionWindowsInstallInstallDictionary	view	Days a view ad is valid	Number
+K	AttributionWindowsInstallInstallDictionary	click	Days a click ad is valid	Number
+K	AttributionWindowsInstallInstallDictionary	ignoreInteractionType	Ignore interactions type	AttributionWindowsIgnoreInteractionType
+D	AttributionWindowsIgnoreInteractionType	String	
+D	AttributionCooldownDictionary	Dictionary	
+K	AttributionCooldownDictionary	install-cooldown-hours	Cooldown hours after install conversion	Number
+K	AttributionCooldownDictionary	re-engagement-cooldown-hours	Cooldown hours after reengagement conversion	Number
