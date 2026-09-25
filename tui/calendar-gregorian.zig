@@ -2,7 +2,7 @@
 
 const std = @import("std");
 
-const OUTPUT_CAP: usize = 1024;
+const OUTPUT_CAP: usize = 2048;
 const FLAG_KEY_DOWN: i32 = 1 << 0;
 const XK_UP: i32 = 0xff52;
 const XK_DOWN: i32 = 0xff54;
@@ -163,12 +163,17 @@ fn writeTitle(writer: *Writer, year: u16, month: u8) void {
     writer.write("\n\n");
 }
 
-fn writeHorizontalRule(writer: *Writer) void {
-    writer.write("+----+----+----+----+----+----+----+\n");
+fn writeHorizontalRule(writer: *Writer, left: []const u8, junction: []const u8, right: []const u8) void {
+    writer.write(left);
+    for (0..7) |column| {
+        writer.write("────");
+        writer.write(if (column == 6) right else junction);
+    }
+    writer.writeByte('\n');
 }
 
 fn writeDayCell(writer: *Writer, day: ?u8) void {
-    writer.write("| ");
+    writer.write("│ ");
     if (day) |value| {
         if (value < 10) {
             writer.writeByte(' ');
@@ -187,9 +192,9 @@ fn renderCalendar(year: u16, month: u8, output: []u8) usize {
     var writer = Writer{ .buf = output };
     writeTitle(&writer, year, month);
     writer.write("Up: previous month    Down: next month\n\n");
-    writeHorizontalRule(&writer);
-    writer.write("| Mo | Tu | We | Th | Fr | Sa | Su |\n");
-    writeHorizontalRule(&writer);
+    writeHorizontalRule(&writer, "┌", "┬", "┐");
+    writer.write("│ Mo │ Tu │ We │ Th │ Fr │ Sa │ Su │\n");
+    writeHorizontalRule(&writer, "├", "┼", "┤");
 
     const offset = mondayFirstOffset(dayOfWeekGregorian(year, month, 1));
     const days = daysInMonth(year, month);
@@ -206,8 +211,12 @@ fn renderCalendar(year: u16, month: u8, output: []u8) usize {
                 writeDayCell(&writer, @intCast(cell - offset + 1));
             }
         }
-        writer.write("|\n");
-        writeHorizontalRule(&writer);
+        writer.write("│\n");
+        if (week + 1 == weeks) {
+            writeHorizontalRule(&writer, "└", "┴", "┘");
+        } else {
+            writeHorizontalRule(&writer, "├", "┼", "┤");
+        }
     }
     return writer.index;
 }
@@ -224,7 +233,18 @@ test "renders an inputless January calendar" {
     const size = renderImpl(0);
     const text = output_buf[0..size];
     try std.testing.expect(std.mem.indexOf(u8, text, "January 2024") != null);
-    try std.testing.expect(std.mem.indexOf(u8, text, "|  1 |  2 |  3 |  4 |  5 |  6 |  7 |") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "┌────┬────┬────┬────┬────┬────┬────┐") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "│  1 │  2 │  3 │  4 │  5 │  6 │  7 │") != null);
+    try std.testing.expect(std.mem.indexOf(u8, text, "└────┴────┴────┴────┴────┴────┴────┘") != null);
+}
+
+test "six-week months fit the output buffer and end with joined corners" {
+    resetForTest(2020, 8);
+    const size = renderImpl(0);
+    const text = output_buf[0..size];
+    try std.testing.expect(size <= OUTPUT_CAP);
+    try std.testing.expectEqual(@as(usize, 6), std.mem.count(u8, text, "├────┼"));
+    try std.testing.expect(std.mem.endsWith(u8, text, "└────┴────┴────┴────┴────┴────┴────┘\n"));
 }
 
 test "up and down navigate across year boundaries" {

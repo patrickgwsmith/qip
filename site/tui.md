@@ -1,6 +1,11 @@
 <title>QIP TUI components</title>
 
 <style>
+qip-tui + pre code,
+#tui-page-debugger-status + pre code {
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
 .tui-flow {
   margin-block: 1.5rem;
   padding: 1rem;
@@ -153,17 +158,223 @@ The same component works in a terminal via `qiptui` and in the browser via `<qip
   </em>
 </figure>
 
-## Components
+## Try the examples
 
-- [`calendar-gregorian.wasm`](/tui/calendar-gregorian.wasm) shows a Gregorian month. Up and Down move between months.
-- [`qipdb.wasm`](/tui/qipdb.wasm) inspects and runs a supplied Wasm component. Pass the component and its input as multipart fields.
+Focus an example below to try it here, or run the command beneath it in your
+terminal.
 
-For example:
+### Browser compatibility
+
+Focus the list and type part of a feature path, such as `backdrop-filter` or
+`Navigator.gpu`. Press Enter to compare Chrome, Firefox, Safari, and Edge.
+Up and Down select a browser; Page Up and Page Down scroll its support notes.
+Escape returns to the search. A `*` marks support with a note, flag, prefix,
+alternate name, or partial implementation. The detail pane also shows older
+support statements, including removed forms.
+
+<qip-tui aria-label="Browser compatibility finder" height="28rem">
+  <source src="/tui/browser-compat-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/browser-compat-finder.wasm
+```
+
+This finder contains 13,603 Web API and CSS-property feature entries from
+[MDN browser-compat-data 8.1.2](https://www.npmjs.com/package/@mdn/browser-compat-data/v/8.1.2),
+built 17 September 2026. It is a fixed snapshot, so check current data
+before making a release decision. Browser support can depend on an operating
+system, device, flag, or prefix; inspect the selected browser's statements
+before treating a version number as unconditional support.
+
+### Media types
+
+Focus the list and type `application/json`, `+xml`, or an RFC number such as
+`RFC 8259`. Enter opens the IANA label, references, and record date. Escape
+returns to the search. The list keeps IANA's obsolete and deprecated labels.
+
+<qip-tui aria-label="IANA media type finder" height="26rem">
+  <source src="/tui/iana-media-type-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/iana-media-type-finder.wasm
+```
+
+This finder contains 2,361 records from the [IANA media-type registry](https://www.iana.org/assignments/media-types),
+updated 22 September 2026. The registry list names types and references; it
+does not map file extensions or prove that a file has the stated format.
+
+### Service ports
+
+Focus the list and type a service such as `https`, a port such as `443`, or
+both a port and protocol such as `53 udp`. A number matches that exact port
+or a registered range containing it. Enter shows the description, reference,
+assignee, dates, and assignment notes. Use Page Up and Page Down to scroll long
+notes; Escape returns to the search.
+
+<qip-tui aria-label="IANA service port finder" height="26rem">
+  <source src="/tui/iana-service-port-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/iana-service-port-finder.wasm
+```
+
+This finder contains 11,723 named rows with a port and transport protocol
+from the [IANA service-name and port registry](https://www.iana.org/assignments/service-names-port-numbers),
+updated 11 September 2026. It omits unassigned and reserved rows without a
+service name. A registration does not identify the traffic on a live port.
+
+### Top-level domains
+
+Focus the list and type a domain such as `.dev`, a type such as `country-code`,
+or a manager such as `Charleston Road`. Search also accepts Unicode labels such
+as `中国`, while the list shows their ASCII (IDNA) form. Use Up and Down to select
+a row, Enter for details, and Escape to clear the filter.
+
+<qip-tui aria-label="Top-level domain finder" height="26rem">
+  <source src="/tui/tld-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/tld-finder.wasm
+```
+
+The finder contains 1,438 delegated domains from [IANA's root-zone list](https://data.iana.org/TLD/tlds-alpha-by-domain.txt),
+with types and managers from the [root-zone database](https://www.iana.org/domains/root/db).
+Both were captured on 24 September 2026 (list version `2026092400`). A delegated
+domain is not necessarily open for public registration.
+
+### Country finder
+
+Focus the list and type to filter it. For example, try `aud`, `+61`, or `australia`.
+Use Up and Down to select a row, Enter for details, and Escape to clear the filter.
+
+<qip-tui aria-label="Country finder" height="26rem">
+  <source src="/tui/country-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/country-finder.wasm
+```
+
+The list contains 249 ISO alpha-2 entries from a [pinned country-code data snapshot](https://github.com/datasets/country-codes/tree/6a595f1a6f10b3d00175fe67375da88f64f7f76b).
+Some calling prefixes include an area prefix, and some places list more than one currency.
+
+### Emoji finder
+
+Focus the list and type a name such as `woman technologist`, an emoji such as
+`👩`, or a code point such as `1F469`. Use Up and Down to select a result.
+Press Enter to see its code points. Press Tab to show combinations that contain
+the selected emoji, then type a partner such as `laptop` or `medium skin tone`.
+Select a result and press Tab again to extend it further. Escape returns to
+the original search.
+
+<qip-tui aria-label="Emoji finder" height="26rem">
+  <source src="/tui/emoji-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/emoji-finder.wasm
+```
+
+The finder contains 3,972 fully qualified emoji and emoji components from
+[Unicode Emoji 18.0](https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt).
+Combination results come from that list; the finder does not join arbitrary
+emoji. The glyph you see depends on your system's emoji font. Newer sequences
+can appear as separate symbols or missing characters on older systems. The
+source data is distributed under the [Unicode License v3](https://www.unicode.org/license.txt).
+
+### Time-zone converter
+
+Focus the grid and type a city or IANA zone name, such as `melbourne` or `london`.
+Left and Right change the UTC hour; Up and Down change the UTC day. Press Tab to
+enter a UTC date and time as `YYYY-MM-DD HH:MM`. Page Up and Page Down browse
+the zone list.
+
+<qip-tui aria-label="Time-zone converter" height="26rem">
+  <source src="/tui/time-zone-converter.wasm" type="application/wasm" />
+</qip-tui>
+
+```sh
+npx qiptui qip.dev tui/time-zone-converter.wasm
+```
+
+The converter uses a fixed [IANA tzdb 2026d snapshot](https://www.iana.org/time-zones/releases/2026d)
+for UTC dates from 2020 through 2037. It starts at a sample time, not the
+current time. Entering UTC avoids an ambiguous local input during a daylight
+saving change.
+
+### Calendar
+
+Focus the calendar and press Up or Down to move between months.
+
+<qip-tui aria-label="Gregorian calendar" height="22rem">
+  <source src="/tui/calendar-gregorian.wasm" type="application/wasm" />
+</qip-tui>
 
 ```sh
 npx qiptui qip.dev tui/calendar-gregorian.wasm
+```
+
+### Debugger
+
+This demo loads `text/wc.wasm` with sample text. Focus the debugger and press
+Space to run it, or `?` to see the keys. Use the [component debugger](/component-debugger)
+to inspect a component of your choice. Run the terminal command from the
+repository root so it can read `text/wc.wasm`.
+
+<qip-tui id="tui-page-debugger" aria-label="Debugger demo" height="28rem"></qip-tui>
+<p id="tui-page-debugger-status" role="status">Loading debugger sample…</p>
+
+```sh
 npx qiptui qip.dev -F 'input=Hello' -F component=@text/wc.wasm tui/qipdb.wasm
 ```
+
+<script type="module">
+import "/elements/qip-tui.js";
+
+const debuggerTui = document.getElementById("tui-page-debugger");
+const debuggerStatus = document.getElementById("tui-page-debugger-status");
+const encoder = new TextEncoder();
+const boundary = "uuid-00000000-0000-0000-0000-000000000000";
+
+async function wasm(path) {
+  const response = await fetch(path);
+  if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+function debuggerInput(component) {
+  const before = encoder.encode(
+    `--${boundary}\r\nContent-Disposition: form-data; name="input"\r\n\r\nThe quick brown fox jumps over the lazy dog\r\n` +
+    `--${boundary}\r\nContent-Disposition: form-data; name="component"; filename="wc.wasm"\r\n` +
+    `Content-Type: application/wasm\r\n\r\n`
+  );
+  const after = encoder.encode(`\r\n--${boundary}--\r\n`);
+  const input = new Uint8Array(before.length + component.length + after.length);
+  input.set(before);
+  input.set(component, before.length);
+  input.set(after, before.length + component.length);
+  return input;
+}
+
+try {
+  const [debuggerBytes, componentBytes] = await Promise.all([
+    wasm("/tui/qipdb.wasm"),
+    wasm("/text/wc.wasm"),
+  ]);
+  await debuggerTui.load({
+    moduleBytes: debuggerBytes,
+    inputBytes: debuggerInput(componentBytes),
+  });
+  debuggerStatus.textContent = "Debugging text/wc.wasm with sample text. Focus the screen to use its keys.";
+} catch (error) {
+  debuggerStatus.textContent = `Could not load debugger demo: ${error.message}`;
+  if (debuggerTui.screen) debuggerTui.screen.textContent = debuggerStatus.textContent;
+}
+</script>
 
 ## How they work
 

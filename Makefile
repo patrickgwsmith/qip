@@ -344,6 +344,27 @@ image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-r
 
 tui/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 
+tui/country-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/country-finder.wasm: tui/lib/country-data.zig
+
+tui/tld-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/tld-finder.wasm: tui/lib/tld-data.zig
+
+tui/emoji-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/emoji-finder.wasm: tui/lib/emoji-data.zig
+
+tui/browser-compat-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/browser-compat-finder.wasm: tui/lib/browser-compat-data.zig
+
+tui/iana-media-type-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/iana-media-type-finder.wasm: tui/lib/iana-media-type-data.zig
+
+tui/iana-service-port-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/iana-service-port-finder.wasm: tui/lib/iana-service-port-data.zig
+
+tui/time-zone-converter.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/time-zone-converter.wasm: tui/lib/time-zone-data.zig
+
 tui/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 tui/qipdb.wasm: tui/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig -femit-bin=$@
@@ -1007,6 +1028,13 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-tui.mjs
 	node --test test/qiptui.mjs
 	node --test test/calendar-gregorian-tui.mjs
+	node --test test/country-finder-tui.mjs
+	node --test test/tld-finder-tui.mjs
+	node --test test/emoji-finder-tui.mjs
+	node --test test/browser-compat-finder-tui.mjs
+	node --test test/iana-media-type-finder-tui.mjs
+	node --test test/iana-service-port-finder-tui.mjs
+	node --test test/time-zone-converter-tui.mjs
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/time-series-polylines.mjs
 	node --test test/svg-to-pdf-inter-font.mjs

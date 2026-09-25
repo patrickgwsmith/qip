@@ -25,7 +25,7 @@ test("calendar TUI is an inputless UTF-8 Time and Events component", () => {
   assert.equal(exports.input_ptr, undefined);
   assert.equal(exports.input_utf8_cap, undefined);
   assert.equal(exports.input_bytes_cap, undefined);
-  assert.equal(exports.output_utf8_cap(), 1024);
+  assert.equal(exports.output_utf8_cap(), 2048);
   assert.equal(exports.begin_update_at.length, 1);
   assert.equal(exports.key_event.length, 2);
   assert.equal(exports.finish_update.length, 0);
@@ -33,6 +33,9 @@ test("calendar TUI is an inputless UTF-8 Time and Events component", () => {
   const initial = renderText(exports);
   assert.match(initial, /January 2024/);
   assert.match(initial, /Up: previous month    Down: next month/);
+  assert.match(initial, /┌────┬────┬────┬────┬────┬────┬────┐/);
+  assert.match(initial, /│  1 │  2 │  3 │  4 │  5 │  6 │  7 │/);
+  assert.match(initial, /└────┴────┴────┴────┴────┴────┴────┘/);
 });
 
 test("calendar TUI changes months only after a finished update is rendered", () => {
