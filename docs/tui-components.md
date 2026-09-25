@@ -3,8 +3,8 @@
 A TUI component renders retained state as UTF-8 text for a terminal host. The
 contract combines Content presentation, the
 [Time and Events](/docs/time-and-events) capability, a required keyboard event
-function, and an optional narrow ANSI SGR profile. `qipx tui` implements this
-composition.
+function, and an optional narrow ANSI SGR profile. `npx qiptui` runs this
+contract in a terminal.
 
 The host owns terminal mode, screen redraws, timing, and key decoding. The
 component produces complete text frames and cannot issue general terminal
@@ -15,20 +15,20 @@ grid. It measures available width and height and supplies `uniform_set_columns`
 and `uniform_set_lines` when present. Resizing redraws retained state. The
 [browser element guide](/docs/qip-elements#qip-tui) shows markup and limits.
 
-Run the calendar with no input or options:
+Run the hosted calendar without input:
 
 ```sh
-qipx tui tui/calendar-gregorian.wasm
+npx qiptui qip.dev tui/calendar-gregorian.wasm
 ```
 
 Press Up for the previous month and Down for the next month. Press `Ctrl-C` to
-exit. `qipx` retains one instance of the component, calls its initial Content
+exit. `qiptui` retains one instance of the component, calls its initial Content
 render, delivers key events through Time and Events updates, renders accepted
 changes, and honors later wake times returned by `finish_update`.
 
 ## Contract Composition
 
-The first component implements Content with UTF-8 output and exports:
+The TUI component implements Content with UTF-8 output and exports:
 
 ```text
 begin_update_at(now_ms: i64)
@@ -40,44 +40,35 @@ It can also export uniforms such as `uniform_set_columns`,
 `uniform_set_lines`, or an authored option that enables ANSI SGR. The host
 validates every completed frame before writing it to the terminal.
 
-## Input And Components
+## Input And Component Files
 
 Use `-i path` for one initial byte input. Use repeatable `-F` or `--form`
-arguments to construct `multipart/form-data`. Terminal stdin carries key events,
-so `-i -` and `-F name=@-` are not available in TUI mode.
+arguments to construct `multipart/form-data`; `-i` and `-F` cannot be combined.
+Use `-F name=@path` to include a file with its filename, or quote
+`-F 'name=<path'` to include the same bytes without a filename. Terminal stdin
+carries key events, so `-i -`, `-F name=@-`, and `-F 'name=<-'` are unavailable.
 
 For example, the component debugger needs a Wasm component and its input:
 
 ```sh
-qipx tui \
+npx qiptui \
   -F component=@text/wc.wasm \
   -F 'input=The quick brown fox jumps over the lazy dog' \
-  tui/qipdb.wasm
+  ./tui/qipdb.wasm
 ```
 
-Component hosts can precede the command and provide missing components:
+A leading host applies to both the TUI and `.wasm` form fields:
 
 ```sh
-qipx qip.dev tui \
+npx qiptui qip.dev \
   -F component=@text/wc.wasm \
   tui/qipdb.wasm
 ```
 
-The first stage must implement the TUI contract. Later stages must be ordinary
-Content components. They transform every rendered frame from left to right:
+`qiptui` accepts one TUI component. A `.wasm` file supplied through `-F` is
+input data for that component, not a second stage that transforms its frames.
 
-```sh
-qipx tui \
-  -F component=@text/wc.wasm \
-  tui/qipdb.wasm \
-  text/strip-ansi-sgr.wasm
-```
-
-The final stage must produce UTF-8. Tile and Timed stages are not valid after
-the first stage because the TUI host needs one finite text result for each
-presentation.
-
-Place `-u name=value` after the stage that receives it. If a stage exports
+Use `-u name=value` to set a component uniform. If the component exports
 `uniform_set_columns` or `uniform_set_lines`, the host supplies the current
 terminal width and height. An explicit `-u columns=...` or `-u lines=...`
 value takes precedence. A resize updates the automatic values and redraws.
@@ -123,8 +114,7 @@ A rendered frame can contain:
 The host rejects carriage return, Tab, Backspace, DEL, C1 controls, indexed or
 true-color SGR, and every non-SGR escape sequence. This includes cursor
 movement, OSC window-title and clipboard commands, DCS device commands, and
-terminal queries. Post-processing components run before this check, so the
-bytes written to the terminal always pass the same validation.
+terminal queries. Every frame written to the terminal passes this validation.
 
 This boundary is narrower than a general terminal emulator. Use a native TUI
 library or a browser host when an interface needs cursor placement, mouse input,
