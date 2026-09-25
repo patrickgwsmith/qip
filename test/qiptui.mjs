@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile, mkdtemp, rm, stat, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Readable } from "node:stream";
 import test from "node:test";
 
 import { loadWasm, main, multipart, parseArgs, validateTerminalFrame } from "../npm/qiptui/qiptui.mjs";
@@ -20,7 +21,8 @@ test("qiptui accepts one component and terminal-safe input options", () => {
     forms: ["input=Hello", "component=@text/wc.wasm"], uniforms: [],
   });
   assert.equal(parseArgs(["local.wasm"]).component, "local.wasm");
-  assert.throws(() => parseArgs(["-i", "-", "local.wasm"]), /stdin carries terminal keys/);
+  assert.equal(parseArgs(["-i", "-", "local.wasm"]).input, "-");
+  assert.deepEqual(parseArgs(["-F", "data=<-", "local.wasm"]).forms, ["data=<-"]);
   assert.throws(() => parseArgs(["one.wasm", "two.wasm"]), /one TUI component/);
 });
 
@@ -39,7 +41,13 @@ test("< sends file bytes as a field without a filename", async () => {
     const body = await multipart([`data=<${path}`]);
     assert.match(body.toString(), /name="data"\r\n\r\nhello\n/);
     assert.doesNotMatch(body.toString(), /filename=|Content-Type: application\/octet-stream/);
-    await assert.rejects(multipart(["data=<-"], "qip.dev"), /stdin carries terminal keys/);
+    const piped = await multipart(["data=<-"], "", Readable.from([Buffer.from("piped\n")]));
+    assert.match(piped.toString(), /name="data"\r\n\r\npiped\n/);
+    assert.doesNotMatch(piped.toString(), /filename=/);
+    const uploaded = await multipart(["data=@-"], "", Readable.from([Buffer.from("piped\n")]));
+    assert.match(uploaded.toString(), /name="data"; filename="-"\r\nContent-Type: application\/octet-stream\r\n\r\npiped\n/);
+    await assert.rejects(multipart(["a=<-", "b=<-"], "", Readable.from([Buffer.from("once")])), /only be used once/);
+    await assert.rejects(multipart(["data=<-"], "", Readable.from([Buffer.from("too long")]), 3), /exceeds.*capacity/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

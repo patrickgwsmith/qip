@@ -5,6 +5,7 @@ import { realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { ReadStream } from "node:tty";
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
@@ -432,7 +433,7 @@ const MAX_MEMORY = 256 * 1024 * 1024;
 
 function usage() {
   return `Usage: qiptui [host] [options] <component.wasm | host/path.wasm>\n\n` +
-    `  -i, --input <file>        Initial input file\n` +
+    `  -i, --input <file|->      Initial input file or piped stdin\n` +
     `  -F, --form <name=value>  Add a multipart field (repeatable)\n` +
     `  -u, --uniform <name=n>   Set a numeric component uniform\n` +
     `  -h, --help               Show this help\n\n` +
@@ -440,8 +441,10 @@ function usage() {
     `  -F name=value            UTF-8 text field\n` +
     `  -F name=@path            Exact file bytes with the basename as filename\n` +
     `  -F 'name=<path'          Exact file bytes as a regular field, without filename\n` +
+    `  -F 'name=<-'             Piped stdin as a regular field\n` +
     `@path sends Content-Type: application/octet-stream; <path omits that part header.\n` +
-    `  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.\n` +
+    `  -F name=@-              Piped stdin as a file named -\n` +
+    `Use piped stdin only once; keyboard input then uses terminal stderr.\n` +
     `Quote arguments containing < in a shell.\n\n` +
     `Examples:\n` +
     `  qiptui qip.dev/tui/calendar-gregorian.wasm\n` +
@@ -479,7 +482,6 @@ export function parseArgs(args) {
   }
   if (!component) throw new Error("qiptui requires a component; run --help for usage");
   if (input && forms.length) throw new Error("-i and -F cannot be used together");
-  if (input === "-") throw new Error("stdin carries terminal keys; use a file with -i");
   return { component, host, input, forms, uniforms };
 }
 
@@ -602,18 +604,34 @@ function field(value) {
 const FORM_BOUNDARY = "uuid-00000000-0000-0000-0000-000000000000";
 const FORM_CONTENT_TYPE = `multipart/form-data;boundary=${FORM_BOUNDARY}`;
 
-export async function multipart(values, host = "") {
+async function readStream(stream, limit) {
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of stream) {
+    length += chunk.byteLength;
+    if (length > limit) throw new Error("piped input exceeds the component's input capacity");
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks, length);
+}
+
+export async function multipart(values, host = "", stdin = process.stdin, limit = Infinity) {
   const boundary = FORM_BOUNDARY;
   const chunks = [];
+  let usedStdin = false;
   for (const value of values) {
     const { name, raw } = field(value);
     const fileMode = raw[0] === "@" || raw[0] === "<" ? raw[0] : "";
     const path = fileMode ? raw.slice(1) : "";
-    if (fileMode && (!path || path === "-")) throw new Error("form files need a path; stdin carries terminal keys");
+    if (fileMode && !path) throw new Error("form files need a path or - for piped stdin");
+    if (path === "-") {
+      if (usedStdin) throw new Error("piped stdin can only be used once");
+      usedStdin = true;
+    }
     const filename = fileMode === "@" ? basename(hostedPath(path)?.path ?? path) : "";
     if (filename && !/^[\x20-\x21\x23-\x5b\x5d-\x7e]+$/.test(filename)) throw new Error(`invalid form filename ${filename}`);
     const body = fileMode
-      ? (path.endsWith(".wasm") ? await loadWasm(path, wasmHeader, host) : await readFile(path))
+      ? (path === "-" ? await readStream(stdin, limit) : path.endsWith(".wasm") ? await loadWasm(path, wasmHeader, host) : await readFile(path))
       : Buffer.from(raw);
     if (body.includes(Buffer.from(`\r\n--${boundary}`))) throw new Error(`form field ${name} contains the multipart boundary`);
     const header = `--${boundary}\r\nContent-Disposition: form-data; name="${name}"` +
@@ -711,11 +729,24 @@ export async function main(args = process.argv.slice(2)) {
   if (options.forms.length && inputType && inputType !== FORM_CONTENT_TYPE) {
     throw new Error(`${options.component} expects ${inputType}, but -F supplies ${FORM_CONTENT_TYPE}`);
   }
-  const input = options.forms.length ? await multipart(options.forms, options.host) : options.input ? await readFile(options.input) : new Uint8Array();
-  await runTUI({
-    stage, input,
-    applyUniforms,
+  const stdinFields = options.forms.filter((value) => {
+    const raw = field(value).raw;
+    return raw === "@-" || raw === "<-";
   });
+  const pipedInput = options.input === "-" || stdinFields.length > 0;
+  if (stdinFields.length > 1) throw new Error("piped stdin can only be used once");
+  if (pipedInput && (process.stdin.isTTY || !process.stderr.isTTY)) {
+    throw new Error("piped input needs stdin from a pipe and stderr attached to a terminal for keyboard input");
+  }
+  const input = options.forms.length ? await multipart(options.forms, options.host, process.stdin, stage.inputCapacity)
+    : options.input === "-" ? await readStream(process.stdin, stage.inputCapacity)
+      : options.input ? await readFile(options.input) : new Uint8Array();
+  const keyboard = pipedInput ? new ReadStream(2) : process.stdin;
+  try {
+    await runTUI({ stage, input, applyUniforms, stdin: keyboard });
+  } finally {
+    if (pipedInput) keyboard.destroy();
+  }
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))) {

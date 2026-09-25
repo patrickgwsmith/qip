@@ -17,6 +17,8 @@ download does not fall back to a local file.
 ```sh
 npx qiptui ./tui/calendar-gregorian.wasm
 npx qiptui -i input.txt ./my-tui.wasm
+cat input.txt | npx qiptui -i - ./my-tui.wasm
+curl -I https://www.apple.com | npx qiptui -F 'headers=<-' ./my-tui.wasm
 npx qiptui qip.dev -F 'input=Hello' -F component=@text/wc.wasm tui/qipdb.wasm
 npx qiptui qip.dev -F 'component=<text/wc.wasm' tui/qipdb.wasm
 npx qiptui -u columns=100 ./my-tui.wasm
@@ -26,9 +28,10 @@ npx qiptui -u columns=100 ./my-tui.wasm
 with a filename, or `name=<path` to send them as a regular field without a
 filename. Quote the `<` form so the shell does not treat it as redirection. A
 leading host such as `qip.dev` applies to the TUI and its `.wasm` form fields.
-Hosted files are downloaded into
-memory on each run. Terminal stdin is reserved for key events, so `@-` and `<-`
-are unavailable in TUI mode. If a component declares a different input type,
+Hosted files are downloaded into memory on each run. With `-i -`, `-F name=@-`,
+or `-F 'name=<-'`, qiptui reads piped stdin once and reads keys from the
+terminal on stderr. These forms require stderr to remain attached to a terminal.
+If a component declares a different input type,
 `qiptui` reports the mismatch before rendering. `Ctrl-C` exits and restores
 the terminal. With `<`, `qipdb` runs the component but shows a generic WASM
 label because the form field has no filename.
@@ -53,3 +56,5 @@ means to the log by hand.
 - Match `qipx`'s pre-execution Wasm checks: reject start functions and
   `memory.grow`, and verify that Content ABI getters are static. Keep the CLI
   dependency-free and in one executable file.
+- Investigate reading piped stdin without an explicit `-` when no input option
+  is given.

@@ -415,6 +415,34 @@ try {
 }
 </script>
 
+### EPUB reader
+
+Pipe an EPUB into the text reader. It opens the chapters in the book's reading
+order, leaves space between paragraphs, and wraps their text to the current
+terminal width. It centers lines marked with `text-align: center` in inline
+styles or element, class, and ID stylesheet rules, or with `align="center"`.
+Headings, `strong`/`b` text, and CSS bold text are bold. The reader also uses
+bold for large CSS text that a terminal cannot show at a larger font size.
+Block quotes are indented. Resize the terminal to reflow the page. Use Up and
+Down to scroll, Page Up and Page Down to move a
+screen at a time, Left and Right to change chapters, and Home and End to jump
+to the start or end.
+
+<copy-code>
+
+```sh
+cat book.epub | npx qiptui qip.dev -i - tui/epub-reader.wasm
+```
+
+</copy-code>
+
+The reader shows reflowable XHTML text and uses CSS for basic alignment,
+font weight, and large text.
+It skips images, other CSS layout, audio, and fixed-layout pages. The input EPUB
+can be at most 24 MiB; each extracted
+package or chapter can be at most 2 MiB. For illustrated books or precise page
+layout, use a full EPUB reading app.
+
 ## How they work
 
 The component keeps its screen state and renders a complete UTF-8 text frame.

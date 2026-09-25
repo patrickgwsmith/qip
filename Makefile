@@ -369,6 +369,10 @@ tui/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 tui/qipdb.wasm: tui/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
+tui/epub-reader.wasm: ZIG_WASM_MAX_MEMORY = 67108864
+tui/epub-reader.wasm: tui/epub-reader.zig application/zip/lib/zip.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep zip -Mroot=$< --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig -femit-bin=$@
+
 gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 
 application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
@@ -1027,6 +1031,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-hosts.mjs
 	node --test test/qipx-tui.mjs
 	node --test test/qiptui.mjs
+	node --test test/epub-reader-tui.mjs
 	node --test test/calendar-gregorian-tui.mjs
 	node --test test/country-finder-tui.mjs
 	node --test test/tld-finder-tui.mjs
@@ -1304,6 +1309,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "tui/qipdb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
+		elif [ "$$f" = "tui/epub-reader.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep zip -Mroot="$$f" --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
 		elif [ "$$f" = "text/html/html-to-svg-inter-paths.zig" ]; then \
