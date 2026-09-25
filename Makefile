@@ -374,6 +374,7 @@ tui/epub-reader.wasm: tui/epub-reader.zig application/zip/lib/zip.zig bytes/lib/
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep zip -Mroot=$< --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig -femit-bin=$@
 
 gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+gui/svg-gradient-editor.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 
 application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 application/wasm/qip-content-interpreter.wasm: application/wasm/qip-content-interpreter.zig application/wasm/lib/wasm-interpreter.zig
@@ -1050,6 +1051,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-play-svg.mjs
 	node --test test/qip-tui.mjs
 	node --test test/svg-path-editor.mjs
+	node --test test/svg-gradient-editor.mjs
+	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
 	node --test test/qip-content-interpreter.mjs
 	node --test test/ktx2-resize.mjs

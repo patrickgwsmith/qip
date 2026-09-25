@@ -18,6 +18,7 @@ More interactive pages:
 - [Peon Gold Loop](/play-peon-gold)
 - [Paint](/play-paint)
 - [SVG Path Editor](/play-svg-path-editor)
+- [SVG Gradient Editor](/play-svg-gradient-editor)
 - [Spreadsheet](/play-spreadsheet)
 - [Calculator](/play-calculator)
 - [Graph Calculator](/play-graph-calculator)

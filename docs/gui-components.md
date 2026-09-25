@@ -137,6 +137,12 @@ a focusable, non-draggable image backed by a Blob URL. The image boundary keeps
 scripts in component output inert. The host revokes replaced Blob URLs and
 ignores late load events for replaced frames.
 
+For trusted SVG output, set `svg-inline` on `<qip-play>`. The host then parses
+each frame and replaces the SVG child of a stable focusable element. Pointer
+capture and keyboard focus stay on that element during replacement. Inline SVG
+text is selectable with the mouse. Inline SVG joins the page DOM, so use this
+mode only when the component output is trusted.
+
 A page can
 set `canvas-width` and `canvas-height`, or the
 `--qip-play-canvas-width` and `--qip-play-canvas-height` CSS properties.

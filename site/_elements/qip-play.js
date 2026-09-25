@@ -298,6 +298,7 @@ class QIPPlayElement extends HTMLElement {
     this._canvas = null;
     this._presentationElement = null;
     this._contentType = "";
+    this._inlineSVG = false;
     this._svgBlobURL = "";
     this._svgLoadGeneration = 0;
     this._ctx = null;
@@ -611,18 +612,27 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _installSVGPresentation() {
-    const image = document.createElement("img");
+    this._inlineSVG = this.hasAttribute("svg-inline");
+    const surface = document.createElement(this._inlineSVG ? "div" : "img");
     const cssPresentation = qipPlayPresentation(this, 800);
-    image.alt = this.getAttribute("aria-label") || "Interactive SVG editor";
-    image.draggable = false;
-    image.style.display = "block";
-    image.style.width = cssPresentation.canvasWidth;
-    image.style.height = cssPresentation.canvasHeight;
-    image.style.touchAction = this.getAttribute("touch-action")?.trim() || "none";
-    image.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
+    const label = this.getAttribute("aria-label") || "Interactive SVG editor";
+    if (this._inlineSVG) {
+      surface.setAttribute("role", "img");
+      surface.setAttribute("aria-label", label);
+      surface.style.aspectRatio = "4 / 3";
+      surface.style.userSelect = "text";
+    } else {
+      surface.alt = label;
+      surface.draggable = false;
+    }
+    surface.style.display = "block";
+    surface.style.width = cssPresentation.canvasWidth;
+    surface.style.height = cssPresentation.canvasHeight;
+    surface.style.touchAction = this.getAttribute("touch-action")?.trim() || "none";
+    surface.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
     this.removeAttribute("tabindex");
-    this._canvas = image;
-    this._presentationElement = image;
+    this._canvas = surface;
+    this._presentationElement = surface;
     this._renderWidth = 800;
     this._renderHeight = 600;
   }
@@ -637,20 +647,32 @@ class QIPPlayElement extends HTMLElement {
       throw new Error("qip-play Timed render returned output outside output_utf8_cap");
     }
     const source = qipPlayReadSlice(rendered.memory, rendered.outputPtr, rendered.outputLen, "output_ptr/output_utf8_cap");
-    // Copy before the next component render can reuse its output buffer.
-    const blob = new Blob([source.slice()], { type: "image/svg+xml" });
-    const nextURL = URL.createObjectURL(blob);
-    const previousURL = this._svgBlobURL;
-    const generation = ++this._svgLoadGeneration;
-    this._svgBlobURL = nextURL;
-    this._canvas.onload = () => {
-      if (generation !== this._svgLoadGeneration) return;
-      if (previousURL) URL.revokeObjectURL(previousURL);
-    };
-    this._canvas.onerror = () => {
-      if (generation === this._svgLoadGeneration) URL.revokeObjectURL(nextURL);
-    };
-    this._canvas.src = nextURL;
+    if (this._inlineSVG) {
+      const markup = new TextDecoder("utf-8", { fatal: true }).decode(source);
+      const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
+      if (root.localName !== "svg" || root.namespaceURI !== "http://www.w3.org/2000/svg") {
+        throw new Error("qip-play SVG output must have an SVG root element");
+      }
+      root.style.display = "block";
+      root.style.width = "100%";
+      root.style.height = "100%";
+      this._canvas.replaceChildren(root);
+    } else {
+      // Copy before the next component render can reuse its output buffer.
+      const blob = new Blob([source.slice()], { type: "image/svg+xml" });
+      const nextURL = URL.createObjectURL(blob);
+      const previousURL = this._svgBlobURL;
+      const generation = ++this._svgLoadGeneration;
+      this._svgBlobURL = nextURL;
+      this._canvas.onload = () => {
+        if (generation !== this._svgLoadGeneration) return;
+        if (previousURL) URL.revokeObjectURL(previousURL);
+      };
+      this._canvas.onerror = () => {
+        if (generation === this._svgLoadGeneration) URL.revokeObjectURL(nextURL);
+      };
+      this._canvas.src = nextURL;
+    }
     this._renderN++;
     this._drawN++;
     this._hasRenderedFrame = true;
@@ -1116,9 +1138,14 @@ class QIPPlayElement extends HTMLElement {
       return;
     }
 
-    if (this._canvas.style.touchAction === "none") event.preventDefault();
-    if (event.type === "pointerdown" && typeof this._canvas.setPointerCapture === "function") {
-      this._canvas.setPointerCapture(event.pointerId);
+    if (this._canvas.style.touchAction === "none" && (!this._inlineSVG || event.pointerType === "touch")) {
+      event.preventDefault();
+    }
+    if (event.type === "pointerdown") {
+      const selectingSVGText = this._inlineSVG && event.pointerType === "mouse" && event.target?.closest?.("text");
+      if (!selectingSVGText && typeof this._canvas.setPointerCapture === "function") {
+        this._canvas.setPointerCapture(event.pointerId);
+      }
       this._canvas.focus();
     }
 
