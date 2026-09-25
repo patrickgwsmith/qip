@@ -75,7 +75,7 @@ function usage() {
     `  i32 uniforms are treated as unsigned values; use i64 for signed integers.\n\n` +
     `Inputless generators:\n` +
     `  A first-stage generator omits input_ptr and its input-capacity getter. qipx calls render(0).\n` +
-    `  With neither -i nor -F, qipx does not read terminal stdin for a generator.\n\n` +
+    `  With neither -i nor -F, qipx uses empty input when stdin is a terminal.\n\n` +
     `Documentation: https://qip.dev/docs/content-component\n`;
 }
 

@@ -78,9 +78,16 @@ fn render_frame(
     stdout
         .write_all(b"\x1b[H\x1b[J")
         .map_err(|e| format!("cannot write terminal frame: {e}"))?;
-    stdout
-        .write_all(&output)
-        .map_err(|e| format!("cannot write terminal frame: {e}"))?;
+    for (index, line) in output.split(|byte| *byte == b'\n').enumerate() {
+        if index != 0 {
+            stdout
+                .write_all(b"\r\n")
+                .map_err(|e| format!("cannot write terminal frame: {e}"))?;
+        }
+        stdout
+            .write_all(line)
+            .map_err(|e| format!("cannot write terminal frame: {e}"))?;
+    }
     stdout
         .write_all(b"\x1b[0m\x1b[J")
         .map_err(|e| format!("cannot write terminal frame: {e}"))?;

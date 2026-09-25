@@ -156,6 +156,35 @@ test("Rust qipx runs a component with empty input", () => {
   assert.equal(rust.stdout, "Hello, World\n");
 });
 
+test("Rust qipx runs hello components from a terminal without waiting for input", { skip: process.platform === "win32" }, () => {
+  const script = `import os, pty, select, signal, sys, time
+pid, fd = pty.fork()
+if pid == 0:
+    os.chdir('rust/qipx')
+    os.execv(sys.argv[1], [sys.argv[1], 'run', sys.argv[2]])
+data = b''
+deadline = time.monotonic() + 5
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([fd], [], [], 0.1)
+    if ready:
+        try: data += os.read(fd, 65536)
+        except OSError: break
+    done, status = os.waitpid(pid, os.WNOHANG)
+    if done:
+        sys.stdout.buffer.write(data)
+        sys.exit(os.waitstatus_to_exitcode(status))
+os.kill(pid, signal.SIGKILL)
+os.waitpid(pid, 0)
+sys.stderr.write('qipx waited for terminal stdin\\n')
+sys.exit(1)
+`;
+  for (const component of ["../../text/hello.wasm", "../../text/hello-c.wasm"]) {
+    const result = run("python3", ["-c", script, rustCLI, component], "", { timeout: 8000 });
+    assert.equal(result.status, 0, `${component}: ${result.stderr}`);
+    assert.match(result.stdout, /Hello, World/);
+  }
+});
+
 test("Rust qipx runs a true inputless generator", () => {
   const rust = run(rustCLI, ["run", "tui/calendar-gregorian.wasm"]);
   assert.equal(rust.status, 0, rust.stderr);
@@ -404,6 +433,37 @@ test("Rust qipx tui requires a terminal", () => {
   const rust = run(rustCLI, ["tui", "tui/calendar-gregorian.wasm"]);
   assert.equal(rust.status, 1);
   assert.match(rust.stderr, /requires terminal stdin and stdout/);
+});
+
+test("Rust qipx tui starts each emoji finder row at column zero", { skip: process.platform === "win32" }, () => {
+  const script = `import fcntl, os, pty, select, signal, struct, sys, termios, time
+pid, fd = pty.fork()
+if pid == 0:
+    fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
+    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'tui/emoji-finder.wasm'])
+data = b''
+deadline = time.monotonic() + 5
+sent_exit = False
+while time.monotonic() < deadline:
+    ready, _, _ = select.select([fd], [], [], 0.1)
+    if ready:
+        try: data += os.read(fd, 65536)
+        except OSError: break
+    if b'Type to filter' in data and not sent_exit:
+        os.write(fd, b'\\x03')
+        sent_exit = True
+    if sent_exit:
+        done, status = os.waitpid(pid, os.WNOHANG)
+        if done: break
+else:
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+sys.stdout.buffer.write(data)
+`;
+  const result = run("python3", ["-c", script, rustCLI], "", { timeout: 8000 });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /EMOJI FINDER[^\r\n]*\r\nFind: /);
+  assert.match(result.stdout, /Unicode name[^\r\n]*\r\n> /);
 });
 
 test("Rust qipx tui renders and handles an arrow key in a terminal", { skip: process.platform === "win32" }, () => {

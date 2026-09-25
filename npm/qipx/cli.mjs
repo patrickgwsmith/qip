@@ -89,7 +89,6 @@ export async function main(argv = process.argv.slice(2)) {
   }
 
   const { options, pipeline } = await qipx.prepareRunPipeline(invocation.args, invocation.hosts);
-  const firstStageIsGenerator = pipeline.stages[0]?.inputless;
   let input;
   let inputContentType = "";
   if (options.formValues.length > 0) {
@@ -97,7 +96,7 @@ export async function main(argv = process.argv.slice(2)) {
     input = form.bytes;
     inputContentType = form.contentType;
   } else {
-    input = firstStageIsGenerator && options.input === "-" && !options.inputFromCLI && process.stdin.isTTY
+    input = options.input === "-" && !options.inputFromCLI && process.stdin.isTTY
       ? new Uint8Array()
       : (options.input === "-" ? await qipx.readStdin() : await readFile(options.input));
   }

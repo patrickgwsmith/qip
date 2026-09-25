@@ -1,4 +1,4 @@
-.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-rust test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
+.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-rust test-qipx-parity test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
 
 default: qip compliance components recipes
 
@@ -968,13 +968,16 @@ recipes: recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm
 
 components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
-test: qip components test-go test-node test-qipx-rust test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help
+test: qip components test-go test-node test-qipx-rust test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help
 
 qipx-rust:
 	cargo build --manifest-path rust/qipx/Cargo.toml --locked
 
 test-qipx-rust: qipx-rust
 	node --test test/qipx-rust.mjs
+
+test-qipx-parity: qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder.wasm
+	node --test test/qipx-parity.mjs
 
 test-wasm-core-1-spec: application/wasm/wasm-validate-core-1.0.wasm
 	@test -n "$(WASM_CORE_1_0_SPEC_DIR)" || (echo "set WASM_CORE_1_0_SPEC_DIR to the WebAssembly spec wg-1.0 checkout" && exit 1)

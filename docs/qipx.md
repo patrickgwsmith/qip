@@ -12,7 +12,7 @@ npx @qip.dev/qipx --help
 
 | Command | Use |
 | --- | --- |
-| `qipx [host ...] run [options] <component.wasm> [...]` | Run one Content component or a left-to-right component pipeline. Input comes from stdin by default; output goes to stdout. |
+| `qipx [host ...] run [options] <component.wasm> [...]` | Run one Content component or a left-to-right component pipeline. Piped input comes from stdin; a terminal with no input option supplies empty input. Output goes to stdout. |
 | `qipx [host ...] dry run [options] <component.wasm> [...]` | Show the complete source plan and validate locally available pipeline stages without network requests, input reads, or rendering. |
 | `qipx [host ...] tui [options] <tui.wasm> [content.wasm ...]` | Run one TUI component in a terminal, with optional Content transforms after it. |
 | `qipx [host ...] comply [options] <file-or-dir> [...]` | Check the Content ABI and strict WebAssembly subset, then run any Compliance oracles supplied with `--with`. |

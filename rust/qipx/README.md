@@ -21,8 +21,10 @@ qipx run -i input.txt -o output.txt text/trim.wasm
 qipx run -F mode=step -F component=@component.wasm multipart/form-data/form-data-to-tar.wasm
 ```
 
-Input comes from stdin and output goes to stdout by default. UTF-8 output gets
-one final line feed on stdout. `-F name=value` builds a UTF-8 multipart field;
+Piped input comes from stdin and output goes to stdout by default. With no
+input option and a terminal on stdin, `run` uses empty input; use `-i -` to
+read terminal input until EOF. UTF-8 output gets one final line feed on stdout.
+`-F name=value` builds a UTF-8 multipart field;
 `-F name=@path` reads exact file bytes and supplies a filename;
 `-F 'name=<path'` reads exact bytes into a regular field without a filename.
 Quote arguments containing `<` in a shell. One field may use `@-` or `<-` to

@@ -187,10 +187,7 @@ fn run() -> Result<(), String> {
     validate_pipeline(&loaded, capacities_must_fit, !form_fields.is_empty())?;
     let mut input = if !form_fields.is_empty() {
         build_form(&form_fields, &hosts)?
-    } else if input_path == "-"
-        && (tui_mode
-            || (!input_from_cli && loaded[0].input_ptr.is_none() && io::stdin().is_terminal()))
-    {
+    } else if input_path == "-" && (tui_mode || (!input_from_cli && io::stdin().is_terminal())) {
         Vec::new()
     } else if input_path == "-" {
         let mut bytes = Vec::new();
