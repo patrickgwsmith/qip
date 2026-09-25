@@ -163,6 +163,37 @@ The same component works in a terminal via `qiptui` and in the browser via `<qip
 Focus an example below to try it here, or run the command beneath it in your
 terminal.
 
+### Emoji finder
+
+Focus the list and type a name such as `woman technologist`, an emoji such as
+`👩`, or a code point such as `1F469`. Each result shows its Unicode name and
+code points in separate columns.
+Emoji 18.0 entries appear after older entries. Use Up and Down to select a
+result; press Enter for its full details. Press Tab to show combinations that
+contain the selected emoji, then type a partner such as `laptop` or
+`medium skin tone`.
+Select a result and press Tab again to extend it further. Escape returns to
+the original search.
+
+<qip-tui aria-label="Emoji finder" height="26rem">
+  <source src="/tui/emoji-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+<copy-code>
+
+```sh
+npx qiptui qip.dev tui/emoji-finder.wasm
+```
+
+</copy-code>
+
+The finder contains 3,972 fully qualified emoji and emoji components from
+[Unicode Emoji 18.0](https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt).
+Combination results come from that list; the finder does not join arbitrary
+emoji. The glyph you see depends on your system's emoji font. Newer sequences
+can appear as separate symbols or missing characters on current systems. The
+source data is distributed under the [Unicode License v3](https://www.unicode.org/license.txt).
+
 ### Browser compatibility
 
 Focus the list and type part of a feature path, such as `backdrop-filter` or
@@ -176,9 +207,13 @@ support statements, including removed forms.
   <source src="/tui/browser-compat-finder.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/browser-compat-finder.wasm
 ```
+
+</copy-code>
 
 This finder contains 13,603 Web API and CSS-property feature entries from
 [MDN browser-compat-data 8.1.2](https://www.npmjs.com/package/@mdn/browser-compat-data/v/8.1.2),
@@ -197,9 +232,13 @@ returns to the search. The list keeps IANA's obsolete and deprecated labels.
   <source src="/tui/iana-media-type-finder.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/iana-media-type-finder.wasm
 ```
+
+</copy-code>
 
 This finder contains 2,361 records from the [IANA media-type registry](https://www.iana.org/assignments/media-types),
 updated 22 September 2026. The registry list names types and references; it
@@ -217,9 +256,13 @@ notes; Escape returns to the search.
   <source src="/tui/iana-service-port-finder.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/iana-service-port-finder.wasm
 ```
+
+</copy-code>
 
 This finder contains 11,723 named rows with a port and transport protocol
 from the [IANA service-name and port registry](https://www.iana.org/assignments/service-names-port-numbers),
@@ -237,9 +280,13 @@ a row, Enter for details, and Escape to clear the filter.
   <source src="/tui/tld-finder.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/tld-finder.wasm
 ```
+
+</copy-code>
 
 The finder contains 1,438 delegated domains from [IANA's root-zone list](https://data.iana.org/TLD/tlds-alpha-by-domain.txt),
 with types and managers from the [root-zone database](https://www.iana.org/domains/root/db).
@@ -255,36 +302,16 @@ Use Up and Down to select a row, Enter for details, and Escape to clear the filt
   <source src="/tui/country-finder.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/country-finder.wasm
 ```
 
+</copy-code>
+
 The list contains 249 ISO alpha-2 entries from a [pinned country-code data snapshot](https://github.com/datasets/country-codes/tree/6a595f1a6f10b3d00175fe67375da88f64f7f76b).
 Some calling prefixes include an area prefix, and some places list more than one currency.
-
-### Emoji finder
-
-Focus the list and type a name such as `woman technologist`, an emoji such as
-`👩`, or a code point such as `1F469`. Use Up and Down to select a result.
-Press Enter to see its code points. Press Tab to show combinations that contain
-the selected emoji, then type a partner such as `laptop` or `medium skin tone`.
-Select a result and press Tab again to extend it further. Escape returns to
-the original search.
-
-<qip-tui aria-label="Emoji finder" height="26rem">
-  <source src="/tui/emoji-finder.wasm" type="application/wasm" />
-</qip-tui>
-
-```sh
-npx qiptui qip.dev tui/emoji-finder.wasm
-```
-
-The finder contains 3,972 fully qualified emoji and emoji components from
-[Unicode Emoji 18.0](https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt).
-Combination results come from that list; the finder does not join arbitrary
-emoji. The glyph you see depends on your system's emoji font. Newer sequences
-can appear as separate symbols or missing characters on older systems. The
-source data is distributed under the [Unicode License v3](https://www.unicode.org/license.txt).
 
 ### Time-zone converter
 
@@ -297,9 +324,13 @@ the zone list.
   <source src="/tui/time-zone-converter.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/time-zone-converter.wasm
 ```
+
+</copy-code>
 
 The converter uses a fixed [IANA tzdb 2026d snapshot](https://www.iana.org/time-zones/releases/2026d)
 for UTC dates from 2020 through 2037. It starts at a sample time, not the
@@ -314,9 +345,13 @@ Focus the calendar and press Up or Down to move between months.
   <source src="/tui/calendar-gregorian.wasm" type="application/wasm" />
 </qip-tui>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev tui/calendar-gregorian.wasm
 ```
+
+</copy-code>
 
 ### Debugger
 
@@ -328,9 +363,13 @@ repository root so it can read `text/wc.wasm`.
 <qip-tui id="tui-page-debugger" aria-label="Debugger demo" height="28rem"></qip-tui>
 <p id="tui-page-debugger-status" role="status">Loading debugger sample…</p>
 
+<copy-code>
+
 ```sh
 npx qiptui qip.dev -F 'input=Hello' -F component=@text/wc.wasm tui/qipdb.wasm
 ```
+
+</copy-code>
 
 <script type="module">
 import "/elements/qip-tui.js";

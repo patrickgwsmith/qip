@@ -61,6 +61,20 @@ const Writer = struct {
         }
     }
 
+    fn textClipped(self: *Writer, value: []const u8, end_column: usize) void {
+        const limit = @min(end_column, self.width);
+        if (self.line >= self.height or self.column >= limit) return;
+        const available = limit - self.column;
+        const count = std.unicode.utf8CountCodepoints(value) catch @trap();
+        if (count <= available) return self.text(value);
+        var byte_end: usize = 0;
+        for (0..available - 1) |_| {
+            byte_end += std.unicode.utf8ByteSequenceLength(value[byte_end]) catch @trap();
+        }
+        self.text(value[0..byte_end]);
+        self.text("…");
+    }
+
     fn emoji(self: *Writer, glyph: []const u8) void {
         if (self.line >= self.height or self.column + 2 > self.width) return;
         for (glyph) |part| self.byte(part);
@@ -153,6 +167,20 @@ fn matches(emoji: data.Emoji) bool {
     return true;
 }
 
+fn isNewestRelease(emoji: data.Emoji) bool {
+    return std.mem.eql(u8, emoji.introduced, data.version);
+}
+
+const MatchRank = enum { exact_name, name_prefix, other };
+
+fn matchRank(emoji: data.Emoji) MatchRank {
+    if (query_len == 0 or query_len > emoji.name.len) return .other;
+    const search = query[0..query_len];
+    if (std.ascii.eqlIgnoreCase(emoji.name, search)) return .exact_name;
+    if (std.ascii.eqlIgnoreCase(emoji.name[0..query_len], search)) return .name_prefix;
+    return .other;
+}
+
 fn matchCount() usize {
     var count: usize = 0;
     for (data.emojis) |emoji| {
@@ -163,16 +191,21 @@ fn matchCount() usize {
 
 fn selectedIndex() ?usize {
     var match_index: usize = 0;
-    for (data.emojis, 0..) |emoji, index| {
-        if (!matches(emoji)) continue;
-        if (match_index == selected) return index;
-        match_index += 1;
+    for ([_]bool{ false, true }) |newest_release| {
+        for ([_]MatchRank{ .exact_name, .name_prefix, .other }) |rank| {
+            for (data.emojis, 0..) |emoji, index| {
+                if (isNewestRelease(emoji) != newest_release or matchRank(emoji) != rank or !matches(emoji)) continue;
+                if (match_index == selected) return index;
+                match_index += 1;
+            }
+        }
     }
     return null;
 }
 
 fn visibleRows() usize {
-    return if (lines > 6) @min(lines - 6, 54) else 1;
+    const reserved: usize = if (combining) 5 else 4;
+    return if (lines > reserved) @min(lines - reserved, 54) else 1;
 }
 
 fn renderList(writer: *Writer) void {
@@ -195,26 +228,40 @@ fn renderList(writer: *Writer) void {
     writer.text(query[0..query_len]);
     writer.text("_");
     writer.newline();
-    writer.text("  Emoji  Name");
+    const code_column = @max(18, writer.width * 55 / 100);
+    writer.padTo(6);
+    writer.text("Unicode name");
+    writer.padTo(code_column);
+    writer.text("Code points");
     writer.newline();
     if (count == 0) {
         writer.text(if (combining) "  No listed combination. Try another term or Esc." else "  No matches. Backspace or Esc to change the filter.");
         writer.newline();
     } else {
-        const visible = @max(1, visibleRows() -| @intFromBool(combining));
-        const first = (selected / @max(visible, 1)) * @max(visible, 1);
+        const visible = visibleRows();
+        const center = visible / 2;
+        const first = selected -| center;
         var match_index: usize = 0;
-        for (data.emojis) |emoji| {
-            if (!matches(emoji)) continue;
-            if (match_index >= first and match_index < first + visible) {
-                writer.text(if (match_index == selected) "> " else "  ");
-                writer.emoji(emoji.glyph);
-                writer.text("  ");
-                writer.text(emoji.name);
-                writer.newline();
+        var rendered: usize = 0;
+        for ([_]bool{ false, true }) |newest_release| {
+            for ([_]MatchRank{ .exact_name, .name_prefix, .other }) |rank| {
+                for (data.emojis) |emoji| {
+                    if (isNewestRelease(emoji) != newest_release or matchRank(emoji) != rank or !matches(emoji)) continue;
+                    if (match_index >= first and rendered < visible) {
+                        writer.text(if (match_index == selected) "> " else "  ");
+                        writer.emoji(emoji.glyph);
+                        writer.text("  ");
+                        writer.textClipped(emoji.name, code_column - 2);
+                        writer.padTo(code_column);
+                        writer.text(emoji.codepoints);
+                        writer.newline();
+                        rendered += 1;
+                    }
+                    match_index += 1;
+                }
             }
-            match_index += 1;
         }
+        for (rendered..visible) |_| writer.newline();
     }
     if (lines >= 6) {
         writer.text(if (combining) "Type partner  Tab extend selected  Enter details  Esc back" else "Type to filter  Tab combine  Enter details  Esc clear");
@@ -355,6 +402,7 @@ export fn key_event(x11_key: i32, flags: i32) i32 {
     }
     const raw: u32 = @bitCast(x11_key);
     const codepoint: u32 = if ((raw & 0xff000000) == 0x01000000) raw & 0x00ffffff else raw;
+    if (codepoint == ' ' and query_len == 0) return 0;
     if (codepoint < 32 or codepoint > 0x10ffff or
         (codepoint >= 0xd800 and codepoint <= 0xdfff) or
         (raw >= 0xff00 and raw <= 0xffff)) return 0;
