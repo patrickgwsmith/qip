@@ -1061,6 +1061,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-play-steps.mjs
 	node --test test/qip-play-svg.mjs
 	node --test test/qip-tui.mjs
+	node --test test/qip-tui-links.mjs
 	node --test test/svg-path-editor.mjs
 	node --test test/svg-gradient-editor.mjs
 	node --test test/svg-gradient-css.mjs

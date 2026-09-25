@@ -9,6 +9,7 @@ import {
 import {
   QIPInteractiveSession, decodeRenderResult, mapKeyboardEventToKeysym, keyFlags,
 } from "./_qip-interactive-session.js";
+import { linkifyHttpURLs } from "./_qip-tui-links.js";
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const htmlPrefix = '<!doctype html><meta charset="utf-8"><pre>';
@@ -67,6 +68,7 @@ class QIPTUIElement extends HTMLElement {
     const screen = document.createElement("pre");
     screen.setAttribute("role", "region");
     screen.setAttribute("aria-label", this.getAttribute("aria-label") || "Terminal screen");
+    screen.setAttribute("aria-keyshortcuts", "Control+Enter");
     screen.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
     screen.style.boxSizing = "border-box";
     screen.style.width = "100%";
@@ -288,6 +290,7 @@ class QIPTUIElement extends HTMLElement {
       throw new Error("ANSI renderer returned an unexpected document");
     }
     this._screen.innerHTML = html.slice(htmlPrefix.length, -htmlSuffix.length);
+    linkifyHttpURLs(this._screen);
   }
 
   sendKey(keysym, flags = 1, updateUniforms = null) {
@@ -304,6 +307,21 @@ class QIPTUIElement extends HTMLElement {
 
   _handleKey(event, down) {
     if (this.hasAttribute("manual-keys")) return;
+    if (event.target?.closest?.("a[href]")) {
+      if (down && event.key === "Escape") {
+        event.preventDefault();
+        this._screen?.focus();
+      }
+      return;
+    }
+    if (down && event.ctrlKey && event.key === "Enter") {
+      const firstLink = this._screen?.querySelector("a[href]");
+      if (firstLink) {
+        event.preventDefault();
+        firstLink.focus();
+      }
+      return;
+    }
     if (event.metaKey || event.ctrlKey) return;
     const keysym = mapKeyboardEventToKeysym(event);
     if (keysym === null) return;

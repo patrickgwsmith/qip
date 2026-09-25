@@ -510,6 +510,10 @@ run. The website can see that download request, and a publisher can change the
 Wasm it serves. Use a local Wasm file when you need to inspect a fixed version
 or run without contacting the component's website.
 
+In the browser, `<qip-tui>` makes displayed HTTP and HTTPS URLs clickable. It
+does not fetch those URLs on its own. Opening a link is an explicit browser
+navigation to that address, so check the destination before you follow it.
+
 ## What the sandbox rules out
 
 A TUI cannot work like `ps` or `top`: it cannot inspect live processes. It also

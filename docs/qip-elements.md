@@ -347,6 +347,13 @@ at most 256 KiB of frame text. Its `load({moduleBytes, inputBytes})` method also
 lets an application provide bytes it has already fetched. The
 [component debugger](/component-debugger) uses this path for local files.
 
+The browser host makes absolute `http://` and `https://` URLs in rendered text
+clickable. It opens a link in a new tab only after the user activates it, without
+sending the page referrer. Press `Ctrl-Enter` while the grid is focused to focus
+its first link; Tab then moves between links, and Escape returns to the grid.
+The host does not fetch URLs found in frames. It does not accept terminal OSC 8
+hyperlink sequences.
+
 Use `<qip-play>` for KTX2 or SVG frames, pointer coordinates, or image-specific
 canvas behavior. Use ordinary HTML when the interface needs native controls,
 text editing services, or semantic document navigation.

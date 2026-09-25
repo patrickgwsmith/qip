@@ -14,6 +14,9 @@ In a browser, `<qip-tui>` presents the same frames in a focusable, resizable
 grid. It measures available width and height and supplies `uniform_set_columns`
 and `uniform_set_lines` when present. Resizing redraws retained state. The
 [browser element guide](/docs/qip-elements#qip-tui) shows markup and limits.
+The browser host turns absolute HTTP and HTTPS URLs in displayed text into links;
+opening one takes an explicit user action. This does not change the component's
+plain-text frame contract or allow OSC 8 escape sequences.
 
 Run the hosted calendar without input:
 
