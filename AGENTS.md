@@ -32,12 +32,45 @@ page before changing a contract or workflow; do not repeat protocols here.
 - Follow [Benchmarking Components](docs/benchmarking-components.md) for
   performance work.
 
-## Docs Style Guide
+## Docs and site style guide
 
 Write for software engineers and technical decision-makers who are short on
 time and skeptical of hype. Treat readers as capable of making tradeoffs. Be
-engaging, informed, opinionated, and friendly without becoming promotional or
-dry. Use ASD-STE100 Simplified Technical English.
+engaging, informed, and friendly without becoming promotional or dry. State
+opinions when explaining tradeoffs; state contract rules neutrally. Use
+ASD-STE100 Simplified Technical English.
+
+Choose tone and focus by the reader's task, not only by the sidebar group:
+
+- Write QIP spec and other reference pages neutrally. Cover their stated scope
+  completely and precisely enough that readers can quote a rule.
+- Make start-to-finish tutorials warm and encouraging, with a predictable path
+  to a working result. This includes relevant Making components and adoption
+  guides.
+- Make focused how-to pages terse and direct. Give steps and expected outcomes,
+  including in relevant Making components and Running guides.
+- Use concrete examples to explain mechanisms on conceptual pages, including
+  general "why" and "how it works" pages. Use an analogy only when it makes a
+  specific mechanism clearer.
+- In optimization writeups, report the method, measurements, and limits of the
+  result instead of presenting the work as a tutorial.
+- Make browser tool pages task-first and brief. Use a short introduction that
+  names the input and result, then put the working controls and output in view.
+  Show essential limits and errors beside the relevant controls. Put longer
+  explanations, downloads, CLI use, and implementation detail below the tool
+  for readers who want to learn more. Do not make people read an explanation
+  before they can use the tool.
+- Keep component catalogs and tool indexes concise and neutral. Group entries
+  by the work they do or the format they accept, and describe each link with a
+  concrete input, output, or action.
+- Make interactive demo pages inviting and brief. Tell visitors what to try and
+  how to control it; add technical explanation only when it helps them
+  understand the behavior they can see.
+- Make landing and general overview pages welcoming and concrete. Show one
+  working example or clear path into the site, and support broad claims with
+  mechanics or evidence.
+
+For every docs or site page:
 
 - Lead with what the thing does and how it works, not a slogan.
 - Prefer mechanics over claims: inputs, outputs, boundaries, commands, files,
@@ -45,6 +78,14 @@ dry. Use ASD-STE100 Simplified Technical English.
 - Explain tradeoffs directly. Say what QIP gives up as well as what it buys.
 - Keep pages easy to scan. Use tight sections, short paragraphs, and bullets
   only when they save time.
+- Use sentence case for headings on docs pages (`#` through `######`): capitalize
+  the first word and proper names or acronyms. Navigation labels may use title
+  case.
+- Define a term when it first appears, before using it to explain another rule.
+- Make headings describe the section's content so readers can scan the page.
+- Use imperative verbs for procedure steps, such as "Run `make -j site-static`."
+- Make link text name its destination, not "here" or "link". Explain each code
+  block in the surrounding prose.
 - Use practical examples from this repository: commands, module paths, recipes,
   ABI calls, and component pipelines.
 - Use `claim -> reason -> example` when drafting, but do not expose those labels
