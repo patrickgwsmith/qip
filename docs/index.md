@@ -37,7 +37,7 @@ Browse runnable components by kind: [text](/text), [image](/image),
 If you want to send someone the current QIP spec, send them these pages:
 
 - [QIP Component Contracts](/docs/component-contract): the component types, their execution models, maturity, and how hosts distinguish them.
-- [Content Component Contract](/docs/content-component): the memory ABI, render lifecycle, content types, and composition rules for finite transforms.
+- [Content Component Contract](/docs/content-component): one bounded call, exports, result bits, content types, and composition rules.
 - [Time and Events](/docs/time-and-events): retained state, update transactions, event ordering, wake deadlines, and separate presentation.
 - [GUI Components](/docs/gui-components): the composed KTX2 output and browser-host contract.
 - [TUI Components](/docs/tui-components): the composed UTF-8, ANSI SGR, keyboard-input, and terminal-host contract.
