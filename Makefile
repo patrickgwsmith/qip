@@ -906,11 +906,26 @@ $(1)/%.wasm: $(1)/%.c
 endef
 $(foreach dir,$(COMPONENT_DIRS),$(eval $(call COMPONENT_C_RULE,$(dir))))
 
+text/base64-decode-c.wasm: text/base64-decode-c.c
+	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -O3 -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Wl,--export=failure_modes_per_input_offset -o $@
+
+text/base64-decode-c-simd.wasm: text/base64-decode-c.c
+	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -O3 -msimd128 -DQIP_SIMD -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export-memory -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Wl,--export=failure_modes_per_input_offset -o $@
+
 define COMPONENT_ZIG_RULE
 $(1)/%.wasm: $(1)/%.zig
 	$$(ZIG_ENV) zig build-exe $$< $$(ZIG_WASM_FLAGS) --max-memory=$$(ZIG_WASM_MAX_MEMORY) -femit-bin=$$@
 endef
 $(foreach dir,$(COMPONENT_DIRS),$(eval $(call COMPONENT_ZIG_RULE,$(dir))))
+
+text/base64-decode-zig.wasm: ZIG_WASM_FLAGS := -target wasm32-freestanding -O ReleaseFast -fno-entry -rdynamic --stack 65536
+text/base64-decode-zig-simd.wasm: ZIG_WASM_FLAGS := -target wasm32-freestanding -O ReleaseFast -fno-entry -rdynamic --stack 65536 -mcpu=generic+simd128
+
+text/base64-decode-odin.wasm: text/base64-decode-odin.odin
+	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -extra-linker-flags:"-z stack-size=65536 --max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
+
+text/base64-decode-odin-simd.wasm: text/base64-decode-odin-simd.odin
+	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -strict-target-features -target-features:simd128 -extra-linker-flags:"-z stack-size=65536 --max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
 text/hello-odin.wasm: text/hello-odin.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
@@ -972,7 +987,11 @@ recipes: recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm
 
 components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
-test: qip components test-go test-node test-qipx-rust test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help
+test: qip components test-go test-node test-qipx-rust test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help test-base64-decode-variants
+
+.PHONY: test-base64-decode-variants
+test-base64-decode-variants: text/base64-decode.wasm text/base64-decode-simd.wasm text/base64-decode-c.wasm text/base64-decode-c-simd.wasm text/base64-decode-zig.wasm text/base64-decode-zig-simd.wasm text/base64-decode-odin.wasm text/base64-decode-odin-simd.wasm
+	node test/base64-decode-variants.mjs
 
 qipx-rust:
 	cargo build --manifest-path rust/qipx/Cargo.toml --locked
