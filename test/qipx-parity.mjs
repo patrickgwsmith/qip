@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -128,6 +128,61 @@ test("Node and Rust qipx agree on dry run and Compliance outcomes", () => {
     const comply = run(implementation, ["comply", "text/hello.wasm"]);
     assert.equal(comply.status, 0, `${implementation.name}: ${comply.stderr}`);
     assert.deepEqual(comply.stdout, Buffer.from("PASS text/hello.wasm\n\npass=1 fail=0 total=1\n"), implementation.name);
+  }
+});
+
+test("Node and Rust qipx do not follow symlinks found during Compliance scans", { skip: process.platform === "win32" }, () => {
+  const directory = mkdtempSync(join(tmpdir(), "qipx-parity-scan-"));
+  const outside = mkdtempSync(join(tmpdir(), "qipx-parity-outside-"));
+  try {
+    const components = join(directory, "components");
+    mkdirSync(components);
+    writeFileSync(join(components, "identity.wasm"), readFileSync("bytes/identity.wasm"));
+    writeFileSync(join(outside, "unexpected.wasm"), "invalid Wasm");
+    symlinkSync(".", join(components, "loop"), "dir");
+    symlinkSync(outside, join(components, "outside"), "dir");
+    for (const implementation of implementations) {
+      const result = run(implementation, ["comply", "components"], { cwd: directory });
+      assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
+      assert.deepEqual(result.stdout, Buffer.from("PASS components/identity.wasm\n\npass=1 fail=0 total=1\n"));
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+    rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+test("Node and Rust qipx reject misleading remote filenames", () => {
+  const directory = mkdtempSync(join(tmpdir(), "qipx-parity-path-"));
+  try {
+    for (const implementation of implementations) {
+      for (const path of ["safe\u202Emsaw.wasm", "evil:stream.wasm"]) {
+        const result = run(implementation, ["qip.dev", "run", path], { cwd: directory });
+        assert.equal(result.status, 1, `${implementation.name}: ${path}`);
+        assert.match(result.stderr.toString(), /only missing relative paths ending in \.wasm can be downloaded/);
+      }
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("Node and Rust qipx escape terminal controls in local path reports", () => {
+  const directory = mkdtempSync(join(tmpdir(), "qipx-parity-display-"));
+  try {
+    for (const implementation of implementations) {
+      const result = run(implementation, ["dry", "run", "evil\u001b[31m\u202E.wasm"], { cwd: directory });
+      assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
+      const report = result.stdout.toString();
+      assert.ok(!report.includes("\u001b") && !report.includes("\u202E"), implementation.name);
+      assert.match(report, /evil\\u\{1b\}\[31m\\u\{202e\}\.wasm/, implementation.name);
+      const error = run(implementation, ["run", "evil\u001b[31m\u202E.wasm"], { cwd: directory });
+      assert.equal(error.status, 1, implementation.name);
+      assert.ok(!error.stderr.includes(0x1b), implementation.name);
+      assert.match(error.stderr.toString(), /evil\\u\{1b\}\[31m\\u\{202e\}\.wasm/, implementation.name);
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

@@ -58,8 +58,9 @@ qipx bench -i input.txt --runs 100 before.wasm after.wasm
 qipx bench -F input=hello --benchtime=3s before.wasm after.wasm
 ```
 
-`comply` accepts files and directories, searches directories recursively, and
-reports each built-in or oracle check. `--seed` sets an oracle's
+`comply` accepts files and directories. It searches directories recursively
+without following symlinks found inside them, and reports each built-in or
+oracle check. `--seed` sets an oracle's
 `uniform_set_seed`. `bench` verifies that every candidate returns the same
 output before timing and reuses each instance. The reported time covers input
 and output copies and `render`; it does not represent another host runtime.
@@ -72,7 +73,9 @@ printf 'hello' | qipx qip.dev run bytes/identity.wasm
 
 Put dotted DNS hosts before the subcommand. An existing local file wins. A
 missing safe relative `.wasm` path is fetched over HTTPS, checked, and saved
-at that path. qipx verifies TLS certificates, tries hosts in order for
+at that path. Remote paths use printable ASCII so terminal direction controls
+cannot disguise the filename. qipx verifies TLS certificates, tries hosts in
+order for
 unavailable sources, follows at most two redirects on the same HTTPS origin,
 and limits a download to 16 MiB and 30 seconds. Supplying a host trusts it to
 provide executable component bytes. Use a local path when that trust is not

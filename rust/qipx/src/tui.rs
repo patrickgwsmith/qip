@@ -106,7 +106,7 @@ fn validate_frame(bytes: &[u8]) -> Result<(), String> {
     let mut chars = text.char_indices().peekable();
     while let Some((index, character)) = chars.next() {
         if character == '\x1b' {
-            if chars.next().map(|(_, value)| value) != Some('[') {
+            if !matches!(chars.next(), Some((_, '['))) {
                 return Err(format!(
                     "terminal output contains unsupported ESC sequence at byte {index}"
                 ));

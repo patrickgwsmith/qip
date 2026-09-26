@@ -3,7 +3,7 @@ use std::env;
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
 use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use sha2::{Digest, Sha256};
 use url::Url;
@@ -19,19 +19,14 @@ struct StageSpec {
 
 fn main() {
     if let Err(message) = run() {
-        eprintln!("qipx: {message}");
+        eprintln!("qipx: {}", message.escape_debug());
         std::process::exit(1);
     }
 }
 
 fn run() -> Result<(), String> {
-    let args: Vec<String> = env::args().skip(1).collect();
-    if args.is_empty()
-        || matches!(
-            args.first().map(String::as_str),
-            Some("--help" | "-h" | "help")
-        )
-    {
+    let mut args: Vec<String> = env::args().skip(1).collect();
+    if args.is_empty() || matches!(args[0].as_str(), "--help" | "-h" | "help") {
         println!("{}", usage());
         return Ok(());
     }
@@ -44,15 +39,17 @@ fn run() -> Result<(), String> {
             )
         })
         .ok_or("qipx requires a subcommand: run, dry run, tui, bench, or comply")?;
-    let hosts: Vec<String> = args[..command_index]
-        .iter()
-        .map(|host| parse_host(host))
+    let hosts: Vec<String> = args
+        .drain(..command_index)
+        .map(|host| parse_host(&host))
         .collect::<Result<_, _>>()?;
-    let args = &args[command_index..];
-    if matches!(args.get(1).map(String::as_str), Some("--help" | "-h")) {
+    let (command, rest) = args
+        .split_first()
+        .expect("command_index points to a command");
+    if matches!(rest, [arg, ..] if matches!(arg.as_str(), "--help" | "-h")) {
         println!(
             "{}",
-            match args[0].as_str() {
+            match command.as_str() {
                 "tui" => tui_usage(),
                 "bench" => bench_usage(),
                 "comply" => comply_usage(),
@@ -61,29 +58,26 @@ fn run() -> Result<(), String> {
         );
         return Ok(());
     }
-    if args.first().map(String::as_str) == Some("dry") {
-        if args.get(1).map(String::as_str) != Some("run") {
-            return Err("dry must be followed by run".into());
+    let tui_mode = match command.as_str() {
+        "dry" => {
+            let (next, options) = rest.split_first().ok_or("dry must be followed by run")?;
+            if next != "run" {
+                return Err("dry must be followed by run".into());
+            }
+            if matches!(options, [arg, ..] if matches!(arg.as_str(), "--help" | "-h")) {
+                println!("{}", usage());
+                return Ok(());
+            }
+            return dry_run(options, &hosts);
         }
-        if matches!(args.get(2).map(String::as_str), Some("--help" | "-h")) {
-            println!("{}", usage());
-            return Ok(());
-        }
-        return dry_run(&args[2..], &hosts);
-    }
-    if args.first().map(String::as_str) == Some("dry-run") {
-        return dry_run(&args[1..], &hosts);
-    }
-    if args.first().map(String::as_str) == Some("bench") {
-        return bench(&args[1..], &hosts);
-    }
-    if args.first().map(String::as_str) == Some("comply") {
-        return comply(&args[1..], &hosts);
-    }
-    let tui_mode = args.first().map(String::as_str) == Some("tui");
-    if args.first().map(String::as_str) != Some("run") && !tui_mode {
-        return Err("expected run <component.wasm>".into());
-    }
+        "dry-run" => return dry_run(rest, &hosts),
+        "bench" => return bench(rest, &hosts),
+        "comply" => return comply(rest, &hosts),
+        "run" => false,
+        "tui" => true,
+        _ => return Err("expected run <component.wasm>".into()),
+    };
+    let args = rest;
     let mut input_path = "-";
     let mut input_from_cli = false;
     let mut output_path = "-";
@@ -91,7 +85,7 @@ fn run() -> Result<(), String> {
     let mut max_memory = None;
     let mut capacities_must_fit = false;
     let mut stages: Vec<StageSpec> = Vec::new();
-    let mut index = 1;
+    let mut index = 0;
     let mut after_separator = false;
     while index < args.len() {
         if after_separator && !matches!(args[index].as_str(), "-u" | "--uniform") {
@@ -168,11 +162,10 @@ fn run() -> Result<(), String> {
         if input_from_cli && input_path == "-" {
             return Err("qipx tui cannot read -i - because stdin carries terminal events".into());
         }
-        if form_fields.iter().any(|field| {
-            field
-                .split_once('=')
-                .is_some_and(|(_, value)| value == "@-" || value == "<-")
-        }) {
+        if form_fields
+            .iter()
+            .any(|field| matches!(field.split_once('='), Some((_, "@-" | "<-"))))
+        {
             return Err(
                 "qipx tui cannot use -F name=@- or name=<- because stdin carries terminal events"
                     .into(),
@@ -410,11 +403,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     }
     if forms
         .iter()
-        .filter(|field| {
-            field
-                .split_once('=')
-                .is_some_and(|(_, value)| value == "@-" || value == "<-")
-        })
+        .filter(|field| matches!(field.split_once('='), Some((_, "@-" | "<-"))))
         .count()
         > 1
     {
@@ -423,10 +412,14 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     println!("Sources:");
     for (component_index, stage) in stages.iter().enumerate() {
         if stages.len() > 1 {
-            println!("  Component {}: {}", component_index + 1, stage.path);
+            println!(
+                "  Component {}: {}",
+                component_index + 1,
+                stage.path.escape_debug()
+            );
         }
         let indent = if stages.len() > 1 { "    " } else { "  " };
-        println!("{indent}0  local  {}", stage.path);
+        println!("{indent}0  local  {}", stage.path.escape_debug());
         if remote_eligible(&stage.path) {
             for (host_index, host) in hosts.iter().enumerate() {
                 println!(
@@ -441,7 +434,11 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     let mut missing = 0;
     for (component_index, stage) in stages.iter().enumerate() {
         if stages.len() > 1 {
-            println!("  Component {}: {}", component_index + 1, stage.path);
+            println!(
+                "  Component {}: {}",
+                component_index + 1,
+                stage.path.escape_debug()
+            );
         }
         let indent = if stages.len() > 1 { "    " } else { "  " };
         match fs::metadata(&stage.path) {
@@ -483,8 +480,8 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
             } else {
                 "missing"
             };
-            println!("  Field {name:?}: {path}");
-            println!("    0  local  {path}  {status}");
+            println!("  Field {name:?}: {}", path.escape_debug());
+            println!("    0  local  {}  {status}", path.escape_debug());
             if remote_eligible(path) {
                 for (host_index, host) in hosts.iter().enumerate() {
                     println!(
@@ -501,7 +498,10 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     let mut loaded = Vec::new();
     for stage in &stages {
         if fs::metadata(&stage.path).is_err() {
-            println!("  {}: deferred (local file missing)", stage.path);
+            println!(
+                "  {}: deferred (local file missing)",
+                stage.path.escape_debug()
+            );
             continue;
         }
         let mut candidate = BenchCandidate::load(&engine, &stage.path, max_memory, &[])?;
@@ -514,7 +514,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
                 value,
             )?;
         }
-        println!("  {}: valid", stage.path);
+        println!("  {}: valid", stage.path.escape_debug());
         loaded.push(candidate);
     }
     if missing > 0 {
@@ -530,7 +530,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     for (index, stage) in loaded.iter().enumerate() {
         let buffers = stage.input_cap + stage.output_cap;
         total += buffers;
-        println!("{}. {} — Content", index + 1, stage.label);
+        println!("{}. {} — Content", index + 1, stage.label.escape_debug());
         println!(
             "   Input: encoding={}, type={}, capacity={} bytes",
             if stage.input_ptr.is_none() {
@@ -565,6 +565,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
 
 fn remote_eligible(path: &str) -> bool {
     path.ends_with(".wasm")
+        && path.is_ascii()
         && !path.starts_with('/')
         && !path.contains('\\')
         && !path.contains(['?', '#', ':'])
@@ -700,10 +701,28 @@ fn vendor_download(path: &str, bytes: &[u8]) -> Result<(), String> {
     let root =
         fs::canonicalize(".").map_err(|e| format!("cannot resolve current directory: {e}"))?;
     let file = Path::new(path);
-    let parent = file.parent().unwrap_or(Path::new("."));
+    let parent = match file.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    // Find an existing ancestor so its symlinks can be checked before
+    // create_dir_all creates the missing directories.
     let mut ancestor = parent;
-    while !ancestor.exists() {
-        ancestor = ancestor.parent().unwrap_or(Path::new("."));
+    loop {
+        match fs::symlink_metadata(ancestor) {
+            Ok(_) => break,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                let next = match ancestor.parent() {
+                    Some(parent) if !parent.as_os_str().is_empty() => parent,
+                    _ => Path::new("."),
+                };
+                if next == ancestor {
+                    return Err(format!("cannot find an existing parent of {path}"));
+                }
+                ancestor = next;
+            }
+            Err(error) => return Err(format!("cannot inspect parent of {path}: {error}")),
+        }
     }
     let resolved = fs::canonicalize(ancestor).map_err(|e| format!("cannot resolve {path}: {e}"))?;
     if !resolved.starts_with(&root) {
@@ -719,21 +738,21 @@ fn vendor_download(path: &str, bytes: &[u8]) -> Result<(), String> {
             "refusing to vendor outside the current directory: {path}"
         ));
     }
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let mut nonce = [0u8; 16];
+    getrandom::getrandom(&mut nonce)
+        .map_err(|e| format!("cannot create temporary download for {path}: {e}"))?;
+    let nonce = u128::from_le_bytes(nonce);
     let temporary = parent.join(format!(
-        ".{}.qipx-{}-{nonce}.tmp",
+        ".{}.qipx-{}-{nonce:032x}.tmp",
         file.file_name().unwrap().to_string_lossy(),
         std::process::id()
     ));
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|e| format!("cannot create temporary download for {path}: {e}"))?;
     let result = (|| {
-        let mut output = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temporary)
-            .map_err(|e| format!("cannot create temporary download for {path}: {e}"))?;
         output
             .write_all(bytes)
             .map_err(|e| format!("cannot save {path}: {e}"))?;
@@ -743,6 +762,7 @@ fn vendor_download(path: &str, bytes: &[u8]) -> Result<(), String> {
             Err(error) => Err(format!("cannot install {path}: {error}")),
         }
     })();
+    drop(output);
     let _ = fs::remove_file(temporary);
     result
 }
@@ -1188,7 +1208,7 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     );
     println!(
         "Input: {} ({} bytes, sha256 {:x})",
-        input_path.unwrap_or("multipart form"),
+        input_path.unwrap_or("multipart form").escape_debug(),
         input.len(),
         Sha256::digest(&input)
     );
@@ -1207,7 +1227,7 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     println!("Runtime: Wasmtime");
     println!("Boundary: input/output copies and render on one reused instance");
     for (candidate, mean) in candidates.iter().zip(means) {
-        println!("{}: {mean:.0} ns mean", candidate.label);
+        println!("{}: {mean:.0} ns mean", candidate.label.escape_debug());
     }
     Ok(())
 }
@@ -1664,11 +1684,11 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
     for file in &expanded {
         match BenchCandidate::load(&engine, file, max_memory, hosts) {
             Ok(_) => {
-                println!("PASS {file}");
+                println!("PASS {}", file.escape_debug());
                 pass += 1;
             }
             Err(error) => {
-                println!("FAIL {file}: {error}");
+                println!("FAIL {}: {}", file.escape_debug(), error.escape_debug());
                 fail += 1;
                 continue;
             }
@@ -1676,11 +1696,20 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
         for oracle in &oracles {
             match run_oracle(&engine, file, oracle, seed, max_memory, hosts) {
                 Ok(cases) => {
-                    println!("PASS {file} --with {oracle} ({cases} cases)");
+                    println!(
+                        "PASS {} --with {} ({cases} cases)",
+                        file.escape_debug(),
+                        oracle.escape_debug()
+                    );
                     pass += 1;
                 }
                 Err(error) => {
-                    println!("FAIL {file} --with {oracle}: {error}");
+                    println!(
+                        "FAIL {} --with {}: {}",
+                        file.escape_debug(),
+                        oracle.escape_debug(),
+                        error.escape_debug()
+                    );
                     fail += 1;
                 }
             }
@@ -1700,6 +1729,13 @@ fn collect_wasm_paths(path: &Path, result: &mut Vec<String>) -> Result<(), Strin
                 fs::read_dir(path).map_err(|e| format!("cannot read {}: {e}", path.display()))?
             {
                 let entry = entry.map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+                if entry
+                    .file_type()
+                    .map_err(|e| format!("cannot inspect {}: {e}", entry.path().display()))?
+                    .is_symlink()
+                {
+                    continue;
+                }
                 collect_wasm_paths(&entry.path(), result)?;
             }
         }
@@ -1885,7 +1921,7 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
     if memory_count != 1 {
         return Err(format!("{path} must declare exactly one memory"));
     }
-    if exports.get("memory").map(|(kind, _)| *kind) != Some(ExternalKind::Memory) {
+    if !matches!(exports.get("memory"), Some((ExternalKind::Memory, _))) {
         return Err(format!("{path} does not export memory"));
     }
     let require_function = |name: &str| -> Result<u32, String> {

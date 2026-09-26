@@ -17,6 +17,7 @@ sha2 = "0.10"
 ureq = { version = "3.4", default-features = false, features = ["rustls", "gzip"] }
 url = "2.5"
 crossterm = "0.29"
+getrandom = "0.2"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

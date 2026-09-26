@@ -129,8 +129,8 @@ For each component, qipx constructs the same ordered source chain:
 An existing local file always wins. Otherwise, qipx tries each host in order.
 It validates the first successful response and saves it at the original
 relative path. It creates parent directories but never replaces an existing
-file. Only safe relative paths ending in `.wasm` are eligible; local directories
-are not fetched.
+file. Only safe relative `.wasm` paths made of printable ASCII are eligible;
+local directories are not fetched.
 
 Connection failures, TLS failures, timeouts, HTTP 404 or 410, and HTTP 5xx
 responses advance to the next host. Other HTTP errors and invalid component
@@ -202,7 +202,8 @@ npx @qip.dev/qipx qip.dev comply \
   --with oracles/reject-invalid-utf8.wasm
 ```
 
-`comply` accepts files and directories. Directories are searched recursively.
+`comply` accepts files and directories. Directories are searched recursively
+without following symlinks found inside them.
 Each `.wasm` file is checked against the Strict Wasm Profile subset, static QIP
 ABI exports, and QIP Content ABI.
 

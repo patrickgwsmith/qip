@@ -113,7 +113,7 @@ const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : "";
 const modulePath = realpathSync(fileURLToPath(import.meta.url));
 if (invokedPath === modulePath) {
   main().catch((error) => {
-    console.error(error.message ?? error);
+    console.error(qipx.displayText(error.message ?? error));
     process.exitCode = 1;
   });
 }

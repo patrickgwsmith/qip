@@ -11,7 +11,7 @@ const [nodeCrypto, nodeFS, nodeOS, nodePath, nodeZlib] = runningInNode
     ])
   : [{}, {}, {}, {}, {}];
 const { createHash, randomUUID } = nodeCrypto;
-const { link, mkdir, readFile, readdir, realpath, stat, unlink, writeFile } = nodeFS;
+const { link, mkdir, open, readFile, readdir, realpath, stat, unlink, writeFile } = nodeFS;
 const { arch, cpus, platform } = nodeOS;
 const { basename, dirname, isAbsolute, join, relative } = nodePath;
 const { gzipSync } = nodeZlib;
@@ -100,6 +100,15 @@ const downloadTimeoutMilliseconds = 30_000;
 const redirectLimit = 2;
 const knownCommands = new Set(["run", "dry", "dry-run", "tui", "bench", "comply"]);
 
+function displayText(value) {
+  // Keep untrusted paths and labels from changing terminal display.
+  return Array.from(String(value), (character) =>
+    /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(character)
+      ? `\\u{${character.codePointAt(0).toString(16)}}`
+      : character,
+  ).join("");
+}
+
 function parseHost(value) {
   if (typeof value !== "string" || value.length === 0 || value.length > 259) {
     throw new Error(`invalid host ${JSON.stringify(value)}`);
@@ -129,8 +138,9 @@ function parseInvocation(argv) {
 
 function remotelyEligiblePath(filePath) {
   if (typeof filePath !== "string" || !filePath.endsWith(".wasm")) return false;
-  if (isAbsolute(filePath) || /^[A-Za-z]:/.test(filePath) || filePath.includes("\\")) return false;
-  if (filePath.includes("?") || filePath.includes("#") || /[\x00-\x1f\x7f]/.test(filePath)) return false;
+  if (!/^[\x20-\x7e]+$/.test(filePath)) return false;
+  if (isAbsolute(filePath) || filePath.includes(":") || filePath.includes("\\")) return false;
+  if (filePath.includes("?") || filePath.includes("#")) return false;
   const segments = filePath.split("/");
   return segments.length > 0 && segments.every((segment) => segment !== "" && segment !== "." && segment !== "..");
 }
@@ -242,14 +252,18 @@ async function vendorDownload(filePath, wasm) {
   const resolvedParent = await realpath(parent);
   if (!pathIsInside(root, resolvedParent)) throw new Error(`refusing to vendor outside the current directory: ${filePath}`);
   const temporaryPath = join(parent, `.${basename(filePath)}.qipx-${process.pid}-${randomUUID()}.tmp`);
+  let output = await open(temporaryPath, "wx");
   try {
-    await writeFile(temporaryPath, wasm, { flag: "wx" });
+    await output.writeFile(wasm);
+    await output.close();
+    output = null;
     try {
       await link(temporaryPath, filePath);
     } catch (error) {
       if (error?.code !== "EEXIST") throw error;
     }
   } finally {
+    if (output) await output.close();
     try {
       await unlink(temporaryPath);
     } catch (error) {
@@ -1147,11 +1161,6 @@ async function walkWasmFiles(path) {
       const child = join(directory, entry.name);
       if (entry.isDirectory()) await walk(child);
       else if (entry.isFile() && entry.name.endsWith(".wasm")) files.push(child);
-      else if (entry.isSymbolicLink()) {
-        const childInfo = await stat(child);
-        if (childInfo.isDirectory()) await walk(child);
-        else if (childInfo.isFile() && entry.name.endsWith(".wasm")) files.push(child);
-      }
     }
   }
   await walk(path);
@@ -1484,20 +1493,20 @@ async function complyCommand(argv, hosts) {
         wasmMustComplyWithComponentContract(candidate, { label, maxMemory: options.maxMemory });
       });
       await instantiateContentComponent(wasm, file, options);
-      console.log(`PASS ${file}`);
+      console.log(`PASS ${displayText(file)}`);
       pass += 1;
     } catch (error) {
-      console.log(`FAIL ${file}: ${error.message ?? error}`);
+      console.log(`FAIL ${displayText(file)}: ${displayText(error.message ?? error)}`);
       fail += 1;
       continue;
     }
     for (const oracle of oracles) {
       try {
         const result = await runComplianceOracle(wasm, file, oracle.path, oracle.wasm, options);
-        console.log(`PASS ${file} --with ${oracle.path} (${result.cases} cases)`);
+        console.log(`PASS ${displayText(file)} --with ${displayText(oracle.path)} (${result.cases} cases)`);
         pass += 1;
       } catch (error) {
-        console.log(`FAIL ${file} --with ${oracle.path}: ${error.message ?? error}`);
+        console.log(`FAIL ${displayText(file)} --with ${displayText(oracle.path)}: ${displayText(error.message ?? error)}`);
         fail += 1;
       }
     }
@@ -1591,15 +1600,15 @@ async function prepareRunPipeline(argv, hosts) {
 function printSourceObservations(observations) {
   console.log("Sources:");
   observations.forEach(({ plan }, componentIndex) => {
-    if (observations.length > 1) console.log(`  Component ${componentIndex + 1}: ${plan.filePath}`);
+    if (observations.length > 1) console.log(`  Component ${componentIndex + 1}: ${displayText(plan.filePath)}`);
     plan.sources.forEach((source, sourceIndex) => {
       const indent = observations.length > 1 ? "    " : "  ";
-      console.log(`${indent}${sourceIndex}  ${source.kind.padEnd(5)}  ${source.kind === "local" ? source.path : source.url}`);
+      console.log(`${indent}${sourceIndex}  ${source.kind.padEnd(5)}  ${displayText(source.kind === "local" ? source.path : source.url)}`);
     });
   });
   console.log("\nResolution:");
   observations.forEach(({ plan, local }, componentIndex) => {
-    if (observations.length > 1) console.log(`  Component ${componentIndex + 1}: ${plan.filePath}`);
+    if (observations.length > 1) console.log(`  Component ${componentIndex + 1}: ${displayText(plan.filePath)}`);
     const indent = observations.length > 1 ? "    " : "  ";
     console.log(`${indent}0  ${local.state}`);
     for (let index = 1; index < plan.sources.length; index += 1) console.log(`${indent}${index}  unexamined`);
@@ -1628,10 +1637,10 @@ function printMultipartFileObservations(observations) {
   if (observations.length === 0) return;
   console.log("\nMultipart files:");
   for (const { assignment, plan, state } of observations) {
-    console.log(`  Field ${JSON.stringify(assignment.name)}: ${plan.filePath}`);
+    console.log(`  Field ${displayText(JSON.stringify(assignment.name))}: ${displayText(plan.filePath)}`);
     plan.sources.forEach((source, index) => {
       const label = source.kind === "local" ? source.path : source.url;
-      console.log(`    ${index}  ${source.kind.padEnd(5)}  ${label}  ${index === 0 ? state : "unexamined"}`);
+      console.log(`    ${index}  ${source.kind.padEnd(5)}  ${displayText(label)}  ${index === 0 ? state : "unexamined"}`);
     });
   }
 }
@@ -1652,7 +1661,7 @@ async function dryRunCommand(argv, hosts) {
   let missing = 0;
   for (const observation of observations) {
     if (observation.local.state === "missing") {
-      console.log(`  ${observation.spec.label}: deferred (local file missing)`);
+      console.log(`  ${displayText(observation.spec.label)}: deferred (local file missing)`);
       missing += 1;
       continue;
     }
@@ -1664,7 +1673,7 @@ async function dryRunCommand(argv, hosts) {
     const stage = makeStage({ component, label: observation.spec.label, uniforms: observation.spec.uniforms }, component);
     applyUniforms(stage);
     stages.push(stage);
-    console.log(`  ${observation.spec.label}: valid`);
+    console.log(`  ${displayText(observation.spec.label)}: valid`);
   }
   if (missing > 0) {
     console.log(`Pipeline compatibility: deferred (${missing} component${missing === 1 ? "" : "s"} missing locally)`);
@@ -1693,7 +1702,7 @@ function printDryRunPlan(plan) {
   plan.stages.forEach((stage, index) => {
     const buffers = stage.inputCapacity + stage.outputCapacity;
     total += buffers;
-    console.log(`${index + 1}. ${stage.label} — Content`);
+    console.log(`${index + 1}. ${displayText(stage.label)} — Content`);
     console.log(`   Input:  encoding=${stage.inputless ? "none" : (stage.inputType.encoding === "utf8" ? "UTF-8" : "bytes")}, type=${stage.inputless ? "unspecified" : (stage.inputType.mediaType || "unspecified")}, capacity=${formatBytes(stage.inputCapacity)}`);
     console.log(`   Output: encoding=${stage.outputType.encoding === "utf8" ? "UTF-8" : "bytes"}, type=${stage.outputType.mediaType || "unspecified"}, capacity=${formatBytes(stage.outputCapacity)}`);
     console.log(`   Buffers: ${formatBytes(buffers)}`);
@@ -2034,7 +2043,7 @@ function benchmarkGCOptInCommand() {
 function printBenchmarkReport(candidates, input, inputLabel, expected, options, collectedAfterWarmup) {
   const outputHash = sha256Hex(expected.outputBytes);
   console.log(candidates.length === 1 ? "Benchmark: baseline output captured" : "Benchmark: outputs match");
-  console.log(`Input: ${inputLabel} (${input.byteLength} bytes, sha256 ${sha256Hex(input)})`);
+  console.log(`Input: ${displayText(inputLabel)} (${input.byteLength} bytes, sha256 ${sha256Hex(input)})`);
   console.log(`Output: ${describeContentType(expected.outputType)}, ${expected.outputBytes.byteLength} bytes`);
   console.log(`Output SHA-256: ${outputHash}`);
   console.log(`Warmup: ${options.warmup} runs/component`);
@@ -2053,13 +2062,13 @@ function printBenchmarkReport(candidates, input, inputLabel, expected, options, 
 
   const summaries = candidates.map((candidate) => summarizeBenchmarkSamples(candidate.samples, candidate.measuredNanoseconds / candidate.renderCount));
   const fastestMean = Math.min(...summaries.map((summary) => summary.mean));
-  const nameWidth = Math.max("Implementation".length, ...candidates.map((candidate) => basename(candidate.label).length));
+  const nameWidth = Math.max("Implementation".length, ...candidates.map((candidate) => displayText(basename(candidate.label)).length));
   const headers = ["Implementation".padEnd(nameWidth), "Mean".padStart(11), "p50".padStart(11), "p95".padStart(11), "Stddev".padStart(11), "Relative".padStart(10)];
   console.log(headers.join("  "));
   candidates.forEach((candidate, index) => {
     const summary = summaries[index];
     console.log([
-      basename(candidate.label).padEnd(nameWidth),
+      displayText(basename(candidate.label)).padEnd(nameWidth),
       formatDuration(summary.mean).padStart(11),
       formatDuration(summary.p50).padStart(11),
       formatDuration(summary.p95).padStart(11),
@@ -2073,7 +2082,7 @@ function printBenchmarkReport(candidates, input, inputLabel, expected, options, 
     const summary = summaries[index];
     const rendersPerSecond = 1e9 / summary.mean;
     const memoryBytes = candidate.component.exports.memory.buffer.byteLength;
-    console.log(`${index + 1}. ${candidate.label}`);
+    console.log(`${index + 1}. ${displayText(candidate.label)}`);
     console.log(`   Time: ${formatDuration(summary.mean)} ± ${formatDuration(summary.stddev)} [min ${formatDuration(summary.min)}, p50 ${formatDuration(summary.p50)}, p95 ${formatDuration(summary.p95)}, max ${formatDuration(summary.max)}]`);
     console.log(`   Throughput: ${formatRate(rendersPerSecond)} renders/s`);
     if (options.runs === undefined) console.log(`   Samples: ${candidate.samples.length}; renders: ${candidate.renderCount}`);
@@ -2094,8 +2103,8 @@ function printBenchmarkReport(candidates, input, inputLabel, expected, options, 
       if (summaries[index].mean < summaries[fastest].mean) fastest = index;
       if (summaries[index].mean > summaries[slowest].mean) slowest = index;
     }
-    console.log(`Fastest: ${candidates[fastest].label}`);
-    if (fastest !== slowest) console.log(`${candidates[fastest].label} was ${(summaries[slowest].mean / summaries[fastest].mean).toFixed(2)}x faster than ${candidates[slowest].label} by mean time.`);
+    console.log(`Fastest: ${displayText(candidates[fastest].label)}`);
+    if (fastest !== slowest) console.log(`${displayText(candidates[fastest].label)} was ${(summaries[slowest].mean / summaries[fastest].mean).toFixed(2)}x faster than ${displayText(candidates[slowest].label)} by mean time.`);
   }
 }
 
@@ -2151,6 +2160,7 @@ async function benchCommand(argv, hosts) {
 
 /** @private Shared implementation for the package's unexported CLI module. */
 export const __cliInternals = Object.freeze({
+  displayText,
   usage,
   tuiUsage,
   parseInvocation,
