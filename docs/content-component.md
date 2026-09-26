@@ -67,7 +67,7 @@ The full transform input region (`input_ptr` through its capacity) must be in
 initial memory and disjoint from active data segments. These rules let hosts
 inspect the ABI before running component logic.
 
-## Render Result
+## Render result
 
 Interpret the `i64` as unsigned bits:
 
@@ -87,7 +87,29 @@ returns its own pointer and size; there is no last-output getter.
 
 On rejection, the host stops the pipeline and reads no output.
 
-## Optional Failure Detail
+## Failures and errors
+
+Some operations have no expected error for any input within their declared
+capacity. Base64 encoding is one example: every byte string has an encoding.
+Such a component returns success for conforming calls and omits
+`failure_modes_per_input_offset()`.
+
+Other operations must reject some validly supplied bytes. A Base64 decoder,
+for example, can receive invalid characters or padding. It returns an error by
+setting the rejection bit in the `render` result. The host can report it and
+reuse the instance for another call. A component may report only that the input
+was rejected, or spend extra work to identify a position and failure mode. Tracking
+detail can cost code size or runtime work, so it is a choice for each component.
+
+A trap means a precondition or internal invariant was violated: for example,
+the host passed more bytes than the declared capacity, supplied invalid UTF-8
+to a UTF-8 input, or an assertion detected corrupt internal state. Malformed
+Base64 within the declared input domain is an ordinary decoding error. After a
+trap, memory may hold partial output; the host reads none of it and discards
+the instance. A data-preserving transform should trap instead of silently
+truncating output.
+
+<h3 id="optional-failure-detail">Optional failure detail</h3>
 
 If `failure_modes_per_input_offset()` returns zero, the low 32 result bits must
 be zero. If it returns `N > 0`, the component defines `N` failure modes per
@@ -100,12 +122,9 @@ failure_mode = failure_detail % N
 
 The offset is in `0..input_size`, inclusive; `input_size` means the position
 after the last byte. Modes are component-specific integers in `0..N - 1`.
-Every possible offset and mode must encode in 32 bits. A recoverable rejection
-allows another call on the same instance. Trap for a caller precondition
-violation or internal defect. After a trap, memory may hold partial output, so
-the host reads none of it and discards the instance.
+Every possible offset and mode must encode in 32 bits.
 
-## Optional Content-Type Metadata
+## Optional content-type metadata
 
 A component can declare an exact input or output MIME type using the optional
 getter pairs in the export table. Omit a pair for unknown or generic content.
@@ -122,7 +141,7 @@ above, and the bytes occupy initial memory in one non-overlapping active data
 segment. A start function or `render` must not assemble them. Tooling can then
 read the type from Wasm sections without instantiating the module.
 
-<h3 id="multipart-form-data">Multipart Form Data</h3>
+<h3 id="multipart-form-data">Multipart form data</h3>
 
 The only allowed parameterized type is
 `multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000`.
@@ -149,7 +168,7 @@ general string uniform. The repository's
 `application/wasm/wasm-read-input-content-type.wasm` reads this metadata; it
 traps on an invalid static declaration.
 
-## Pipeline Composition
+## Pipeline composition
 
 The host validates arbitrary bytes before they enter `input_utf8_cap`; encoding
 a native string as UTF-8 also establishes the guarantee. A UTF-8 component
@@ -167,7 +186,7 @@ The host also tracks an optional MIME type:
 | Stage input | A declared type must match the tracked type exactly. Without metadata, UTF-8 input accepts any valid UTF-8 and bytes input accepts any bytes. |
 | Stage output | A declared type replaces the tracked type. Otherwise UTF-8-to-UTF-8 and output through `output_bytes_cap` preserve it; bytes-to-UTF-8 makes it unspecified. |
 
-## Repeated Renders And Memory
+## Repeated renders and memory
 
 On every call, a transform reads the current bytes at `input_ptr` and validates
 `input_size` inside the component, even if the host checked it. A generator may
@@ -180,12 +199,10 @@ If a transform writes output, its output buffer must be disjoint from input.
 It may return an immutable slice of the current input instead, but then it must
 not modify that input and the complete slice must fit within `input_size`.
 Reserve scratch space explicitly; unused input capacity is not scratch space.
-Reject expected invalid input within the declared domain. Prefer a trap to
-silent truncation for a data-preserving transform. Build fixed memory with an
-explicit maximum; see [Hard Limits](/docs/hard-limits) and
+Build fixed memory with an explicit maximum; see [Hard Limits](/docs/hard-limits) and
 [Writing QIP Components In Zig](/docs/zig-components).
 
-## Known And Untrusted Components
+## Known and untrusted components
 
 An application may trust a component it built, tested, or admitted through a
 controlled artifact process. Its wrapper can rely on that component's export,
@@ -200,13 +217,13 @@ modules enter the application; a validated artifact can then use the direct
 call flow. [Bounded Output Proofs](/docs/hard-limits#bounded-output-proofs)
 describes an optional static check of the output-size promise.
 
-## When To Use It
+## When to use it
 
 Use Content when one call finishes the job. For example, this pipeline renders
 Markdown and wraps the HTML:
 
 ```sh
-qip run text/markdown/commonmark.0.31.2.wasm \
+npx @qip.dev/qipx qip.dev run text/markdown/commonmark.0.31.2.wasm \
   text/html/html-page-wrap.wasm < page.md
 ```
 
