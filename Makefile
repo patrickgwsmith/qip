@@ -1052,6 +1052,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-mcp.mjs
 	node --test test/content-total-byte-components.mjs
 	node --test test/content-component-host.mjs
+	node --test test/name-group-value-to-svg-bars.mjs
 	node --test examples/nextjs-qip/test/qip-content.test.mjs
 	node --test test/html-to-svg-inter-paths.mjs
 	node --test test/ansi-sgr.mjs
