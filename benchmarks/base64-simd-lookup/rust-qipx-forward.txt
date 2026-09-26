@@ -1,0 +1,12 @@
+Benchmark: outputs match
+Input: /tmp/qip-base64-64k.txt (65536 bytes, sha256 9c17fa52da1dacf4d78b9c9739b2a2a8eaae0757c886283e03fd8a2ceb0f72a7)
+Output: encoding=bytes, 49152 bytes
+Output SHA-256: 2f9ed51cabdc4c74cb6139abc0b8da5e1b6565b4bb0832507c133a9a9dd341df
+Warmup: 10 runs/component
+Measured: 2s target/component
+Runtime: Wasmtime
+Boundary: input/output copies and render on one reused instance
+/tmp/qip-base64-wat-before.wasm: 21038 ns mean
+text/base64-decode-simd.wasm: 16593 ns mean
+/tmp/qip-base64-c-before.wasm: 17780 ns mean
+text/base64-decode-c-simd.wasm: 15251 ns mean

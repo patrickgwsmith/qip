@@ -29,24 +29,23 @@ static uint64_t fail(uint32_t offset) { return UINT64_C(1) << 63 | offset; }
 // reports the precise failing input offset when a vector contains bad data.
 static int decode_16(uint32_t in, uint32_t out) {
     v128_t x = wasm_v128_load(input + in);
-    v128_t upper = wasm_v128_and(wasm_u8x16_ge(x, wasm_i8x16_splat('A')),
-                                  wasm_u8x16_le(x, wasm_i8x16_splat('Z')));
-    v128_t lower = wasm_v128_and(wasm_u8x16_ge(x, wasm_i8x16_splat('a')),
-                                  wasm_u8x16_le(x, wasm_i8x16_splat('z')));
-    v128_t digit = wasm_v128_and(wasm_u8x16_ge(x, wasm_i8x16_splat('0')),
-                                  wasm_u8x16_le(x, wasm_i8x16_splat('9')));
-    v128_t plus = wasm_i8x16_eq(x, wasm_i8x16_splat('+'));
-    v128_t slash = wasm_i8x16_eq(x, wasm_i8x16_splat('/'));
-    v128_t valid = wasm_v128_or(wasm_v128_or(upper, lower),
-                    wasm_v128_or(digit, wasm_v128_or(plus, slash)));
+    // The high nibble distinguishes the alphabet ranges. Give '/' its own
+    // index, then use two small swizzle tables to validate the low nibble.
+    v128_t high = wasm_v128_and(wasm_u16x8_shr(x, 4), wasm_i8x16_splat(15));
+    v128_t hash = wasm_i8x16_sub(high, wasm_v128_and(wasm_i8x16_eq(x, wasm_i8x16_splat('/')),
+                                                    wasm_i8x16_splat(1)));
+    v128_t low = wasm_v128_and(x, wasm_i8x16_splat(15));
+    v128_t min = wasm_i8x16_swizzle(wasm_i8x16_make(-1, 15, 11, 0, 1, 0, 1, 0,
+                                                   -1, -1, -1, -1, -1, -1, -1, -1), hash);
+    v128_t max = wasm_i8x16_swizzle(wasm_i8x16_make(0, 15, 11, 9, 15, 10, 15, 10,
+                                                   0, 0, 0, 0, 0, 0, 0, 0), hash);
+    v128_t valid = wasm_v128_and(wasm_u8x16_ge(x, wasm_i8x16_splat('+')),
+                    wasm_v128_and(wasm_u8x16_ge(low, min), wasm_u8x16_le(low, max)));
     if (wasm_i8x16_bitmask(valid) != 0xffff) return 0;
 
-    v128_t v = wasm_v128_or(
-        wasm_v128_or(wasm_v128_and(upper, wasm_i8x16_sub(x, wasm_i8x16_splat('A'))),
-                     wasm_v128_and(lower, wasm_i8x16_sub(x, wasm_i8x16_splat('a' - 26)))),
-        wasm_v128_or(wasm_v128_and(digit, wasm_i8x16_add(wasm_i8x16_sub(x, wasm_i8x16_splat('0')), wasm_i8x16_splat(52))),
-                     wasm_v128_or(wasm_v128_and(plus, wasm_i8x16_splat(62)),
-                                  wasm_v128_and(slash, wasm_i8x16_splat(63)))));
+    v128_t offsets = wasm_i8x16_swizzle(wasm_i8x16_make(0, 16, 19, 4, -65, -65, -71, -71,
+                                                       0, 0, 0, 0, 0, 0, 0, 0), hash);
+    v128_t v = wasm_i8x16_add(x, offsets);
     v128_t y = wasm_v128_or(
         wasm_v128_or(wasm_i32x4_shl(wasm_v128_and(v, wasm_i32x4_splat(0x3f)), 2),
                      wasm_u32x4_shr(wasm_v128_and(v, wasm_i32x4_splat(0x3000)), 12)),
@@ -68,7 +67,10 @@ uint64_t render(uint32_t size) {
     uint32_t out = 0;
     uint32_t i = 0;
 #ifdef QIP_SIMD
-    while (i + 16 < size && decode_16(i, out)) {
+    // Only the last quartet can contain padding. Decode every complete
+    // unpadded vector, including the final one when there is no padding.
+    uint32_t simd_end = size - (size != 0 && input[size - 1] == '=' ? 4 : 0);
+    while (i + 16 <= simd_end && decode_16(i, out)) {
         i += 16;
         out += 12;
     }

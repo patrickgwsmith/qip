@@ -51,54 +51,52 @@
   ;; decoder, which reports the same first failing byte offset as before.
   (func $decode16 (param $in i32) (param $out i32) (result i32)
     (local $x v128)
-    (local $upper v128)
-    (local $lower v128)
-    (local $digit v128)
-    (local $plus v128)
-    (local $slash v128)
+    (local $hash v128)
+    (local $low v128)
+    (local $min v128)
+    (local $max v128)
     (local $v v128)
     (local $y v128)
 
     (local.set $x
       (v128.load (i32.add (global.get $input_ptr) (local.get $in))))
-    (local.set $upper
-      (v128.and
-        (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 65)))
-        (i8x16.le_u (local.get $x) (i8x16.splat (i32.const 90)))))
-    (local.set $lower
-      (v128.and
-        (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 97)))
-        (i8x16.le_u (local.get $x) (i8x16.splat (i32.const 122)))))
-    (local.set $digit
-      (v128.and
-        (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 48)))
-        (i8x16.le_u (local.get $x) (i8x16.splat (i32.const 57)))))
-    (local.set $plus (i8x16.eq (local.get $x) (i8x16.splat (i32.const 43))))
-    (local.set $slash (i8x16.eq (local.get $x) (i8x16.splat (i32.const 47))))
+    ;; The high nibble selects a small SIMD table entry. '/' needs its own
+    ;; index; low-nibble bounds then validate every ASCII range exactly.
+    (local.set $hash
+      (i8x16.sub
+        (v128.and
+          (i16x8.shr_u (local.get $x) (i32.const 4))
+          (i8x16.splat (i32.const 15)))
+        (v128.and
+          (i8x16.eq (local.get $x) (i8x16.splat (i32.const 47)))
+          (i8x16.splat (i32.const 1)))))
+    (local.set $low
+      (v128.and (local.get $x) (i8x16.splat (i32.const 15))))
+    (local.set $min
+      (i8x16.swizzle
+        (v128.const i8x16 255 15 11 0 1 0 1 0 255 255 255 255 255 255 255 255)
+        (local.get $hash)))
+    (local.set $max
+      (i8x16.swizzle
+        (v128.const i8x16 0 15 11 9 15 10 15 10 0 0 0 0 0 0 0 0)
+        (local.get $hash)))
     (if
       (i32.ne
         (i8x16.bitmask
-          (v128.or
-            (v128.or (local.get $upper) (local.get $lower))
-            (v128.or
-              (local.get $digit)
-              (v128.or (local.get $plus) (local.get $slash)))))
+          (v128.and
+            (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 43)))
+            (v128.and
+              (i8x16.ge_u (local.get $low) (local.get $min))
+              (i8x16.le_u (local.get $low) (local.get $max)))))
         (i32.const 65535))
       (then (return (i32.const 0))))
 
     (local.set $v
-      (v128.or
-        (v128.or
-          (v128.and (local.get $upper)
-            (i8x16.sub (local.get $x) (i8x16.splat (i32.const 65))))
-          (v128.and (local.get $lower)
-            (i8x16.sub (local.get $x) (i8x16.splat (i32.const 71)))))
-        (v128.or
-          (v128.and (local.get $digit)
-            (i8x16.add (local.get $x) (i8x16.splat (i32.const 4))))
-          (v128.or
-            (v128.and (local.get $plus) (i8x16.splat (i32.const 62)))
-            (v128.and (local.get $slash) (i8x16.splat (i32.const 63)))))))
+      (i8x16.add
+        (local.get $x)
+        (i8x16.swizzle
+          (v128.const i8x16 0 16 19 4 191 191 185 185 0 0 0 0 0 0 0 0)
+          (local.get $hash))))
 
     ;; Each 32-bit lane holds four 6-bit values. Shift and mask them into
     ;; three output bytes, then shuffle away each lane's unused fourth byte.
@@ -129,6 +127,7 @@
   (func (export "render") (param $input_size i32) (result i64)
     (local $input_idx i32)
     (local $output_idx i32)
+    (local $simd_end i32)
     (local $c1 i32)
     (local $c2 i32)
     (local $c3 i32)
@@ -152,13 +151,26 @@
           (local.set $output_idx (call $reject (local.get $input_size)))
           (br $finish)))
 
-    ;; Leave the final 16 bytes for the scalar path so padding stays there.
+    ;; Only the final quartet can contain padding. A complete final vector
+    ;; can use SIMD when the last input byte is not '='.
+    (local.set $simd_end (local.get $input_size))
+    (if (local.get $input_size)
+      (then
+        (if
+          (i32.eq
+            (i32.load8_u
+              (i32.add (global.get $input_ptr)
+                (i32.sub (local.get $input_size) (i32.const 1))))
+            (i32.const 61))
+          (then
+            (local.set $simd_end
+              (i32.sub (local.get $simd_end) (i32.const 4)))))))
     (block $simd_done
       (loop $simd_groups
         (br_if $simd_done
-          (i32.ge_u
+          (i32.gt_u
             (i32.add (local.get $input_idx) (i32.const 16))
-            (local.get $input_size)))
+            (local.get $simd_end)))
         (br_if $simd_done
           (i32.eqz (call $decode16 (local.get $input_idx) (local.get $output_idx))))
         (local.set $input_idx (i32.add (local.get $input_idx) (i32.const 16)))

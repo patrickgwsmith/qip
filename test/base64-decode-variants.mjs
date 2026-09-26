@@ -57,6 +57,21 @@ for (let n = 0; n < 256; n++) {
   }
 }
 
+// Every byte value in every vector lane must preserve the scalar decoder's
+// output or exact rejection offset, including the final unpadded vector.
+const vectorInput = Buffer.from("QUJD".repeat(12));
+for (let offset = 0; offset < vectorInput.length; offset++) {
+  for (let byte = 0; byte < 256; byte++) {
+    const candidate = Buffer.from(vectorInput);
+    candidate[offset] = byte;
+    try {
+      check(candidate);
+    } catch (error) {
+      throw new Error(`vector byte ${byte} at offset ${offset}`, { cause: error });
+    }
+  }
+}
+
 const maxBytes = Buffer.alloc(49152);
 for (let i = 0; i < maxBytes.length; i++) maxBytes[i] = nextByte();
 for (const length of [49150, 49151, 49152]) {
