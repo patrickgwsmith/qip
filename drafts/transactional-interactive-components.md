@@ -706,7 +706,7 @@ Interactive transaction and `commit` validates them together.
 Presentation size remains a host concern. A browser can scale the committed
 framebuffer to its CSS dimensions without changing the component's output.
 
-See [Formats and Encodings](/docs/formats#image-container-names-and-pixel-format-names)
+See [Formats and Encodings](/docs/formats#qip-ktx2-profiles)
 for the canonical KTX2 profile.
 
 ## Host Loops

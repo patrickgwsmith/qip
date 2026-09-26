@@ -68,42 +68,43 @@ QIP supports two payload layouts in a small subset of KTX2:
 | RGBA8 sRGB | `VK_FORMAT_R8G8B8A8_SRGB`, 4 bytes per pixel | General 8-bit Content images. |
 | RGBA32F | `VK_FORMAT_R32G32B32A32_SFLOAT`, 16 bytes per pixel | Linear BT.709, linear Display P3, or transfer-encoded Display P3 data. |
 
+### Declaring the profile in the content type
+
+`image/ktx2` alone does not say which profile a component reads or writes, so
+components declare it with content-type parameters that mirror the KTX2 header
+and Data Format Descriptor fields:
+
+```text
+image/ktx2; vkFormat=R8G8B8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
+image/ktx2; vkFormat=B8G8R8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=LINEAR
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=SRGB
+```
+
+The values are the Vulkan `VK_FORMAT_*` and Khronos Data Format
+`KHR_DF_PRIMARIES_*` and `KHR_DF_TRANSFER_*` enumerants without their prefixes,
+in the specifications' own casing. Parameter names are case-insensitive;
+values are case-sensitive. The canonical spelling is the lowercase media type
+followed by `; name=value` for each parameter, and the runtime rejects other
+spellings.
+
+A pipeline matches content types on the media type. A parameter a component
+declares must match when the incoming content also carries it, so an RGBA8
+output is refused by an RGBA32F input before the component runs. A bare
+`image/ktx2` still matches any profile, which keeps older components valid.
+
+Component filenames may abbreviate a profile, such as
+`ktx2-rgba32float-display-p3-linear`. The content-type declaration and KTX2
+header define the format; the filename does not have to repeat the MIME
+parameter names or their exact values.
+
 Each profile contains one uncompressed image. The profiles do not accept
 compressed textures, mipmaps, arrays, or cubemaps. Keep linear float data
 between operations that need it. Convert the final image when transfer size is
 the main constraint. See the
 [KTX2 component documentation](https://github.com/royalicing/qip/blob/main/image/ktx2/README.md)
 for the complete profiles.
-
-### Image container names and pixel format names
-
-An image component name can identify a file container, a pixel layout, and a
-color interpretation. For example, `bmp-b8g8r8a8-srgb` identifies a complete
-BMP file. The pixels have four 8-bit channels in BGRA order. QIP interprets the
-color channels as sRGB.
-
-`B8G8R8A8_SRGB` identifies only a Vulkan pixel format. It does not identify a
-complete file.
-
-```text
-bmp-b8g8r8a8-srgb             ktx2-r8g8b8a8-srgb
-BMP container                 KTX2 container
-BGRA, 8 bits per channel      VK_FORMAT_R8G8B8A8_SRGB
-top-down or bottom-up    -->  top-down (`rd`), RGBA
-```
-
-The adapter changes the container and channel order. The adapter also reverses
-bottom-up BMP rows. A float adapter converts 8-bit sRGB values to linear
-32-bit float values.
-
-The container prefix is part of the component contract.
-`ktx2-r8g8b8a8-srgb` is a complete KTX2 file. `b8g8r8a8-srgb` identifies only
-the pixels. It does not specify headers, dimensions, or row orientation.
-
-The `-srgb` suffix states QIP's color interpretation. A standard BMP header
-does not always identify sRGB. QIP treats an unprofiled BMP for this profile as
-sRGB. Use `bmp-b8g8r8a8-icc-to-srgb` first when a BMP has a different
-International Color Consortium (ICC) profile.
 
 ## Text, markup, and structured data
 

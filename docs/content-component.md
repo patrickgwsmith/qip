@@ -133,9 +133,10 @@ and generic bytes need no `application/octet-stream`; those declarations would
 needlessly narrow pipeline matching. Use metadata for specific formats such as
 `text/markdown` or `image/ktx2`. See [Formats and Encodings](/docs/formats).
 
-Except for multipart below, the value is one lowercase media type with no
-whitespace, media ranges, lists, or parameters. Hosts compare it byte for byte;
-they do not trim or normalize it. Pointer, size, and bytes are module constants.
+Except for the two forms below, the value is one lowercase media type with no
+whitespace, media ranges, lists, or parameters. Hosts compare ordinary types
+byte for byte; they do not trim or normalize them. Pointer, size, and bytes are
+module constants.
 In the strict artifact profile, each getter has the constant form described
 above, and the bytes occupy initial memory in one non-overlapping active data
 segment. A start function or `render` must not assemble them. Tooling can then
@@ -143,12 +144,12 @@ read the type from Wasm sections without instantiating the module.
 
 <h3 id="multipart-form-data">Multipart form data</h3>
 
-The only allowed parameterized type is
+The multipart parameterized type has exactly this form:
 `multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000`.
 The `uuid-` prefix is fixed; the following 36 bytes are a canonical lowercase
 UUID (`8-4-4-4-12`, hexadecimal digits and hyphens). The declaration is
 unquoted, has no extra whitespace or parameters, and its initial UUID is in
-the active data segment. Other parameterized or multipart types are invalid.
+the active data segment. Other multipart types and parameters are invalid.
 
 Before `render`, the host may replace exactly those 36 bytes in exported memory.
 It leaves the pointer, size, prefix, and other bytes unchanged. A producer
@@ -168,6 +169,36 @@ general string uniform. The repository's
 `application/wasm/wasm-read-input-content-type.wasm` reads this metadata; it
 traps on an invalid static declaration.
 
+<h3 id="ktx2-profile-metadata">KTX2 profile metadata</h3>
+
+QIP permits these `image/ktx2` declarations for profile matching inside a
+pipeline:
+
+```text
+image/ktx2; vkFormat=R8G8B8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
+image/ktx2; vkFormat=B8G8R8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=LINEAR
+image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=SRGB
+```
+
+The parameters are fixed module metadata. MIME parameter names are
+case-insensitive, but QIP exports use the spelling, order, and spacing above.
+Values are case-sensitive; no other KTX2 parameters are allowed. They must
+agree with the output's KTX2 `vkFormat` and Data Format Descriptor, or with
+the input profile the component accepts. See [QIP KTX2 profiles](/docs/formats#qip-ktx2-profiles)
+for the remaining image constraints. IANA registers `image/ktx2` with no
+optional parameters, so these are QIP pipeline annotations. Use bare
+`image/ktx2` when sending the image through HTTP or another general MIME
+interface. [IANA registration](https://www.iana.org/assignments/media-types/image/ktx2)
+
+When both stages declare a profile, their parameters must match. Bare
+`image/ktx2` carries no profile guarantee. A pipeline may still run an older
+component that declares only the bare type, but the receiving component must
+check the KTX2 header and reject an unsupported profile. A host must not infer
+profile compatibility from a bare declaration. A component that accepts several
+profiles also declares the bare type and checks the header on each call.
+
 ## Pipeline composition
 
 The host validates arbitrary bytes before they enter `input_utf8_cap`; encoding
@@ -183,7 +214,7 @@ The host also tracks an optional MIME type:
 | Boundary | Rule |
 | --- | --- |
 | Initial input | A caller-provided type is authoritative. Direct stdin or `-i` input to `qip run` has no separate type channel; without an initial type, the first stage is permitted. |
-| Stage input | A declared type must match the tracked type exactly. Without metadata, UTF-8 input accepts any valid UTF-8 and bytes input accepts any bytes. |
+| Stage input | A declared type must match the tracked type exactly, except for KTX2 profile matching above. Without metadata, UTF-8 input accepts any valid UTF-8 and bytes input accepts any bytes. |
 | Stage output | A declared type replaces the tracked type. Otherwise UTF-8-to-UTF-8 and output through `output_bytes_cap` preserve it; bytes-to-UTF-8 makes it unspecified. |
 
 ## Repeated renders and memory

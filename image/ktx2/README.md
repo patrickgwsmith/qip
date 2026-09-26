@@ -3,8 +3,8 @@
 KTX2 is the container. Names such as `VK_FORMAT_B8G8R8A8_SRGB` and
 `VK_FORMAT_R32G32B32A32_SFLOAT` describe the pixel payload inside that
 container. They are not complete interchange formats by themselves. See
-[Image container names and pixel format names](../../../docs/formats.md#image-container-names-and-pixel-format-names)
-for diagrams of the BMP and KTX2 layers and the repository's naming rules.
+[QIP KTX2 profiles](../../../docs/formats.md#qip-ktx2-profiles) for the
+supported content-type declarations and profile matching rules.
 
 QIP uses `VK_FORMAT_R8G8B8A8_SRGB` as its canonical general-purpose 8-bit
 Content image. Its top-down RGBA payload matches Canvas `ImageData` channel
@@ -24,7 +24,8 @@ profile remains float32; it is not a packed binary16 payload.
 
 The original linear working profile is intentionally narrow:
 
-- MIME type: `image/ktx2`
+- MIME type: `image/ktx2`, declared by components as
+  `image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR`
 - `vkFormat`: `VK_FORMAT_R32G32B32A32_SFLOAT` (109)
 - one 2D image, one mip level, one face, and no array layers
 - no supercompression
