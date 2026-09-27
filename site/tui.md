@@ -6,6 +6,39 @@ qip-tui + pre code,
   font-size: 1.125rem;
   line-height: 1.5;
 }
+copy-code {
+  position: relative;
+  display: block;
+}
+copy-code > pre {
+  margin-block-end: 0;
+}
+copy-code > pre > code.hljs {
+  padding-inline-end: 7.5rem;
+}
+copy-code > button {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.6rem;
+  display: block;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #547087;
+  border-radius: 0.35rem;
+  background: #1d394d;
+  color: #f5f9fc;
+  font: inherit;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  cursor: pointer;
+}
+copy-code > button:hover { background: #2b526c; }
+copy-code > button:focus-visible { outline: 2px solid #3ec9f5; outline-offset: 2px; }
+@media (max-width: 520px) {
+  copy-code > pre > code.hljs {
+    padding-block-start: 3.25rem;
+    padding-inline-end: 0.85rem;
+  }
+}
 .tui-flow {
   margin-block: 1.5rem;
   padding: 1rem;
@@ -154,7 +187,7 @@ The same component works in a terminal via `qiptui` and in the browser via `<qip
   </div>
   <hr>
   <em>
-    User input cannot trigger any further network activity: no tracking or <a href="https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/">exfiltration</a> of user data.
+    TUI keyboard input cannot trigger network activity through qiptui: no tracking or <a href="https://simonwillison.net/2025/Jun/16/the-lethal-trifecta/">exfiltration</a> of user data.
   </em>
 </figure>
 

@@ -33,7 +33,7 @@ test("chronograph exposes a Timed canonical KTX2 component", () => {
     exports.output_content_type_ptr(),
     exports.output_content_type_size(),
   ));
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(contentType.split(";")[0].trim(), "image/ktx2");
 
   assert.ok(Math.abs(exports.uniform_set_current_seconds(75.39) - 15.2) < 0.001);
   const size = renderSize(exports, 0);

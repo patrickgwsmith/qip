@@ -376,10 +376,66 @@ function declaredType(exports, prefix, label) {
   return type;
 }
 
+// A lowercase media type, optionally followed by ";name=value" parameters with no whitespace
+// anywhere. Parameter names are case-insensitive; values are case-sensitive and kept
+// verbatim, as in "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
+// multipart/form-data is valid only in its canonical placeholder-boundary form.
 function validateContentType(type, label = "content type") {
-  if (/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(type)) return;
   if (type === "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000") return;
+  if (
+    !String(type).startsWith("multipart/form-data") &&
+    /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:;[A-Za-z0-9!#$&^_.+-]+=[^\s;"=]+)*$/.test(type)
+  ) return;
   throw new Error(`invalid ${label}: ${type}`);
+}
+
+// Parameters are keyed by lowercase name; `names` keeps each name's declared spelling.
+function parseContentType(value) {
+  const segments = String(value ?? "").split(";");
+  const mediaType = segments[0].trim().toLowerCase();
+  const params = new Map();
+  const names = new Map();
+  for (const segment of segments.slice(1)) {
+    const eq = segment.indexOf("=");
+    if (eq === -1) continue;
+    const declaredName = segment.slice(0, eq).trim();
+    const name = declaredName.toLowerCase();
+    if (name === "") continue;
+    params.set(name, segment.slice(eq + 1).trim());
+    names.set(name, declaredName);
+  }
+  return { mediaType, params, names };
+}
+
+// Whether content of type `incoming` satisfies a declared `expected` type: the media types
+// must match, and any parameter both declare must have the same value. A parameter only
+// one side declares is not required, so bare declarations keep matching.
+function contentTypeAccepts(expected, incoming) {
+  return contentTypeMismatch(expected, incoming) === "";
+}
+
+// Renders the incoming type for an "expected A, got B" message: only its parameters when it
+// shares the media type with `expected`, since repeating the media type adds nothing.
+function incomingForMessage(expected, incoming) {
+  if (parseContentType(expected).mediaType !== parseContentType(incoming).mediaType) return incoming;
+  const cut = String(incoming).indexOf(";");
+  return cut === -1 ? incoming : String(incoming).slice(cut + 1).trim();
+}
+
+// Why `incoming` does not satisfy `expected`, or "" when it does: the media types differ,
+// or every parameter both declare with different values. Shared wording across QIP hosts.
+function contentTypeMismatch(expected, incoming) {
+  const want = parseContentType(expected);
+  const got = parseContentType(incoming);
+  if (want.mediaType !== got.mediaType) return `media type expected ${want.mediaType} got ${got.mediaType}`;
+  const details = [];
+  for (const [name, value] of want.params) {
+    if (got.params.has(name) && got.params.get(name) !== value) {
+      const shown = want.names.get(name);
+      details.push(`${shown} expected ${value} got ${got.params.get(name)}`);
+    }
+  }
+  return details.join("; ");
 }
 
 function optionalContentType(type, label = "contentType") {
@@ -439,7 +495,7 @@ function assertComponentContract(component, field, expected) {
   if (expected === undefined) return;
   if (!isContentType(expected)) throw new Error(`${field} must be contentTypeUTF8(...) or contentTypeBytes(...)`);
   const actual = component[field];
-  if (actual.encoding !== expected.encoding || (expected.mediaType !== undefined && actual.mediaType !== expected.mediaType)) {
+  if (actual.encoding !== expected.encoding || (expected.mediaType !== undefined && !contentTypeAccepts(expected.mediaType, actual.mediaType))) {
     throw new Error(`${component.label} ${field} contract mismatch: expected ${describeContentType(expected)}, got ${describeContentType(actual)}`);
   }
 }
@@ -999,57 +1055,85 @@ export class ContentRejection extends Error {
   }
 }
 
-function runStage(stage, input) {
+// `stepNumber`, when given, prefixes failure messages with the step as every QIP host does:
+// "step 2 <path> rejected input at input offset 7", "step 1 <path> trapped: <reason>".
+function runStage(stage, input, stepNumber) {
   applyUniforms(stage);
+  const label = stepNumber === undefined ? stage.label : `step ${stepNumber} ${stage.label}`;
   const { exports } = stage.component;
   if (stage.inputless) {
-    if (input.byteLength !== 0) throw new RangeError(`${stage.label} is an inputless generator and cannot receive input bytes`);
+    if (input.byteLength !== 0) throw new RangeError(`${label} is an inputless generator and cannot receive input bytes`);
   } else {
     const inputPointer = exportedValue(exports, "input_ptr", stage.label);
     const inputCapacity = exportedValue(exports, stage.inputCapName, stage.label);
-    if (input.byteLength > inputCapacity || inputPointer + input.byteLength > exports.memory.buffer.byteLength) {
-      throw new RangeError(`${stage.label} input exceeds its capacity`);
+    if (input.byteLength > inputCapacity) {
+      throw new RangeError(`${label} input is too large (${input.byteLength} bytes > ${inputCapacity} bytes input capacity)`);
+    }
+    if (inputPointer + input.byteLength > exports.memory.buffer.byteLength) {
+      throw new RangeError(`${label} input exceeds linear memory`);
     }
     new Uint8Array(exports.memory.buffer, inputPointer, input.byteLength).set(input);
   }
-  const renderResult = exports.render(stage.inputless ? 0 : input.byteLength);
+  let renderResult;
+  try {
+    renderResult = exports.render(stage.inputless ? 0 : input.byteLength);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw new Error(`${label} trapped: ${error.message}`);
+    throw error;
+  }
   if (typeof renderResult !== "bigint") {
-    throw new TypeError(`${stage.label} render export must have signature render(i32) -> i64`);
+    throw new TypeError(`${label} render export must have signature render(i32) -> i64`);
   }
   const bits = BigInt.asUintN(64, renderResult);
   const outputLength = Number(bits & 0xffff_ffffn);
   if ((bits & (1n << 63n)) !== 0n) {
     if (typeof exports.failure_modes_per_input_offset !== "function") {
-      throw new TypeError(`${stage.label} returned failure without failure_modes_per_input_offset`);
+      throw new TypeError(`${label} returned failure without failure_modes_per_input_offset`);
     }
     const failureModesPerInputOffset = exportedValue(
       exports,
       "failure_modes_per_input_offset",
       stage.label,
     );
-    throw new ContentRejection(
+    const rejection = new ContentRejection(
       stage.label,
       failureModesPerInputOffset === 0 ? undefined : Math.floor(outputLength / failureModesPerInputOffset),
       failureModesPerInputOffset === 0 ? undefined : outputLength % failureModesPerInputOffset,
     );
+    if (stepNumber !== undefined) rejection.message = `step ${stepNumber} ${rejection.message}`;
+    throw rejection;
   }
   const outputPointer = Number((bits >> 32n) & 0x7fff_ffffn);
   const outputCapacity = exportedValue(exports, stage.outputCapName, stage.label);
   if (outputLength > outputCapacity || outputPointer + outputLength > exports.memory.buffer.byteLength) {
-    throw new RangeError(`${stage.label} returned an invalid output length`);
+    throw new RangeError(`${label} returned an invalid output length`);
   }
   return new Uint8Array(exports.memory.buffer, outputPointer, outputLength).slice();
 }
 
-function resolveStageInputType(stage, currentType, allowMissingInputContentType) {
+function resolveStageInputType(stage, currentType, allowMissingInputContentType, index = 0, previous = null) {
   if (stage.inputless) return "";
   let effectiveType = currentType;
   if (!effectiveType && stage.inputType.mediaType && allowMissingInputContentType) effectiveType = stage.inputType.mediaType;
-  if (stage.inputType.mediaType && effectiveType !== stage.inputType.mediaType) {
-    if (!effectiveType) throw new Error(`${stage.label} expects ${stage.inputType.mediaType}, but pipeline content type is unspecified`);
-    throw new Error(`${stage.label} expects ${stage.inputType.mediaType}, got ${effectiveType}`);
+  if (stage.inputType.mediaType) {
+    const step = `step ${index + 1} ${stage.label}`;
+    if (!effectiveType) throw new Error(`${step} expected ${stage.inputType.mediaType}, but pipeline content type is unspecified`);
+    const mismatch = contentTypeMismatch(stage.inputType.mediaType, effectiveType);
+    if (mismatch !== "") {
+      const source = previous ? ` from step ${previous.index + 1} ${previous.stage.label}` : "";
+      throw new Error(`${step} expected ${stage.inputType.mediaType}, got ${incomingForMessage(stage.inputType.mediaType, effectiveType)}${source}: ${mismatch}`);
+    }
   }
   return effectiveType;
+}
+
+// The most recent stage whose output set the pipeline's content type.
+function previousTypedStage(stages, index) {
+  for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+    const stage = stages[candidate];
+    if (stage.outputType.mediaType || !stage.clearsContentType) return { stage, index: candidate };
+  }
+  return null;
 }
 
 function nextContentType(stage, effectiveInputType) {
@@ -1072,19 +1156,87 @@ function parseU32Flag(name, value) {
   return Number(parsed);
 }
 
+// The byte offset of the first invalid UTF-8 sequence in `bytes`, or -1 when it is all valid.
+// Follows the Unicode well-formed byte sequence table, so overlong forms and surrogates are
+// invalid. The offset matches the "input offset" a rejecting component reports.
+function firstInvalidUTF8Offset(bytes) {
+  const n = bytes.length;
+  let i = 0;
+  while (i < n) {
+    const b = bytes[i];
+    if (b < 0x80) { i += 1; continue; }
+    let need;
+    let lo = 0x80;
+    let hi = 0xbf;
+    if (b >= 0xc2 && b <= 0xdf) need = 1;
+    else if (b === 0xe0) { need = 2; lo = 0xa0; }
+    else if (b >= 0xe1 && b <= 0xec) need = 2;
+    else if (b === 0xed) { need = 2; hi = 0x9f; }
+    else if (b >= 0xee && b <= 0xef) need = 2;
+    else if (b === 0xf0) { need = 3; lo = 0x90; }
+    else if (b >= 0xf1 && b <= 0xf3) need = 3;
+    else if (b === 0xf4) { need = 3; hi = 0x8f; }
+    else return i;
+    if (i + need >= n) return i;
+    const second = bytes[i + 1];
+    if (second < lo || second > hi) return i;
+    for (let k = 2; k <= need; k += 1) {
+      const c = bytes[i + k];
+      if (c < 0x80 || c > 0xbf) return i;
+    }
+    i += need + 1;
+  }
+  return -1;
+}
+
+// The pipeline's own input is validated for a UTF-8 first stage, because nothing before it
+// established the guarantee. Later stages trust the preceding UTF-8 output.
+function checkInitialUTF8(stage, input) {
+  if (stage.inputless || stage.inputType.encoding !== "utf8") return;
+  const offset = firstInvalidUTF8Offset(input);
+  if (offset !== -1) throw new Error(`step 1 ${stage.label} expected UTF-8 input, got invalid UTF-8 at input offset ${offset}`);
+}
+
+// A UTF-8 output may feed a bytes input; a bytes output may not feed a UTF-8 input, because
+// the host never re-validates bytes and a UTF-8 component relies on valid input.
+function checkStageEncoding(stages, index) {
+  const stage = stages[index];
+  if (stage.inputless || index === 0) return;
+  const previous = stages[index - 1];
+  const incoming = previous.outputType.encoding;
+  const expected = stage.inputType.encoding;
+  if (incoming === expected || (incoming === "utf8" && expected === "bytes")) return;
+  throw new Error(`step ${index + 1} ${stage.label} expected UTF-8 input, got bytes from step ${index} ${previous.label}`);
+}
+
+function checkStagePosition(stages, index) {
+  if (stages[index].inputless && index !== 0) {
+    throw new Error(`step ${index + 1} ${stages[index].label} inputless generator must be the first pipeline stage`);
+  }
+}
+
+// The capacity note and error share their wording with qip and the Rust qipx.
+function capacityOverflow(stages, index) {
+  if (index === 0 || stages[index].inputless) return null;
+  const previous = stages[index - 1];
+  if (previous.outputCapacity <= stages[index].inputCapacity) return null;
+  return { previous, stage: stages[index], index };
+}
+
 function validatePipeline(stages, options = {}) {
   if (!Array.isArray(stages) || stages.length === 0) throw new Error("at least one component is required");
   let currentType = "";
   stages.forEach((stage, index) => {
-    if (stage.inputless && index !== 0) throw new Error(`${stage.label} inputless generator must be the first pipeline stage`);
-    const effectiveType = resolveStageInputType(stage, currentType, index === 0);
-    currentType = nextContentType(stage, effectiveType);
-    if (options.capacitiesMustFit && index + 1 < stages.length) {
-      const nextStage = stages[index + 1];
-      if (stage.outputCapacity > nextStage.inputCapacity) {
-        throw new Error(`${stage.label} output capacity ${stage.outputCapacity} exceeds ${nextStage.label} input capacity ${nextStage.inputCapacity}`);
-      }
+    checkStagePosition(stages, index);
+    checkStageEncoding(stages, index);
+    const overflow = capacityOverflow(stages, index);
+    if (overflow && options.capacitiesMustFit) {
+      throw new Error(
+        `step ${index + 1} ${stage.label} input capacity ${formatBytes(stage.inputCapacity)} cannot fit step ${index} ${overflow.previous.label} output capacity ${formatBytes(overflow.previous.outputCapacity)}`,
+      );
     }
+    const effectiveType = resolveStageInputType(stage, currentType, index === 0, index, previousTypedStage(stages, index));
+    currentType = nextContentType(stage, effectiveType);
   });
   const last = stages.at(-1);
   return Object.freeze({
@@ -1098,8 +1250,11 @@ function runPreparedPipeline(input, pipeline, initialContentType = "") {
   let currentType = initialContentType;
   for (let index = 0; index < pipeline.stages.length; index += 1) {
     const stage = pipeline.stages[index];
-    const effectiveType = resolveStageInputType(stage, currentType, index === 0);
-    output = runStage(stage, output);
+    checkStagePosition(pipeline.stages, index);
+    checkStageEncoding(pipeline.stages, index);
+    if (index === 0) checkInitialUTF8(stage, output);
+    const effectiveType = resolveStageInputType(stage, currentType, index === 0, index, previousTypedStage(pipeline.stages, index));
+    output = runStage(stage, output, index + 1);
     currentType = nextContentType(stage, effectiveType);
   }
   return pipelineResult(output, new ContentType(pipeline.stages.at(-1).outputType.encoding, currentType || undefined));
@@ -1684,7 +1839,7 @@ async function dryRunCommand(argv, hosts) {
 }
 
 function formatBytes(count) {
-  if (count < 1024) return `${count} bytes`;
+  if (count < 1024) return `${count} B`;
   const units = ["KiB", "MiB", "GiB"];
   let value = count;
   let unit = "bytes";
@@ -1708,6 +1863,13 @@ function printDryRunPlan(plan) {
     console.log(`   Buffers: ${formatBytes(buffers)}`);
   });
   console.log(`Total declared buffer capacity: ${formatBytes(total)}`);
+  plan.stages.forEach((stage, index) => {
+    const overflow = capacityOverflow(plan.stages, index);
+    if (!overflow) return;
+    console.log(
+      `   Note: step ${index + 1} ${displayText(stage.label)}: previous output capacity ${formatBytes(overflow.previous.outputCapacity)} exceeds this input capacity ${formatBytes(stage.inputCapacity)}; the run remains valid when the actual intermediate output fits`,
+    );
+  });
 }
 
 async function readStdin() {

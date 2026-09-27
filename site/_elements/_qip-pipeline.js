@@ -105,9 +105,73 @@ function qipPlayReadDeclaredContentType(exportsObj, memory, ptrName, sizeName) {
   }
   const ptr = qipPlayReadI32Export(exportsObj, ptrName);
   const size = qipPlayReadI32Export(exportsObj, sizeName);
-  return new TextDecoder("utf-8", { fatal: true }).decode(
+  return qipPlayCanonicalContentType(new TextDecoder("utf-8", { fatal: true }).decode(
     qipPlayReadSlice(memory, ptr, size, ptrName + "/" + sizeName),
-  ).trim().toLowerCase();
+  ));
+}
+
+// Splits "type/subtype; name=value; ..." into a lowercase media type and a map of
+// parameters keyed by lowercase name. Values are case-sensitive and kept verbatim, as in
+// "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
+function qipPlayParseContentType(value) {
+  const segments = String(value).split(";");
+  const mediaType = segments[0].trim().toLowerCase();
+  const params = new Map();
+  const names = new Map();
+  for (const segment of segments.slice(1)) {
+    const eq = segment.indexOf("=");
+    if (eq === -1) continue;
+    const declaredName = segment.slice(0, eq).trim();
+    const name = declaredName.toLowerCase();
+    const paramValue = segment.slice(eq + 1).trim().replace(/^"(.*)"$/, "$1");
+    if (name === "") continue;
+    params.set(name, paramValue);
+    names.set(name, declaredName);
+  }
+  return { mediaType, params, names };
+}
+
+// The canonical spelling of a declared content type: lowercase media type, then
+// ";name=value" for each parameter in declared order.
+function qipPlayCanonicalContentType(value) {
+  const { mediaType, params } = qipPlayParseContentType(value);
+  if (mediaType === "") return "";
+  let canonical = mediaType;
+  for (const [name, paramValue] of params) canonical += "; " + name + "=" + paramValue;
+  return canonical;
+}
+
+function qipPlayMediaTypeOf(value) {
+  return qipPlayParseContentType(value).mediaType;
+}
+
+// Whether content of type `incoming` satisfies a declared `expected` type: the media types
+// must match, and any parameter both declare must have the same value.
+function qipPlayContentTypeAccepts(expected, incoming) {
+  return qipPlayContentTypeMismatch(expected, incoming) === "";
+}
+
+// Only the incoming parameters when the media types agree, else the whole incoming type.
+function qipPlayIncomingForMessage(expected, incoming) {
+  if (qipPlayMediaTypeOf(expected) !== qipPlayMediaTypeOf(incoming)) return incoming;
+  const cut = String(incoming).indexOf(";");
+  return cut === -1 ? incoming : String(incoming).slice(cut + 1).trim();
+}
+
+// Why `incoming` does not satisfy `expected`, or "" when it does. The wording matches the
+// qip and qipx command-line tools.
+function qipPlayContentTypeMismatch(expected, incoming) {
+  const want = qipPlayParseContentType(expected);
+  const got = qipPlayParseContentType(incoming);
+  if (want.mediaType !== got.mediaType) return "media type expected " + want.mediaType + " got " + got.mediaType;
+  const details = [];
+  for (const [name, paramValue] of want.params) {
+    if (got.params.has(name) && got.params.get(name) !== paramValue) {
+      const shown = want.names.get(name);
+      details.push(shown + " expected " + paramValue + " got " + got.params.get(name));
+    }
+  }
+  return details.join("; ");
 }
 
 function qipPlayStepLabel(stepRecord, index) {
@@ -123,7 +187,9 @@ function qipPlaySourceLabel(sourceElement) {
   return src.split("/").filter(Boolean).at(-1)?.replace(/\.wasm$/i, "") || "source";
 }
 
-function qipPlayValidatePostStage(stage, precedingOutputType) {
+// `precedingOutputUTF8` says whether the preceding stage promises UTF-8 output; a bytes output
+// may not feed a UTF-8 input, because the host never re-validates bytes.
+function qipPlayValidatePostStage(stage, precedingOutputType, precedingOutputUTF8 = true) {
   let expectedInputType = null;
   let expectedOutputType = null;
   for (const candidate of stage.candidates) {
@@ -154,6 +220,9 @@ function qipPlayValidatePostStage(stage, precedingOutputType) {
     if (inputUTF8 === inputBytes || outputUTF8 === outputBytes) {
       throw new Error("qip-play post-processing alternatives must declare exactly one input and output capacity getter");
     }
+    if (inputUTF8 && !precedingOutputUTF8) {
+      throw new Error("qip-play step " + stage.label + " expected UTF-8 input, got bytes from the preceding step");
+    }
     if (expectedInputType === null) {
       expectedInputType = inputType;
       expectedOutputType = outputType;
@@ -166,14 +235,16 @@ function qipPlayValidatePostStage(stage, precedingOutputType) {
     candidate.inputPtr = qipPlayReadI32Export(candidate.exports, "input_ptr");
     candidate.outputCapacity = qipPlayReadI32Export(candidate.exports, outputUTF8 ? "output_utf8_cap" : "output_bytes_cap");
   }
-  if (expectedInputType !== precedingOutputType) {
+  const mismatch = qipPlayContentTypeMismatch(expectedInputType, precedingOutputType);
+  if (mismatch !== "") {
     throw new Error(
-      "qip-play step " + stage.label + " input type " + expectedInputType +
-      " does not match preceding output type " + precedingOutputType,
+      "qip-play step " + stage.label + " expected " + expectedInputType +
+      ", got " + qipPlayIncomingForMessage(expectedInputType, precedingOutputType) + ": " + mismatch,
     );
   }
   stage.inputType = expectedInputType;
   stage.outputType = expectedOutputType;
+  stage.outputUTF8 = typeof stage.candidates[0].exports.output_utf8_cap === "function";
   return expectedOutputType;
 }
 

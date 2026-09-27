@@ -116,8 +116,8 @@ func TestDryRunTreatsInteractiveInitializationAsContent(t *testing.T) {
 	got := output.String()
 	for _, expected := range []string{
 		"gui/tile-world-12x12.wasm — Content",
-		"Input:  encoding=raw bytes, type=unspecified, capacity=none",
-		"Output: encoding=raw bytes, type=image/ktx2",
+		"Input:  encoding=bytes, type=unspecified, capacity=none",
+		"Output: encoding=bytes, type=image/ktx2",
 	} {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("dry-run report missing %q:\n%s", expected, got)
@@ -136,8 +136,16 @@ func TestValidateDeclaredContentTypeRequiresCanonicalMIME(t *testing.T) {
 	if got := normalizeIncomingContentType(multipart); got != multipart {
 		t.Fatalf("normalized multipart=%q, want %q", got, multipart)
 	}
+	ktx2 := "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR"
+	for _, value := range []string{"text/html;charset=utf-8", ktx2} {
+		if got, err := validateDeclaredContentType(value); err != nil || got != value {
+			t.Fatalf("canonical parameterised result=%q error=%v", got, err)
+		}
+	}
 	for _, value := range []string{
-		"Text/HTML", " text/html", "text/html ", "text/html; charset=utf-8",
+		"Text/HTML", " text/html", "text/html ", "text/html; charset=utf-8", "text/html;charset=utf-8 ",
+		"Text/HTML;charset=utf-8", "text/html;charset=\"utf-8\"", "text/html;charset =utf-8",
+		"image/ktx2;vkFormat=R32G32B32A32_SFLOAT;vkFormat=R8G8B8A8_SRGB", "image/ktx2;vkFormat=",
 		"multipart/form-data; boundary=uuid-12345678-90ab-cdef-1234-567890abcdef",
 		"multipart/form-data;boundary=qip-12345678-90ab-cdef-1234-567890abcdef",
 		"multipart/form-data;boundary=uuid-12345678-90AB-cdef-1234-567890abcdef",
@@ -145,6 +153,32 @@ func TestValidateDeclaredContentTypeRequiresCanonicalMIME(t *testing.T) {
 	} {
 		if _, err := validateDeclaredContentType(value); err == nil {
 			t.Fatalf("validateDeclaredContentType(%q) succeeded, want canonical-form error", value)
+		}
+	}
+}
+
+func TestDeclaredContentTypeAcceptsMatchesMediaTypeAndSharedParameters(t *testing.T) {
+	float := "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR"
+	rgba8 := "image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB"
+	for _, pair := range [][2]string{
+		{float, float},
+		{"image/ktx2", float},
+		{float, "image/ktx2"},
+		{float, "image/ktx2; VKFORMAT=R32G32B32A32_SFLOAT"},
+		{"image/ktx2;colorPrimaries=BT709", rgba8},
+	} {
+		if err := declaredContentTypeAccepts(pair[0], pair[1]); err != nil {
+			t.Fatalf("declaredContentTypeAccepts(%q, %q) = %v, want nil", pair[0], pair[1], err)
+		}
+	}
+	for _, pair := range [][2]string{
+		{float, rgba8},
+		{float, "image/ktx2;vkFormat=r32g32b32a32_sfloat"},
+		{float, "image/png"},
+		{"image/png", float},
+	} {
+		if err := declaredContentTypeAccepts(pair[0], pair[1]); err == nil {
+			t.Fatalf("declaredContentTypeAccepts(%q, %q) succeeded, want mismatch", pair[0], pair[1])
 		}
 	}
 }
@@ -179,15 +213,15 @@ func TestCapacitiesMustFitFlagRejectsRunAndDryRunPlans(t *testing.T) {
 			if !config.opts.capacitiesMustFit {
 				t.Fatal("capacitiesMustFit=false, want true")
 			}
-			prepared, err := prepareRunPipelineFromInvocations(context.Background(), config.componentInvocations, config.opts)
+			prepared, err := prepareRunPipelineFromInvocations(context.Background(), config.componentInvocations, config.opts, "")
 			if err == nil {
 				prepared.pipeline.Close(context.Background())
 				t.Fatal("capacity-incompatible pipeline succeeded")
 			}
 			for _, required := range []string{
-				"capacities must fit",
-				"commonmark.0.31.2.wasm) output capacity is 2.0 MiB (2097152 bytes)",
-				"html-page-wrap.wasm) input capacity is 256.0 KiB (262144 bytes)",
+				"cannot fit",
+				"commonmark.0.31.2.wasm output capacity 2.0 MiB (2097152 bytes)",
+				"html-page-wrap.wasm input capacity 256.0 KiB (262144 bytes)",
 			} {
 				if !strings.Contains(err.Error(), required) {
 					t.Fatalf("error=%q, want %q", err, required)
@@ -275,7 +309,7 @@ func TestPreparedContentTileContentPipelineExecutes(t *testing.T) {
 
 	execCtx, cancel := wasmruntime.WithExecutionTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	prepared, err := prepareRunPipelineFromInvocations(execCtx, config.componentInvocations, config.opts)
+	prepared, err := prepareRunPipelineFromInvocations(execCtx, config.componentInvocations, config.opts, "")
 	if err != nil {
 		t.Fatalf("prepareRunPipelineFromInvocations: %v", err)
 	}
@@ -392,7 +426,7 @@ func TestPlanRunPipelineRejectsContentTypeMismatch(t *testing.T) {
 	}
 
 	_, err := planRunPipeline(descriptions)
-	want := `step 2 (html.wasm): content type mismatch: step 1 (json.wasm) output is "application/json", but step 2 (html.wasm) input is "text/html"`
+	want := `step 2 html.wasm expected text/html, got application/json from step 1 json.wasm: media type expected text/html got application/json`
 	if err == nil || err.Error() != want {
 		t.Fatalf("error=%q, want %q", err, want)
 	}
@@ -428,7 +462,7 @@ func TestPlanRunPipelineEncodingSubtyping(t *testing.T) {
 			content("bytes.wasm", dataEncodingRaw, dataEncodingRaw),
 			content("text.wasm", dataEncodingUTF8, dataEncodingUTF8),
 		})
-		if err == nil || !strings.Contains(err.Error(), "input encoding mismatch") {
+		if err == nil || !strings.Contains(err.Error(), "expected UTF-8 input, got bytes") {
 			t.Fatalf("error=%v, want encoding mismatch", err)
 		}
 	})

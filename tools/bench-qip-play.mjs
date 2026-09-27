@@ -51,7 +51,7 @@ async function bench(path) {
   const contentType = new TextDecoder("utf-8", { fatal: true }).decode(
     new Uint8Array(exports.memory.buffer, contentTypePtr, contentTypeSize),
   );
-  if (contentType !== "image/ktx2") throw new Error(`${path}: qip-play output must be image/ktx2`);
+  if (contentType.split(";")[0].trim() !== "image/ktx2") throw new Error(`${path}: qip-play output must be image/ktx2`);
 
   function renderFrame() {
     const result = BigInt.asUintN(64, exports.render(0));

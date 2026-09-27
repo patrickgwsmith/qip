@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/royalicing/qip/internal/wasmruntime"
 	"github.com/tetratelabs/wazero"
@@ -83,10 +84,7 @@ func validateDeclaredContentType(value string) (string, error) {
 		return "", errors.New("content type is empty")
 	}
 	if strings.TrimSpace(value) != value {
-		return "", fmt.Errorf("content type %q must not include whitespace", value)
-	}
-	if strings.ToLower(value) != value {
-		return "", fmt.Errorf("content type %q must be lowercase", value)
+		return "", fmt.Errorf("content type %q must not include leading or trailing whitespace", value)
 	}
 	if strings.Contains(value, ",") {
 		return "", errors.New("content type must contain exactly one MIME type")
@@ -94,23 +92,98 @@ func validateDeclaredContentType(value string) (string, error) {
 	if isCanonicalMultipartFormDataContentType(value) {
 		return value, nil
 	}
-	mediaType, params, err := mime.ParseMediaType(value)
+	mediaType, _, err := mime.ParseMediaType(value)
 	if err != nil {
 		return "", fmt.Errorf("invalid content type %q: %w", value, err)
 	}
 	if mediaType == "" {
 		return "", errors.New("content type is empty")
 	}
-	if len(params) > 0 {
-		return "", fmt.Errorf("content type %q has parameters outside the canonical multipart/form-data boundary exception", value)
-	}
 	if strings.Contains(mediaType, "*") {
 		return "", fmt.Errorf("content type %q must not include media ranges", value)
 	}
-	if mediaType != value {
-		return "", fmt.Errorf("content type %q must be one canonical MIME type", value)
+	if mediaType == "multipart/form-data" {
+		return "", fmt.Errorf("content type %q must use the canonical multipart/form-data boundary form", value)
+	}
+	// Canonical form: the lowercase media type, then each parameter as ";name=value" with no
+	// whitespace anywhere. Parameter names are case-insensitive but declared once in their
+	// specification's spelling; values are case-sensitive and kept verbatim, for example
+	// "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
+	segments := strings.Split(value, ";")
+	if segments[0] != mediaType {
+		return "", fmt.Errorf("content type %q must begin with the lowercase media type %q", value, mediaType)
+	}
+	for _, parameter := range segments[1:] {
+		name, parameterValue, ok := strings.Cut(parameter, "=")
+		if !ok || name == "" || parameterValue == "" || strings.ContainsAny(parameter, " \t\"") {
+			return "", fmt.Errorf("content type %q parameter %q must be name=value without whitespace or quotes", value, parameter)
+		}
 	}
 	return value, nil
+}
+
+// declaredContentTypeAccepts reports whether an incoming content type satisfies a module's
+// declared one. Media types must match; a parameter the module declares must match when the
+// incoming type also carries it, and is not required otherwise. Values compare verbatim.
+func declaredContentTypeAccepts(declared, incoming string) error {
+	if mismatch := contentTypeMismatch(declared, incoming); mismatch != "" {
+		return fmt.Errorf("expected %s, got %s: %s", declared, incomingForMessage(declared, incoming), mismatch)
+	}
+	return nil
+}
+
+// incomingForMessage renders the incoming type for an "expected A, got B" message. When both
+// share the media type only the incoming parameters are shown, since repeating the media type
+// adds nothing; otherwise the whole incoming type is shown.
+func incomingForMessage(declared, incoming string) string {
+	declaredType := normalizeIncomingContentType(declared)
+	incomingType := normalizeIncomingContentType(incoming)
+	if declaredType != incomingType {
+		return incoming
+	}
+	if cut := strings.IndexByte(incoming, ';'); cut != -1 {
+		return strings.TrimSpace(incoming[cut+1:])
+	}
+	return incoming
+}
+
+// contentTypeMismatch explains why incoming does not satisfy declared, or returns "" when it
+// does: the media types differ, or every parameter both declare with different values. The
+// wording is shared across QIP hosts.
+func contentTypeMismatch(declared, incoming string) string {
+	declaredType, declaredParams, err := mime.ParseMediaType(declared)
+	if err != nil {
+		declaredType, declaredParams = normalizeIncomingContentType(declared), nil
+	}
+	incomingType, incomingParams, err := mime.ParseMediaType(incoming)
+	if err != nil {
+		incomingType, incomingParams = normalizeIncomingContentType(incoming), nil
+	}
+	if incomingType != declaredType {
+		return fmt.Sprintf("media type expected %s got %s", declaredType, incomingType)
+	}
+	// Report in declared order with the declared spelling, so messages read the same as
+	// the other QIP hosts' and show `vkFormat` rather than `vkformat`.
+	var details []string
+	for _, shown := range declaredParameterNames(declared) {
+		name := strings.ToLower(shown)
+		if got, ok := incomingParams[name]; ok && got != declaredParams[name] {
+			details = append(details, fmt.Sprintf("%s expected %s got %s", shown, declaredParams[name], got))
+		}
+	}
+	return strings.Join(details, "; ")
+}
+
+// declaredParameterNames lists a content type's parameter names in declared order and spelling.
+func declaredParameterNames(contentType string) []string {
+	var names []string
+	for _, segment := range strings.Split(contentType, ";")[1:] {
+		name, _, ok := strings.Cut(segment, "=")
+		if ok && strings.TrimSpace(name) != "" {
+			names = append(names, strings.TrimSpace(name))
+		}
+	}
+	return names
 }
 
 func readOptionalModuleContentType(ctx context.Context, mod api.Module, prefix string) (string, bool, error) {
@@ -263,18 +336,19 @@ func resolveRunModuleContentType(contract runModuleContract, incomingContentType
 		}
 		return "", "", nil
 	}
-	incomingContentType = normalizeIncomingContentType(incomingContentType)
-	effectiveInputType = incomingContentType
+	incomingFull := strings.TrimSpace(incomingContentType)
+	effectiveInputType = normalizeIncomingContentType(incomingContentType)
 	if effectiveInputType == "" && contract.hasDeclaredInputContentType && allowMissingInputContentType {
-		effectiveInputType = contract.declaredInputContentType
+		incomingFull = contract.declaredInputContentType
+		effectiveInputType = normalizeIncomingContentType(incomingFull)
 	}
 
 	if checking == ContentTypeCheckingStrong && contract.hasDeclaredInputContentType {
 		if effectiveInputType == "" {
-			return "", "", fmt.Errorf("content type check failed for %s: module expects %q but pipeline content type is unspecified", moduleName, contract.declaredInputContentType)
+			return "", "", fmt.Errorf("expected %s, but pipeline content type is unspecified", contract.declaredInputContentType)
 		}
-		if effectiveInputType != contract.declaredInputContentType {
-			return "", "", fmt.Errorf("content type check failed for %s: module expects %q, got %q", moduleName, contract.declaredInputContentType, effectiveInputType)
+		if err := declaredContentTypeAccepts(contract.declaredInputContentType, incomingFull); err != nil {
+			return "", "", err
 		}
 	}
 
@@ -305,7 +379,7 @@ type contentRenderTrapError struct {
 }
 
 func (e *contentRenderTrapError) Error() string {
-	return fmt.Sprintf("render trapped: %v", e.cause)
+	return fmt.Sprintf("trapped: %v", e.cause)
 }
 
 func (e *contentRenderTrapError) Unwrap() error {
@@ -378,6 +452,14 @@ func executeModuleWithInput(
 		returnErr = fmt.Errorf("input is too large (%d bytes > %d bytes input capacity)", inputSize, inputCap)
 		return
 	}
+	// The pipeline's own input is validated for a UTF-8 first stage, because nothing before it
+	// established the guarantee. Later stages trust the preceding stage's UTF-8 output.
+	if allowMissingInputContentType && contract.inputEncoding == dataEncodingUTF8 {
+		if offset := firstInvalidUTF8Offset(inputBytes); offset >= 0 {
+			returnErr = fmt.Errorf("expected UTF-8 input, got invalid UTF-8 at input offset %d", offset)
+			return
+		}
+	}
 
 	mem := mod.Memory()
 	if !contract.inputless && !mem.Write(uint32(inputPtr), inputBytes) {
@@ -400,7 +482,7 @@ func executeModuleWithInput(
 		}
 		detail := uint32(renderResult)
 		if contract.failureModesPerInputOffset == 0 {
-			returnErr = errors.New("component rejected input")
+			returnErr = errors.New("rejected input")
 			return
 		}
 		inputOffset := detail / contract.failureModesPerInputOffset
@@ -410,9 +492,9 @@ func executeModuleWithInput(
 			return
 		}
 		if contract.failureModesPerInputOffset == 1 {
-			returnErr = fmt.Errorf("component rejected input at input offset %d", inputOffset)
+			returnErr = fmt.Errorf("rejected input at input offset %d", inputOffset)
 		} else {
-			returnErr = fmt.Errorf("component rejected input at input offset %d with mode %d", inputOffset, mode)
+			returnErr = fmt.Errorf("rejected input at input offset %d with mode %d", inputOffset, mode)
 		}
 		return
 	}
@@ -456,4 +538,16 @@ func memorySizeBytes(mem api.Memory) uint64 {
 		return 0
 	}
 	return uint64(pages) * 65536
+}
+
+// firstInvalidUTF8Offset returns the byte offset of the first invalid UTF-8 sequence, or -1.
+func firstInvalidUTF8Offset(b []byte) int {
+	for i := 0; i < len(b); {
+		r, size := utf8.DecodeRune(b[i:])
+		if r == utf8.RuneError && size == 1 {
+			return i
+		}
+		i += size
+	}
+	return -1
 }

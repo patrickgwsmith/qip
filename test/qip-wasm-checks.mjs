@@ -703,7 +703,7 @@ test("bounded output rejects a dynamic result without a proof epilogue", async (
 
   const result = await runQip(["run", "-i", helloNaive, "--", boundedOutput]);
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr.toString("utf8"), /component rejected input/);
+  assert.match(result.stderr.toString("utf8"), /rejected input/);
 });
 
 test("strict profile alone accepts an unbounded loop", async (t) => {
@@ -721,7 +721,7 @@ test("bounded loops stage rejects an unbounded loop", async (t) => {
 
   const result = await runQip(["run", "-i", infiniteLoop, "--", boundedLoops]);
   assert.notEqual(result.code, 0);
-  assert.match(result.stderr.toString("utf8"), /component rejected input/);
+  assert.match(result.stderr.toString("utf8"), /rejected input/);
 });
 
 test("qip score warns that Wasm checker components replace it", async (t) => {

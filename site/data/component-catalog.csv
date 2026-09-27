@@ -26,7 +26,7 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /multipart/form-data/form-data-to-tar.wasm,bytes,multipart/form-data,67108864,bytes,application/x-tar,67372032
 /image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm,bytes,image/bmp,48065536,bytes,image/avif,67108864
 /image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm,bytes,image/bmp,100065536,bytes,image/jpeg,83886080
-/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/bmp,100065536,bytes,image/ktx2,100000224
+/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/bmp,100065536,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,100000224
 /image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm,bytes,image/bmp,100065536,bytes,image/webp,134217728
 /image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm,bytes,image/bmp,100065536,bytes,image/webp,67108864
 /image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm,bytes,image/bmp,100065536,bytes,image/webp,67108864
@@ -41,11 +41,11 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm,bytes,image/ktx2,100000224,bytes,image/jpeg,83886080
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm,bytes,image/ktx2,100000224,bytes,image/png,112513312
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm,bytes,image/ktx2,100000224,bytes,image/webp,134217728
-/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm,bytes,image/ktx2,100000224,utf8,application/design-tokens+json,4096
-/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm,bytes,image/ktx2,32000224,utf8,image/svg+xml,8388608
-/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm,bytes,image/ktx2,25000224,bytes,image/ktx2,100000224
-/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm,bytes,image/ktx2,100000224,bytes,image/bmp,100000054
-/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm,bytes,image/ktx2,262368,bytes,image/x-icon,270398
+/image/ktx2/ktx2-r8g8b8a8-srgb-color-palette.wasm,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,100000224,utf8,application/design-tokens+json,4096
+/image/ktx2/ktx2-r8g8b8a8-srgb-vectorize-to-svg.wasm,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,32000224,utf8,image/svg+xml,8388608
+/image/ktx2/ktx2-r8g8b8a8-srgb-double.wasm,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,25000224,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,100000224
+/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,100000224,bytes,image/bmp,100000054
+/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,262368,bytes,image/x-icon,270398
 /image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm,bytes,image/ktx2,100000224,bytes,image/webp,67108864
 /image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm,bytes,image/png,67108864,bytes,image/bmp,100000054
 /image/png/png-to-bmp-b8g8r8a8-srgb.wasm,bytes,image/png,67108864,bytes,image/bmp,100000054

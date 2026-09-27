@@ -38,7 +38,7 @@ test("tic-tac-toe exposes timestamp-free Interactive events and KTX2 output", ()
       exports.output_content_type_size(),
     ),
   );
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(String(contentType).split(";")[0].trim(), "image/ktx2");
 
   const size = renderInitial(exports);
   const bytes = output(exports, size);

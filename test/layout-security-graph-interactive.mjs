@@ -39,7 +39,7 @@ function assertABI(exports) {
       exports.output_content_type_size(),
     ),
   );
-  assert.equal(type, "image/ktx2");
+  assert.equal(String(type).split(";")[0].trim(), "image/ktx2");
 }
 
 function initialFrame(exports, pixelBytes) {

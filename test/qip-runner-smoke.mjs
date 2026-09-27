@@ -95,8 +95,19 @@ if (!rejectedForgedComponent) {
 
 for (const constructor of [contentTypeUTF8, contentTypeBytes]) {
   for (const contentType of [
+    "text/html;charset=utf-8",
+    "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR",
+  ]) {
+    if (constructor(contentType).contentType !== contentType) {
+      throw new Error(constructor.name + " rejected canonical content type " + contentType);
+    }
+  }
+  for (const contentType of [
     "Text/HTML",
     "text/html; charset=utf-8",
+    "text/html;charset=\"utf-8\"",
+    "text/html;charset =utf-8",
+    "Text/HTML;charset=utf-8",
     " text/html",
     "multipart/form-data; boundary=uuid-12345678-90ab-cdef-1234-567890abcdef",
     "multipart/form-data;boundary=qip-12345678-90ab-cdef-1234-567890abcdef",

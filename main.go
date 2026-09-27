@@ -488,7 +488,7 @@ func runCmd(args []string) {
 	execCtx, cancel := wasmruntime.WithExecutionTimeout(execCtx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
 
-	prepared, err := prepareRunPipelineFromInvocations(execCtx, componentInvocations, opts)
+	prepared, err := prepareRunPipelineFromInvocations(execCtx, componentInvocations, opts, inputContentType)
 	if err != nil {
 		gameOver("%v", err)
 	}

@@ -411,10 +411,10 @@ test("Rust qipx accepts capacity validation for a compatible pipeline", () => {
 test("Rust qipx explains MIME and capacity pipeline failures", () => {
   const mime = run(rustCLI, ["dry", "run", "text/hello.wasm", "image/png/png-to-bmp-b8g8r8a8-srgb.wasm"]);
   assert.equal(mime.status, 1);
-  assert.match(mime.stderr, /expects image\/png, but pipeline content type is unspecified/);
+  assert.match(mime.stderr, /expected image\/png, but pipeline content type is unspecified/);
   const capacity = run(rustCLI, ["dry", "run", "--capacities-must-fit", "text/ansi-sgr-to-svg.wasm", "text/rgb-to-hex.wasm"]);
   assert.equal(capacity.status, 1);
-  assert.match(capacity.stderr, /output capacity 8388608 exceeds .* input capacity 65536/);
+  assert.match(capacity.stderr, /input capacity 64\.0 KiB \(65536 bytes\) cannot fit .* output capacity 8\.0 MiB \(8388608 bytes\)/);
 });
 
 test("Rust qipx resolves and caches a missing component over verified HTTPS", { skip: !process.env.QIPX_NETWORK_TESTS }, () => {

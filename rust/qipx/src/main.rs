@@ -194,7 +194,7 @@ fn run() -> Result<(), String> {
     if tui_mode {
         return tui::run_tui(loaded, &stages, input);
     }
-    for (candidate, stage) in loaded.iter_mut().zip(&stages) {
+    for (index, (candidate, stage)) in loaded.iter_mut().zip(&stages).enumerate() {
         for (name, value) in &stage.uniforms {
             apply_uniform(
                 &candidate.instance,
@@ -204,7 +204,22 @@ fn run() -> Result<(), String> {
                 value,
             )?;
         }
-        input = candidate.render(&input)?;
+        // The pipeline's own input is validated for a UTF-8 first stage, because nothing
+        // before it established the guarantee. Later stages trust preceding UTF-8 output.
+        if index == 0 && candidate.input_ptr.is_some() && candidate.input_utf8 {
+            if let Err(error) = std::str::from_utf8(&input) {
+                return Err(format!(
+                    "step 1 {} expected UTF-8 input, got invalid UTF-8 at input offset {}",
+                    candidate.label,
+                    error.valid_up_to()
+                ));
+            }
+        }
+        // Failures name the step first, as every QIP host does:
+        // "step 2 <path> rejected input at input offset 7", "step 1 <path> trapped: <reason>".
+        input = candidate
+            .render(&input)
+            .map_err(|error| format!("step {} {error}", index + 1))?;
     }
     let is_utf8 = loaded.last().is_some_and(|stage| stage.is_utf8);
     if output_path == "-" {
@@ -560,6 +575,18 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
         println!("   Buffers: {buffers} bytes");
     }
     println!("Total declared buffer capacity: {total} bytes");
+    for (index, stage) in loaded.iter().enumerate().skip(1) {
+        let previous = &loaded[index - 1];
+        if stage.input_ptr.is_some() && previous.output_cap > stage.input_cap {
+            println!(
+                "   Note: step {} {}: previous output capacity {} exceeds this input capacity {}; the run remains valid when the actual intermediate output fits",
+                index + 1,
+                stage.label.escape_debug(),
+                format_bytes(previous.output_cap),
+                format_bytes(stage.input_cap)
+            );
+        }
+    }
     Ok(())
 }
 
@@ -865,7 +892,11 @@ impl BenchCandidate {
             ));
         }
         if input.len() > self.input_cap {
-            return Err(format!("{path} input exceeds its capacity"));
+            return Err(format!(
+                "{path} input is too large ({} bytes > {} bytes input capacity)",
+                input.len(),
+                self.input_cap
+            ));
         }
         if let Some(input_ptr) = self.input_ptr {
             self.memory
@@ -941,23 +972,103 @@ fn read_content_type(
     let value = std::str::from_utf8(&data[offset..end])
         .map_err(|_| format!("{path} has invalid UTF-8 {prefix} content type"))?
         .to_owned();
-    if value != "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000" {
-        let Some((main, sub)) = value.split_once('/') else {
-            return Err(format!("invalid {path} {prefix} content type: {value}"));
-        };
-        let valid = |s: &str| {
-            !s.is_empty()
-                && s.bytes().all(|byte| {
-                    byte.is_ascii_lowercase()
-                        || byte.is_ascii_digit()
-                        || b"!#$&^_.+-".contains(&byte)
-                })
-        };
-        if !valid(main) || !valid(sub) {
-            return Err(format!("invalid {path} {prefix} content type: {value}"));
-        }
+    if value != "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000"
+        && !is_canonical_content_type(&value)
+    {
+        return Err(format!("invalid {path} {prefix} content type: {value}"));
     }
     Ok(value)
+}
+
+/// A lowercase media type, optionally followed by `;name=value` parameters with no whitespace
+/// anywhere. Parameter names are case-insensitive; values are case-sensitive and kept
+/// verbatim, as in
+/// `image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR`.
+/// `multipart/form-data` is only valid in its canonical placeholder-boundary form, checked
+/// by the caller.
+fn is_canonical_content_type(value: &str) -> bool {
+    if value.starts_with("multipart/form-data") {
+        return false;
+    }
+    let mut segments = value.split(';');
+    let Some(media_type) = segments.next() else {
+        return false;
+    };
+    let Some((main, sub)) = media_type.split_once('/') else {
+        return false;
+    };
+    let valid_type = |s: &str| {
+        !s.is_empty()
+            && s.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"!#$&^_.+-".contains(&byte)
+            })
+    };
+    if !valid_type(main) || !valid_type(sub) {
+        return false;
+    }
+    segments.all(|parameter| {
+        let Some((name, parameter_value)) = parameter.split_once('=') else {
+            return false;
+        };
+        !name.is_empty()
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&byte))
+            && !parameter_value.is_empty()
+            && !parameter_value.bytes().any(|byte| {
+                byte.is_ascii_whitespace() || byte == b'"' || byte == b'=' || byte == b';'
+            })
+    })
+}
+
+/// The lowercase media type and the parameters of a content type as
+/// `(lowercase name, declared name, value)`, with values kept verbatim.
+fn parse_content_type(value: &str) -> (String, Vec<(String, String, String)>) {
+    let mut segments = value.split(';');
+    let media_type = segments.next().unwrap_or("").trim().to_ascii_lowercase();
+    let parameters = segments
+        .filter_map(|segment| {
+            let (name, parameter_value) = segment.split_once('=')?;
+            let declared_name = name.trim().to_owned();
+            let name = declared_name.to_ascii_lowercase();
+            (!name.is_empty()).then(|| (name, declared_name, parameter_value.trim().to_owned()))
+        })
+        .collect();
+    (media_type, parameters)
+}
+
+/// Why content of type `incoming` does not satisfy a declared `expected` type, or `None` when
+/// it does: the media types differ, or a parameter both declare has different values. A
+/// parameter only one side declares is not required, so bare declarations keep matching.
+/// The wording is shared across QIP hosts.
+/// Renders the incoming type for an "expected A, got B" message: only its parameters when it
+/// shares the media type with `expected`, since repeating the media type adds nothing.
+fn incoming_for_message<'a>(expected: &str, incoming: &'a str) -> &'a str {
+    if parse_content_type(expected).0 != parse_content_type(incoming).0 {
+        return incoming;
+    }
+    match incoming.split_once(';') {
+        Some((_, parameters)) => parameters.trim(),
+        None => incoming,
+    }
+}
+
+fn content_type_mismatch(expected: &str, incoming: &str) -> Option<String> {
+    let (want_type, want_parameters) = parse_content_type(expected);
+    let (got_type, got_parameters) = parse_content_type(incoming);
+    if want_type != got_type {
+        return Some(format!("media type expected {want_type} got {got_type}"));
+    }
+    let details: Vec<String> = want_parameters
+        .iter()
+        .filter_map(|(name, shown, value)| {
+            let (_, _, got_value) = got_parameters
+                .iter()
+                .find(|(got_name, _, _)| got_name == name)?;
+            (got_value != value).then(|| format!("{shown} expected {value} got {got_value}"))
+        })
+        .collect();
+    (!details.is_empty()).then(|| details.join("; "))
 }
 
 fn validate_pipeline(
@@ -973,49 +1084,88 @@ fn validate_pipeline(
     } else {
         ""
     };
+    let mut previous_typed_step: Option<(usize, &str)> = None;
     for (index, stage) in stages.iter().enumerate() {
         if stage.input_ptr.is_none() && index != 0 {
             return Err(format!(
-                "{} inputless generator must be the first pipeline stage",
+                "step {} {} inputless generator must be the first pipeline stage",
+                index + 1,
                 stage.label
             ));
+        }
+        if index > 0 && stage.input_ptr.is_some() {
+            // A UTF-8 output may feed a bytes input; a bytes output may not feed a UTF-8
+            // input, because the host never re-validates bytes.
+            let previous = &stages[index - 1];
+            if stage.input_utf8 && !previous.is_utf8 {
+                return Err(format!(
+                    "step {} {} expected UTF-8 input, got bytes from step {} {}",
+                    index + 1,
+                    stage.label,
+                    index,
+                    previous.label
+                ));
+            }
+            if capacities_must_fit && previous.output_cap > stage.input_cap {
+                return Err(format!(
+                    "step {} {} input capacity {} cannot fit step {} {} output capacity {}",
+                    index + 1,
+                    stage.label,
+                    format_bytes(stage.input_cap),
+                    index,
+                    previous.label,
+                    format_bytes(previous.output_cap)
+                ));
+            }
         }
         if !stage.input_mime.is_empty() {
             if current.is_empty() && index == 0 {
                 current = &stage.input_mime;
-            } else if current != stage.input_mime {
-                return Err(if current.is_empty() {
-                    format!(
-                        "{} expects {}, but pipeline content type is unspecified",
-                        stage.label, stage.input_mime
-                    )
-                } else {
-                    format!(
-                        "{} expects {}, got {current}",
-                        stage.label, stage.input_mime
-                    )
-                });
+            } else if current.is_empty() {
+                return Err(format!(
+                    "step {} {} expected {}, but pipeline content type is unspecified",
+                    index + 1,
+                    stage.label,
+                    stage.input_mime
+                ));
+            } else if let Some(mismatch) = content_type_mismatch(&stage.input_mime, current) {
+                let source = previous_typed_step
+                    .map(|(step, label)| format!(" from step {} {label}", step + 1))
+                    .unwrap_or_default();
+                return Err(format!(
+                    "step {} {} expected {}, got {}{source}: {mismatch}",
+                    index + 1,
+                    stage.label,
+                    stage.input_mime,
+                    incoming_for_message(&stage.input_mime, current)
+                ));
             }
         }
         if !stage.output_mime.is_empty() {
             current = &stage.output_mime;
+            previous_typed_step = Some((index, &stage.label));
         } else if stage.input_ptr.is_some() && stage.is_utf8 && !stage.input_utf8 {
             current = "";
         }
-        if capacities_must_fit
-            && index + 1 < stages.len()
-            && stage.output_cap > stages[index + 1].input_cap
-        {
-            return Err(format!(
-                "{} output capacity {} exceeds {} input capacity {}",
-                stage.label,
-                stage.output_cap,
-                stages[index + 1].label,
-                stages[index + 1].input_cap
-            ));
-        }
     }
     Ok(())
+}
+
+/// Sizes as `qip` prints them: whole bytes below 1 KiB, else one decimal with the exact count.
+fn format_bytes(count: usize) -> String {
+    if count < 1024 {
+        return format!("{count} B");
+    }
+    let mut value = count as f64;
+    let mut unit = "B";
+    for next in ["KiB", "MiB", "GiB"] {
+        if value < 1024.0 {
+            break;
+        }
+        value /= 1024.0;
+        unit = next;
+    }
+    format!("{value:.1} {unit} ({count} bytes)")
 }
 
 fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {

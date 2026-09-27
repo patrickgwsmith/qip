@@ -42,7 +42,7 @@ test("GIF player rejects malformed initialization and recovers in place", () => 
   assert.equal(accepted.failed, false);
   assert.equal(accepted.value, 228);
   assert.equal(contentType(exports, "input"), "image/gif");
-  assert.equal(contentType(exports, "output"), "image/ktx2");
+  assert.equal(contentType(exports, "output").split(";")[0].trim(), "image/ktx2");
 });
 
 test("GIF player schedules and presents GIF frames", () => {

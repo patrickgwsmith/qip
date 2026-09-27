@@ -358,6 +358,10 @@ Want another? Request me to make one.
 
 ## FAQ
 
+### What motivated a new component ABI?
+
+I found existing uses of WebAssembly verbose or tied to specific hosts. For example, WASI is very large and still as of late 2026, isn’t stable, which makes it difficult to build upon. It also imports a lot of context from its environment which breaks a key goal of QIP, which is determinism. Another goal is platform-agnosticism, and I saw solutions like Emscripten were coupled to a JavaScript host which meant that JavaScript would have to be run on the server or on native, whereas I wanted to be able to choose the host runtime technology. Through this process of designing and evolving the ABI was to keep it small, this lets a range of language implement it, it makes the boilerplate required small, and its small surface area is hopefully easy to support long term.
+
 ### How is QIP different from WASI?
 
 WASI is useful when a WebAssembly program needs operating-system-like capabilities. QIP is purposefully much narrower. A QIP component gets bytes from the host, transforms them, and returns bytes. It cannot access the filesystem, network, environment, clock, or secrets.

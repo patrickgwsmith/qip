@@ -38,6 +38,7 @@ If you want to send someone the current QIP spec, send them these pages:
 
 - [QIP Component Contracts](/docs/component-contract): the component types, their execution models, maturity, and how hosts distinguish them.
 - [Content Component Contract](/docs/content-component): one bounded call, exports, result bits, content types, and composition rules.
+- [Recipes](/docs/recipes): how hosts validate a pipeline of Content components step by step, and the messages they print.
 - [Time and Events](/docs/time-and-events): retained state, update transactions, event ordering, wake deadlines, and separate presentation.
 - [GUI Components](/docs/gui-components): the composed KTX2 output and browser-host contract.
 - [TUI Components](/docs/tui-components): the composed UTF-8, ANSI SGR, keyboard-input, and terminal-host contract.
@@ -97,7 +98,6 @@ Server Component and Client Component example.
 <ol>
 <li><a href="/docs">Why QIP Exists</a></li>
 <li><a href="/docs/how-it-works">How QIP Works</a></li>
-<li><a href="/docs/adopting-qip-in-react">Adopting QIP In React</a></li>
 <li><a href="/docs/architecture-boundaries">Architecture And Boundaries</a></li>
 </ol>
 </li>
@@ -106,6 +106,7 @@ Server Component and Client Component example.
 <li><a href="/docs/qipx">qipx cli</a></li>
 <li><a href="/docs/qip-elements">Browser Elements</a></li>
 <li><a hidden href="/docs/javascript-runner">JavaScript Renderer Annotated Source</a></li>
+<li><a href="/docs/adopting-qip-in-react">Tutorial: Next.js</a></li>
 <li><a href="/docs/running-in-javascript">Running In JavaScript</a></li>
 <li><a href="/docs/running-in-swift">Running In Swift</a></li>
 <li><a href="/docs/running-in-java">Running In Java</a></li>
@@ -119,6 +120,7 @@ Server Component and Client Component example.
 <ol>
 <li><a href="/docs/component-contract">Component Contracts</a></li>
 <li><a href="/docs/content-component">Content Component</a></li>
+<li><a href="/docs/recipes">Recipes</a></li>
 <li><a href="/docs/time-and-events">Time And Events</a></li>
 <li><a href="/docs/gui-components">GUI Components</a></li>
 <li><a href="/docs/tui-components">TUI Components</a></li>

@@ -28,7 +28,7 @@ func TestPipelineErrorNamesRecipeStepAndComponent(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected pipeline error")
 	}
-	const want = "step 2 (validate.wasm): rejected invalid input at byte 7"
+	const want = "step 2 validate.wasm rejected invalid input at byte 7"
 	if err.Error() != want {
 		t.Fatalf("error=%q, want %q", err, want)
 	}

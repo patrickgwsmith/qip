@@ -114,7 +114,7 @@ Choose the type of content you have and the content type you want made.
 <ol id="pipeline-results" class="pipeline-results"></ol>
 
 <script type="module">
-import { findRankedRecipes, outputRole, PREFERENCES, reachableOutputMimes } from "/elements/lib/recipe-finder.js";
+import { findRankedRecipes, mediaTypeOf, outputRole, PREFERENCES, reachableOutputMimes } from "/elements/lib/recipe-finder.js";
 
 const CATALOG_URL = "/data/component-catalog.csv";
 const GENERATOR_URL = "/text/csv/content-recipe-to-browser-javascript.wasm";
@@ -254,7 +254,19 @@ function parseCatalog(csv) {
     if (![inputCapacity, outputCapacity].every((capacity) => Number.isSafeInteger(capacity) && capacity <= 0xffffffff)) {
       throw new Error(`Component catalog capacity exceeds uint32 on row ${index + 2}.`);
     }
-    return { path, inputEncoding, inputMime, inputCapacity, outputEncoding, outputMime, outputCapacity };
+    // The catalog stores declared content types, parameters included; pages match and
+    // label by media type while the finder reads the parameters for KTX2 profiles.
+    return {
+      path,
+      inputEncoding,
+      inputMime: mediaTypeOf(inputMime),
+      inputContentType: inputMime,
+      inputCapacity,
+      outputEncoding,
+      outputMime: mediaTypeOf(outputMime),
+      outputContentType: outputMime,
+      outputCapacity,
+    };
   });
 }
 

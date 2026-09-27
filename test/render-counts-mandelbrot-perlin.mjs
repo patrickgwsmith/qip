@@ -34,7 +34,7 @@ function assertTransactionalInteractiveABI(exports) {
       exports.output_content_type_size(),
     ),
   );
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(String(contentType).split(";")[0].trim(), "image/ktx2");
 }
 
 function assertUpdateInteractiveABI(exports) {

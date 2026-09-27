@@ -568,7 +568,7 @@ func (p *Pipeline) Process(ctx context.Context, input Content, requestID uint64)
 		next, err := stage.Process(ctx, cur, requestID)
 		duration := time.Since(start)
 		if err != nil {
-			return nil, fmt.Errorf("step %d (%s): %w", i+1, stageLabel(stage), err)
+			return nil, fmt.Errorf("step %d %s %w", i+1, stageLabel(stage), err)
 		}
 		if trace != nil {
 			trace(PipelineTraceStep{

@@ -4,7 +4,7 @@ pub const MAX_PIXELS: usize = 25_000_000;
 pub const MAX_DIMENSION: usize = 8192;
 pub const HEADER_SIZE: usize = 224;
 pub const MAX_FILE_SIZE: usize = HEADER_SIZE + MAX_PIXELS * 16;
-pub const CONTENT_TYPE = "image/ktx2";
+pub const CONTENT_TYPE = "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR";
 
 pub const Image = struct {
     width: usize,

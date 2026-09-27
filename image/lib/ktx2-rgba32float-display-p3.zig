@@ -5,7 +5,7 @@ pub const MAX_PIXELS = linear.MAX_PIXELS;
 pub const MAX_DIMENSION = linear.MAX_DIMENSION;
 pub const HEADER_SIZE = linear.HEADER_SIZE;
 pub const MAX_FILE_SIZE = linear.MAX_FILE_SIZE;
-pub const CONTENT_TYPE = linear.CONTENT_TYPE;
+pub const CONTENT_TYPE = "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=DISPLAYP3;transferFunction=SRGB";
 pub const Image = linear.Image;
 
 const DFD_TRANSFER_OFFSET: usize = 118;

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { findRankedRecipes } from "../site/_elements/lib/recipe-finder.js";
+import { findRankedRecipes, mediaTypeOf, parseContentType, profileFromParameters } from "../site/_elements/lib/recipe-finder.js";
 
 function component(path, inputMime, outputMime, inputEncoding = "bytes", outputEncoding = "bytes") {
   return { path, inputMime, outputMime, inputEncoding, outputEncoding };
@@ -49,4 +49,53 @@ test("quality keeps lossless recipes ahead while smallest prefers lossy output",
     findRankedRecipes(catalog, "image/bmp", "image/webp", "smallest")[0][0].path,
     "/bmp-to-webp-lossy.wasm",
   );
+});
+
+const FLOAT_BT709 = "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR";
+const FLOAT_P3_LINEAR = "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=DISPLAYP3;transferFunction=LINEAR";
+const RGBA8 = "image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB";
+
+test("declared KTX2 parameters decide compatibility, not file names", () => {
+  // Names suggest RGBA8 throughout, but the declarations say the first step emits linear
+  // float, so only the float consumer may follow it.
+  const catalog = [
+    component("/svg-to-ktx2-r8g8b8a8-srgb.wasm", "image/svg+xml", FLOAT_BT709, "utf8"),
+    component("/ktx2-r8g8b8a8-srgb-to-png.wasm", RGBA8, "image/png"),
+    component("/float-to-png.wasm", FLOAT_BT709, "image/png"),
+  ];
+  const recipes = findRankedRecipes(catalog, "image/svg+xml", "image/png");
+  assert.deepEqual(recipes.map((recipe) => recipe.map((step) => step.path)), [
+    ["/svg-to-ktx2-r8g8b8a8-srgb.wasm", "/float-to-png.wasm"],
+  ]);
+});
+
+test("mismatched declared profiles never chain", () => {
+  const catalog = [
+    component("/svg-to-float.wasm", "image/svg+xml", FLOAT_BT709, "utf8"),
+    component("/p3-to-png.wasm", FLOAT_P3_LINEAR, "image/png"),
+    component("/rgba8-to-png.wasm", RGBA8, "image/png"),
+  ];
+  assert.deepEqual(findRankedRecipes(catalog, "image/svg+xml", "image/png"), []);
+});
+
+test("a bare image/ktx2 declaration still falls back to the file name", () => {
+  const catalog = [
+    component("/svg-to-ktx2-rgba32float.wasm", "image/svg+xml", "image/ktx2", "utf8"),
+    component("/ktx2-rgba32float-to-png.wasm", "image/ktx2", "image/png"),
+    component("/ktx2-r8g8b8a8-srgb-to-png.wasm", RGBA8, "image/png"),
+  ];
+  const recipes = findRankedRecipes(catalog, "image/svg+xml", "image/png");
+  assert.deepEqual(recipes.map((recipe) => recipe.map((step) => step.path)), [
+    ["/svg-to-ktx2-rgba32float.wasm", "/ktx2-rgba32float-to-png.wasm"],
+  ]);
+});
+
+test("content type helpers read parameters case-sensitively by value", () => {
+  assert.equal(mediaTypeOf(" Image/KTX2 ;vkFormat=R8G8B8A8_SRGB"), "image/ktx2");
+  assert.equal(profileFromParameters(parseContentType(FLOAT_P3_LINEAR).params), "ktx2-rgba32float-display-p3-linear");
+  assert.equal(profileFromParameters(parseContentType(RGBA8).params), "ktx2-r8g8b8a8-srgb");
+  assert.equal(profileFromParameters(parseContentType("image/ktx2; vkformat=VK_FORMAT_R8G8B8A8_SRGB").params), "ktx2-r8g8b8a8-srgb");
+  assert.equal(profileFromParameters(parseContentType("image/ktx2").params), undefined);
+  assert.equal(profileFromParameters(parseContentType("image/ktx2;vkFormat=BC7_SRGB_BLOCK").params), null);
+  assert.equal(profileFromParameters(parseContentType("image/ktx2;vkFormat=r8g8b8a8_srgb").params), null);
 });

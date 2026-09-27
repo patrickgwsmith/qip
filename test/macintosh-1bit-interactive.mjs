@@ -34,7 +34,7 @@ test("Macintosh desktop exposes an Interactive KTX2 component", () => {
     exports.output_content_type_ptr(),
     exports.output_content_type_size(),
   ));
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(String(contentType).split(";")[0].trim(), "image/ktx2");
 
   const size = renderSize(exports, 0);
   const bytes = output(exports, size);

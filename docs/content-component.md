@@ -201,6 +201,9 @@ profiles also declares the bare type and checks the header on each call.
 
 ## Pipeline composition
 
+[Recipes](/docs/recipes) specifies the step-by-step validation algorithm and
+the messages every host prints; this section summarises the rules.
+
 The host validates arbitrary bytes before they enter `input_utf8_cap`; encoding
 a native string as UTF-8 also establishes the guarantee. A UTF-8 component
 can rely on valid input. Its `output_utf8_cap` promises valid output, which a

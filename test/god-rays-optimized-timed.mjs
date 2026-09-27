@@ -68,7 +68,7 @@ test("god-rays-optimized exposes the Timed KTX2 contract", () => {
       exports.output_content_type_size(),
     ),
   );
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(String(contentType).split(";")[0].trim(), "image/ktx2");
 });
 
 test("initial Content render produces a canonical 640x360 KTX2 frame", () => {

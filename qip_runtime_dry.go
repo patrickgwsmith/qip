@@ -35,6 +35,10 @@ type runPipelinePlan struct {
 
 type runPipelinePlanningOptions struct {
 	capacitiesMustFit bool
+	// initialContentType is the content type of the pipeline's input when the caller
+	// knows it, such as the canonical multipart type for -F form input. It lets the
+	// planner check the first stage before anything runs.
+	initialContentType string
 }
 
 type pipelineComponentKind uint8
@@ -173,7 +177,7 @@ func executeDryRun(baseCtx context.Context, config runCommandConfig, out io.Writ
 	execCtx, cancel := wasmruntime.WithExecutionTimeout(baseCtx, time.Duration(config.timeoutMS)*time.Millisecond)
 	defer cancel()
 
-	prepared, err := prepareRunPipelineFromInvocations(execCtx, config.componentInvocations, config.opts)
+	prepared, err := prepareRunPipelineFromInvocations(execCtx, config.componentInvocations, config.opts, "")
 	if err != nil {
 		return err
 	}
@@ -278,7 +282,7 @@ func executeHostedDryRun(baseCtx context.Context, config runCommandConfig, out i
 	return nil
 }
 
-func prepareRunPipelineFromInvocations(ctx context.Context, invocations []ComponentInvocation, opts options) (preparedRunPipeline, error) {
+func prepareRunPipelineFromInvocations(ctx context.Context, invocations []ComponentInvocation, opts options, initialContentType string) (preparedRunPipeline, error) {
 	pipeline, err := buildPipelineFromInvocations(ctx, invocations, opts)
 	if err != nil {
 		return preparedRunPipeline{}, err
@@ -289,7 +293,8 @@ func prepareRunPipelineFromInvocations(ctx context.Context, invocations []Compon
 		return preparedRunPipeline{}, err
 	}
 	plan, err := planRunPipelineWithOptions(descriptions, runPipelinePlanningOptions{
-		capacitiesMustFit: opts.capacitiesMustFit,
+		capacitiesMustFit:  opts.capacitiesMustFit,
+		initialContentType: initialContentType,
 	})
 	if err != nil {
 		_ = pipeline.Close(context.Background())
@@ -350,7 +355,7 @@ func planRunPipeline(descriptions []pipelineComponentDescription) (runPipelinePl
 
 func planRunPipelineWithOptions(descriptions []pipelineComponentDescription, planningOptions runPipelinePlanningOptions) (runPipelinePlan, error) {
 	var plan runPipelinePlan
-	currentContentType := ""
+	currentContentType := strings.TrimSpace(planningOptions.initialContentType)
 	var currentEncoding dataEncoding
 	hasCurrentEncoding := false
 	previousContentOutputCap := uint64(0)
@@ -363,34 +368,33 @@ func planRunPipelineWithOptions(descriptions []pipelineComponentDescription, pla
 		case pipelineComponentContent:
 			contract := description.content.runContract()
 			if contract.inputless && stepIndex != 0 {
-				return plan, fmt.Errorf("step %d (%s): inputless generator must be the first pipeline stage", stepIndex+1, description.source)
+				return plan, fmt.Errorf("step %d %s inputless generator must be the first pipeline stage", stepIndex+1, description.source)
 			}
 			if hasCurrentEncoding && !pipelineEncodingAccepted(currentEncoding, contract.inputEncoding) {
 				return plan, fmt.Errorf(
-					"step %d (%s): input encoding mismatch: expected %s, got %s",
+					"step %d %s expected UTF-8 input, got bytes from step %d %s",
 					stepIndex+1,
 					description.source,
-					dryEncodingName(contract.inputEncoding),
-					dryEncodingName(currentEncoding),
+					previousOutputStep,
+					previousOutputSource,
 				)
 			}
+
 			capacityWarning := ""
 			if !contract.inputless && previousWasContent && previousContentOutputCap > contract.inputCapBytes {
 				if planningOptions.capacitiesMustFit {
 					return plan, fmt.Errorf(
-						"step %d (%s): capacities must fit: step %d (%s) output capacity is %s, but step %d (%s) input capacity is %s",
-						stepIndex+1,
-						description.source,
-						previousOutputStep,
-						previousOutputSource,
-						formatBytesWithExact(previousContentOutputCap),
+						"step %d %s input capacity %s cannot fit step %d %s output capacity %s",
 						stepIndex+1,
 						description.source,
 						formatBytesWithExact(contract.inputCapBytes),
+						previousOutputStep,
+						previousOutputSource,
+						formatBytesWithExact(previousContentOutputCap),
 					)
 				}
 				capacityWarning = fmt.Sprintf(
-					"step %d (%s): previous output capacity %s exceeds this input capacity %s; qip run remains valid when the actual intermediate output fits",
+					"step %d %s: previous output capacity %s exceeds this input capacity %s; the run remains valid when the actual intermediate output fits",
 					stepIndex+1,
 					description.source,
 					formatBytesWithExact(previousContentOutputCap),
@@ -398,22 +402,30 @@ func planRunPipelineWithOptions(descriptions []pipelineComponentDescription, pla
 				)
 				plan.warnings = append(plan.warnings, capacityWarning)
 			}
-			if !contract.inputless && stepIndex > 0 && contract.hasDeclaredInputContentType && currentContentType != contract.declaredInputContentType {
-				previousType := fmt.Sprintf("%q", currentContentType)
+			if !contract.inputless && contract.hasDeclaredInputContentType && (stepIndex > 0 || currentContentType != "") {
 				if currentContentType == "" {
-					previousType = "no declared content type"
+					return plan, fmt.Errorf(
+						"step %d %s expected %s, but pipeline content type is unspecified",
+						stepIndex+1,
+						description.source,
+						contract.declaredInputContentType,
+					)
 				}
-				return plan, fmt.Errorf(
-					"step %d (%s): content type mismatch: step %d (%s) output is %s, but step %d (%s) input is %q",
-					stepIndex+1,
-					description.source,
-					previousOutputStep,
-					previousOutputSource,
-					previousType,
-					stepIndex+1,
-					description.source,
-					contract.declaredInputContentType,
-				)
+				if mismatch := contentTypeMismatch(contract.declaredInputContentType, currentContentType); mismatch != "" {
+					source := ""
+					if previousOutputStep > 0 {
+						source = fmt.Sprintf(" from step %d %s", previousOutputStep, previousOutputSource)
+					}
+					return plan, fmt.Errorf(
+						"step %d %s expected %s, got %s%s: %s",
+						stepIndex+1,
+						description.source,
+						contract.declaredInputContentType,
+						incomingForMessage(contract.declaredInputContentType, currentContentType),
+						source,
+						mismatch,
+					)
+				}
 			}
 
 			effectiveInputType, outputType, err := resolveRunModuleContentType(
@@ -539,7 +551,7 @@ func dryEncodingName(encoding dataEncoding) string {
 	if encoding == dataEncodingUTF8 {
 		return "UTF-8"
 	}
-	return "raw bytes"
+	return "bytes"
 }
 
 func dryInputEncodingName(contract runModuleContract) string {

@@ -35,7 +35,13 @@ are the same planning rules used by `qip run` and `qip dry run`. Planning uses
 only the declared contracts, not sample values or browser-specific coercion, so
 the result is deterministic for the same recipe description.
 
-Content types are not normalized. When present, they must already be lowercase media types without parameters or whitespace, such as `text/html` or `image/bmp`. Hosts compare them exactly.
+Content types are not normalized. When present, they must already be in canonical form: a
+lowercase media type such as `text/html` or `image/bmp`, optionally followed by
+`;name=value` parameters with no whitespace, in their specification's spelling, such as
+`image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR`.
+Parameter names are case-insensitive and values are case-sensitive. Hosts match stages on
+the media type and require a parameter both stages declare to agree; a parameter only one
+side declares is not required.
 
 ## Components
 

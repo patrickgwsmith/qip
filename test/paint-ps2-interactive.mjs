@@ -30,7 +30,7 @@ function assertABI(exports) {
   const type = new TextDecoder("utf-8", { fatal: true }).decode(
     new Uint8Array(exports.memory.buffer, exports.output_content_type_ptr(), exports.output_content_type_size()),
   );
-  assert.equal(type, "image/ktx2");
+  assert.equal(String(type).split(";")[0].trim(), "image/ktx2");
 }
 
 test("paint finishes a stroke without replacing the published image", () => {

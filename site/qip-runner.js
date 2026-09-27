@@ -1,7 +1,11 @@
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
+// A lowercase media type, optionally followed by ";name=value" parameters with no
+// whitespace anywhere. Parameter
+// names are case-insensitive; values are case-sensitive and kept verbatim, as in
+// "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
 const mimeTypePattern =
-  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/;
+  /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*(?:;[A-Za-z0-9!#$&^_.+-]+=[^\s;"=]+)*$/;
 const multipartFormDataPattern =
   /^multipart\/form-data;boundary=uuid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -20,12 +24,59 @@ function optionalContractContentType(value) {
   if (typeof value !== "string") {
     throw Error("contentType must be a string");
   }
-  if (!mimeTypePattern.test(value) && !multipartFormDataPattern.test(value)) {
+  if (multipartFormDataPattern.test(value)) {
+    return value;
+  }
+  // multipart/form-data is only valid in its canonical UUID boundary form above.
+  if (value.startsWith("multipart/form-data") || !mimeTypePattern.test(value)) {
     throw Error(
-      "contentType must be a lowercase MIME type without parameters, except for the canonical multipart/form-data UUID boundary",
+      "contentType must be a lowercase MIME type, optionally with \"; name=value\" parameters, except for the canonical multipart/form-data UUID boundary",
     );
   }
   return value;
+}
+
+function parseContentType(value) {
+  const segments = String(value).split(";");
+  const mediaType = segments[0].trim().toLowerCase();
+  const params = new Map();
+  const names = new Map();
+  for (const segment of segments.slice(1)) {
+    const eq = segment.indexOf("=");
+    if (eq === -1) continue;
+    const declaredName = segment.slice(0, eq).trim();
+    const name = declaredName.toLowerCase();
+    if (name === "") continue;
+    params.set(name, segment.slice(eq + 1).trim());
+    names.set(name, declaredName);
+  }
+  return { mediaType, params, names };
+}
+
+// Why content of type `incoming` does not satisfy a declared `expected` type, or "" when it
+// does: the media types differ, or a parameter both declare has different values. The
+// wording matches the qip and qipx command-line tools.
+// Only the incoming parameters when the media types agree, else the whole incoming type.
+function incomingForMessage(expected, incoming) {
+  if (parseContentType(expected).mediaType !== parseContentType(incoming).mediaType) return incoming;
+  const cut = String(incoming).indexOf(";");
+  return cut === -1 ? incoming : String(incoming).slice(cut + 1).trim();
+}
+
+function contentTypeMismatch(expected, incoming) {
+  const want = parseContentType(expected);
+  const got = parseContentType(incoming);
+  if (want.mediaType !== got.mediaType) {
+    return "media type expected " + want.mediaType + " got " + got.mediaType;
+  }
+  const details = [];
+  for (const [name, value] of want.params) {
+    if (got.params.has(name) && got.params.get(name) !== value) {
+      const shown = want.names.get(name);
+      details.push(shown + " expected " + value + " got " + got.params.get(name));
+    }
+  }
+  return details.join("; ");
 }
 
 class ContentTypeUTF8 {
@@ -242,26 +293,18 @@ function validateWasmComponent(input, module, output) {
     "output_content_type_size",
   );
 
-  if (
-    declaredInput !== undefined &&
-    declaredInput !== input.contentType
-  ) {
+  const inputMismatch =
+    declaredInput === undefined ? "" : contentTypeMismatch(declaredInput, input.contentType);
+  if (inputMismatch !== "") {
     throw Error(
-      "component input content type mismatch: expected " +
-        input.contentType +
-        ", module declares " +
-        declaredInput,
+      "component expected " + declaredInput + ", got " + incomingForMessage(declaredInput, input.contentType) + ": " + inputMismatch,
     );
   }
-  if (
-    declaredOutput !== undefined &&
-    declaredOutput !== output.contentType
-  ) {
+  const outputMismatch =
+    declaredOutput === undefined ? "" : contentTypeMismatch(output.contentType, declaredOutput);
+  if (outputMismatch !== "") {
     throw Error(
-      "component output content type mismatch: expected " +
-        output.contentType +
-        ", module declares " +
-        declaredOutput,
+      "component output " + declaredOutput + " does not satisfy " + output.contentType + ": " + outputMismatch,
     );
   }
 }

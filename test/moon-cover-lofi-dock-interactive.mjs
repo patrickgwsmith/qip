@@ -36,7 +36,7 @@ function assertABI(exports, inputCapacity) {
   const type = new TextDecoder("utf-8", { fatal: true }).decode(
     bytesAt(exports, exports.output_content_type_ptr(), exports.output_content_type_size()),
   );
-  assert.equal(type, "image/ktx2");
+  assert.equal(type.split(";")[0].trim(), "image/ktx2");
 }
 
 function assertUpdateABI(exports, inputCapacity) {

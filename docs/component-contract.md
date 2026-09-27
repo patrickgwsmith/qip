@@ -14,8 +14,6 @@ an application calls them.
 | [GUI](/docs/gui-components) | Graphical applications, games, simulations, and animation | Render KTX2 frames and display them in a graphical host | Implemented; evolving |
 | [TUI](/docs/tui-components) | Keyboard-driven terminal interfaces | Render UTF-8 or ANSI frames and display them in a terminal | Implemented; evolving |
 | [Compliance](/docs/comply) | Executable specifications for Content components | Run declared cases against a Content component | Evolving |
-| `Tile` | RGBA image filters | Process host-managed 64×64 pixel regions, with optional halo pixels | Evolving |
-| `Form` | Prompt-driven, multi-step input | Exchange one field value at a time until completion | Evolving |
 
 Choose Content when each call completes one job. Content can still produce an
 image, HTML interface, or other rich result. Use Time and Events when the same

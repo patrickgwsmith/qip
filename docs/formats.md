@@ -75,24 +75,82 @@ components declare it with content-type parameters that mirror the KTX2 header
 and Data Format Descriptor fields:
 
 ```text
-image/ktx2; vkFormat=R8G8B8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
-image/ktx2; vkFormat=B8G8R8A8_SRGB; colorPrimaries=BT709; transferFunction=SRGB
-image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR
-image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=LINEAR
-image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=DISPLAYP3; transferFunction=SRGB
+image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB
+image/ktx2;vkFormat=B8G8R8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB
+image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR
+image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=DISPLAYP3;transferFunction=LINEAR
+image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=DISPLAYP3;transferFunction=SRGB
 ```
 
 The values are the Vulkan `VK_FORMAT_*` and Khronos Data Format
 `KHR_DF_PRIMARIES_*` and `KHR_DF_TRANSFER_*` enumerants without their prefixes,
 in the specifications' own casing. Parameter names are case-insensitive;
 values are case-sensitive. The canonical spelling is the lowercase media type
-followed by `; name=value` for each parameter, and the runtime rejects other
-spellings.
+followed by `;name=value` for each parameter with no whitespace anywhere, and
+the runtime rejects other spellings.
 
 A pipeline matches content types on the media type. A parameter a component
 declares must match when the incoming content also carries it, so an RGBA8
 output is refused by an RGBA32F input before the component runs. A bare
 `image/ktx2` still matches any profile, which keeps older components valid.
+
+### Example pipelines
+
+[Recipes](/docs/recipes) specifies how hosts validate every step of a pipeline;
+these examples show the KTX2 parameters at work.
+
+An 8-bit pipeline. The PNG decoder emits `image/ktx2`, the resizer declares
+and emits the RGBA8 sRGB profile, and the WebP encoder accepts any `image/ktx2`:
+
+```sh
+npx @qip.dev/qipx qip.dev run \
+  image/png/png-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm \
+  < photo.png > photo.webp
+```
+
+A float pipeline. The two converters move between profiles, and the look
+component declares linear BT.709 RGBA32F on both sides:
+
+```sh
+npx @qip.dev/qipx qip.dev run \
+  image/png/png-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm \
+  image/ktx2/ktx2-rgba32float-look-warm-fade.wasm \
+  image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm \
+  < photo.png > warm.png
+```
+
+An invalid pipeline. The resizer emits RGBA8 sRGB straight into the look
+component, which needs RGBA32F. Both media types are `image/ktx2`, so only
+the parameters reveal the mistake:
+
+```sh
+npx @qip.dev/qipx qip.dev run \
+  image/png/png-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm \
+  image/ktx2/ktx2-rgba32float-look-warm-fade.wasm \
+  < photo.png > warm.png
+```
+
+Every QIP host refuses it before running any component and exits with status
+1. `qip`, the Node.js `qipx`, and the Rust `qipx` print the same message; the
+Rust tool prefixes it with `qipx: `. The message names the step that could not
+accept its input and its declared type, what it got and which step produced
+that, and each parameter that disagrees. When both sides share the media type,
+the `got` part lists only the incoming parameters:
+
+```text
+step 3 image/ktx2/ktx2-rgba32float-look-warm-fade.wasm expected image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR, got vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB from step 2 image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm: vkFormat expected R32G32B32A32_SFLOAT got R8G8B8A8_SRGB; transferFunction expected LINEAR got SRGB
+```
+
+When the media types themselves differ, `got` shows the whole incoming type
+and the detail reads `media type expected image/ktx2 got image/png`.
+
+Inserting `ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm` between the resizer
+and the look component makes the pipeline valid again.
 
 Component filenames may abbreviate a profile, such as
 `ktx2-rgba32float-display-p3-linear`. The content-type declaration and KTX2

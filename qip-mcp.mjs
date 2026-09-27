@@ -167,12 +167,77 @@ export function parseCatalog(csv) {
     if (![inputCapacity, outputCapacity].every((value) => Number.isSafeInteger(value) && value >= 0 && value <= 0xffff_ffff)) {
       throw new Error(`Component catalog capacity exceeds uint32 on row ${index + 2}.`);
     }
-    return { path, inputEncoding, inputMime, inputCapacity, outputEncoding, outputMime, outputCapacity };
+    // The catalog stores each component's declared content type, parameters included; the
+    // media type alone is what pipelines match on.
+    return {
+      path,
+      inputEncoding,
+      inputMime: mediaTypeOf(inputMime),
+      inputContentType: inputMime,
+      inputCapacity,
+      outputEncoding,
+      outputMime: mediaTypeOf(outputMime),
+      outputContentType: outputMime,
+      outputCapacity,
+    };
   });
 }
 
+
+/**
+ * Splits "type/subtype; name=value; ..." into a lowercase media type and a map of
+ * parameters keyed by lowercase name. Parameter values are case-sensitive and kept
+ * verbatim, as in
+ * "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
+ */
+function parseContentType(value) {
+  const segments = String(value ?? "").split(";");
+  const mediaType = segments[0].trim().toLowerCase();
+  const params = new Map();
+  for (const segment of segments.slice(1)) {
+    const eq = segment.indexOf("=");
+    if (eq === -1) continue;
+    const name = segment.slice(0, eq).trim().toLowerCase();
+    if (name !== "") params.set(name, segment.slice(eq + 1).trim());
+  }
+  return { mediaType, params };
+}
+
+function mediaTypeOf(value) {
+  return parseContentType(value).mediaType;
+}
+
+function stripPrefix(value, prefix) {
+  return value !== undefined && value.startsWith(prefix) ? value.slice(prefix.length) : value;
+}
+
+/**
+ * The KTX2 profile a declared content type names through its vkFormat, colorPrimaries,
+ * and transferFunction parameters. Returns undefined when no vkFormat is declared, so the
+ * caller may fall back to the component name, and null when the declaration names a
+ * profile QIP does not support, so nothing chains to it.
+ */
+function profileFromParameters(params) {
+  const format = stripPrefix(params.get("vkformat"), "VK_FORMAT_");
+  if (format === undefined) return undefined;
+  const primaries = stripPrefix(params.get("colorprimaries"), "KHR_DF_PRIMARIES_");
+  const transfer = stripPrefix(params.get("transferfunction"), "KHR_DF_TRANSFER_");
+  const srgb8 = (primaries === undefined || primaries === "BT709") && (transfer === undefined || transfer === "SRGB");
+  if (format === "R8G8B8A8_SRGB") return srgb8 ? KTX2_RGBA8_SRGB : null;
+  if (format === "B8G8R8A8_SRGB") return srgb8 ? KTX2_BGRA8_SRGB : null;
+  if (format === "R32G32B32A32_SFLOAT") {
+    if (primaries === "BT709" && transfer === "LINEAR") return KTX2_RGBA32FLOAT_BT709_LINEAR;
+    if (primaries === "DISPLAYP3" && transfer === "LINEAR") return KTX2_RGBA32FLOAT_DISPLAY_P3_LINEAR;
+    if (primaries === "DISPLAYP3" && transfer === "SRGB") return KTX2_RGBA32FLOAT_DISPLAY_P3;
+  }
+  return null;
+}
+
 function inputProfiles(component) {
-  if (component.inputMime !== "image/ktx2") return [null];
+  const declared = component.inputContentType ?? component.inputMime;
+  if (mediaTypeOf(declared) !== "image/ktx2") return [null];
+  const fromParameters = profileFromParameters(parseContentType(declared).params);
+  if (fromParameters !== undefined) return fromParameters === null ? [] : [fromParameters];
   const { path } = component;
   if (path.includes("r8g8b8a8-or-b8g8r8a8-srgb")) return [KTX2_RGBA8_SRGB, KTX2_BGRA8_SRGB];
   if (path.includes("r8g8b8a8-srgb")) return [KTX2_RGBA8_SRGB];
@@ -184,7 +249,10 @@ function inputProfiles(component) {
 }
 
 function outputProfile(component) {
-  if (component.outputMime !== "image/ktx2") return null;
+  const declared = component.outputContentType ?? component.outputMime;
+  if (mediaTypeOf(declared) !== "image/ktx2") return null;
+  const fromParameters = profileFromParameters(parseContentType(declared).params);
+  if (fromParameters !== undefined) return fromParameters;
   const { path } = component;
   if (path.includes("rgba32float-display-p3-linear")) return KTX2_RGBA32FLOAT_DISPLAY_P3_LINEAR;
   if (path.includes("rgba32float-display-p3")) return KTX2_RGBA32FLOAT_DISPLAY_P3;

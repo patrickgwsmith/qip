@@ -467,8 +467,10 @@ class QIPPlayElement extends HTMLElement {
       primary.exports, primary.memory, "output_content_type_ptr", "output_content_type_size",
     );
     primary.outputCapacity = qipPlayOutputCapacity(primary.exports, precedingOutputType);
+    let precedingOutputUTF8 = typeof primary.exports.output_utf8_cap === "function";
     for (const stage of loaded.slice(1)) {
-      precedingOutputType = qipPlayValidatePostStage(stage, precedingOutputType);
+      precedingOutputType = qipPlayValidatePostStage(stage, precedingOutputType, precedingOutputUTF8);
+      precedingOutputUTF8 = stage.outputUTF8;
     }
 
     this._exports = exportsObj;
@@ -485,7 +487,7 @@ class QIPPlayElement extends HTMLElement {
     await this._setupInitialInput(inputSource, inputElement);
 
     this._outputCapacity = primary.outputCapacity;
-    const contentType = precedingOutputType;
+    const contentType = qipPlayMediaTypeOf(precedingOutputType);
     if (contentType !== "image/ktx2" && contentType !== "image/svg+xml") {
       throw new Error("qip-play presentation output must declare image/ktx2 or image/svg+xml");
     }

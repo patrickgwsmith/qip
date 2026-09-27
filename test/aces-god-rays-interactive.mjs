@@ -36,7 +36,7 @@ function assertContentABI(exports, hasEvents) {
   const type = new TextDecoder("utf-8", { fatal: true }).decode(
     new Uint8Array(exports.memory.buffer, exports.output_content_type_ptr(), exports.output_content_type_size()),
   );
-  assert.equal(type, "image/ktx2");
+  assert.equal(type.split(";")[0].trim(), "image/ktx2");
 }
 
 function setGodRaysUniforms(exports, speed = 0.75) {

@@ -25,7 +25,7 @@ profile remains float32; it is not a packed binary16 payload.
 The original linear working profile is intentionally narrow:
 
 - MIME type: `image/ktx2`, declared by components as
-  `image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR`
+  `image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR`
 - `vkFormat`: `VK_FORMAT_R32G32B32A32_SFLOAT` (109)
 - one 2D image, one mip level, one face, and no array layers
 - no supercompression

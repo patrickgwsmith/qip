@@ -31,7 +31,7 @@ function assertUpdateKTX2ABI(exports) {
       exports.output_content_type_size(),
     ),
   );
-  assert.equal(contentType, "image/ktx2");
+  assert.equal(contentType.split(";")[0].trim(), "image/ktx2");
 }
 
 test("spreadsheet schedules caret updates and presents them separately", () => {

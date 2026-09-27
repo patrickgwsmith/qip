@@ -580,7 +580,7 @@ func TestRunModuleExecutionErrorIncludesModulePath(t *testing.T) {
 	}
 
 	gotErr := stderr.String()
-	if !strings.Contains(gotErr, "step 1 (text/infinite-loop.wasm): render trapped:") {
+	if !strings.Contains(gotErr, "step 1 text/infinite-loop.wasm trapped:") {
 		t.Fatalf("stderr=%q, want step, component path, and render failure", gotErr)
 	}
 	if !strings.Contains(gotErr, "Wasm module exceeded the execution time limit") {
@@ -612,7 +612,7 @@ func TestRunRejectionNamesPipelineStepAndComponent(t *testing.T) {
 		t.Fatalf("rejected pipeline wrote stdout=%q", stdout.String())
 	}
 	got := stderr.String()
-	if !strings.Contains(got, "step 2 (bytes/zlib-decompress.wasm): component rejected input") {
+	if !strings.Contains(got, "step 2 bytes/zlib-decompress.wasm rejected input") {
 		t.Fatalf("stderr=%q, want step, component, and rejection", got)
 	}
 	if strings.Contains(got, "trace retry") {
@@ -1046,7 +1046,7 @@ func TestContentTypeCheckingModesForRunModule(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected strong content type mismatch error")
 	}
-	if !strings.Contains(err.Error(), "content type check failed") {
+	if !strings.Contains(err.Error(), "expected ") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -1106,7 +1106,7 @@ func TestRunModuleAcceptsAndRejects(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid UTF-8 rejection")
 	}
-	if !strings.Contains(err.Error(), "component rejected input at input offset 2") {
+	if !strings.Contains(err.Error(), "rejected input at input offset 2") {
 		t.Fatalf("unexpected rejection: %v", err)
 	}
 }

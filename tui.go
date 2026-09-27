@@ -346,7 +346,7 @@ func (session *tuiSession) renderPrimary(initial bool, dimensions tuiDimensions)
 	}
 	results, err := session.module.ExportedFunction("render").Call(ctx, inputSize)
 	if err != nil {
-		return nil, fmt.Errorf("%s render trapped: %w", session.primaryName, wasmruntime.HumanizeExecutionError(ctx, err))
+		return nil, fmt.Errorf("%s trapped: %w", session.primaryName, wasmruntime.HumanizeExecutionError(ctx, err))
 	}
 	packed := results[0]
 	if packed&(uint64(1)<<63) != 0 {
