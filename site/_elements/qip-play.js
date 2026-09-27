@@ -25,6 +25,7 @@ import {
   directChildren as qipPlayDirectChildren,
   sourceSteps as qipPlaySourceSteps,
   readDeclaredContentType as qipPlayReadDeclaredContentType,
+  mediaTypeOf as qipPlayMediaTypeOf,
   stepLabel as qipPlayStepLabel,
   sourceLabel as qipPlaySourceLabel,
   validatePostStage as qipPlayValidatePostStage,
@@ -615,13 +616,19 @@ class QIPPlayElement extends HTMLElement {
 
   _installSVGPresentation() {
     this._inlineSVG = this.hasAttribute("svg-inline");
+    // SVG coordinates drive both pointer mapping and the inline surface ratio.
+    const svgWidth = Number(this.getAttribute("svg-width") || 800);
+    const svgHeight = Number(this.getAttribute("svg-height") || 600);
+    if (!Number.isSafeInteger(svgWidth) || svgWidth <= 0 || !Number.isSafeInteger(svgHeight) || svgHeight <= 0) {
+      throw new Error("qip-play SVG dimensions must be positive integers");
+    }
     const surface = document.createElement(this._inlineSVG ? "div" : "img");
-    const cssPresentation = qipPlayPresentation(this, 800);
+    const cssPresentation = qipPlayPresentation(this, svgWidth);
     const label = this.getAttribute("aria-label") || "Interactive SVG editor";
     if (this._inlineSVG) {
       surface.setAttribute("role", "img");
       surface.setAttribute("aria-label", label);
-      surface.style.aspectRatio = "4 / 3";
+      surface.style.aspectRatio = `${svgWidth} / ${svgHeight}`;
       surface.style.userSelect = "text";
     } else {
       surface.alt = label;
@@ -635,8 +642,8 @@ class QIPPlayElement extends HTMLElement {
     this.removeAttribute("tabindex");
     this._canvas = surface;
     this._presentationElement = surface;
-    this._renderWidth = 800;
-    this._renderHeight = 600;
+    this._renderWidth = svgWidth;
+    this._renderHeight = svgHeight;
   }
 
   _revokeSVGBlobURL() {

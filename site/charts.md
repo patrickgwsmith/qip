@@ -3,7 +3,7 @@
 Chart-focused QIP components:
 
 - [Time series CSV to SVG polylines](/text/csv/time-series-csv-to-svg-polylines.wasm) renders a `date` or UTC `timestamp` column plus one or more numeric columns as a vector SVG chart. [Exponential moving average](/image/svg+xml/svg-polylines-exponential-moving-average.wasm) and [rolling mean](/image/svg+xml/svg-polylines-rolling-mean.wasm) transform every emitted data polyline independently. [Add mean lines](/image/svg+xml/svg-polylines-add-mean-lines.wasm) adds a same-colour dashed arithmetic mean for each polyline.
-- [OpenAI vs Anthropic ARR](/chart-openai-anthropic-arr)
+- [OpenAI vs Anthropic ARR (KTX2 and SVG)](/chart-openai-anthropic-arr)
 - [Shutterstock Earnings Overlay](/play-shutterstock-earnings)
 
 ## CSV to SVG polylines

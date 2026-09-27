@@ -82,6 +82,20 @@ test("SVG image is focusable, non-draggable, captures pointers, and maps to 800 
   assert.deepEqual(element._pendingEvents[0], { type: "pointer", buttonMask: 1, x: 400, y: 300, timeMS: 0, sequence: 1 });
 });
 
+test("inline SVG uses declared dimensions for its aspect ratio and pointer coordinates", () => {
+  const element = new QIPPlayElement();
+  element._attrs.set("svg-inline", "");
+  element._attrs.set("svg-width", "820");
+  element._attrs.set("svg-height", "540");
+  element._exports = { pointer_event() { return 1; } };
+  element._memory = new WebAssembly.Memory({ initial: 1 });
+  element._resumeLoop = () => {};
+  element._installSVGPresentation();
+  assert.equal(element._canvas.style.aspectRatio, "820 / 540");
+  element._dispatchPointer({ type: "pointermove", buttons: 0, clientX: 210, clientY: 170, preventDefault() {} });
+  assert.deepEqual(element._pendingEvents[0], { type: "pointer", buttonMask: 0, x: 410, y: 270, timeMS: 0, sequence: 1 });
+});
+
 test("pointer modifiers recover Shift when the SVG gains focus on pointerdown", () => {
   const element = new QIPPlayElement();
   element._exports = { key_event() { return 0; }, pointer_event() { return 1; } };

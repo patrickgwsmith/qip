@@ -258,6 +258,7 @@ export {
   qipPlaySelectStepSources as selectStepSources,
   qipPlaySourceSteps as sourceSteps,
   qipPlayReadDeclaredContentType as readDeclaredContentType,
+  qipPlayMediaTypeOf as mediaTypeOf,
   qipPlayStepLabel as stepLabel,
   qipPlaySourceLabel as sourceLabel,
   qipPlayValidatePostStage as validatePostStage,

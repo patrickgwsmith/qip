@@ -56,6 +56,7 @@ events, and timing.
 - [`mandelbrot.wasm`](/gui/mandelbrot.wasm) explores the Mandelbrot set.
 - [`moon-phases.wasm`](/gui/moon-phases.wasm) shows the lunar phase cycle.
 - [`openai-anthropic-arr.wasm`](/gui/openai-anthropic-arr.wasm) charts annual recurring revenue data.
+- [`openai-anthropic-arr-svg.wasm`](/gui/openai-anthropic-arr-svg.wasm) draws the same interactive chart as SVG.
 - [`page-load-waterfall.wasm`](/gui/page-load-waterfall.wasm) draws a page-load timeline.
 - [`perlin-noise.wasm`](/gui/perlin-noise.wasm) visualizes procedural noise.
 - [`render-counts.wasm`](/gui/render-counts.wasm) displays render and update counts.

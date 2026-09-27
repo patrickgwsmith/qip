@@ -1,21 +1,65 @@
 # OpenAI vs Anthropic ARR
 
-The selected series, milestone, and scale are retained as component state.
-Events can change that state without replacing the published KTX2 chart until
-the host calls `render`.
+Switch between the KTX2 and SVG renderers to compare the same reported
+milestones. The SVG version has selectable text and vector marks.
 
-<qip-play canvas-width="820px" canvas-height="auto">
-  <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
-</qip-play>
+The selected series, milestone, and scale are retained as component state.
+Events can change that state without replacing the displayed chart until the
+host calls `render`.
+
+<style>
+@font-face {
+  font-family: "QIP Chart Inter";
+  src: url("/fonts/InterDisplay-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+#arr-svg-chart svg { font-family: "QIP Chart Inter", Inter, sans-serif; }
+.arr-renderers { display: flex; gap: 1rem; margin: 1rem 0; }
+.arr-renderers label { display: inline-flex; align-items: center; gap: 0.35rem; cursor: pointer; }
+</style>
+
+<fieldset class="arr-renderers" aria-label="Chart renderer">
+  <label><input type="radio" name="arr-renderer" value="ktx2" checked> KTX2</label>
+  <label><input type="radio" name="arr-renderer" value="svg"> SVG</label>
+</fieldset>
+
+<div id="arr-ktx-panel">
+  <qip-play id="arr-ktx-chart" canvas-width="min(100%, 820px)" canvas-height="auto">
+    <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
+  </qip-play>
+</div>
+<div id="arr-svg-panel" hidden>
+  <qip-play id="arr-svg-chart" aria-label="OpenAI and Anthropic revenue run rate chart" canvas-width="min(100%, 820px)" svg-inline svg-width="820" svg-height="540">
+    <source src="/gui/openai-anthropic-arr-svg.wasm" type="application/wasm" />
+  </qip-play>
+</div>
 
 <script type="module">
 const shortcuts = new Set(["l", "o", "a", "1", "2", "ArrowLeft", "ArrowRight"]);
+const renderers = document.querySelectorAll('input[name="arr-renderer"]');
+const panels = {
+  ktx2: document.querySelector("#arr-ktx-panel"),
+  svg: document.querySelector("#arr-svg-panel"),
+};
+
+for (const radio of renderers) {
+  radio.addEventListener("change", () => {
+    panels.ktx2.hidden = radio.value !== "ktx2";
+    panels.svg.hidden = radio.value !== "svg";
+  });
+}
 
 function forwardChartShortcut(event) {
-  if (event.target !== document.body && event.target !== document.documentElement) return;
+  const pageFocused = event.target === document.body || event.target === document.documentElement;
+  const rendererFocused = event.target.matches?.('input[name="arr-renderer"]');
+  if (!pageFocused && !rendererFocused) return;
   if (event.ctrlKey || event.altKey || event.metaKey) return;
   const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
-  const chart = document.querySelector("qip-play canvas");
+  if (rendererFocused && key.startsWith("Arrow")) return;
+  const selected = document.querySelector('input[name="arr-renderer"]:checked')?.value;
+  const chart = panels[selected]?.querySelector("canvas, [role='img']");
   if (!shortcuts.has(key) || !chart) return;
 
   event.preventDefault();
@@ -37,7 +81,7 @@ document.addEventListener("keyup", forwardChartShortcut);
 
 A reported annualized-revenue overlay for OpenAI and Anthropic, tracking public run-rate milestones from 2023 through August 2026.
 
-Keyboard shortcuts work when the page or chart has focus.
+Keyboard shortcuts work when the page, renderer choice, or chart has focus.
 
 Controls:
 
