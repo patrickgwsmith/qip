@@ -42,9 +42,9 @@ The host does not need to know how the component represents state internally or 
 
 The contract has two important properties:
 
-**Restorable.** `reveal_input()` produces valid input that a fresh instance of the same component artifact MUST accept and that restores equivalent observable state.
+**Restorable.** `reveal_input()` produces valid input that a fresh instance of the same component artifact MUST accept. After a successful render, it restores equivalent observable state; before the first render, it provides valid default input for initialization.
 
-**Read-only.** `reveal_input()` MUST NOT change the component's observable state.
+**Read-only.** `reveal_input()` MUST NOT change the component's committed state.
 
 QIP components are deterministic and have no access to outside state, clocks, randomness, or I/O except through their explicit inputs and calls. The same component state therefore produces the same revealed input without requiring a separate determinism rule for this export.
 
@@ -119,7 +119,9 @@ This proposal does not otherwise prescribe which component operations may affect
 
 ## Read-only
 
-`reveal_input()` MUST NOT change the component's observable state.
+`reveal_input()` MUST NOT change the component's committed state: the state from
+which later renders and updates proceed. This does not preserve earlier memory
+views or uncommitted bytes that a host wrote into the input buffer.
 
 In particular, it MUST NOT advance time, process events, render output, or open or finish an update.
 
@@ -250,7 +252,11 @@ Updates may affect what a later `reveal_input()` reveals. This proposal does not
 
 Bytes returned by `reveal_input()` MUST be accepted as initial input by a fresh instance of the same component artifact. Its first `render(revealed_size)` MUST succeed rather than recoverably reject those bytes.
 
-After that render, the fresh instance MUST have equivalent observable state.
+If `reveal_input()` ran after a successful render, the fresh instance MUST then
+have equivalent observable state to the source instance at the reveal call.
+If it ran before the source instance's first render, compare the two instances
+*after each has rendered the revealed default input* with the same initial
+uniforms. There is no rendered state to compare before initialization.
 
 Equivalence includes subsequent rendered output and the behavior of later updates for the same future inputs. It does not require identical private memory, pointer values, caches, data structures, or other implementation details.
 
