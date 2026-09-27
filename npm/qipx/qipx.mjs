@@ -578,53 +578,6 @@ function readLimits(bytes, offset, label) {
   return { flags, minimum, maximum, offset };
 }
 
-function validateMemoryPolicy(wasm, label, policy = {}) {
-  if (wasm.length < 8 || wasm[0] !== 0x00 || wasm[1] !== 0x61 || wasm[2] !== 0x73 || wasm[3] !== 0x6d) {
-    throw new Error(`${label} is not a WebAssembly binary module`);
-  }
-  const maxMemory = policy.maxMemory;
-  let offset = 8;
-  let memoryCount = 0;
-  while (offset < wasm.length) {
-    const sectionID = wasm[offset++];
-    offset = readULEB(wasm, offset);
-    const sectionEnd = offset + lebValue;
-    if (sectionEnd > wasm.length) throw new Error(`${label} has a truncated Wasm section`);
-    if (sectionID === 2) {
-      let cursor = readULEB(wasm, offset);
-      const count = lebValue;
-      for (let index = 0; index < count; index += 1) {
-        cursor = readName(wasm, cursor).offset;
-        cursor = readName(wasm, cursor).offset;
-        const kind = wasm[cursor++];
-        if (kind === 0x00) cursor = skipLEB(wasm, cursor);
-        else if (kind === 0x01) cursor = readLimits(wasm, cursor + 1, label).offset;
-        else if (kind === 0x02) {
-          const limits = readLimits(wasm, cursor, label);
-          cursor = limits.offset;
-          memoryCount += 1;
-          validateMemoryLimits(limits, label, maxMemory);
-        } else if (kind === 0x03) {
-          cursor += 2;
-        } else {
-          throw new Error(`${label} has an unknown import kind`);
-        }
-      }
-    } else if (sectionID === 5) {
-      let cursor = readULEB(wasm, offset);
-      const count = lebValue;
-      for (let index = 0; index < count; index += 1) {
-        const limits = readLimits(wasm, cursor, label);
-        cursor = limits.offset;
-        memoryCount += 1;
-        validateMemoryLimits(limits, label, maxMemory);
-      }
-    }
-    offset = sectionEnd;
-  }
-  if (memoryCount !== 1) throw new Error(`${label} must declare exactly one memory`);
-}
-
 function validateMemoryLimits(limits, label, maxMemory) {
   if ((limits.flags & 0x02) !== 0) throw new Error(`${label} declares shared memory, which is outside the Strict Wasm Profile`);
   if (limits.maximum === null) throw new Error(`${label} declares memory without a maximum, which is outside the Strict Wasm Profile`);
@@ -756,12 +709,17 @@ const staticExportNames = [
   "output_content_type_size",
 ];
 
-// One pass over the module: rejects imports, start functions, and instructions outside the
-// Strict Wasm Profile, and records which defined functions are static getters. Because
-// imports are rejected, function indices are code-section indices.
-function analyzeStrictModule(wasm, label) {
+// One pass over the module in binary section order, so every implementation reports the
+// same first failure: imports, then memory limits, then exports, then a start function, then
+// instructions outside the Strict Wasm Profile. Records which defined functions are static
+// getters; because imports are rejected, function indices are code-section indices.
+function analyzeStrictModule(wasm, label, maxMemory) {
+  if (wasm.length < 8 || wasm[0] !== 0x00 || wasm[1] !== 0x61 || wasm[2] !== 0x73 || wasm[3] !== 0x6d) {
+    throw new Error(`${label} is not a WebAssembly binary module`);
+  }
   let offset = 8;
   let functionCount = 0;
+  let memoryCount = 0;
   const exportsByName = new Map();
   let dynamicFunctions = new Uint8Array(0);
   while (offset < wasm.length) {
@@ -775,6 +733,15 @@ function analyzeStrictModule(wasm, label) {
     } else if (sectionID === 3) {
       readULEB(wasm, offset);
       functionCount = lebValue;
+    } else if (sectionID === 5) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      for (let index = 0; index < count; index += 1) {
+        const limits = readLimits(wasm, cursor, label);
+        cursor = limits.offset;
+        memoryCount += 1;
+        validateMemoryLimits(limits, label, maxMemory);
+      }
     } else if (sectionID === 7) {
       let cursor = readULEB(wasm, offset);
       const count = lebValue;
@@ -805,6 +772,7 @@ function analyzeStrictModule(wasm, label) {
     }
     offset = sectionEnd;
   }
+  if (memoryCount !== 1) throw new Error(`${label} must declare exactly one memory`);
   return { exportsByName, dynamicFunctions };
 }
 
@@ -865,8 +833,7 @@ export function wasmMustComplyWithComponentContract(wasm, options = {}) {
   const label = contract.label ?? "component";
   const data = bytes(wasm);
   const maxMemory = contract.maxMemory === undefined || contract.maxMemory === null || contract.maxMemory === "" ? undefined : parseMaxMemory(contract.maxMemory);
-  validateMemoryPolicy(data, label, { maxMemory });
-  wasmMustExportComponentFunctions(analyzeStrictModule(data, label), label);
+  wasmMustExportComponentFunctions(analyzeStrictModule(data, label, maxMemory), label);
 }
 
 export function newComponent(instance, options = {}) {

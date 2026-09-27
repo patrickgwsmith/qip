@@ -270,6 +270,18 @@ test("Rust qipx rejects host imports in Content components", () => {
   assert.match(rust.stderr, /imports host functions or state/);
 });
 
+test("Node and Rust qipx report the same first failure in binary section order", () => {
+  // The compliance oracles both import host functions and declare memory without a maximum;
+  // the import section comes first in the binary, so it must be reported first everywhere.
+  const path = "compliance/base64-encode.comply.wasm";
+  const node = run(process.execPath, ["npm/qipx/cli.mjs", "run", path]);
+  const rust = run(rustCLI, ["run", path]);
+  assert.equal(node.status, 1);
+  assert.equal(rust.status, 1);
+  assert.match(node.stderr, /imports host functions or state/);
+  assert.equal(rust.stderr, `qipx: ${node.stderr.trim()}\n`);
+});
+
 test("Rust qipx rejects dynamic ABI capacity getters", () => {
   const rust = run(rustCLI, ["run", "test/fixtures/qipx-rust-dynamic-getter.wasm"]);
   assert.equal(rust.status, 1);

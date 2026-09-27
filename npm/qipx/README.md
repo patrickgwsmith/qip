@@ -357,7 +357,10 @@ choose async or sync setup. It provides QIP-specific validation and execution:
   QIP Content contract before compilation and instantiation. It enforces the
   Strict Wasm Profile subset, `maxMemory`, no imports, no start function, no
   `memory.grow`, no atomics, the required Content exports, complete
-  content-type metadata pairs, and static QIP ABI getter functions.
+  content-type metadata pairs, and static QIP ABI getter functions. Checks run
+  in binary section order, so the first failure reported is the same in every
+  QIP host: imports, then memory limits, then exports, then a start function,
+  then instructions, and finally the export contract.
 - `newContentComponentContract(options)` creates a reusable contract object for
   byte-level checks and instantiated component checks.
 - `newComponent(instance, contract)` validates the instantiated QIP Content ABI
