@@ -387,6 +387,7 @@ tui/info-plist-viewer.wasm: tui/plist-viewer.zig tui/lib/info-plist-schema.tsv
 gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 gui/svg-gradient-editor.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/klondike.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/aces-up.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm: gui/assets/inter_display_chart_ascii.zig
 
@@ -1100,6 +1101,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-play-debug-stats.mjs
 	node --test test/qip-play-steps.mjs
 	node --test test/qip-play-svg.mjs
+	node --test test/klondike.mjs
 	node --test test/qip-tui.mjs
 	node --test test/qip-tui-links.mjs
 	node --test test/svg-path-editor.mjs

@@ -23,6 +23,7 @@ events, and timing.
 ## Games
 
 - [`aces-up.wasm`](/gui/aces-up.wasm) plays Aces Up solitaire and returns SVG frames.
+- [`klondike.wasm`](/gui/klondike.wasm) plays draw-one Klondike and returns SVG frames.
 - [`liars-dice.wasm`](/gui/liars-dice.wasm) plays Liar's Dice.
 - [`peon-gold.wasm`](/gui/peon-gold.wasm) runs the Peon Gold game loop.
 - [`side-scroller-platformer.wasm`](/gui/side-scroller-platformer.wasm) runs a side-scrolling platform game.

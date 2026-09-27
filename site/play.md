@@ -13,6 +13,7 @@ More interactive pages:
 - [Snake](/play-snake)
 - [Tic-Tac-Toe (Sun & Moon)](/play-tic-tac-toe)
 - [Aces Up](/play-aces-up)
+- [Klondike solitaire](/play-klondike)
 - [Mandelbrot](/play-mandelbrot)
 - [Perlin Noise](/play-perlin-noise)
 - [Peon Gold Loop](/play-peon-gold)
