@@ -28,6 +28,8 @@ var columns: usize = 80;
 var rows: usize = 24;
 var input: [INPUT_CAP]u8 = undefined;
 var file: [FILE_CAP]u8 = undefined;
+// The package document outlives the shared extraction buffer, so it gets its own fixed copy.
+var opf_copy_buf: [FILE_CAP]u8 = undefined;
 var text: [TEXT_CAP]u8 = undefined;
 var centered_bits: [TEXT_CAP / 8]u8 = [_]u8{0} ** (TEXT_CAP / 8);
 var bold_bits: [TEXT_CAP / 8]u8 = [_]u8{0} ** (TEXT_CAP / 8);
@@ -640,8 +642,8 @@ fn loadBook(archive: []const u8) !void {
     const opf_path = try resolve("", raw_opf_path, &opf_path_buf);
     const opf = try extract(archive, opf_path);
     // Keep the package document while the shared extraction buffer is reused.
-    const opf_copy = std.heap.page_allocator.alloc(u8, opf.len) catch return error.PackageTooLarge;
-    defer std.heap.page_allocator.free(opf_copy);
+    if (opf.len > opf_copy_buf.len) return error.PackageTooLarge;
+    const opf_copy = opf_copy_buf[0..opf.len];
     @memcpy(opf_copy, opf);
     bookTitle(opf_copy);
     style_rule_count = 0;

@@ -63,6 +63,8 @@ on their operands or bounds.
   instructions.
 - `memory_loads`, `memory_stores`, `memory_copies`, and `memory_fills` count
   instruction sites, not runtime accesses.
+- `memory_size` and `memory_grow` count those instructions. The Strict Wasm
+  Profile refuses a module with any `memory.grow`, so a QIP component reports 0.
 - `potentially_trapping_instructions` combines explicit traps, integer
   division and remainder, trapping float-to-integer conversion, bounded
   memory and table operations, and indirect or reference calls.

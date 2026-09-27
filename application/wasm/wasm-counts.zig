@@ -99,6 +99,8 @@ const METRIC_NAMES = .{
     "memory_stores",
     "memory_copies",
     "memory_fills",
+    "memory_size",
+    "memory_grow",
     "explicit_traps",
     "integer_divisions",
     "integer_remainders",
@@ -223,6 +225,8 @@ test "reports semantic, SIMD, trapping, memory, and table counts as CSV" {
         0x41, 0x00, 0x41, 0x01, 0x36, 0x02, 0x00, // i32.store
         0x41, 0x00, 0x41, 0x00, 0x41, 0x01, 0xfc, 0x0a, 0x00, 0x00, // memory.copy
         0x41, 0x00, 0x41, 0x00, 0x41, 0x01, 0xfc, 0x0b, 0x00, // memory.fill
+        0x3f, 0x00, 0x1a, // memory.size; drop
+        0x41, 0x01, 0x40, 0x00, 0x1a, // memory.grow; drop
         0xfd, 0x0c, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // v128.const
         0x1a, 0x0b, 0x0b, // drop; end loop; end function
     };
@@ -237,6 +241,8 @@ test "reports semantic, SIMD, trapping, memory, and table counts as CSV" {
     try std.testing.expectEqual(@as(u64, 1), counts.memory_stores);
     try std.testing.expectEqual(@as(u64, 1), counts.memory_copies);
     try std.testing.expectEqual(@as(u64, 1), counts.memory_fills);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_size);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_grow);
     try std.testing.expectEqual(@as(u64, 5), counts.potentially_trapping_instructions);
 
     const out_len = renderCsv(counts);
@@ -245,6 +251,7 @@ test "reports semantic, SIMD, trapping, memory, and table counts as CSV" {
     try std.testing.expect(std.mem.indexOf(u8, csv, "function_instructions,") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "simd_instructions,1\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "memory_loads,1\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "memory_grow,1\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "element_initializers,0\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "explicit_traps,0\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, csv, "integer_divisions,1\n") != null);

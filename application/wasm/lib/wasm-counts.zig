@@ -95,6 +95,8 @@ pub const Counts = struct {
     memory_stores: u64 = 0,
     memory_copies: u64 = 0,
     memory_fills: u64 = 0,
+    memory_size: u64 = 0,
+    memory_grow: u64 = 0,
     explicit_traps: u64 = 0,
     integer_divisions: u64 = 0,
     integer_remainders: u64 = 0,
@@ -550,6 +552,8 @@ const InstructionCounter = struct {
                 c.potentially_trapping_memory += 1;
                 c.potentially_trapping_instructions += 1;
             },
+            0x3f => c.memory_size += 1,
+            0x40 => c.memory_grow += 1,
             0x6d, 0x6e, 0x7f, 0x80 => {
                 c.integer_divisions += 1;
                 c.potentially_trapping_instructions += 1;
