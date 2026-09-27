@@ -591,8 +591,8 @@ pub const Machine = struct {
                 else => 0,
             },
             0xfd => switch (simdSubopcode(instruction)) {
-                0, 93 => 1, // v128.load, v128.load64_zero
-                11, 13, 110 => 2, // v128.store, i8x16.shuffle, i8x16.add
+                0, 93, 15, 17, 100 => 1, // loads, splats, bitmask
+                11, 13, 14, 35, 40, 42, 44, 78, 80, 110, 113, 141, 171, 173 => 2,
                 else => 0,
             },
             0x0b => if (self.control_count == 0) 0 else self.controls[self.control_count - 1].result_arity,
@@ -2000,14 +2000,58 @@ pub const Machine = struct {
                 if (offset + 16 > self.module.len) return Error.InvalidSection;
                 try self.push(try i8x16Shuffle(left, right, self.module[offset..][0..16]), .v128);
             },
+            14 => { // i8x16.swizzle
+                const indices = try self.pop();
+                const table = try self.pop();
+                try self.push(i8x16Swizzle(table, indices), .v128);
+            },
+            15 => try self.push(splatByte(@truncate(try self.pop32())), .v128),
+            17 => try self.push(splatWord(try self.pop32()), .v128),
+            35, 40, 42, 44, 110, 113 => {
+                const right = try self.pop();
+                const left = try self.pop();
+                try self.push(i8x16Binary(left, right, subopcode), .v128);
+            },
+            78, 80 => {
+                const right = try self.pop();
+                const left = try self.pop();
+                try self.push(if (subopcode == 78) left & right else left | right, .v128);
+            },
             93 => { // v128.load64_zero
                 const address = try self.pop32();
                 try self.push(try self.readMemory(address, simdImmediate(instruction), 8), .v128);
             },
-            110 => { // i8x16.add
-                const right = try self.pop();
-                const left = try self.pop();
-                try self.push(i8x16Add(left, right), .v128);
+            100 => { // i8x16.bitmask
+                const value = try self.pop();
+                var mask: u32 = 0;
+                for (0..16) |lane| {
+                    const byte: u8 = @truncate(value >> @as(u7, @intCast(lane * 8)));
+                    mask |= @as(u32, byte >> 7) << @as(u5, @intCast(lane));
+                }
+                try self.push(mask, .i32);
+            },
+            141 => { // i16x8.shr_u
+                const shift: u4 = @truncate(try self.pop32());
+                const value = try self.pop();
+                var result: u128 = 0;
+                for (0..8) |lane| {
+                    const lane_shift: u7 = @intCast(lane * 16);
+                    const word: u16 = @truncate(value >> lane_shift);
+                    result |= @as(u128, word >> shift) << lane_shift;
+                }
+                try self.push(result, .v128);
+            },
+            171, 173 => { // i32x4.shl, i32x4.shr_u
+                const shift: u5 = @truncate(try self.pop32());
+                const value = try self.pop();
+                var result: u128 = 0;
+                for (0..4) |lane| {
+                    const lane_shift: u7 = @intCast(lane * 32);
+                    const word: u32 = @truncate(value >> lane_shift);
+                    const shifted = if (subopcode == 171) word << shift else word >> shift;
+                    result |= @as(u128, shifted) << lane_shift;
+                }
+                try self.push(result, .v128);
             },
             else => return self.trapWith(.unsupported_instruction),
         }
@@ -2073,15 +2117,53 @@ pub fn i8x16Shuffle(left: u128, right: u128, lanes: []const u8) Error!u128 {
     return result;
 }
 
-pub fn i8x16Add(left: u128, right: u128) u128 {
+fn i8x16Swizzle(table: u128, indices: u128) u128 {
     var result: u128 = 0;
     for (0..16) |lane| {
         const shift: u7 = @intCast(lane * 8);
-        const left_byte: u8 = @truncate(left >> shift);
-        const right_byte: u8 = @truncate(right >> shift);
-        result |= @as(u128, left_byte +% right_byte) << shift;
+        const index: u8 = @truncate(indices >> shift);
+        if (index < 16) {
+            const byte: u8 = @truncate(table >> @as(u7, @intCast(index * 8)));
+            result |= @as(u128, byte) << shift;
+        }
     }
     return result;
+}
+
+fn splatByte(byte: u8) u128 {
+    var result: u128 = 0;
+    for (0..16) |lane| result |= @as(u128, byte) << @as(u7, @intCast(lane * 8));
+    return result;
+}
+
+fn splatWord(word: u32) u128 {
+    var result: u128 = 0;
+    for (0..4) |lane| result |= @as(u128, word) << @as(u7, @intCast(lane * 32));
+    return result;
+}
+
+fn i8x16Binary(left: u128, right: u128, subopcode: u32) u128 {
+    var result: u128 = 0;
+    for (0..16) |lane| {
+        const shift: u7 = @intCast(lane * 8);
+        const a: u8 = @truncate(left >> shift);
+        const b: u8 = @truncate(right >> shift);
+        const byte: u8 = switch (subopcode) {
+            35 => if (a == b) 255 else 0,
+            42 => if (a <= b) 255 else 0,
+            40 => if (a > b) 255 else 0,
+            44 => if (a >= b) 255 else 0,
+            110 => a +% b,
+            113 => a -% b,
+            else => unreachable,
+        };
+        result |= @as(u128, byte) << shift;
+    }
+    return result;
+}
+
+pub fn i8x16Add(left: u128, right: u128) u128 {
+    return i8x16Binary(left, right, 110);
 }
 
 fn signExtend8To32(value: u32) u32 {
@@ -2294,8 +2376,22 @@ pub fn instructionName(instruction: Instruction) []const u8 {
         11 => "v128.store",
         12 => "v128.const",
         13 => "i8x16.shuffle",
+        14 => "i8x16.swizzle",
+        15 => "i8x16.splat",
+        17 => "i32x4.splat",
+        35 => "i8x16.eq",
+        42 => "i8x16.le_u",
+        40 => "i8x16.gt_u",
+        44 => "i8x16.ge_u",
+        78 => "v128.and",
+        80 => "v128.or",
         93 => "v128.load64_zero",
+        100 => "i8x16.bitmask",
         110 => "i8x16.add",
+        113 => "i8x16.sub",
+        141 => "i16x8.shr_u",
+        171 => "i32x4.shl",
+        173 => "i32x4.shr_u",
         else => "simd.unsupported",
     };
     return opcodeName(instruction.op);

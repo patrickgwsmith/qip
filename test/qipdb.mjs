@@ -16,6 +16,8 @@ const qipToZigPath = fileURLToPath(new URL("../application/wasm/qip-component-to
 const bulkMemoryPath = fileURLToPath(new URL("./fixtures/wasm-debugger-bulk-memory.wasm", import.meta.url));
 const callIndirectPath = fileURLToPath(new URL("./fixtures/wasm-debugger-call-indirect.wasm", import.meta.url));
 const bmpDoubleSIMDPath = fileURLToPath(new URL("../image/bmp/bmp-double-simd.wasm", import.meta.url));
+const base64SIMDPath = fileURLToPath(new URL("../text/base64-decode-simd.wasm", import.meta.url));
+const base64CSIMDPath = fileURLToPath(new URL("../text/base64-decode-c-simd.wasm", import.meta.url));
 const pngToBMPSIMDPath = fileURLToPath(new URL("../image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm", import.meta.url));
 const qipLogoPNGPath = fileURLToPath(new URL("../qip-logo.png", import.meta.url));
 const stripAnsiPath = fileURLToPath(new URL("../text/strip-ansi-sgr.wasm", import.meta.url));
@@ -374,6 +376,33 @@ test("table-using repository components match native Wasm SHA-256 output", async
     }
   }
 });
+
+for (const [name, targetPath, loopIterations] of [
+  ["WAT", base64SIMDPath, 4],
+  ["C", base64CSIMDPath, 3],
+]) {
+  test(`qipdb executes the ${name} Base64 SIMD lookup path and reports its output`, async () => {
+    const [debuggerBytes, targetBytes] = await Promise.all([readFile(debuggerPath), readFile(targetPath)]);
+    const input = Buffer.from("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/");
+    const expectedDigest = createHash("sha256").update(Buffer.from(input.toString(), "base64")).digest("hex");
+    const { instance } = await WebAssembly.instantiate(debuggerBytes, {});
+    instance.exports.uniform_set_columns(120);
+    instance.exports.uniform_set_lines(45);
+    const debuggerInput = multipart([["component", targetBytes], ["input", input]]);
+    new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
+    renderedText(instance, debuggerInput.length);
+
+    sendKey(instance, 1n, 0x66); // f: finish execution.
+    const completed = renderedText(instance, 0);
+    assert.match(completed, /OUTPUT succeeded size=48/);
+    assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
+    sendKey(instance, 2n, 0x69); // i: expand counters.
+    const counters = renderedText(instance, 0);
+    assert.match(counters, new RegExp(`loop 0x[0-9a-f]+  iterations=${loopIterations}`));
+    assert.match(counters, /MEMORY  192 KiB  pages=3  reads=5 writes=4/);
+    assert.doesNotMatch(counters, /trap unsupported instruction/);
+  });
+}
 
 test("deep CommonMark control flow stays inside the instruction column", async () => {
   const [debuggerBytes, targetBytes] = await Promise.all([

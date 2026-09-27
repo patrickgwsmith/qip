@@ -1,0 +1,4 @@
+  RUNTIME  executed=417859  branches-taken=8194  calls=0  returns=1  indirect=0
+MEMORY  192 KiB  pages=3  reads=4097 writes=4096  x examine  m map
+OUTPUT succeeded size=49152 ptr=0x00020000 packed=0x000200000000c000
+  sha256=2f9ed51cabdc4c74cb6139abc0b8da5e1b6565b4bb0832507c133a9a9dd341df

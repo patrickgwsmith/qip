@@ -1,0 +1,48 @@
+bench: outputs match across wazero and Node.js/V8
+  encoding: raw
+  bytes:    49152
+  sha256:   2f9ed51cabdc4c74cb6139abc0b8da5e1b6565b4bb0832507c133a9a9dd341df
+  benchtime target: 2s per module
+  measured: 19384 runs/module
+  timeout:  250ms per run
+
+QIP/wazero 1: text/base64-decode-simd.wasm
+  Time (mean ± stddev): 103.872µs ± 53.286µs [min: 80.375µs, p95: 200.375µs, max: 2.699833ms]
+  Runtime: wazero v1.11.0
+  Boundary: fresh instance, contract checks, input/output copies, and render
+  Breakdown: run mean 73.509µs, instantiation mean 15.175µs, compile 508.584µs
+  Memory allocated: mean 192.0 KiB, peak 192.0 KiB
+  Capacity: input 64.0 KiB, output 64.0 KiB
+  Binary size: 1167 bytes, gzip 716 bytes
+
+Node.js/V8 1: text/base64-decode-simd.wasm
+  Time (mean ± stddev): 13.839µs ± 11.851µs [min: 11.958µs, p95: 16.083µs, max: 920.208µs]
+  Runtime: Node.js 26.3.0, V8 14.6.202.34-node.20
+  Boundary: input/output copies plus render on one reused instance
+  Breakdown: render mean 10.569µs, one instantiation 32.708µs, one compile 102.5µs
+  Linear memory: 192.0 KiB
+  Capacity: input 64.0 KiB, output 64.0 KiB
+  Observed mean ratio: 7.51x (wazero fresh-instance total / Node reused-instance request)
+
+QIP/wazero 2: /tmp/qip-base64-inline.wasm
+  Time (mean ± stddev): 103.181µs ± 43.822µs [min: 78.625µs, p95: 200.625µs, max: 2.730792ms]
+  Runtime: wazero v1.11.0
+  Boundary: fresh instance, contract checks, input/output copies, and render
+  Breakdown: run mean 72.477µs, instantiation mean 15.373µs, compile 1.486042ms
+  Memory allocated: mean 192.0 KiB, peak 192.0 KiB
+  Capacity: input 64.0 KiB, output 64.0 KiB
+  Binary size: 1146 bytes, gzip 707 bytes
+
+Node.js/V8 2: /tmp/qip-base64-inline.wasm
+  Time (mean ± stddev): 13.83µs ± 13.1µs [min: 11.875µs, p95: 16µs, max: 733.25µs]
+  Runtime: Node.js 26.3.0, V8 14.6.202.34-node.20
+  Boundary: input/output copies plus render on one reused instance
+  Breakdown: render mean 10.433µs, one instantiation 18.292µs, one compile 30.292µs
+  Linear memory: 192.0 KiB
+  Capacity: input 64.0 KiB, output 64.0 KiB
+  Observed mean ratio: 7.46x (wazero fresh-instance total / Node reused-instance request)
+
+Summary
+  fastest: "/tmp/qip-base64-inline.wasm" (mean total time 103.181µs)
+  speedup vs slowest: 1.01x over "text/base64-decode-simd.wasm"
+  lowest peak memory: "text/base64-decode-simd.wasm" (peak 192.0 KiB, mean 192.0 KiB)

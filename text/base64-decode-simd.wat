@@ -47,9 +47,12 @@
     (global.set $failure_offset (local.get $offset))
     (i32.const 0))
 
-  ;; Four unpadded quartets per call. A bad lane falls back to the scalar
-  ;; decoder, which reports the same first failing byte offset as before.
-  (func $decode16 (param $in i32) (param $out i32) (result i32)
+  ;; Four unpadded quartets per SIMD iteration. A bad lane falls back to the
+  ;; scalar decoder, which reports the first failing byte offset.
+  (func (export "render") (param $input_size i32) (result i64)
+    (local $input_idx i32)
+    (local $output_idx i32)
+    (local $simd_end i32)
     (local $x v128)
     (local $hash v128)
     (local $low v128)
@@ -57,77 +60,6 @@
     (local $max v128)
     (local $v v128)
     (local $y v128)
-
-    (local.set $x
-      (v128.load (i32.add (global.get $input_ptr) (local.get $in))))
-    ;; The high nibble selects a small SIMD table entry. '/' needs its own
-    ;; index; low-nibble bounds then validate every ASCII range exactly.
-    (local.set $hash
-      (i8x16.sub
-        (v128.and
-          (i16x8.shr_u (local.get $x) (i32.const 4))
-          (i8x16.splat (i32.const 15)))
-        (v128.and
-          (i8x16.eq (local.get $x) (i8x16.splat (i32.const 47)))
-          (i8x16.splat (i32.const 1)))))
-    (local.set $low
-      (v128.and (local.get $x) (i8x16.splat (i32.const 15))))
-    (local.set $min
-      (i8x16.swizzle
-        (v128.const i8x16 255 15 11 0 1 0 1 0 255 255 255 255 255 255 255 255)
-        (local.get $hash)))
-    (local.set $max
-      (i8x16.swizzle
-        (v128.const i8x16 0 15 11 9 15 10 15 10 0 0 0 0 0 0 0 0)
-        (local.get $hash)))
-    (if
-      (i32.ne
-        (i8x16.bitmask
-          (v128.and
-            (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 43)))
-            (v128.and
-              (i8x16.ge_u (local.get $low) (local.get $min))
-              (i8x16.le_u (local.get $low) (local.get $max)))))
-        (i32.const 65535))
-      (then (return (i32.const 0))))
-
-    (local.set $v
-      (i8x16.add
-        (local.get $x)
-        (i8x16.swizzle
-          (v128.const i8x16 0 16 19 4 191 191 185 185 0 0 0 0 0 0 0 0)
-          (local.get $hash))))
-
-    ;; Each 32-bit lane holds four 6-bit values. Shift and mask them into
-    ;; three output bytes, then shuffle away each lane's unused fourth byte.
-    (local.set $y
-      (v128.or
-        (v128.or
-          (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0x3f)))
-            (i32.const 2))
-          (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3000)))
-            (i32.const 12)))
-        (v128.or
-          (v128.or
-            (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0xf00)))
-              (i32.const 4))
-            (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3c0000)))
-              (i32.const 10)))
-          (v128.or
-            (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0x30000)))
-              (i32.const 6))
-            (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3f000000)))
-              (i32.const 8))))))
-    (v128.store
-      (i32.add (global.get $output_ptr) (local.get $out))
-      (i8x16.shuffle 0 1 2 4 5 6 8 9 10 12 13 14 0 0 0 0
-        (local.get $y) (local.get $y)))
-    (i32.const 1))
-
-  (func (export "render") (param $input_size i32) (result i64)
-    (local $input_idx i32)
-    (local $output_idx i32)
-    (local $simd_end i32)
     (local $c1 i32)
     (local $c2 i32)
     (local $c3 i32)
@@ -171,8 +103,70 @@
           (i32.gt_u
             (i32.add (local.get $input_idx) (i32.const 16))
             (local.get $simd_end)))
-        (br_if $simd_done
-          (i32.eqz (call $decode16 (local.get $input_idx) (local.get $output_idx))))
+        (local.set $x
+          (v128.load (i32.add (global.get $input_ptr) (local.get $input_idx))))
+        ;; The high nibble selects a small SIMD table entry. '/' needs its own
+        ;; index; low-nibble bounds then validate every ASCII range exactly.
+        (local.set $hash
+          (i8x16.sub
+            (v128.and
+              (i16x8.shr_u (local.get $x) (i32.const 4))
+              (i8x16.splat (i32.const 15)))
+            (v128.and
+              (i8x16.eq (local.get $x) (i8x16.splat (i32.const 47)))
+              (i8x16.splat (i32.const 1)))))
+        (local.set $low
+          (v128.and (local.get $x) (i8x16.splat (i32.const 15))))
+        (local.set $min
+          (i8x16.swizzle
+            (v128.const i8x16 255 15 11 0 1 0 1 0 255 255 255 255 255 255 255 255)
+            (local.get $hash)))
+        (local.set $max
+          (i8x16.swizzle
+            (v128.const i8x16 0 15 11 9 15 10 15 10 0 0 0 0 0 0 0 0)
+            (local.get $hash)))
+        (if
+          (i32.ne
+            (i8x16.bitmask
+              (v128.and
+                (i8x16.ge_u (local.get $x) (i8x16.splat (i32.const 43)))
+                (v128.and
+                  (i8x16.ge_u (local.get $low) (local.get $min))
+                  (i8x16.le_u (local.get $low) (local.get $max)))))
+            (i32.const 65535))
+          (then (br $simd_done)))
+
+        (local.set $v
+          (i8x16.add
+            (local.get $x)
+            (i8x16.swizzle
+              (v128.const i8x16 0 16 19 4 191 191 185 185 0 0 0 0 0 0 0 0)
+              (local.get $hash))))
+
+        ;; Each 32-bit lane holds four 6-bit values. Shift and mask them into
+        ;; three output bytes, then shuffle away each lane's unused fourth byte.
+        (local.set $y
+          (v128.or
+            (v128.or
+              (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0x3f)))
+                (i32.const 2))
+              (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3000)))
+                (i32.const 12)))
+            (v128.or
+              (v128.or
+                (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0xf00)))
+                  (i32.const 4))
+                (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3c0000)))
+                  (i32.const 10)))
+              (v128.or
+                (i32x4.shl (v128.and (local.get $v) (i32x4.splat (i32.const 0x30000)))
+                  (i32.const 6))
+                (i32x4.shr_u (v128.and (local.get $v) (i32x4.splat (i32.const 0x3f000000)))
+                  (i32.const 8))))))
+        (v128.store
+          (i32.add (global.get $output_ptr) (local.get $output_idx))
+          (i8x16.shuffle 0 1 2 4 5 6 8 9 10 12 13 14 0 0 0 0
+            (local.get $y) (local.get $y)))
         (local.set $input_idx (i32.add (local.get $input_idx) (i32.const 16)))
         (local.set $output_idx (i32.add (local.get $output_idx) (i32.const 12)))
         (br $simd_groups)))

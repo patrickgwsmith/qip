@@ -34,6 +34,10 @@ measurements are in [raw-benchmark.txt](raw-benchmark.txt). The Rust qipx
 measurements are in the [forward](rust-qipx-forward.txt) and
 [reverse](rust-qipx-reverse.txt) logs.
 
+A [qipdb follow-up](qipdb-followup/README.md) profiles this WAT build and
+measures a later helper-inlining change. The numbers above remain the original
+lookup experiment's baseline and outcome.
+
 To reproduce the input and before artifacts from commit `77920c9`:
 
 ```sh
