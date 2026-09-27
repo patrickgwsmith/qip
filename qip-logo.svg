@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges">
   <title>QIP 16×16 logo</title>
-  <rect width="16" height="16" fill="#ffffff"/>
+  <rect width="16" height="16" fill="#08172b"/>
 
   <g fill="#009bca">
     <!-- Q: a square counter with a centered tail. -->
