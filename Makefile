@@ -567,6 +567,7 @@ recipes/application/warc/20-add-docs-sidebar.wasm: ZIG_WASM_MAX_MEMORY = 6710886
 recipes/application/warc/25-add-content-size.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/30-add-sitemap-xml.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/35-add-search-index.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+recipes/application/warc/40-add-wasm-anchor-type.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-add-docs-sidebar.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm: recipes/application/warc/lib/warc.zig
 image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
 image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
@@ -956,6 +957,16 @@ image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: image/kt
 recipes/%.wasm: recipes/%.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+recipes/text/markdown/65-add-wasm-anchor-type.wasm: recipes/text/markdown/65-add-wasm-anchor-type.zig recipes/lib/html-wasm-anchor-type.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep html_anchor -Mroot=$< -Mhtml_anchor=recipes/lib/html-wasm-anchor-type.zig -femit-bin=$@
+
+recipes/application/warc/40-add-wasm-anchor-type.wasm: recipes/application/warc/40-add-wasm-anchor-type.zig recipes/application/warc/lib/warc.zig recipes/lib/html-wasm-anchor-type.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep html_anchor -Mroot=$< -Mhtml_anchor=recipes/lib/html-wasm-anchor-type.zig -femit-bin=$@
+
+recipes/text/html/65-add-wasm-anchor-type.wasm: recipes/text/markdown/65-add-wasm-anchor-type.wasm
+	@mkdir -p $(dir $@)
+	ln -sf ../markdown/65-add-wasm-anchor-type.wasm $@
+
 recipes/application/warc/10-add-open-graph-image-meta.wasm: application/warc/warc-add-open-graph-image-meta.wasm
 	@mkdir -p $(dir $@)
 	ln -sf ../../../application/warc/warc-add-open-graph-image-meta.wasm $@
@@ -988,6 +999,7 @@ recipes: recipes/text/markdown/23-html-code-syntax-highlight-tsx.wasm
 recipes: recipes/text/markdown/24-html-code-syntax-highlight-html.wasm
 recipes: recipes/text/markdown/28-html-code-syntax-highlight-css.wasm
 recipes: recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm
+recipes: recipes/text/html/65-add-wasm-anchor-type.wasm
 
 components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
@@ -1340,13 +1352,15 @@ test-snapshot: qip components
 	@rm -f test/latest-wasm-to-js.txt
 	diff test/expected.txt test/latest.txt && echo "Snapshots pass."
 
-ZIG_TEST_FILES := $(COMPONENT_ZIG_FILES) $(wildcard recipes/text/markdown/*.zig) $(wildcard recipes/application/warc/*.zig)
+ZIG_TEST_FILES := $(COMPONENT_ZIG_FILES) $(wildcard recipes/text/markdown/*.zig) $(wildcard recipes/application/warc/*.zig) recipes/lib/html-wasm-anchor-type.zig
 
 test-zig: $(ZIG_TEST_FILES)
 	@status=0; \
 	for f in $^; do \
 		echo "zig test $$f"; \
-		if [ "$$f" = "application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "application/pdf/pdf-extract-text.zig" ]; then \
+		if [ "$$f" = "recipes/text/markdown/65-add-wasm-anchor-type.zig" ] || [ "$$f" = "recipes/application/warc/40-add-wasm-anchor-type.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep html_anchor -Mroot="$$f" -Mhtml_anchor=recipes/lib/html-wasm-anchor-type.zig || status=1; \
+		elif [ "$$f" = "application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "application/pdf/pdf-extract-text.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "tui/qipdb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
