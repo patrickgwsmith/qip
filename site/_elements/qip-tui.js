@@ -261,7 +261,7 @@ class QIPTUIElement extends HTMLElement {
     const { exports: exportsObj, memory } = this._session;
     const capacity = readI32Export(exportsObj, "output_utf8_cap");
     const result = decodeRenderResult(exportsObj.render(inputSize), capacity, memory, "TUI");
-    if (result.failed) throw new Error("TUI component rejected input at " + result.detail);
+    if (result.failed) throw new Error("rejected input at " + result.detail);
     let output = readSlice(memory, result.pointer, result.size, "TUI output");
     for (const stage of this._postStages) {
       const candidates = stage.selectedCandidate ? [stage.selectedCandidate] : stage.candidates;

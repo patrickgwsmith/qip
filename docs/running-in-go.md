@@ -150,7 +150,7 @@ func (r *MarkdownRenderer) MarkdownToHTML(
 	}
 	result := results[0]
 	if result>>63 != 0 {
-		return "", errors.New("component rejected input")
+		return "", errors.New("rejected input")
 	}
 	outputSize := uint32(result)
 	outputStart := uint32((result >> 32) & 0x7fff_ffff)

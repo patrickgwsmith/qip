@@ -565,7 +565,7 @@ fn appendGeneratedJs(out_pos: *usize, wasm: []const u8, contract: Contract) Pars
         \\  if (renderResult >> 63n) {{
         \\    if (typeof e.failure_modes_per_input_offset !== "function") throw new Error("component returned failure without failure_modes_per_input_offset");
         \\    const failureModes = i32(e.failure_modes_per_input_offset(), "failure_modes_per_input_offset") >>> 0;
-        \\    const error = new Error("component rejected input");
+        \\    const error = new Error("rejected input");
         \\    error.failureDetail = outputLen;
         \\    error.failureModesPerInputOffset = failureModes;
         \\    if (failureModes > 0) {{

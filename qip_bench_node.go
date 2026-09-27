@@ -330,7 +330,7 @@ function render(prepared) {
   const runEnd = process.hrtime.bigint();
   if (typeof renderResult !== "bigint") fail("render export must have signature render(i32) -> i64");
   const bits = BigInt.asUintN(64, renderResult);
-  if ((bits & (1n << 63n)) !== 0n) fail("component rejected input");
+  if ((bits & (1n << 63n)) !== 0n) fail("rejected input");
   const outputSize = Number(bits & 0xffff_ffffn);
   const outputPointer = Number((bits >> 32n) & 0x7fff_ffffn);
   if (outputSize > prepared.outputCapacity ||

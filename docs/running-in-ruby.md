@@ -74,7 +74,7 @@ class MarkdownRenderer
     @memory.write(@input_ptr.call, source)
 
     packed = @render.call(source.bytesize) & 0xffff_ffff_ffff_ffff
-    raise "component rejected input" unless (packed >> 63).zero?
+    raise "rejected input" unless (packed >> 63).zero?
     output_size = packed & 0xffff_ffff
     output_ptr = (packed >> 32) & 0x7fff_ffff
     @memory.read_utf8(output_ptr, output_size)

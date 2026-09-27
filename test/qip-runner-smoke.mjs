@@ -191,7 +191,7 @@ let rejected = false;
 try {
   luhn("49927398717");
 } catch (error) {
-  rejected = /component rejected input at input offset 11/.test(error.message);
+  rejected = /rejected input at input offset 11/.test(error.message);
 }
 if (!rejected) {
   throw new Error("Wasm-backed component did not report input rejection");

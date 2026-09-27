@@ -27,7 +27,7 @@ const inputCap = exportedI32(
 if (input.length > inputCap) throw new Error("input exceeds component capacity");
 new Uint8Array(exports.memory.buffer, inputPtr, input.length).set(input);
 const result = BigInt.asUintN(64, exports.render(input.length));
-if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+if ((result >> 63n) !== 0n) throw new Error("rejected input");
 const outputSize = Number(result & 0xffff_ffffn);
 const outputCap = exportedI32(
   exports,

@@ -314,7 +314,7 @@ export function normalizeE164(phoneNumber) {
   }
 
   const result = BigInt.asUintN(64, render(written));
-  if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((result >> 63n) !== 0n) throw new Error("rejected input");
   const outputSize = Number(result & 0xffff_ffffn);
   const outputPtr = Number((result >> 32n) & 0x7fff_ffffn);
   return decoder.decode(
@@ -617,6 +617,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
 
 ## TODO
 
+- [ ] Adopt `image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR` for ktx2 components.
 - [ ] Define opaque black as Tideland SVG Rendered's unresolved `currentColor` default.
 - [ ] Redesign `/view-source`. Its source-file walker does not follow symlinked component directories. Define which source files the router can publish before changing that behavior.
 - [ ] Add a `--double` flag for `qipx bench` that doubles the input and plots the performance. So we should see if rendering is `O(n)` where n is the size of the input or not. It could keep doubling the input. I imagine it would only work for text input and uncompressed ktx2 input, as those should be trivial to “double”.

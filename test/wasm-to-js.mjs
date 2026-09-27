@@ -39,7 +39,7 @@ test("generated JavaScript reports recoverable rejection detail", async () => {
   assert.throws(
     () => module.default("main content"),
     (error) => {
-      assert.equal(error.message, "component rejected input");
+      assert.equal(error.message, "rejected input");
       assert.equal(error.failureDetail, 4);
       assert.equal(error.failureModesPerInputOffset, 1);
       assert.equal(error.inputOffset, 4);
@@ -65,7 +65,7 @@ test("generated JavaScript runs a byte-to-UTF-8 guard", async () => {
   assert.throws(
     () => module.default(Uint8Array.of(0x41, 0xc3, 0x28)),
     (error) => {
-      assert.equal(error.message, "component rejected input");
+      assert.equal(error.message, "rejected input");
       assert.equal(error.failureDetail, 2);
       assert.equal(error.failureModesPerInputOffset, 1);
       assert.equal(error.inputOffset, 2);

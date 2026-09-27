@@ -925,12 +925,12 @@ async function qipEditRunStage(stage, input) {
         throw new Error("render returned failure without failure_modes_per_input_offset");
       }
       const modes = qipEditReadI32Export(exportsObj, "failure_modes_per_input_offset") >>> 0;
-      if (modes === 0) throw new Error("component rejected input");
+      if (modes === 0) throw new Error("rejected input");
       const position = Math.floor(outputLen / modes);
       const mode = outputLen % modes;
       throw new Error(modes === 1
-        ? "component rejected input at input offset " + position
-        : "component rejected input at input offset " + position + " with mode " + mode);
+        ? "rejected input at input offset " + position
+        : "rejected input at input offset " + position + " with mode " + mode);
     }
     const outputPtr = Number((bits >> 32n) & 0x7fff_ffffn);
     const outputBytes = qipEditReadOutputBytes(exportsObj, outputPtr, outputLen);

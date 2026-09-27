@@ -60,7 +60,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 function decodeRenderResult(value) {
   const bits = BigInt.asUintN(64, value);
   if ((bits >> 63n) !== 0n) {
-    throw new Error("component rejected input");
+    throw new Error("rejected input");
   }
 
   return {

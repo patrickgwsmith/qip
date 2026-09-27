@@ -38,9 +38,11 @@ label because the form field has no filename.
 
 The component must implement the [QIP TUI contract](https://qip.dev/docs/tui-components).
 `qiptui` accepts one TUI component and does not run post-processing stages.
-It checks terminal frames before writing them, rejects WebAssembly imports, and
-requires a finite, unshared memory maximum of at most 256 MiB. Component memory
-can grow within that declared limit. Downloads have
+It checks terminal frames before writing them and applies the same
+pre-execution checks as `qipx`: no WebAssembly imports, a finite, unshared
+memory maximum of at most 256 MiB, no `memory.grow`, no start function, no
+atomics, only Strict Wasm Profile opcodes, and static Content ABI getters.
+Component memory is fixed at its declared initial size. Downloads have
 a 16 MiB limit, a 30-second timeout, and at most two redirects within the same
 HTTPS origin.
 
@@ -53,8 +55,5 @@ means to the log by hand.
 
 ## TODO
 
-- Match `qipx`'s pre-execution Wasm checks: reject start functions and
-  `memory.grow`, and verify that Content ABI getters are static. Keep the CLI
-  dependency-free and in one executable file.
 - Investigate reading piped stdin without an explicit `-` when no input option
   is given.

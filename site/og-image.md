@@ -150,7 +150,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function renderOutput(exports, inputSize) {
   const result = BigInt.asUintN(64, exports.render(inputSize));
-  if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((result >> 63n) !== 0n) throw new Error("rejected input");
   return {
     size: Number(result & 0xffff_ffffn),
     ptr: Number((result >> 32n) & 0x7fff_ffffn),
@@ -427,7 +427,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function renderOutput(exports, inputSize) {
   const result = BigInt.asUintN(64, exports.render(inputSize));
-  if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((result >> 63n) !== 0n) throw new Error("rejected input");
   return {
     size: Number(result & 0xffff_ffffn),
     ptr: Number((result >> 32n) & 0x7fff_ffffn),

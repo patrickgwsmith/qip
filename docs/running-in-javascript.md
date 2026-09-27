@@ -38,7 +38,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function decodeRenderResult(value) {
   const bits = BigInt.asUintN(64, value);
-  if ((bits >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((bits >> 63n) !== 0n) throw new Error("rejected input");
   return {
     outputSize: Number(bits & 0xffff_ffffn),
     outputPtr: Number((bits >> 32n) & 0x7fff_ffffn),
@@ -90,7 +90,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function decodeRenderResult(value) {
   const bits = BigInt.asUintN(64, value);
-  if ((bits >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((bits >> 63n) !== 0n) throw new Error("rejected input");
   return {
     outputSize: Number(bits & 0xffff_ffffn),
     outputPtr: Number((bits >> 32n) & 0x7fff_ffffn),
@@ -149,7 +149,7 @@ const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function decodeRenderResult(value) {
   const bits = BigInt.asUintN(64, value);
-  if ((bits >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((bits >> 63n) !== 0n) throw new Error("rejected input");
   return {
     outputSize: Number(bits & 0xffff_ffffn),
     outputPtr: Number((bits >> 32n) & 0x7fff_ffffn),
@@ -229,7 +229,7 @@ For an explicitly instantiated component:
 
 ```js
 const result = BigInt.asUintN(64, instance.exports.render(written));
-if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+if ((result >> 63n) !== 0n) throw new Error("rejected input");
 const outputSize = Number(result & 0xffff_ffffn);
 const outputPtr = Number((result >> 32n) & 0x7fff_ffffn);
 const output = new Uint8Array(

@@ -529,42 +529,53 @@ function applyUniforms(stage) {
   }
 }
 
+// Module inspection reads plain Numbers: every LEB128 value the checks decode (section
+// sizes, counts, indices, page limits) fits in 53 bits. readULEB leaves the decoded value in
+// lebValue and returns the offset after it; skipLEB steps over values whose magnitude does not
+// matter. Both throw on truncation so malformed input fails here rather than in the engine.
+let lebValue = 0;
+
 function readULEB(bytes, offset) {
-  let result = 0n;
-  let shift = 0n;
-  for (let index = offset; index < bytes.length; index += 1) {
-    const byte = bytes[index];
-    result |= BigInt(byte & 0x7f) << shift;
-    if ((byte & 0x80) === 0) return { value: result, offset: index + 1 };
-    shift += 7n;
-    if (shift > 63n) throw new Error("invalid Wasm LEB128 integer");
-  }
-  throw new Error("truncated Wasm LEB128 integer");
+  let value = 0;
+  let scale = 1;
+  let byte;
+  do {
+    byte = bytes[offset++];
+    if (byte === undefined) throw new Error("truncated Wasm LEB128 integer");
+    value += (byte & 0x7f) * scale;
+    scale *= 128;
+  } while (byte & 0x80);
+  lebValue = value;
+  return offset;
+}
+
+function skipLEB(bytes, offset) {
+  let byte;
+  do {
+    byte = bytes[offset++];
+    if (byte === undefined) throw new Error("truncated Wasm LEB128 integer");
+  } while (byte & 0x80);
+  return offset;
 }
 
 function readName(bytes, offset) {
-  const length = readULEB(bytes, offset);
-  const start = length.offset;
-  const end = start + Number(length.value);
+  const start = readULEB(bytes, offset);
+  const end = start + lebValue;
   if (end > bytes.length) throw new Error("truncated Wasm name");
   return { value: decoder.decode(bytes.subarray(start, end)), offset: end };
 }
 
-function readSLEB(bytes, offset) {
-  let result = 0n;
-  let shift = 0n;
-  let byte = 0;
-  let cursor = offset;
-  for (; cursor < bytes.length; cursor += 1) {
-    byte = bytes[cursor];
-    result |= BigInt(byte & 0x7f) << shift;
-    shift += 7n;
-    if ((byte & 0x80) === 0) break;
-    if (shift > 63n) throw new Error("invalid Wasm signed LEB128 integer");
+function readLimits(bytes, offset, label) {
+  const flags = bytes[offset++];
+  if (flags === undefined) throw new Error(`${label} has truncated limits`);
+  offset = readULEB(bytes, offset);
+  const minimum = lebValue;
+  let maximum = null;
+  if ((flags & 0x01) !== 0) {
+    offset = readULEB(bytes, offset);
+    maximum = lebValue;
   }
-  if (cursor >= bytes.length) throw new Error("truncated Wasm signed LEB128 integer");
-  if (shift < 64n && (byte & 0x40) !== 0) result |= -1n << shift;
-  return { value: result, offset: cursor + 1 };
+  return { flags, minimum, maximum, offset };
 }
 
 function validateMemoryPolicy(wasm, label, policy = {}) {
@@ -576,24 +587,19 @@ function validateMemoryPolicy(wasm, label, policy = {}) {
   let memoryCount = 0;
   while (offset < wasm.length) {
     const sectionID = wasm[offset++];
-    const size = readULEB(wasm, offset);
-    offset = size.offset;
-    const sectionEnd = offset + Number(size.value);
+    offset = readULEB(wasm, offset);
+    const sectionEnd = offset + lebValue;
     if (sectionEnd > wasm.length) throw new Error(`${label} has a truncated Wasm section`);
     if (sectionID === 2) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      for (let index = 0n; index < count.value; index += 1n) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      for (let index = 0; index < count; index += 1) {
         cursor = readName(wasm, cursor).offset;
         cursor = readName(wasm, cursor).offset;
         const kind = wasm[cursor++];
-        if (kind === 0x00) cursor = readULEB(wasm, cursor).offset;
-        else if (kind === 0x01) {
-          cursor += 1;
-          const limits = readLimits(wasm, cursor, label);
-          cursor = limits.offset;
-        } else if (kind === 0x02) {
+        if (kind === 0x00) cursor = skipLEB(wasm, cursor);
+        else if (kind === 0x01) cursor = readLimits(wasm, cursor + 1, label).offset;
+        else if (kind === 0x02) {
           const limits = readLimits(wasm, cursor, label);
           cursor = limits.offset;
           memoryCount += 1;
@@ -605,10 +611,9 @@ function validateMemoryPolicy(wasm, label, policy = {}) {
         }
       }
     } else if (sectionID === 5) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      for (let index = 0n; index < count.value; index += 1n) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      for (let index = 0; index < count; index += 1) {
         const limits = readLimits(wasm, cursor, label);
         cursor = limits.offset;
         memoryCount += 1;
@@ -620,148 +625,120 @@ function validateMemoryPolicy(wasm, label, policy = {}) {
   if (memoryCount !== 1) throw new Error(`${label} must declare exactly one memory`);
 }
 
-function readLimits(bytes, offset, label) {
-  const flags = bytes[offset++];
-  if (flags === undefined) throw new Error(`${label} has truncated limits`);
-  const minimum = readULEB(bytes, offset);
-  offset = minimum.offset;
-  let maximum = null;
-  if ((flags & 0x01) !== 0) {
-    const max = readULEB(bytes, offset);
-    maximum = max.value;
-    offset = max.offset;
-  }
-  return { flags, minimum: minimum.value, maximum, offset };
-}
-
 function validateMemoryLimits(limits, label, maxMemory) {
   if ((limits.flags & 0x02) !== 0) throw new Error(`${label} declares shared memory, which is outside the Strict Wasm Profile`);
   if (limits.maximum === null) throw new Error(`${label} declares memory without a maximum, which is outside the Strict Wasm Profile`);
   if (maxMemory === undefined || maxMemory === null) return;
-  const pageSize = 65536n;
   const cap = BigInt(maxMemory);
-  const minBytes = limits.minimum * pageSize;
+  const minBytes = BigInt(limits.minimum) * 65536n;
   if (minBytes > cap) throw new Error(`${label} declares minimum memory ${minBytes} bytes, exceeding --max-memory ${cap}`);
-  const maxBytes = limits.maximum * pageSize;
+  const maxBytes = BigInt(limits.maximum) * 65536n;
   if (maxBytes > cap) throw new Error(`${label} declares maximum memory ${maxBytes} bytes, exceeding --max-memory ${cap}`);
 }
 
-function readBlockType(wasm, offset) {
+function skipBlockType(wasm, offset) {
   const byte = wasm[offset];
   if (byte === undefined) throw new Error("truncated Wasm block type");
-  if (byte === 0x40 || byte === 0x6f || byte === 0x70 || byte === 0x7b || byte === 0x7c || byte === 0x7d || byte === 0x7e || byte === 0x7f) {
-    return offset + 1;
-  }
-  return readSLEB(wasm, offset).offset;
-}
-
-function skipVector(wasm, offset) {
-  const count = readULEB(wasm, offset);
-  let cursor = count.offset;
-  for (let index = 0n; index < count.value; index += 1n) cursor = readULEB(wasm, cursor).offset;
-  return cursor;
+  if (byte === 0x40 || (byte >= 0x6f && byte <= 0x7f)) return offset + 1;
+  return skipLEB(wasm, offset);
 }
 
 function skipMemarg(wasm, offset) {
-  return readULEB(wasm, readULEB(wasm, offset).offset).offset;
+  return skipLEB(wasm, skipLEB(wasm, offset));
 }
 
 function skipSIMDInstruction(wasm, offset, label) {
-  const sub = readULEB(wasm, offset);
-  const code = Number(sub.value);
-  const cursor = sub.offset;
-  if ((code >= 0 && code <= 11) || (code >= 92 && code <= 93)) return skipMemarg(wasm, cursor);
-  if (code === 12 || code === 13) return cursor + 16;
-  if (code >= 21 && code <= 34) return cursor + 1;
-  if (code >= 84 && code <= 91) return skipMemarg(wasm, cursor) + 1;
-  if (code >= 0 && code <= 255) return cursor;
+  offset = readULEB(wasm, offset);
+  const code = lebValue;
+  if (code <= 11 || code === 92 || code === 93) return skipMemarg(wasm, offset);
+  if (code === 12 || code === 13) return offset + 16;
+  if (code >= 21 && code <= 34) return offset + 1;
+  if (code >= 84 && code <= 91) return skipMemarg(wasm, offset) + 1;
+  if (code <= 255) return offset;
   throw new Error(`${label} uses unsupported SIMD opcode 0x${code.toString(16)}`);
 }
 
-function skipStrictInstruction(wasm, offset, calls, label) {
+// Steps over one Strict Wasm Profile instruction, rejecting anything outside the profile.
+// Sets bodyIsDynamic when the instruction disqualifies the enclosing function from being a
+// static getter: control flow, calls, locals, global writes, memory, or tables. Reading a
+// global is allowed.
+let bodyIsDynamic = false;
+
+function skipStrictInstruction(wasm, offset, label) {
   const opcode = wasm[offset++];
-  if (opcode === undefined) throw new Error(`${label} has a truncated instruction`);
   switch (opcode) {
-    case 0x02:
-    case 0x03:
-    case 0x04:
-      return readBlockType(wasm, offset);
-    case 0x0c:
-    case 0x0d:
-    case 0xd2:
-      return readULEB(wasm, offset).offset;
-    case 0x0e:
-      return readULEB(wasm, skipVector(wasm, offset)).offset;
-    case 0x10: {
-      const target = readULEB(wasm, offset);
-      calls.push(Number(target.value));
-      return target.offset;
+    case 0x00: // unreachable
+    case 0x01: // nop
+    case 0x05: // else
+    case 0x0b: // end
+    case 0x0f: // return
+    case 0x1a: // drop
+    case 0x1b: // select
+      return offset;
+    case 0x02: // block
+    case 0x03: // loop
+    case 0x04: // if
+      bodyIsDynamic = true;
+      return skipBlockType(wasm, offset);
+    case 0x0c: // br
+    case 0x0d: // br_if
+    case 0x10: // call
+    case 0x20: // local.get
+    case 0x21: // local.set
+    case 0x22: // local.tee
+    case 0x24: // global.set
+    case 0x25: // table.get
+    case 0x26: // table.set
+    case 0xd2: // ref.func
+      bodyIsDynamic = true;
+      return skipLEB(wasm, offset);
+    case 0x23: // global.get
+      return skipLEB(wasm, offset);
+    case 0x0e: { // br_table
+      bodyIsDynamic = true;
+      offset = readULEB(wasm, offset);
+      for (let count = lebValue; count >= 0; count -= 1) offset = skipLEB(wasm, offset);
+      return offset;
     }
-    case 0x11:
-    case 0x13:
-      return readULEB(wasm, readULEB(wasm, offset).offset).offset;
-    case 0x20:
-    case 0x21:
-    case 0x22:
-    case 0x23:
-    case 0x24:
-    case 0x25:
-    case 0x26:
-    case 0xd0:
-      return readULEB(wasm, offset).offset;
-    case 0x28:
-    case 0x29:
-    case 0x2a:
-    case 0x2b:
-    case 0x2c:
-    case 0x2d:
-    case 0x2e:
-    case 0x2f:
-    case 0x30:
-    case 0x31:
-    case 0x32:
-    case 0x33:
-    case 0x34:
-    case 0x35:
-    case 0x36:
-    case 0x37:
-    case 0x38:
-    case 0x39:
-    case 0x3a:
-    case 0x3b:
-    case 0x3c:
-    case 0x3d:
-    case 0x3e:
-      return skipMemarg(wasm, offset);
-    case 0x3f:
-      return readULEB(wasm, offset).offset;
-    case 0x40:
+    case 0x11: // call_indirect
+      bodyIsDynamic = true;
+      return skipLEB(wasm, skipLEB(wasm, offset));
+    case 0x1c: // select t*
+      offset = readULEB(wasm, offset);
+      return offset + lebValue;
+    case 0x3f: // memory.size
+      bodyIsDynamic = true;
+      return offset + 1;
+    case 0x40: // memory.grow
       throw new Error(`${label} uses memory.grow, which is outside the Strict Wasm Profile`);
-    case 0x41:
-    case 0x42:
-      return readSLEB(wasm, offset).offset;
-    case 0x43:
+    case 0x41: // i32.const
+    case 0x42: // i64.const
+    case 0xd0: // ref.null
+      return skipLEB(wasm, offset);
+    case 0x43: // f32.const
       return offset + 4;
-    case 0x44:
+    case 0x44: // f64.const
       return offset + 8;
-    case 0xfc: {
-      const sub = readULEB(wasm, offset);
-      if (sub.value === 8n || sub.value === 10n) return readULEB(wasm, readULEB(wasm, sub.offset).offset).offset;
-      if (sub.value === 9n || sub.value === 11n || (sub.value >= 12n && sub.value <= 17n)) return readULEB(wasm, sub.offset).offset;
-      return sub.offset;
+    case 0xfc: { // saturating truncation, bulk memory, table operations
+      bodyIsDynamic = true;
+      offset = readULEB(wasm, offset);
+      const sub = lebValue;
+      if (sub <= 7) return offset;
+      if (sub === 8 || sub === 10 || sub === 12 || sub === 14) return skipLEB(wasm, skipLEB(wasm, offset));
+      return skipLEB(wasm, offset);
     }
     case 0xfd:
       return skipSIMDInstruction(wasm, offset, label);
     case 0xfe:
       throw new Error(`${label} uses atomic instructions, which are outside the Strict Wasm Profile`);
+    case undefined:
+      throw new Error(`${label} has a truncated instruction`);
     default:
-      if (opcode >= 0x00 && opcode <= 0x1b) return offset;
-      if (opcode === 0x1c) {
-        const count = readULEB(wasm, offset);
-        return Number(count.value) + count.offset;
+      if (opcode >= 0x28 && opcode <= 0x3e) { // loads and stores
+        bodyIsDynamic = true;
+        return skipMemarg(wasm, offset);
       }
-      if (opcode >= 0x45 && opcode <= 0xbf) return offset;
-      if (opcode >= 0xc0 && opcode <= 0xc4) return offset;
+      if (opcode >= 0x45 && opcode <= 0xc4) return offset; // numeric, including sign extension
       throw new Error(`${label} uses unsupported Wasm opcode 0x${opcode.toString(16)} at byte offset ${offset - 1}`);
   }
 }
@@ -779,134 +756,56 @@ const staticExportNames = [
   "output_content_type_size",
 ];
 
-function validateStrictInstructions(wasm, label) {
+// One pass over the module: rejects imports, start functions, and instructions outside the
+// Strict Wasm Profile, and records which defined functions are static getters. Because
+// imports are rejected, function indices are code-section indices.
+function analyzeStrictModule(wasm, label) {
   let offset = 8;
   let functionCount = 0;
-  let callGraph = [];
+  const exportsByName = new Map();
+  let dynamicFunctions = new Uint8Array(0);
   while (offset < wasm.length) {
     const sectionID = wasm[offset++];
-    const size = readULEB(wasm, offset);
-    offset = size.offset;
-    const sectionEnd = offset + Number(size.value);
+    offset = readULEB(wasm, offset);
+    const sectionEnd = offset + lebValue;
+    if (sectionEnd > wasm.length) throw new Error(`${label} has a truncated Wasm section`);
     if (sectionID === 2) {
-      const count = readULEB(wasm, offset);
-      if (count.value !== 0n) throw new Error(`${label} imports host functions or state, which is outside the Strict Wasm Profile`);
+      readULEB(wasm, offset);
+      if (lebValue !== 0) throw new Error(`${label} imports host functions or state, which is outside the Strict Wasm Profile`);
     } else if (sectionID === 3) {
-      const count = readULEB(wasm, offset);
-      functionCount = Number(count.value);
-      callGraph = Array.from({ length: functionCount }, () => []);
+      readULEB(wasm, offset);
+      functionCount = lebValue;
+    } else if (sectionID === 7) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      for (let index = 0; index < count; index += 1) {
+        const name = readName(wasm, cursor);
+        const kind = wasm[name.offset];
+        cursor = readULEB(wasm, name.offset + 1);
+        exportsByName.set(name.value, { kind, index: lebValue });
+      }
     } else if (sectionID === 8) {
       throw new Error(`${label} declares a start function, which is outside the Strict Wasm Profile`);
     } else if (sectionID === 10) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      if (Number(count.value) !== functionCount) throw new Error(`${label} code/function section count mismatch`);
-      for (let funcIndex = 0; funcIndex < functionCount; funcIndex += 1) {
-        const bodySize = readULEB(wasm, cursor);
-        cursor = bodySize.offset;
-        const bodyEnd = cursor + Number(bodySize.value);
-        const locals = readULEB(wasm, cursor);
-        cursor = locals.offset;
-        for (let localIndex = 0n; localIndex < locals.value; localIndex += 1n) {
-          cursor = readULEB(wasm, cursor).offset;
-          cursor += 1;
-        }
-        while (cursor < bodyEnd) cursor = skipStrictInstruction(wasm, cursor, callGraph[funcIndex], label);
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      if (count !== functionCount) throw new Error(`${label} code/function section count mismatch`);
+      dynamicFunctions = new Uint8Array(count);
+      for (let funcIndex = 0; funcIndex < count; funcIndex += 1) {
+        cursor = readULEB(wasm, cursor);
+        const bodyEnd = cursor + lebValue;
+        if (bodyEnd > sectionEnd) throw new Error(`${label} has a truncated Wasm section`);
+        cursor = readULEB(wasm, cursor);
+        for (let groups = lebValue; groups > 0; groups -= 1) cursor = skipLEB(wasm, cursor) + 1;
+        bodyIsDynamic = false;
+        while (cursor < bodyEnd) cursor = skipStrictInstruction(wasm, cursor, label);
         if (cursor !== bodyEnd) throw new Error(`${label} function body is malformed`);
+        dynamicFunctions[funcIndex] = bodyIsDynamic ? 1 : 0;
       }
     }
     offset = sectionEnd;
   }
-}
-
-function skipStaticExportInstruction(wasm, offset, metrics, label) {
-  const opcode = wasm[offset++];
-  if (opcode === undefined) throw new Error(`${label} has a truncated instruction`);
-  if (opcode === 0x02 || opcode === 0x03 || opcode === 0x04) {
-    metrics.control += 1;
-    if (opcode === 0x03) metrics.loop += 1;
-    return readBlockType(wasm, offset);
-  }
-  if (opcode === 0x0c || opcode === 0x0d || opcode === 0x0e) metrics.control += 1;
-  if (opcode === 0x10 || opcode === 0x11 || opcode === 0x12 || opcode === 0x13 || opcode === 0x14 || opcode === 0xd2) metrics.call += 1;
-  if (opcode >= 0x20 && opcode <= 0x22) metrics.local += 1;
-  if ((opcode >= 0x24 && opcode <= 0x26) || (opcode >= 0x28 && opcode <= 0x40) || opcode === 0xfc || opcode === 0xfe) metrics.memoryOrTable += 1;
-  return skipStrictInstruction(wasm, offset - 1, [], label);
-}
-
-function analyzeStaticExports(wasm, label) {
-  let offset = 8;
-  let importedFuncCount = 0;
-  let definedFuncCount = 0;
-  const exportsByName = new Map();
-  const metricsByDefinedFunc = [];
-  while (offset < wasm.length) {
-    const sectionID = wasm[offset++];
-    const size = readULEB(wasm, offset);
-    offset = size.offset;
-    const sectionEnd = offset + Number(size.value);
-    if (sectionEnd > wasm.length) throw new Error(`${label} has a truncated Wasm section`);
-    if (sectionID === 2) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      for (let index = 0n; index < count.value; index += 1n) {
-        cursor = readName(wasm, cursor).offset;
-        cursor = readName(wasm, cursor).offset;
-        const kind = wasm[cursor++];
-        if (kind === 0x00) {
-          importedFuncCount += 1;
-          cursor = readULEB(wasm, cursor).offset;
-        } else if (kind === 0x01) {
-          cursor += 1;
-          cursor = readLimits(wasm, cursor, label).offset;
-        } else if (kind === 0x02) {
-          cursor = readLimits(wasm, cursor, label).offset;
-        } else if (kind === 0x03) {
-          cursor += 2;
-        } else {
-          throw new Error(`${label} has an unknown import kind`);
-        }
-      }
-    } else if (sectionID === 3) {
-      const count = readULEB(wasm, offset);
-      definedFuncCount = Number(count.value);
-    } else if (sectionID === 7) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      for (let index = 0n; index < count.value; index += 1n) {
-        const name = readName(wasm, cursor);
-        cursor = name.offset;
-        const kind = wasm[cursor++];
-        const item = readULEB(wasm, cursor);
-        cursor = item.offset;
-        exportsByName.set(name.value, { kind, index: Number(item.value) });
-      }
-    } else if (sectionID === 10) {
-      let cursor = offset;
-      const count = readULEB(wasm, cursor);
-      cursor = count.offset;
-      if (Number(count.value) !== definedFuncCount) throw new Error(`${label} code/function section count mismatch`);
-      for (let funcIndex = 0; funcIndex < definedFuncCount; funcIndex += 1) {
-        const bodySize = readULEB(wasm, cursor);
-        cursor = bodySize.offset;
-        const bodyEnd = cursor + Number(bodySize.value);
-        const locals = readULEB(wasm, cursor);
-        cursor = locals.offset;
-        for (let localIndex = 0n; localIndex < locals.value; localIndex += 1n) {
-          cursor = readULEB(wasm, cursor).offset;
-          cursor += 1;
-        }
-        const metrics = { call: 0, loop: 0, control: 0, local: 0, memoryOrTable: 0 };
-        while (cursor < bodyEnd) cursor = skipStaticExportInstruction(wasm, cursor, metrics, label);
-        metricsByDefinedFunc[funcIndex] = metrics;
-      }
-    }
-    offset = sectionEnd;
-  }
-  return { importedFuncCount, exportsByName, metricsByDefinedFunc };
+  return { exportsByName, dynamicFunctions };
 }
 
 function failStaticExports(message) {
@@ -922,17 +821,10 @@ function requireFunctionExport(analysis, name, label) {
 
 function requireStaticFunctionExport(analysis, name, label) {
   const exp = requireFunctionExport(analysis, name, label);
-  if (exp.index < analysis.importedFuncCount) failStaticExports("comply: static qip contract checks failed");
-  const defIndex = exp.index - analysis.importedFuncCount;
-  const metrics = analysis.metricsByDefinedFunc[defIndex];
-  if (!metrics) failStaticExports("comply: static qip contract checks failed");
-  if (metrics.call || metrics.loop || metrics.control || metrics.local || metrics.memoryOrTable) {
-    failStaticExports("comply: static qip contract checks failed");
-  }
+  if (analysis.dynamicFunctions[exp.index] !== 0) failStaticExports("comply: static qip contract checks failed");
 }
 
-function wasmMustExportComponentFunctions(data, label) {
-  const analysis = analyzeStaticExports(data, label);
+function wasmMustExportComponentFunctions(analysis, label) {
   const memory = analysis.exportsByName.get("memory");
   if (!memory) failStaticExports(`${label} does not export memory`);
   if (memory.kind !== 0x02) failStaticExports(`${label} export memory must be memory`);
@@ -964,9 +856,7 @@ function wasmMustExportComponentFunctions(data, label) {
   }
 
   for (const name of staticExportNames) {
-    const exp = analysis.exportsByName.get(name);
-    if (!exp) continue;
-    requireStaticFunctionExport(analysis, name, label);
+    if (analysis.exportsByName.has(name)) requireStaticFunctionExport(analysis, name, label);
   }
 }
 
@@ -976,8 +866,7 @@ export function wasmMustComplyWithComponentContract(wasm, options = {}) {
   const data = bytes(wasm);
   const maxMemory = contract.maxMemory === undefined || contract.maxMemory === null || contract.maxMemory === "" ? undefined : parseMaxMemory(contract.maxMemory);
   validateMemoryPolicy(data, label, { maxMemory });
-  validateStrictInstructions(data, label);
-  wasmMustExportComponentFunctions(data, label);
+  wasmMustExportComponentFunctions(analyzeStrictModule(data, label), label);
 }
 
 export function newComponent(instance, options = {}) {

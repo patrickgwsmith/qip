@@ -342,13 +342,13 @@ function wasmComponent(input, module, output) {
           throw Error("render returned failure without failure_modes_per_input_offset");
         }
         const modes = readI32Export(exportsObj, "failure_modes_per_input_offset") >>> 0;
-        if (modes === 0) throw Error("component rejected input");
+        if (modes === 0) throw Error("rejected input");
         const position = Math.floor(outputLen / modes);
         const mode = outputLen % modes;
         throw Error(
           modes === 1
-            ? "component rejected input at input offset " + String(position)
-            : "component rejected input at input offset " + String(position) + " with mode " + String(mode),
+            ? "rejected input at input offset " + String(position)
+            : "rejected input at input offset " + String(position) + " with mode " + String(mode),
         );
       }
 

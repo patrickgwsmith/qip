@@ -84,7 +84,7 @@ public sealed class MarkdownRenderer : IDisposable
 
         ulong packed = unchecked((ulong)render(source.Length));
         if ((packed >> 63) != 0)
-            throw new ArgumentException("component rejected input");
+            throw new ArgumentException("rejected input");
         int outputSize = unchecked((int)(uint)packed);
         int outputStart = (int)((packed >> 32) & 0x7fff_ffffUL);
         return Encoding.UTF8.GetString(

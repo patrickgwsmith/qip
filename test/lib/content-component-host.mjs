@@ -15,7 +15,7 @@ export function decodeRenderResult(value) {
 export function renderSize(exports, inputSize) {
   const result = decodeRenderResult(exports.render(inputSize));
   if (result.failed) {
-    const error = new Error("component rejected input");
+    const error = new Error("rejected input");
     error.failureDetail = result.value;
     throw error;
   }

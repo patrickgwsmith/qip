@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
-import { loadWasm, main, multipart, parseArgs, validateTerminalFrame } from "../npm/qiptui/qiptui.mjs";
+import { loadWasm, main, multipart, parseArgs, validateTerminalFrame, validateTUIBinary } from "../npm/qiptui/qiptui.mjs";
 
 const calendar = await readFile("tui/calendar-gregorian.wasm");
 
@@ -210,4 +210,33 @@ test("-F reports declared input-type mismatches before opening the terminal", as
     main(["-F", "input=hello", "./tui/qipdb.wasm"]),
     /requires terminal stdin and stdout/,
   );
+});
+
+// Hand-assembled TUI-shaped modules that export everything qiptui requires but step
+// outside the Strict Wasm Profile. Both come from wat2wasm; see docs/wasm-strict-profile.md.
+const GROW_TUI = Buffer.from(
+  "0061736d0100000001170560017f017e60017f017f60000060027f7f006000017f0306050001020304050401010102075306066d656d6f727902000672656e64657200000f626567696e5f7570646174655f617400010d66696e6973685f7570646174650002096b65795f6576656e7400030f6f75747075745f757466385f63617000040a1b050900410140001a42000b040041000b02000b02000b040041000b",
+  "hex",
+);
+const START_TUI = Buffer.from(
+  "0061736d0100000001170560000060017f017e60017f017f60027f7f006000017f030706000102000304050401010102075306066d656d6f727902000672656e64657200010f626567696e5f7570646174655f617400020d66696e6973685f7570646174650003096b65795f6576656e7400040f6f75747075745f757466385f63617000050801000a190602000b040042000b040041000b02000b02000b040041000b",
+  "hex",
+);
+
+const DYNAMIC_GETTER_TUI = Buffer.from(
+  "0061736d010000000117056000017f60017f017e60017f017f60000060027f7f00030706000102030400050401010102075306066d656d6f727902000672656e64657200010f626567696e5f7570646174655f617400020d66696e6973685f7570646174650003096b65795f6576656e7400040f6f75747075745f757466385f63617000050a1c06050041c0000b040042000b040041000b02000b02000b040010000b",
+  "hex",
+);
+
+test("qiptui applies the Strict Wasm Profile checks that qipx applies", async () => {
+  assert.throws(() => validateTUIBinary(DYNAMIC_GETTER_TUI), { message: "comply: static qip contract checks failed" });
+  assert.throws(() => validateTUIBinary(GROW_TUI), {
+    message: "TUI component uses memory.grow, which is outside the Strict Wasm Profile",
+  });
+  assert.throws(() => validateTUIBinary(START_TUI), {
+    message: "TUI component declares a start function, which is outside the Strict Wasm Profile",
+  });
+  for (const name of ["epub-reader", "qipdb", "calendar-gregorian"]) {
+    validateTUIBinary(await readFile(new URL(`../tui/${name}.wasm`, import.meta.url)), name);
+  }
 });

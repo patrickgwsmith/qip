@@ -73,7 +73,7 @@ public final class MarkdownRenderer {
         memory.write(inputStart, source);
 
         long packed = render.apply(source.length)[0];
-        if (packed < 0) throw new IllegalArgumentException("component rejected input");
+        if (packed < 0) throw new IllegalArgumentException("rejected input");
         int outputSize = (int) packed;
         int outputStart = (int) ((packed >>> 32) & 0x7fff_ffffL);
         byte[] output = memory.readBytes(outputStart, outputSize);

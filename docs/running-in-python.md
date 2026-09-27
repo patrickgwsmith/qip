@@ -58,7 +58,7 @@ def markdown_to_html(markdown: str) -> str:
 
     packed = render(store, len(source)) & 0xFFFF_FFFF_FFFF_FFFF
     if packed >> 63:
-        raise ValueError("component rejected input")
+        raise ValueError("rejected input")
     size = packed & 0xFFFF_FFFF
     start = (packed >> 32) & 0x7FFF_FFFF
     end = start + size

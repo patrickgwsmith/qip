@@ -550,48 +550,6 @@ function wasmHeader(data) {
   }
 }
 
-function uleb(data, start) {
-  let value = 0;
-  let shift = 0;
-  let cursor = start;
-  while (cursor < data.length && shift <= 35) {
-    const byte = data[cursor++];
-    value += (byte & 127) * 2 ** shift;
-    if (!(byte & 128)) return [value, cursor];
-    shift += 7;
-  }
-  throw new Error("invalid WebAssembly section length");
-}
-
-function validateMemory(data) {
-  wasmHeader(data);
-  let offset = 8;
-  let memories = 0;
-  while (offset < data.length) {
-    const id = data[offset++];
-    const [size, body] = uleb(data, offset);
-    const end = body + size;
-    if (end > data.length) throw new Error("truncated WebAssembly section");
-    if (id === 5) {
-      let cursor = body;
-      const [count, afterCount] = uleb(data, cursor);
-      cursor = afterCount;
-      memories += count;
-      for (let index = 0; index < count; index += 1) {
-        const [flags, afterFlags] = uleb(data, cursor);
-        const [, afterMin] = uleb(data, afterFlags);
-        cursor = afterMin;
-        if ((flags & 1) === 0 || (flags & 2) !== 0) throw new Error("TUI memory needs a finite, unshared maximum");
-        const [maximum, afterMax] = uleb(data, cursor);
-        cursor = afterMax;
-        if (maximum * 65536 > MAX_MEMORY) throw new Error("TUI memory maximum exceeds 256 MiB");
-      }
-    }
-    offset = end;
-  }
-  if (memories !== 1) throw new Error("TUI component must declare one memory");
-}
-
 function field(value) {
   const at = value.indexOf("=");
   if (at < 1) throw new Error(`invalid form field ${value}`);
@@ -681,10 +639,220 @@ function declaredInputType(exports, label) {
   return type;
 }
 
-function validateTUIBinary(data) {
-  validateMemory(data);
+// Pre-execution checks, matching @qip.dev/qipx: one memory with a finite, unshared maximum,
+// no imports, no start function, no memory.grow, no atomics, only Strict Wasm Profile opcodes,
+// and static Content ABI getters. qiptui ships as a single file, so the scan lives here.
+//
+// The engine compiles the module before this scan runs, so the bytes are known to be well
+// formed: LEB128 values are complete, sections and bodies are in bounds, and every opcode is
+// one the engine accepts. The scan therefore reads plain Numbers, walks the code section
+// once, and never re-checks structure. The one structural assertion left, that a body ends
+// where its size says, guards against a decoding mistake in this file rather than bad input.
+
+const staticExportNames = new Set([
+  "input_ptr",
+  "input_utf8_cap",
+  "input_bytes_cap",
+  "output_utf8_cap",
+  "output_bytes_cap",
+  "failure_modes_per_input_offset",
+  "input_content_type_ptr",
+  "input_content_type_size",
+  "output_content_type_ptr",
+  "output_content_type_size",
+]);
+
+// readULEB leaves the decoded value in lebValue and returns the offset after it; skipLEB
+// steps over signed or unsigned values whose magnitude does not matter.
+let lebValue = 0;
+
+function readULEB(wasm, offset) {
+  let value = 0;
+  let scale = 1;
+  let byte;
+  do {
+    byte = wasm[offset++];
+    value += (byte & 0x7f) * scale;
+    scale *= 128;
+  } while (byte & 0x80);
+  lebValue = value;
+  return offset;
+}
+
+function skipLEB(wasm, offset) {
+  while (wasm[offset++] & 0x80);
+  return offset;
+}
+
+function skipBlockType(wasm, offset) {
+  const byte = wasm[offset];
+  if (byte === 0x40 || (byte >= 0x6f && byte <= 0x7f)) return offset + 1;
+  return skipLEB(wasm, offset);
+}
+
+function skipMemarg(wasm, offset) {
+  return skipLEB(wasm, skipLEB(wasm, offset));
+}
+
+function skipSIMDInstruction(wasm, offset, label) {
+  offset = readULEB(wasm, offset);
+  const code = lebValue;
+  if (code <= 11 || code === 92 || code === 93) return skipMemarg(wasm, offset);
+  if (code === 12 || code === 13) return offset + 16;
+  if (code >= 21 && code <= 34) return offset + 1;
+  if (code >= 84 && code <= 91) return skipMemarg(wasm, offset) + 1;
+  if (code <= 255) return offset;
+  throw new Error(`${label} uses unsupported SIMD opcode 0x${code.toString(16)}`);
+}
+
+// Steps over one instruction. Sets bodyIsDynamic when the instruction disqualifies the
+// enclosing function from being a static getter: control flow, calls, locals, globals,
+// memory, or tables.
+let bodyIsDynamic = false;
+
+function skipInstruction(wasm, offset, label) {
+  const opcode = wasm[offset++];
+  switch (opcode) {
+    case 0x00: // unreachable
+    case 0x01: // nop
+    case 0x05: // else
+    case 0x0b: // end
+    case 0x0f: // return
+    case 0x1a: // drop
+    case 0x1b: // select
+      return offset;
+    case 0x02: // block
+    case 0x03: // loop
+    case 0x04: // if
+      bodyIsDynamic = true;
+      return skipBlockType(wasm, offset);
+    case 0x0c: // br
+    case 0x0d: // br_if
+    case 0x10: // call
+    case 0x20: // local.get
+    case 0x21: // local.set
+    case 0x22: // local.tee
+    case 0x24: // global.set
+    case 0x25: // table.get
+    case 0x26: // table.set
+    case 0xd2: // ref.func
+      bodyIsDynamic = true;
+      return skipLEB(wasm, offset);
+    case 0x23: // global.get: allowed in static getters, matching qipx
+      return skipLEB(wasm, offset);
+    case 0x0e: { // br_table
+      bodyIsDynamic = true;
+      offset = readULEB(wasm, offset);
+      for (let count = lebValue; count >= 0; count -= 1) offset = skipLEB(wasm, offset);
+      return offset;
+    }
+    case 0x11: // call_indirect
+      bodyIsDynamic = true;
+      return skipLEB(wasm, skipLEB(wasm, offset));
+    case 0x1c: // select t*
+      offset = readULEB(wasm, offset);
+      return offset + lebValue;
+    case 0x3f: // memory.size
+      bodyIsDynamic = true;
+      return offset + 1;
+    case 0x40: // memory.grow
+      throw new Error(`${label} uses memory.grow, which is outside the Strict Wasm Profile`);
+    case 0x41: // i32.const
+    case 0x42: // i64.const
+    case 0xd0: // ref.null
+      return skipLEB(wasm, offset);
+    case 0x43: // f32.const
+      return offset + 4;
+    case 0x44: // f64.const
+      return offset + 8;
+    case 0xfc: { // saturating truncation, bulk memory, table operations
+      bodyIsDynamic = true;
+      offset = readULEB(wasm, offset);
+      const sub = lebValue;
+      if (sub <= 7) return offset; // trunc_sat has no immediates
+      if (sub === 8 || sub === 10 || sub === 12 || sub === 14) return skipLEB(wasm, skipLEB(wasm, offset));
+      return skipLEB(wasm, offset);
+    }
+    case 0xfd:
+      return skipSIMDInstruction(wasm, offset, label);
+    case 0xfe:
+      throw new Error(`${label} uses atomic instructions, which are outside the Strict Wasm Profile`);
+    default:
+      if (opcode >= 0x28 && opcode <= 0x3e) { // loads and stores
+        bodyIsDynamic = true;
+        return skipMemarg(wasm, offset);
+      }
+      if (opcode >= 0x45 && opcode <= 0xc4) return offset; // numeric, including sign extension
+      throw new Error(`${label} uses unsupported Wasm opcode 0x${opcode.toString(16)} at byte offset ${offset - 1}`);
+  }
+}
+
+export function validateStrictProfile(wasm, label = "TUI component") {
+  let offset = 8;
+  let memories = 0;
+  const staticExports = [];
+  let dynamicFunctions = null;
+  while (offset < wasm.length) {
+    const sectionID = wasm[offset++];
+    offset = readULEB(wasm, offset);
+    const sectionEnd = offset + lebValue;
+    if (sectionID === 2) {
+      readULEB(wasm, offset);
+      if (lebValue !== 0) throw new Error(`${label} imports host functions or state, which is outside the Strict Wasm Profile`);
+    } else if (sectionID === 5) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      memories += count;
+      for (let index = 0; index < count; index += 1) {
+        const flags = wasm[cursor++];
+        cursor = skipLEB(wasm, cursor);
+        if ((flags & 1) === 0 || (flags & 2) !== 0) throw new Error("TUI memory needs a finite, unshared maximum");
+        cursor = readULEB(wasm, cursor);
+        if (lebValue * 65536 > MAX_MEMORY) throw new Error("TUI memory maximum exceeds 256 MiB");
+      }
+    } else if (sectionID === 7) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      for (let index = 0; index < count; index += 1) {
+        cursor = readULEB(wasm, cursor);
+        const nameEnd = cursor + lebValue;
+        const name = decoder.decode(wasm.subarray(cursor, nameEnd));
+        const kind = wasm[nameEnd];
+        cursor = readULEB(wasm, nameEnd + 1);
+        if (staticExportNames.has(name)) {
+          if (kind !== 0x00) throw new Error(`${label} export ${name} must be a function`);
+          staticExports.push(lebValue);
+        }
+      }
+    } else if (sectionID === 8) {
+      throw new Error(`${label} declares a start function, which is outside the Strict Wasm Profile`);
+    } else if (sectionID === 10) {
+      let cursor = readULEB(wasm, offset);
+      const count = lebValue;
+      dynamicFunctions = new Uint8Array(count);
+      for (let funcIndex = 0; funcIndex < count; funcIndex += 1) {
+        cursor = readULEB(wasm, cursor);
+        const bodyEnd = cursor + lebValue;
+        cursor = readULEB(wasm, cursor);
+        for (let groups = lebValue; groups > 0; groups -= 1) cursor = skipLEB(wasm, cursor) + 1;
+        bodyIsDynamic = false;
+        while (cursor < bodyEnd) cursor = skipInstruction(wasm, cursor, label);
+        if (cursor !== bodyEnd) throw new Error(`${label} function body is malformed`);
+        dynamicFunctions[funcIndex] = bodyIsDynamic ? 1 : 0;
+      }
+    }
+    offset = sectionEnd;
+  }
+  if (memories !== 1) throw new Error("TUI component must declare one memory");
+  for (const index of staticExports) {
+    if (dynamicFunctions === null || dynamicFunctions[index] !== 0) throw new Error("comply: static qip contract checks failed");
+  }
+}
+
+export function validateTUIBinary(data, label = "TUI component") {
+  wasmHeader(data);
   const module = new WebAssembly.Module(data);
-  if (WebAssembly.Module.imports(module).length) throw new Error("TUI component must not import host functions or state");
+  validateStrictProfile(data, label);
   const exports = new Map(WebAssembly.Module.exports(module).map((entry) => [entry.name, entry.kind]));
   if (exports.get("memory") !== "memory") throw new Error("TUI component must export memory");
   for (const name of ["render", "begin_update_at", "finish_update", "key_event", "output_utf8_cap"]) {
@@ -701,7 +869,6 @@ export async function main(args = process.argv.slice(2)) {
   }
   const data = await loadWasm(options.component, validateTUIBinary, options.host);
   const module = new WebAssembly.Module(data);
-  if (WebAssembly.Module.imports(module).length) throw new Error("TUI component must not import host functions or state");
   const exports = new WebAssembly.Instance(module).exports;
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error("TUI component must export memory");
   requireFunction(exports, "render", 1);

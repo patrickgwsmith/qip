@@ -107,7 +107,7 @@ async function main() {
     throw new Error("missing export: render");
   }
   const result = BigInt.asUintN(64, render(input.length));
-  if ((result >> 63n) !== 0n) throw new Error("component rejected input");
+  if ((result >> 63n) !== 0n) throw new Error("rejected input");
   const outputSize = Number(result & 0xffff_ffffn);
   const outputPtr = Number((result >> 32n) & 0x7fff_ffffn);
   const outputCap = getOutputCap(exportsObj);
