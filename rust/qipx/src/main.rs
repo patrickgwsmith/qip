@@ -1999,6 +1999,20 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
     Ok(result)
 }
 
+/// Decodes an unsigned LEB128 value that wasmparser has already validated.
+fn read_uleb(bytes: &[u8]) -> u64 {
+    let mut value = 0u64;
+    let mut shift = 0;
+    for &byte in bytes {
+        value |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            break;
+        }
+        shift += 7;
+    }
+    value
+}
+
 fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(), String> {
     let mut exports: HashMap<String, (ExternalKind, u32)> = HashMap::new();
     let mut static_functions = Vec::new();
@@ -2057,7 +2071,31 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
                             "{path} uses memory.grow, which is outside the Strict Wasm Profile"
                         ));
                     }
+                    // wasmparser decodes every proposal it knows, so the profile's opcode
+                    // allowlist is applied here by first byte, matching the Node scanner.
                     let opcode = wasm[offset as usize];
+                    match opcode {
+                        0xfe => {
+                            return Err(format!(
+                                "{path} uses atomic instructions, which are outside the Strict Wasm Profile"
+                            ));
+                        }
+                        0xfd => {
+                            let sub = read_uleb(&wasm[offset as usize + 1..]);
+                            if sub > 255 {
+                                return Err(format!(
+                                    "{path} uses unsupported SIMD opcode 0x{sub:x}"
+                                ));
+                            }
+                        }
+                        0x00..=0x05 | 0x0b..=0x11 | 0x1a..=0x1c | 0x20..=0x26 | 0x28..=0x3f
+                        | 0x41..=0xc4 | 0xd0 | 0xd2 | 0xfc => {}
+                        _ => {
+                            return Err(format!(
+                                "{path} uses unsupported Wasm opcode 0x{opcode:x} at byte offset {offset}"
+                            ));
+                        }
+                    }
                     if matches!(opcode, 0x02..=0x04 | 0x0c..=0x0e | 0x10..=0x14 | 0x20..=0x22 | 0x24..=0x40 | 0xfc | 0xfe | 0xd2)
                     {
                         is_static = false;

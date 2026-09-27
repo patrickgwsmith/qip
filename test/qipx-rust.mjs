@@ -276,6 +276,21 @@ test("Rust qipx rejects dynamic ABI capacity getters", () => {
   assert.match(rust.stderr, /static qip contract checks failed/);
 });
 
+test("Rust qipx rejects atomics and unsupported opcodes with Node's messages", () => {
+  for (const [fixture, pattern] of [
+    ["qipx-rust-atomic", /uses atomic instructions, which are outside the Strict Wasm Profile/],
+    ["qipx-rust-tail-call", /uses unsupported Wasm opcode 0x12 at byte offset 145/],
+  ]) {
+    const path = `test/fixtures/${fixture}.wasm`;
+    const node = run(process.execPath, ["npm/qipx/cli.mjs", "run", path]);
+    const rust = run(rustCLI, ["run", path]);
+    assert.equal(node.status, 1);
+    assert.equal(rust.status, 1);
+    assert.match(node.stderr, pattern);
+    assert.equal(rust.stderr, `qipx: ${node.stderr.trim()}\n`);
+  }
+});
+
 test("Rust qipx enforces the declared memory cap", () => {
   const rust = run(rustCLI, ["run", "--max-memory", "1024", "bytes/identity.wasm"]);
   assert.equal(rust.status, 1);
