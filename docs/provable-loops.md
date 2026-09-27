@@ -123,6 +123,8 @@ This is the same transformation that turns a hand-rolled scanner into a table-dr
 
 The strict profile rejects recursive call graphs. A runtime depth guard does not help — the cycle is in the compiled call graph whether or not you bound it. The fix is mechanical: reify the stack. Your existing `MAX_DEPTH` guard stops being a check and becomes an array length.
 
+The profile also rejects tail calls (`return_call` and `return_call_indirect`), even though every current engine runs them. Tail calls break local reasoning: every proof above is made inside one function body, where the loop counter is a local, the exit test is in the same block, and the call graph is a set of edges between whole functions. A tail call replaces the frame, so a bound carried in a local is gone at the call, the cycle can run through several functions, and an indirect tail call is not even in the static call graph. Tail calls only add something for recursion, which the profile already excludes, so a recursive algorithm becomes the explicit stack and fuel counter described here rather than a `return_call`.
+
 The key observation is that your algorithm's frame is much smaller than the compiler's. The compiler saves every live local across a recursive call; the algorithm only needs what must be *restored on the way back up*. Write that down before anything else:
 
 - JSON prettifier: which container am I in. One byte.

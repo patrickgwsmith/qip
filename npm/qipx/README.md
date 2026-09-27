@@ -361,6 +361,10 @@ choose async or sync setup. It provides QIP-specific validation and execution:
   in binary section order, so the first failure reported is the same in every
   QIP host: imports, then memory limits, then exports, then a start function,
   then instructions, and finally the export contract.
+  Tail calls (`return_call`, `return_call_indirect`) are outside the profile
+  although engines support them: they replace the frame, which breaks the
+  per-function reasoning that the loop verifier and the acyclic call graph
+  rely on. See [Provable Loops](https://qip.dev/docs/provable-loops).
 - `newContentComponentContract(options)` creates a reusable contract object for
   byte-level checks and instantiated component checks.
 - `newComponent(instance, contract)` validates the instantiated QIP Content ABI

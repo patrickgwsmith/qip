@@ -41,7 +41,8 @@ The component must implement the [QIP TUI contract](https://qip.dev/docs/tui-com
 It checks terminal frames before writing them and applies the same
 pre-execution checks as `qipx`: no WebAssembly imports, a finite, unshared
 memory maximum of at most 256 MiB, no `memory.grow`, no start function, no
-atomics, only Strict Wasm Profile opcodes, and static Content ABI getters.
+atomics, only Strict Wasm Profile opcodes (no tail calls, which break
+per-function reasoning), and static Content ABI getters.
 Component memory is fixed at its declared initial size. Downloads have
 a 16 MiB limit, a 30-second timeout, and at most two redirects within the same
 HTTPS origin.
