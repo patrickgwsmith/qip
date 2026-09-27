@@ -143,6 +143,10 @@ capture and keyboard focus stay on that element during replacement. Inline SVG
 text is selectable with the mouse. Inline SVG joins the page DOM, so use this
 mode only when the component output is trusted.
 
+For an inline SVG game that drags text-labeled objects, add
+`no-text-selection` to `<qip-play>`. This disables text selection and lets a
+press on SVG text capture the pointer for the drag.
+
 A page can
 set `canvas-width` and `canvas-height`, or the
 `--qip-play-canvas-width` and `--qip-play-canvas-height` CSS properties.

@@ -152,9 +152,9 @@ make -j gui/aces-up.wasm gui/god-rays.wasm
 node --test test/aces-god-rays-interactive.mjs
 ```
 
-The tests prove that an Aces Up deal can finish without replacing the published
-frame, that reset reproduces the initial deal, and that God Rays accepts a
-partial uniform set while using defaults for the omitted settings.
+The tests prove that an Aces Up deal can advance without replacing the
+published SVG frame until `render`, and that God Rays accepts a partial uniform
+set while using defaults for the omitted settings.
 
 Sudoku and WebOS Card View cover a deterministic generated document and a
 continuously scheduled interface animation:

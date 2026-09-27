@@ -3,7 +3,7 @@
 # GUI components
 
 These components keep graphical state and render frames in a browser host.
-Most return KTX2 images; the SVG path editor returns SVG. Open the
+Most return KTX2 images; some return SVG. Open the
 [browser demos](/play) to try them, or download a `.wasm` file to host one in your own
 application. The [GUI contract](/docs/gui-components) describes KTX2 output,
 events, and timing.
@@ -22,7 +22,7 @@ events, and timing.
 
 ## Games
 
-- [`aces-up.wasm`](/gui/aces-up.wasm) plays Aces Up solitaire.
+- [`aces-up.wasm`](/gui/aces-up.wasm) plays Aces Up solitaire and returns SVG frames.
 - [`liars-dice.wasm`](/gui/liars-dice.wasm) plays Liar's Dice.
 - [`peon-gold.wasm`](/gui/peon-gold.wasm) runs the Peon Gold game loop.
 - [`side-scroller-platformer.wasm`](/gui/side-scroller-platformer.wasm) runs a side-scrolling platform game.

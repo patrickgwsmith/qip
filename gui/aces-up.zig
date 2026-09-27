@@ -1,841 +1,476 @@
 const std = @import("std");
-const ktx = @import("ktx2_rgba8_srgb");
 
-const NUM_CARDS: usize = 52;
-const NUM_PILES: usize = 4;
-const MAX_PILE: usize = 52;
-
-const CARD_W: usize = 68;
-const CARD_H: usize = 96;
-const STACK_DY: usize = 18;
+const CARD_W = 106;
+const CARD_H = 146;
+const PILE_Y = 218;
+const DECK_X = 824;
+const DECK_Y = 220;
+const DISCARD_Y = 418;
 const DEAL_STEP_MS: i64 = 75;
+const OUTPUT_CAP = 96 * 1024;
+const OUTPUT_CONTENT_TYPE = "image/svg+xml";
+const PRIMARY = 1;
+const KEY_DOWN = 1;
 
-const PAD_X: usize = 16;
-const PAD_Y: usize = 16;
-const GAP_X: usize = 18;
-const SIDE_W: usize = CARD_W + 28;
+const Pile = struct {
+    cards: [52]u8 = undefined,
+    len: u8 = 0,
 
-const BOARD_W: usize = NUM_PILES * CARD_W + (NUM_PILES - 1) * GAP_X;
-const BOARD_H: usize = CARD_H + (13 - 1) * STACK_DY;
+    fn push(p: *Pile, card: u8) void {
+        if (p.len >= 52) @trap();
+        p.cards[p.len] = card;
+        p.len += 1;
+    }
+    fn pop(p: *Pile) u8 {
+        if (p.len == 0) @trap();
+        p.len -= 1;
+        return p.cards[p.len];
+    }
+    fn top(p: *const Pile) ?u8 {
+        return if (p.len == 0) null else p.cards[p.len - 1];
+    }
+};
 
-const RENDER_W: usize = PAD_X * 3 + BOARD_W + SIDE_W;
-const RENDER_H: usize = PAD_Y * 2 + BOARD_H + 20;
-const PIXEL_BYTES: usize = RENDER_W * RENDER_H * 4;
-const OUTPUT_BYTES: usize = ktx.HEADER_SIZE + PIXEL_BYTES;
-const OUTPUT_CONTENT_TYPE = ktx.CONTENT_TYPE;
-const SIDE_X: usize = PAD_X * 2 + BOARD_W;
-const DECK_X: usize = SIDE_X + @divFloor(SIDE_W - CARD_W, 2);
-const DECK_Y: usize = PAD_Y;
-const DISCARD_X: usize = DECK_X;
-const DISCARD_Y: usize = DECK_Y + CARD_H + 26;
+const GameState = enum { playing, won, stuck };
+const Drag = struct {
+    pile: u8,
+    start_x: i32,
+    start_y: i32,
+    x: i32,
+    y: i32,
+    offset_x: i32,
+    offset_y: i32,
+    active: bool = false,
+};
 
-const BTN_PRIMARY: i32 = 1 << 0;
-const FLAG_KEY_DOWN: i32 = 1 << 0;
-const XK_RETURN: i32 = 0xFF0D;
-
-const STATE_PLAYING: u8 = 0;
-const STATE_WIN: u8 = 1;
-const STATE_LOSS: u8 = 2;
-
-const Color = [4]u8;
-const COLOR_BG: Color = .{ 0x0D, 0x5A, 0x32, 0xFF };
-const COLOR_SLOT: Color = .{ 0x16, 0x6B, 0x40, 0xFF };
-const COLOR_SLOT_EDGE: Color = .{ 0x0A, 0x3B, 0x20, 0xFF };
-const COLOR_CARD: Color = .{ 0xF9, 0xFB, 0xFF, 0xFF };
-const COLOR_CARD_EDGE: Color = .{ 0x23, 0x2D, 0x38, 0xFF };
-const COLOR_RED: Color = .{ 0xB8, 0x18, 0x2A, 0xFF };
-const COLOR_BLACK: Color = .{ 0x12, 0x1A, 0x22, 0xFF };
-const COLOR_SELECT: Color = .{ 0xFF, 0xCF, 0x44, 0xFF };
-const COLOR_DISCARDABLE: Color = .{ 0x6E, 0xC1, 0xF4, 0xFF };
-const COLOR_OVERLAY: Color = .{ 0x10, 0x15, 0x1D, 0xCC };
-const COLOR_PANEL: Color = .{ 0xF2, 0xF6, 0xFA, 0xFF };
-const COLOR_WIN: Color = .{ 0xF2, 0xC2, 0x1C, 0xFF };
-const COLOR_LOSS: Color = .{ 0x7A, 0x8B, 0x9C, 0xFF };
-
-var output_buf: [OUTPUT_BYTES]u8 = undefined;
-var pixel_buf: [PIXEL_BYTES]u8 = undefined;
-
-var deck: [NUM_CARDS]u8 = undefined;
-var deck_pos: usize = 0;
-var rng_state: u32 = 0x9E3779B9;
-var game_count: u32 = 0;
-
-var piles: [NUM_PILES][MAX_PILE]u8 = undefined;
-var pile_lens: [NUM_PILES]u8 = [_]u8{0} ** NUM_PILES;
-var discard_count: u8 = 0;
-
-var selected_pile: i32 = -1;
-var primary_down: bool = false;
-var game_state: u8 = STATE_PLAYING;
-var needs_redraw: bool = true;
-var initialized: bool = false;
-var dealing: bool = false;
-var deal_next_pile: u8 = 0;
-var deal_next_ms: i64 = 0;
-
-const Phase = enum { initializing, ready, updating };
-var transaction_phase: Phase = .initializing;
-var begun_at_ms: i64 = 0;
-var committed_at_ms: i64 = 0;
-var time_advanced: bool = false;
-var next_wake_at_ms: i64 = 0;
+var deck: [52]u8 = undefined;
+var deck_pos: u8 = 0;
+var piles = [_]Pile{.{}} ** 4;
+var discarded: u8 = 0;
+var last_discard: ?u8 = null;
+var selected: ?u8 = null;
+var drag: ?Drag = null;
+var primary_down = false;
+var game_state: GameState = .playing;
+var dealing = false;
+var next_deal_pile: u8 = 0;
+var next_deal_at: i64 = 0;
+var seed: u32 = 0x7ac3e521;
+var games: u32 = 0;
+var initialized = false;
+var updating = false;
+var begun_at: i64 = 0;
+var committed_at: i64 = 0;
+var output_buf: [OUTPUT_CAP]u8 = undefined;
 
 export fn input_ptr() u32 {
     return 0;
 }
-
 export fn input_bytes_cap() u32 {
     return 0;
 }
-
-export fn output_bytes_cap() u32 {
-    return @as(u32, @intCast(OUTPUT_BYTES));
+export fn output_utf8_cap() u32 {
+    return OUTPUT_CAP;
 }
-
 export fn output_content_type_ptr() u32 {
     return @intCast(@intFromPtr(OUTPUT_CONTENT_TYPE.ptr));
 }
-
 export fn output_content_type_size() u32 {
     return OUTPUT_CONTENT_TYPE.len;
 }
 
-export fn begin_update_at(now_ms: i64) void {
-    if (transaction_phase != .ready) @trap();
-    if (now_ms <= 0 or now_ms <= committed_at_ms) @trap();
-    begun_at_ms = now_ms;
-    time_advanced = false;
-    next_wake_at_ms = now_ms;
-    transaction_phase = .updating;
+export fn render(input_size: u32) u64 {
+    if (input_size != 0 or updating) @trap();
+    if (!initialized) {
+        newGame(seed, 0);
+        initialized = true;
+    }
+    var w = Writer{};
+    drawBoard(&w) catch @trap();
+    return (@as(u64, @intCast(@intFromPtr(&output_buf))) << 32) | @as(u64, @intCast(w.n));
 }
 
-export fn key_event(x11_key: i32, flags: i32) i32 {
-    if (!eventPhaseIsValid()) return 0;
-    advanceTransactionTime();
-    const is_down = (flags & FLAG_KEY_DOWN) != 0;
-    if (!is_down) return 0;
+export fn begin_update_at(now_ms: i64) void {
+    if (!initialized or updating or now_ms <= 0 or now_ms <= committed_at) @trap();
+    begun_at = now_ms;
+    updating = true;
+    advanceDeal(now_ms);
+}
 
-    if (x11_key == 0x72 or x11_key == 0x52) {
-        resetGame();
+export fn finish_update() i64 {
+    if (!updating) @trap();
+    updating = false;
+    committed_at = begun_at;
+    return if (dealing) next_deal_at else begun_at;
+}
+
+export fn key_event(key: i32, flags: i32) i32 {
+    if (!updating) @trap();
+    if ((flags & KEY_DOWN) == 0) return 0;
+    if (key == 'r' or key == 'R' or key == 'n' or key == 'N') {
+        restart();
         return 1;
     }
+    if (key == ' ' or key == 0xff0d) return @intFromBool(startDeal(begun_at));
+    return 0;
+}
 
-    if (x11_key == XK_RETURN or x11_key == 0x20) {
-        if (tryDealRow()) return 1;
+export fn pointer_event(mask: i32, x: i32, y: i32) i32 {
+    if (!updating) @trap();
+    const down = (mask & PRIMARY) != 0;
+    defer primary_down = down;
+    if (down and !primary_down) {
+        if (inside(x, y, 848, 24, 112, 38)) {
+            restart();
+            return 1;
+        }
+        if (inside(x, y, DECK_X, DECK_Y, CARD_W, CARD_H)) return @intFromBool(startDeal(begun_at));
+        if (emptyPileAt(x, y)) |target| {
+            if (selected) |source| return @intFromBool(moveToEmpty(source, target));
+        }
+        drag = hitTop(x, y);
+        return 0;
+    }
+    if (down and primary_down) {
+        if (drag) |*d| {
+            d.x = x;
+            d.y = y;
+            if (@abs(x - d.start_x) + @abs(y - d.start_y) > 5) d.active = true;
+            return @intFromBool(d.active);
+        }
+    }
+    if (!down and primary_down) {
+        if (drag) |d| {
+            drag = null;
+            if (d.active) {
+                if (emptyPileAt(x, y)) |target| {
+                    _ = moveToEmpty(d.pile, target);
+                } else if (inside(x, y, DECK_X - 18, DISCARD_Y - 18, CARD_W + 36, CARD_H + 36)) {
+                    _ = discardTop(d.pile);
+                }
+                return 1; // Remove the floating card after any drop.
+            }
+            if (discardTop(d.pile)) return 1;
+            if (hasEmptyPile()) {
+                selected = if (selected != null and selected.? == d.pile) null else d.pile;
+                return 1;
+            }
+        }
     }
     return 0;
 }
 
-export fn pointer_event(button_mask: i32, x_px: i32, y_px: i32) i32 {
-    if (!eventPhaseIsValid()) return 0;
-    advanceTransactionTime();
-    const is_down = (button_mask & BTN_PRIMARY) != 0;
-    var changed = false;
-
-    if (is_down and !primary_down) {
-        changed = handlePrimaryPress(x_px, y_px);
-    }
-
-    primary_down = is_down;
-    return if (changed) 1 else 0;
+fn restart() void {
+    const time_bits: u32 = @truncate(@as(u64, @bitCast(begun_at)));
+    newGame(seed ^ time_bits ^ (games *% 0x9e3779b9), begun_at);
 }
 
-fn eventPhaseIsValid() bool {
-    if (transaction_phase != .updating) @trap();
-    return true;
+fn nextRandom() u32 {
+    seed ^= seed << 13;
+    seed ^= seed >> 17;
+    seed ^= seed << 5;
+    return seed;
 }
 
-fn advanceTransactionTime() void {
-    if (time_advanced) return;
-    time_advanced = true;
-    if (!initialized) {
-        resetGame();
-    }
-    if (dealing) {
-        stepDeal(begun_at_ms);
-    }
-    next_wake_at_ms = if (dealing) deal_next_ms else begun_at_ms;
-}
-
-fn renderImpl(input_size: u32) u32 {
-    if (input_size != 0) @trap();
-    if (transaction_phase != .initializing and transaction_phase != .ready) @trap();
-    if (!initialized) {
-        resetGame();
-        if (dealing) stepDeal(0);
-    }
-    _ = ktx.writeHeader(&output_buf, RENDER_W, RENDER_H) orelse @trap();
-    drawFrame();
-    needs_redraw = false;
-    @memcpy(output_buf[ktx.HEADER_SIZE..], pixel_buf[0..]);
-    transaction_phase = .ready;
-    return @intCast(OUTPUT_BYTES);
-}
-
-export fn render(input_size: u32) packed struct(u64) {
-    output_size: u32,
-    output_ptr: u31,
-    failed: u1,
-} {
-    return .{
-        .output_size = renderImpl(input_size),
-        .output_ptr = @intCast(@intFromPtr(&output_buf[0])),
-        .failed = 0,
-    };
-}
-
-export fn finish_update() i64 {
-    if (transaction_phase != .updating) @trap();
-    advanceTransactionTime();
-    next_wake_at_ms = if (dealing) deal_next_ms else begun_at_ms;
-    committed_at_ms = begun_at_ms;
-    const wake = next_wake_at_ms;
-    transaction_phase = .ready;
-    return wake;
-}
-
-fn resetState() void {
-    deck = [_]u8{0} ** NUM_CARDS;
-    deck_pos = 0;
-    rng_state = 0x9E3779B9;
-    game_count = 0;
-    piles = [_][MAX_PILE]u8{[_]u8{0} ** MAX_PILE} ** NUM_PILES;
-    pile_lens = [_]u8{0} ** NUM_PILES;
-    discard_count = 0;
-    selected_pile = -1;
-    primary_down = false;
-    game_state = STATE_PLAYING;
-    needs_redraw = true;
-    initialized = false;
-    dealing = false;
-    deal_next_pile = 0;
-    deal_next_ms = 0;
-}
-
-fn resetGame() void {
-    initialized = true;
-    game_count +%= 1;
-    rng_state +%= 0xA341316C + game_count *% 0xC8013EA4;
-
-    var i: usize = 0;
-    while (i < NUM_CARDS) : (i += 1) {
-        deck[i] = @intCast(i);
-    }
-    shuffleDeck();
-    deck_pos = 0;
-
-    pile_lens = [_]u8{0} ** NUM_PILES;
-    discard_count = 0;
-    selected_pile = -1;
-    primary_down = false;
-    game_state = STATE_PLAYING;
-    dealing = false;
-    deal_next_pile = 0;
-    deal_next_ms = 0;
-
-    _ = startDealRow(true);
-    needs_redraw = true;
-}
-
-fn shuffleDeck() void {
-    var i: usize = NUM_CARDS - 1;
+fn newGame(value: u32, now: i64) void {
+    seed = if (value == 0) 0x7ac3e521 else value;
+    games +%= 1;
+    for (&deck, 0..) |*card, i| card.* = @intCast(i);
+    var i: usize = deck.len - 1;
     while (i > 0) : (i -= 1) {
-        const j = @as(usize, @intCast(rngNext() % @as(u32, @intCast(i + 1))));
-        const t = deck[i];
-        deck[i] = deck[j];
-        deck[j] = t;
+        const j: usize = nextRandom() % @as(u32, @intCast(i + 1));
+        std.mem.swap(u8, &deck[i], &deck[j]);
     }
+    deck_pos = 0;
+    piles = [_]Pile{.{}} ** 4;
+    discarded = 0;
+    last_discard = null;
+    selected = null;
+    drag = null;
+    game_state = .playing;
+    dealing = false;
+    _ = startDealUnchecked(now);
 }
 
-fn rngNext() u32 {
-    var x = rng_state;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    rng_state = x;
-    return x;
-}
-
-fn startDealRow(force: bool) bool {
-    if (dealing) return false;
-    if (!force and !canDealRow()) return false;
-    selected_pile = -1;
-    dealing = true;
-    deal_next_pile = 0;
-    deal_next_ms = 0;
-    needs_redraw = true;
-    return true;
-}
-
-fn tryDealRow() bool {
-    if (game_state != STATE_PLAYING) {
-        resetGame();
-        return true;
-    }
-    return startDealRow(false);
-}
-
-fn canDealRow() bool {
-    if (deck_pos + NUM_PILES > NUM_CARDS) return false;
-    if (hasEmptyPile()) return false;
-    if (hasDiscardableMoves()) return false;
-    return true;
-}
-
-fn stepDeal(now_ms: i64) void {
-    if (!dealing) return;
-    if (deal_next_ms == 0) {
-        deal_next_ms = now_ms;
-    }
-
-    if (now_ms < deal_next_ms) return;
-    if (deal_next_pile >= NUM_PILES or deck_pos >= NUM_CARDS) {
-        dealing = false;
-        updateGameState();
-        return;
-    }
-
-    const pile_idx: usize = @intCast(deal_next_pile);
-    const c = deck[deck_pos];
+fn startDealUnchecked(now: i64) bool {
+    if (deck_pos + 4 > 52) return false;
+    selected = null;
+    piles[0].push(deck[deck_pos]);
     deck_pos += 1;
-    pushCard(pile_idx, c);
-    deal_next_pile += 1;
-    needs_redraw = true;
-    deal_next_ms = now_ms + DEAL_STEP_MS;
+    dealing = true;
+    next_deal_pile = 1;
+    next_deal_at = now + DEAL_STEP_MS;
+    return true;
+}
 
-    if (deal_next_pile >= NUM_PILES) {
+fn startDeal(now: i64) bool {
+    if (!canDeal()) return false;
+    return startDealUnchecked(now);
+}
+
+fn advanceDeal(now: i64) void {
+    if (!dealing or now < next_deal_at) return;
+    piles[next_deal_pile].push(deck[deck_pos]);
+    deck_pos += 1;
+    next_deal_pile += 1;
+    if (next_deal_pile == 4) {
         dealing = false;
         updateGameState();
-    }
+    } else next_deal_at = now + DEAL_STEP_MS;
 }
 
-fn pushCard(pile_idx: usize, card: u8) void {
-    const n = pile_lens[pile_idx];
-    piles[pile_idx][n] = card;
-    pile_lens[pile_idx] = n + 1;
-}
-
-fn popCard(pile_idx: usize) u8 {
-    const n = pile_lens[pile_idx] - 1;
-    pile_lens[pile_idx] = n;
-    return piles[pile_idx][n];
-}
-
-fn topCard(pile_idx: usize) ?u8 {
-    const n = pile_lens[pile_idx];
-    if (n == 0) return null;
-    return piles[pile_idx][n - 1];
-}
-
-fn handlePrimaryPress(x_px: i32, y_px: i32) bool {
-    if (game_state != STATE_PLAYING) {
-        resetGame();
-        return true;
-    }
-    if (dealing) return false;
-
-    if (pointInRect(x_px, y_px, @intCast(DECK_X), @intCast(DECK_Y), @intCast(CARD_W), @intCast(CARD_H))) {
-        return tryDealRow();
-    }
-
-    const maybe_pile = pileAtPoint(x_px, y_px);
-    if (maybe_pile == null) {
-        return false;
-    }
-    const pile = maybe_pile.?;
-
-    if (selected_pile >= 0) {
-        const src: usize = @intCast(selected_pile);
-        if (pile == src) {
-            selected_pile = -1;
-            needs_redraw = true;
-            return true;
-        }
-        if (pile_lens[pile] == 0 and pile_lens[src] > 0) {
-            const c = popCard(src);
-            pushCard(pile, c);
-            selected_pile = -1;
-            updateGameState();
-            needs_redraw = true;
-            return true;
-        }
-        if (pile_lens[pile] > 0) {
-            selected_pile = @intCast(pile);
-            needs_redraw = true;
-            return true;
-        }
-    }
-
-    if (pile_lens[pile] == 0) {
-        return false;
-    }
-
-    if (isDiscardable(pile)) {
-        _ = popCard(pile);
-        discard_count +%= 1;
-        selected_pile = -1;
-        updateGameState();
-        needs_redraw = true;
-        return true;
-    }
-
-    if (hasEmptyPile()) {
-        selected_pile = @intCast(pile);
-        needs_redraw = true;
-        return true;
-    }
-
-    return false;
-}
-
-fn updateGameState() void {
-    if (isWin()) {
-        game_state = STATE_WIN;
-        return;
-    }
-    if (deck_pos >= NUM_CARDS and !hasDiscardableMoves() and !hasEmptyPile()) {
-        game_state = STATE_LOSS;
-        return;
-    }
-    game_state = STATE_PLAYING;
-}
-
-fn isWin() bool {
-    if (deck_pos < NUM_CARDS) return false;
-    if (totalCardsInPiles() != 4) return false;
-
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        const c = topCard(i) orelse return false;
-        if (rankOf(c) != 1) return false;
-    }
-    return true;
-}
-
-fn totalCardsInPiles() usize {
-    var total: usize = 0;
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        total += pile_lens[i];
-    }
-    return total;
-}
-
-fn allPilesOccupied() bool {
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        if (pile_lens[i] == 0) return false;
-    }
-    return true;
+fn canDeal() bool {
+    return game_state == .playing and !dealing and deck_pos + 4 <= 52 and !hasDiscardable();
 }
 
 fn hasEmptyPile() bool {
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        if (pile_lens[i] == 0) return true;
+    for (piles) |pile| if (pile.len == 0) return true;
+    return false;
+}
+
+fn hasDiscardable() bool {
+    for (0..4) |i| if (isDiscardable(i)) return true;
+    return false;
+}
+
+fn rank(card: u8) u8 {
+    const raw = card % 13 + 1;
+    return if (raw == 1) 14 else raw;
+}
+fn suit(card: u8) u8 {
+    return card / 13;
+}
+fn red(card: u8) bool {
+    return suit(card) == 1 or suit(card) == 2;
+}
+
+fn isDiscardable(pile_index: usize) bool {
+    const card = piles[pile_index].top() orelse return false;
+    for (0..4) |other_index| {
+        if (other_index == pile_index) continue;
+        const other = piles[other_index].top() orelse continue;
+        if (suit(card) == suit(other) and rank(card) < rank(other)) return true;
     }
     return false;
 }
 
-fn hasDiscardableMoves() bool {
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        if (isDiscardable(i)) return true;
-    }
-    return false;
+fn discardTop(pile_index: usize) bool {
+    if (game_state != .playing or dealing or !isDiscardable(pile_index)) return false;
+    last_discard = piles[pile_index].pop();
+    discarded += 1;
+    selected = null;
+    updateGameState();
+    return true;
 }
 
-fn isDiscardable(pile_idx: usize) bool {
-    const card = topCard(pile_idx) orelse return false;
-    const suit = suitOf(card);
-    const rank = rankOf(card);
+fn moveToEmpty(source: usize, target: usize) bool {
+    if (game_state != .playing or dealing or source == target or piles[source].len == 0 or piles[target].len != 0) return false;
+    piles[target].push(piles[source].pop());
+    selected = null;
+    updateGameState();
+    return true;
+}
 
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        if (i == pile_idx) continue;
-        const other = topCard(i) orelse continue;
-        if (suitOf(other) == suit and rankOf(other) > rank) {
-            return true;
+fn updateGameState() void {
+    if (deck_pos < 52) {
+        game_state = .playing;
+        return;
+    }
+    var total: usize = 0;
+    var aces: usize = 0;
+    for (piles) |pile| {
+        total += pile.len;
+        if (pile.top()) |card| if (rank(card) == 14) {
+            aces += 1;
+        };
+    }
+    if (total == 4 and aces == 4) {
+        game_state = .won;
+    } else if (!hasDiscardable() and !hasEmptyPile()) {
+        game_state = .stuck;
+    } else game_state = .playing;
+}
+
+fn pileX(i: usize) i32 {
+    return 70 + @as(i32, @intCast(i)) * 176;
+}
+fn stackGap(i: usize) i32 {
+    const count: i32 = piles[i].len;
+    if (count <= 1) return 29;
+    return @max(6, @min(29, @divTrunc(700 - PILE_Y - CARD_H, count - 1)));
+}
+fn inside(x: i32, y: i32, bx: i32, by: i32, bw: i32, bh: i32) bool {
+    return x >= bx and y >= by and x < bx + bw and y < by + bh;
+}
+fn emptyPileAt(x: i32, y: i32) ?u8 {
+    for (0..4) |i| {
+        if (piles[i].len == 0 and inside(x, y, pileX(i) - 15, PILE_Y - 15, CARD_W + 30, CARD_H + 30)) return @intCast(i);
+    }
+    return null;
+}
+fn hitTop(x: i32, y: i32) ?Drag {
+    if (game_state != .playing or dealing) return null;
+    for (0..4) |i| {
+        if (piles[i].len == 0) continue;
+        const card_y = PILE_Y + @as(i32, piles[i].len - 1) * stackGap(i);
+        if (inside(x, y, pileX(i), card_y, CARD_W, CARD_H)) {
+            return .{ .pile = @intCast(i), .start_x = x, .start_y = y, .x = x, .y = y, .offset_x = x - pileX(i), .offset_y = y - card_y };
         }
     }
-    return false;
-}
-
-fn pileAtPoint(x_px: i32, y_px: i32) ?usize {
-    const by: i32 = @intCast(PAD_Y);
-    if (y_px < by) return null;
-
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
-        const x0: i32 = @intCast(pileX(i));
-        const x1: i32 = @intCast(pileX(i) + CARD_W);
-        if (x_px < x0 or x_px >= x1) continue;
-
-        const len = pile_lens[i];
-        const pile_h: i32 = if (len == 0) @intCast(CARD_H) else @intCast(CARD_H + (@as(usize, len - 1) * STACK_DY));
-        const y0 = by;
-        const y1 = by + pile_h;
-        if (y_px >= y0 and y_px < y1) return i;
-    }
-
     return null;
 }
 
-fn pileX(i: usize) usize {
-    return PAD_X + i * (CARD_W + GAP_X);
+const Writer = struct {
+    n: usize = 0,
+    fn bytes(w: *Writer, s: []const u8) !void {
+        if (s.len > OUTPUT_CAP - w.n) return error.Full;
+        @memcpy(output_buf[w.n..][0..s.len], s);
+        w.n += s.len;
+    }
+    fn fmt(w: *Writer, comptime format: []const u8, args: anytype) !void {
+        const printed = std.fmt.bufPrint(output_buf[w.n..], format, args) catch return error.Full;
+        w.n += printed.len;
+    }
+};
+
+fn rankText(card: u8) []const u8 {
+    return switch (rank(card)) {
+        14 => "A",
+        13 => "K",
+        12 => "Q",
+        11 => "J",
+        10 => "10",
+        else => |r| (&[_][]const u8{ "", "", "2", "3", "4", "5", "6", "7", "8", "9" })[r],
+    };
+}
+fn suitText(card: u8) []const u8 {
+    return (&[_][]const u8{ "♠", "♥", "♦", "♣" })[suit(card)];
 }
 
-fn rankOf(card: u8) u8 {
-    const raw = (card % 13) + 1;
-    // Aces Up is "Aces high": A > K > Q ... > 2.
-    return if (raw == 1) 14 else raw;
+fn drawCard(w: *Writer, card: ?u8, x: i32, y: i32, back: bool) !void {
+    try w.fmt("<g transform=\"translate({d} {d})\">", .{ x, y });
+    try w.bytes("<rect x=\"2\" y=\"5\" width=\"106\" height=\"146\" rx=\"12\" fill=\"#06281f\" opacity=\".28\"/>");
+    if (back) {
+        try w.bytes("<rect width=\"106\" height=\"146\" rx=\"12\" fill=\"#fbf7ec\" stroke=\"#d6d3c7\"/><rect x=\"5\" y=\"5\" width=\"96\" height=\"136\" rx=\"8\" fill=\"#183f76\"/><rect x=\"10\" y=\"10\" width=\"86\" height=\"126\" rx=\"5\" fill=\"url(#back)\" stroke=\"#9ab9dc\" stroke-width=\"1.2\"/><path d=\"M53 26 78 73 53 120 28 73Z\" fill=\"none\" stroke=\"#b7d4ed\" stroke-width=\"2\"/><circle cx=\"53\" cy=\"73\" r=\"18\" fill=\"#f4e7bd\"/><path d=\"M53 58 65 73 53 88 41 73Z\" fill=\"#204d80\"/>");
+    } else if (card) |c| {
+        const color = if (red(c)) "#bd3b42" else "#1c3144";
+        try w.bytes("<rect width=\"106\" height=\"146\" rx=\"12\" fill=\"url(#face)\" stroke=\"#d2d2cb\"/>");
+        try w.fmt("<text x=\"11\" y=\"30\" font-size=\"25\" font-weight=\"700\" fill=\"{s}\">{s}</text>", .{ color, rankText(c) });
+        try w.fmt("<text x=\"12\" y=\"51\" font-size=\"21\" fill=\"{s}\">{s}</text>", .{ color, suitText(c) });
+        try w.fmt("<text x=\"53\" y=\"94\" text-anchor=\"middle\" font-size=\"49\" fill=\"{s}\">{s}</text>", .{ color, suitText(c) });
+        try w.fmt("<text x=\"94\" y=\"137\" text-anchor=\"end\" font-size=\"19\" font-weight=\"700\" fill=\"{s}\">{s}</text>", .{ color, rankText(c) });
+    }
+    try w.bytes("</g>");
 }
 
-fn suitOf(card: u8) u8 {
-    return card / 13;
+fn drawSlot(w: *Writer, x: i32, y: i32, label: []const u8) !void {
+    try w.fmt("<rect x=\"{d}\" y=\"{d}\" width=\"106\" height=\"146\" rx=\"12\" fill=\"#074635\" fill-opacity=\".42\" stroke=\"#b7d8b8\" stroke-opacity=\".34\" stroke-width=\"2\" stroke-dasharray=\"5 6\"/>", .{ x, y });
+    try w.fmt("<text x=\"{d}\" y=\"{d}\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\" letter-spacing=\"1.5\" fill=\"#b8ddc2\" opacity=\".7\">{s}</text>", .{ x + 53, y + 78, label });
 }
 
-fn drawFrame() void {
-    fillRect(0, 0, RENDER_W, RENDER_H, COLOR_BG);
-    drawDeckArea();
-    drawPiles();
-    if (game_state != STATE_PLAYING) {
-        drawEndOverlay();
-    }
-}
-
-fn drawDeckArea() void {
-    fillRect(SIDE_X, 0, RENDER_W - SIDE_X, RENDER_H, COLOR_SLOT_EDGE);
-
-    drawCardSlot(DECK_X, DECK_Y);
-    drawCardSlot(DISCARD_X, DISCARD_Y);
-
-    const remain = NUM_CARDS - deck_pos;
-    if (remain > 0) {
-        var layers = @min(@divFloor(remain + 2, 3), 8);
-        while (layers > 0) : (layers -= 1) {
-            const dx = layers - 1;
-            const dy = @divFloor(layers - 1, 2);
-            drawCardBack(DECK_X + dx, DECK_Y + dy);
-        }
-    }
-
-    const dcount: usize = @intCast(discard_count);
-    if (dcount > 0) {
-        var dlayers = @min(@divFloor(dcount + 1, 2), 8);
-        while (dlayers > 0) : (dlayers -= 1) {
-            const dx = dlayers - 1;
-            const dy = @divFloor(dlayers - 1, 2);
-            drawCardBack(DISCARD_X + dx, DISCARD_Y + dy);
-        }
-    }
-
-    if (dealing and deal_next_pile < NUM_PILES and deck_pos > 0) {
-        const target_x = pileX(@intCast(deal_next_pile));
-        const target_y = PAD_Y + (@as(usize, pile_lens[@intCast(deal_next_pile)]) * STACK_DY);
-        const mid_x = @divFloor(DECK_X + target_x, 2);
-        const mid_y = @divFloor(DECK_Y + target_y, 2);
-        drawCardBack(mid_x, mid_y);
-    }
-
-    if (game_state == STATE_PLAYING and canDealRow()) {
-        drawRectStroke(DECK_X, DECK_Y, CARD_W, CARD_H, 3, COLOR_SELECT);
-    }
-}
-
-fn drawPiles() void {
-    var i: usize = 0;
-    while (i < NUM_PILES) : (i += 1) {
+fn drawBoard(w: *Writer) !void {
+    try w.bytes("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 760\" width=\"1000\" height=\"760\" style=\"font-family:Inter,ui-sans-serif,system-ui,sans-serif;user-select:none\"><defs><linearGradient id=\"felt\" x2=\"0\" y2=\"1\"><stop stop-color=\"#0e6348\"/><stop offset=\"1\" stop-color=\"#074634\"/></linearGradient><linearGradient id=\"face\" x2=\"0\" y2=\"1\"><stop stop-color=\"#fffefa\"/><stop offset=\"1\" stop-color=\"#f2f0e7\"/></linearGradient><pattern id=\"back\" width=\"12\" height=\"12\" patternUnits=\"userSpaceOnUse\"><rect width=\"12\" height=\"12\" fill=\"#204d80\"/><path d=\"M0 0 12 12M12 0 0 12\" stroke=\"#5c87af\" stroke-width=\".7\"/></pattern></defs>");
+    try w.bytes("<rect width=\"1000\" height=\"760\" fill=\"url(#felt)\"/><rect x=\"16\" y=\"16\" width=\"968\" height=\"728\" rx=\"22\" fill=\"none\" stroke=\"#9cceac\" opacity=\".2\"/><text x=\"46\" y=\"51\" fill=\"#f5f1dd\" font-size=\"26\" font-weight=\"650\" letter-spacing=\"-.7\">Aces Up</text><text x=\"186\" y=\"50\" fill=\"#b8dbc3\" font-size=\"13\" font-weight=\"600\">IDIOT’S DELIGHT</text>");
+    try w.bytes("<rect x=\"848\" y=\"24\" width=\"112\" height=\"38\" rx=\"19\" fill=\"#f5edcf\"/><text x=\"904\" y=\"49\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"700\" fill=\"#124735\">New game</text>");
+    try w.bytes("<text x=\"70\" y=\"191\" font-size=\"12\" font-weight=\"700\" letter-spacing=\"2\" fill=\"#c7e3ca\">FOUR PILES</text><text x=\"824\" y=\"191\" font-size=\"12\" font-weight=\"700\" letter-spacing=\"2\" fill=\"#c7e3ca\">DECK</text>");
+    try w.fmt("<text x=\"46\" y=\"97\" font-size=\"16\" fill=\"#f2efda\">{d} discarded</text>", .{discarded});
+    try w.fmt("<text x=\"46\" y=\"124\" font-size=\"14\" fill=\"#bbdac5\">{s}</text>", .{statusText()});
+    for (0..4) |i| {
         const x = pileX(i);
-        const y = PAD_Y;
-        drawCardSlot(x, y);
-
-        const len = pile_lens[i];
-        var n: usize = 0;
-        while (n < len) : (n += 1) {
-            const card = piles[i][n];
-            const cy = y + n * STACK_DY;
-            drawCard(x, cy, card);
+        try drawSlot(w, x, PILE_Y, "EMPTY");
+        const gap = stackGap(i);
+        for (0..piles[i].len) |index| {
+            const is_dragged = if (drag) |d| d.active and d.pile == i and index == piles[i].len - 1 else false;
+            if (!is_dragged) try drawCard(w, piles[i].cards[index], x, PILE_Y + @as(i32, @intCast(index)) * gap, false);
         }
-
-        if (len > 0 and isDiscardable(i)) {
-            const top_y = y + (len - 1) * STACK_DY;
-            drawRectStroke(x + 2, top_y + 2, CARD_W - 4, CARD_H - 4, 2, COLOR_DISCARDABLE);
-        }
-
-        if (selected_pile >= 0 and @as(usize, @intCast(selected_pile)) == i) {
-            const sy = if (len == 0) y else y + (len - 1) * STACK_DY;
-            drawRectStroke(x, sy, CARD_W, CARD_H, 3, COLOR_SELECT);
+        if (piles[i].len > 0) {
+            const top_y = PILE_Y + @as(i32, piles[i].len - 1) * gap;
+            const is_dragged = if (drag) |d| d.active and d.pile == i else false;
+            if (!is_dragged and isDiscardable(i))
+                try w.fmt("<rect x=\"{d}\" y=\"{d}\" width=\"106\" height=\"146\" rx=\"12\" fill=\"none\" stroke=\"#f2c96f\" stroke-width=\"3\"/>", .{ x, top_y });
+            if (!is_dragged and selected != null and selected.? == i)
+                try w.fmt("<rect x=\"{d}\" y=\"{d}\" width=\"106\" height=\"146\" rx=\"12\" fill=\"none\" stroke=\"#8acbf1\" stroke-width=\"3\"/>", .{ x, top_y });
         }
     }
-}
-
-fn drawCardSlot(x: usize, y: usize) void {
-    fillRect(x, y, CARD_W, CARD_H, COLOR_SLOT);
-    drawRectStroke(x, y, CARD_W, CARD_H, 2, COLOR_SLOT_EDGE);
-}
-
-fn drawCard(x: usize, y: usize, card: u8) void {
-    fillRect(x, y, CARD_W, CARD_H, COLOR_CARD);
-    drawRectStroke(x, y, CARD_W, CARD_H, 2, COLOR_CARD_EDGE);
-
-    const rank = rankOf(card);
-    const suit = suitOf(card);
-    const ink = if (suit == 1 or suit == 2) COLOR_RED else COLOR_BLACK;
-
-    var label: [2]u8 = undefined;
-    const label_len = rankLabel(rank, &label);
-    drawText5x7(x + 6, y + 7, label[0..label_len], ink, 2);
-    drawSuitIcon(@intCast(x + 14), @intCast(y + 29), 8, suit, ink);
-    drawSuitIcon(@intCast(x + CARD_W / 2), @intCast(y + CARD_H / 2 + 4), 15, suit, ink);
-}
-
-fn drawCardBack(x: usize, y: usize) void {
-    const back_a: Color = .{ 0x27, 0x4D, 0x8A, 0xFF };
-    const back_b: Color = .{ 0x5C, 0x8A, 0xD6, 0xFF };
-    fillRect(x, y, CARD_W, CARD_H, back_a);
-    drawRectStroke(x, y, CARD_W, CARD_H, 2, COLOR_CARD_EDGE);
-
-    var yy: usize = 6;
-    while (yy + 6 < CARD_H) : (yy += 12) {
-        fillRect(x + 6, y + yy, CARD_W - 12, 2, back_b);
+    try drawSlot(w, DECK_X, DECK_Y, if (deck_pos == 52) "EMPTY" else "DEAL");
+    if (deck_pos < 52) try drawCard(w, null, DECK_X, DECK_Y, true);
+    try w.fmt("<text x=\"877\" y=\"389\" text-anchor=\"middle\" font-size=\"13\" fill=\"#cce5ce\">{d} left</text>", .{52 - deck_pos});
+    try drawSlot(w, DECK_X, DISCARD_Y, "DISCARD");
+    if (last_discard) |card| try drawCard(w, card, DECK_X, DISCARD_Y, false);
+    if (drag) |d| {
+        if (d.active) try drawCard(w, piles[d.pile].top().?, d.x - d.offset_x, d.y - d.offset_y, false);
     }
+    if (game_state != .playing and !dealing) try drawEndOverlay(w);
+    try w.bytes("<text x=\"46\" y=\"715\" font-size=\"13\" fill=\"#b9dbc2\">Click gold cards to discard · Drag a top card into an empty pile · Click deck to deal</text></svg>");
 }
 
-fn drawEndOverlay() void {
-    fillRect(0, 0, RENDER_W, RENDER_H, COLOR_OVERLAY);
-
-    const panel_w: usize = 210;
-    const panel_h: usize = 150;
-    const px = (RENDER_W - panel_w) / 2;
-    const py = (RENDER_H - panel_h) / 2;
-    fillRect(px, py, panel_w, panel_h, COLOR_PANEL);
-
-    const accent = if (game_state == STATE_WIN) COLOR_WIN else COLOR_LOSS;
-    drawRectStroke(px, py, panel_w, panel_h, 6, accent);
-
-    if (game_state == STATE_WIN) {
-        drawSuitIcon(@intCast(px + 50), @intCast(py + 60), 18, 0, COLOR_BLACK);
-        drawSuitIcon(@intCast(px + 85), @intCast(py + 60), 18, 1, COLOR_RED);
-        drawSuitIcon(@intCast(px + 120), @intCast(py + 60), 18, 2, COLOR_RED);
-        drawSuitIcon(@intCast(px + 155), @intCast(py + 60), 18, 3, COLOR_BLACK);
-    } else {
-        drawSuitIcon(@intCast(px + 78), @intCast(py + 60), 20, 2, COLOR_RED);
-        drawSuitIcon(@intCast(px + 132), @intCast(py + 60), 20, 3, COLOR_BLACK);
-    }
-
-    fillRect(px + 82, py + 115, 10, 10, accent);
-    fillRect(px + 118, py + 115, 10, 10, accent);
+fn statusText() []const u8 {
+    if (dealing) return "Dealing a row…";
+    if (game_state == .won) return "Four aces remain. You won.";
+    if (game_state == .stuck) return "No moves remain. Start a new game.";
+    if (hasDiscardable()) return "Remove a gold-highlighted card.";
+    if (hasEmptyPile()) return "Move a top card into the empty pile, or deal.";
+    if (deck_pos < 52) return "Deal the next row.";
+    return "Keep the four aces.";
 }
 
-fn rankLabel(rank: u8, out: *[2]u8) usize {
-    return switch (rank) {
-        1 => blk: {
-            out[0] = 'A';
-            break :blk 1;
-        },
-        2...9 => blk: {
-            out[0] = @as(u8, '0') + rank;
-            break :blk 1;
-        },
-        10 => blk: {
-            out[0] = '1';
-            out[1] = '0';
-            break :blk 2;
-        },
-        11 => blk: {
-            out[0] = 'J';
-            break :blk 1;
-        },
-        12 => blk: {
-            out[0] = 'Q';
-            break :blk 1;
-        },
-        13 => blk: {
-            out[0] = 'K';
-            break :blk 1;
-        },
-        else => blk: {
-            out[0] = '?';
-            break :blk 1;
-        },
-    };
+fn drawEndOverlay(w: *Writer) !void {
+    const won = game_state == .won;
+    try w.bytes("<rect x=\"290\" y=\"356\" width=\"420\" height=\"134\" rx=\"22\" fill=\"#f8f0d8\" stroke=\"#d5c99f\"/>");
+    try w.fmt("<text x=\"500\" y=\"411\" text-anchor=\"middle\" font-size=\"29\" font-weight=\"700\" fill=\"#114b38\">{s}</text>", .{if (won) @as([]const u8, "Four aces remain!") else "No moves remain"});
+    try w.fmt("<text x=\"500\" y=\"448\" text-anchor=\"middle\" font-size=\"15\" fill=\"#416e5b\">{s}</text>", .{if (won) @as([]const u8, "You won. Start a new game to play again.") else "Start a new game to try another deal."});
 }
 
-fn drawSuitIcon(cx: i32, cy: i32, r: i32, suit: u8, color: Color) void {
-    switch (suit) {
-        0 => drawClub(cx, cy, r, color),
-        1 => drawDiamond(cx, cy, r, color),
-        2 => drawHeart(cx, cy, r, color),
-        else => drawSpade(cx, cy, r, color),
-    }
-}
-
-fn drawHeart(cx: i32, cy: i32, r: i32, color: Color) void {
-    const d = @divFloor(r, 2);
-    drawFilledCircle(cx - d, cy - d, d, color);
-    drawFilledCircle(cx + d, cy - d, d, color);
-    var y: i32 = 0;
-    while (y <= r) : (y += 1) {
-        const half = @divFloor((r - y) * 2, 3);
-        drawHLine(cx - half, cx + half, cy + y - d, color);
-    }
-}
-
-fn drawDiamond(cx: i32, cy: i32, r: i32, color: Color) void {
-    var y: i32 = -r;
-    while (y <= r) : (y += 1) {
-        const half = r - absI32(y);
-        drawHLine(cx - half, cx + half, cy + y, color);
-    }
-}
-
-fn drawClub(cx: i32, cy: i32, r: i32, color: Color) void {
-    const d = @divFloor(r * 2, 3);
-    const c = @divFloor(r, 2);
-    drawFilledCircle(cx, cy - c, d, color);
-    drawFilledCircle(cx - d, cy + c, d, color);
-    drawFilledCircle(cx + d, cy + c, d, color);
-    fillRectI32(cx - @divFloor(r, 4), cy + c, @divFloor(r, 2), r + 1, color);
-}
-
-fn drawSpade(cx: i32, cy: i32, r: i32, color: Color) void {
-    const d = @divFloor(r, 2);
-    drawFilledCircle(cx - d, cy - d, d, color);
-    drawFilledCircle(cx + d, cy - d, d, color);
-    var y: i32 = 0;
-    while (y <= r) : (y += 1) {
-        const half = @divFloor((r - y) * 2, 3);
-        drawHLine(cx - half, cx + half, cy - y + d, color);
-    }
-    fillRectI32(cx - @divFloor(r, 4), cy + d, @divFloor(r, 2), r + 1, color);
-}
-
-fn drawText5x7(x0: usize, y0: usize, s: []const u8, color: Color, scale: usize) void {
-    var x = x0;
-    for (s) |ch| {
-        drawGlyph5x7(x, y0, ch, color, scale);
-        x += 6 * scale;
-    }
-}
-
-fn drawGlyph5x7(x0: usize, y0: usize, ch: u8, color: Color, scale: usize) void {
-    const rows = glyphRows(ch);
-    var y: usize = 0;
-    while (y < 7) : (y += 1) {
-        const bits = rows[y];
-        var x: usize = 0;
-        while (x < 5) : (x += 1) {
-            const mask: u8 = @as(u8, 1) << @intCast(4 - x);
-            if ((bits & mask) != 0) {
-                fillRect(x0 + x * scale, y0 + y * scale, scale, scale, color);
-            }
-        }
-    }
-}
-
-fn glyphRows(ch: u8) [7]u8 {
-    return switch (ch) {
-        '0' => .{ 0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110 },
-        '1' => .{ 0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110 },
-        '2' => .{ 0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111 },
-        '3' => .{ 0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110 },
-        '4' => .{ 0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010 },
-        '5' => .{ 0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110 },
-        '6' => .{ 0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110 },
-        '7' => .{ 0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000 },
-        '8' => .{ 0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110 },
-        '9' => .{ 0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110 },
-        'A' => .{ 0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001 },
-        'J' => .{ 0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100 },
-        'Q' => .{ 0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101 },
-        'K' => .{ 0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001 },
-        else => .{ 0b11111, 0b00001, 0b00010, 0b00100, 0b00100, 0b00000, 0b00100 },
-    };
-}
-
-fn drawRectStroke(x: usize, y: usize, w: usize, h: usize, t: usize, color: Color) void {
-    fillRect(x, y, w, t, color);
-    fillRect(x, y + h - t, w, t, color);
-    fillRect(x, y, t, h, color);
-    fillRect(x + w - t, y, t, h, color);
-}
-
-fn drawHLine(x0: i32, x1: i32, y: i32, color: Color) void {
-    var x = x0;
-    while (x <= x1) : (x += 1) {
-        setPixelI32(x, y, color);
-    }
-}
-
-fn drawFilledCircle(cx: i32, cy: i32, radius: i32, color: Color) void {
-    const r2 = radius * radius;
-    var dy: i32 = -radius;
-    while (dy <= radius) : (dy += 1) {
-        var dx: i32 = -radius;
-        while (dx <= radius) : (dx += 1) {
-            if (dx * dx + dy * dy <= r2) {
-                setPixelI32(cx + dx, cy + dy, color);
-            }
-        }
-    }
-}
-
-fn fillRect(x0: usize, y0: usize, w: usize, h: usize, color: Color) void {
-    var y = y0;
-    while (y < y0 + h) : (y += 1) {
-        var x = x0;
-        while (x < x0 + w) : (x += 1) {
-            setPixel(x, y, color);
-        }
-    }
-}
-
-fn fillRectI32(x0: i32, y0: i32, w: i32, h: i32, color: Color) void {
-    var y = y0;
-    while (y < y0 + h) : (y += 1) {
-        var x = x0;
-        while (x < x0 + w) : (x += 1) {
-            setPixelI32(x, y, color);
-        }
-    }
-}
-
-fn setPixelI32(x: i32, y: i32, color: Color) void {
-    if (x < 0 or y < 0) return;
-    const ux: usize = @intCast(x);
-    const uy: usize = @intCast(y);
-    if (ux >= RENDER_W or uy >= RENDER_H) return;
-    setPixel(ux, uy, color);
-}
-
-fn setPixel(x: usize, y: usize, color: Color) void {
-    const idx = (y * RENDER_W + x) * 4;
-    pixel_buf[idx + 0] = color[0];
-    pixel_buf[idx + 1] = color[1];
-    pixel_buf[idx + 2] = color[2];
-    pixel_buf[idx + 3] = color[3];
-}
-
-fn absI32(v: i32) i32 {
-    return if (v < 0) -v else v;
-}
-
-fn pointInRect(x: i32, y: i32, rx: i32, ry: i32, rw: i32, rh: i32) bool {
-    return x >= rx and y >= ry and x < rx + rw and y < ry + rh;
-}
-
-test "discardable detection works for same suit lower rank" {
-    pile_lens = [_]u8{ 1, 1, 0, 0 };
-    piles[0][0] = 5; // 6 clubs
-    piles[1][0] = 0; // Ace clubs
+test "same-suit lower top card is discardable, with aces high" {
+    newGame(12, 0);
+    dealing = false;
+    piles = [_]Pile{.{}} ** 4;
+    piles[0].push(1); // Two of spades.
+    piles[1].push(12); // King of spades.
     try std.testing.expect(isDiscardable(0));
-    try std.testing.expect(!isDiscardable(1)); // ace is highest, never discarded by lower rank
+    try std.testing.expect(!isDiscardable(1));
+    piles[2].push(0); // Ace of spades.
+    try std.testing.expect(isDiscardable(1));
+    try std.testing.expect(!isDiscardable(2));
 }
 
-test "rank label for ten is two chars" {
-    var out: [2]u8 = undefined;
-    const n = rankLabel(10, &out);
-    try std.testing.expect(n == 2);
-    try std.testing.expect(out[0] == '1' and out[1] == '0');
+test "deal allows empty piles but waits for available discards" {
+    newGame(12, 0);
+    dealing = false;
+    piles = [_]Pile{.{}} ** 4;
+    for (0..4) |i| piles[i].push(@intCast(i * 13));
+    try std.testing.expect(canDeal());
+    _ = piles[0].pop();
+    try std.testing.expect(canDeal());
+    piles[0].push(1);
+    piles[1] = .{};
+    piles[1].push(12);
+    try std.testing.expect(!canDeal());
+}
+
+test "four-card deal advances one card at each wake" {
+    newGame(12, 0);
+    try std.testing.expectEqual(@as(u8, 1), deck_pos);
+    advanceDeal(74);
+    try std.testing.expectEqual(@as(u8, 1), deck_pos);
+    advanceDeal(75);
+    try std.testing.expectEqual(@as(u8, 2), deck_pos);
+    advanceDeal(150);
+    advanceDeal(225);
+    try std.testing.expectEqual(@as(u8, 4), deck_pos);
+    try std.testing.expect(!dealing);
+}
+
+test "four aces win and a blocked final row ends the game" {
+    newGame(12, 0);
+    dealing = false;
+    deck_pos = 52;
+    piles = [_]Pile{.{}} ** 4;
+    for (0..4) |i| piles[i].push(@intCast(i * 13));
+    updateGameState();
+    try std.testing.expectEqual(GameState.won, game_state);
+
+    piles[0].cards[0] = 1; // Two of spades, with no higher spade showing.
+    updateGameState();
+    try std.testing.expectEqual(GameState.stuck, game_state);
 }

@@ -22,7 +22,7 @@ function digest(exports, size) {
   return createHash("sha256").update(output(exports, size)).digest("hex");
 }
 
-function assertContentABI(exports, hasEvents) {
+function assertContentABI(exports, hasEvents, outputType = "image/ktx2") {
   for (const legacy of ["tick", "render_width_px", "render_height_px", "output_rgba8_srgb_bytes"]) {
     assert.equal(exports[legacy], undefined);
   }
@@ -36,7 +36,7 @@ function assertContentABI(exports, hasEvents) {
   const type = new TextDecoder("utf-8", { fatal: true }).decode(
     new Uint8Array(exports.memory.buffer, exports.output_content_type_ptr(), exports.output_content_type_size()),
   );
-  assert.equal(type.split(";")[0].trim(), "image/ktx2");
+  assert.equal(type.split(";")[0].trim(), outputType);
 }
 
 function setGodRaysUniforms(exports, speed = 0.75) {
@@ -71,24 +71,32 @@ function setGodRaysUniforms(exports, speed = 0.75) {
   for (const [name, value] of Object.entries(values)) exports[`uniform_set_${name}`](value);
 }
 
-test("Aces Up advances deal animation without replacing published output", () => {
+test("Aces Up advances an SVG deal without replacing published output", () => {
   const exports = instantiate("aces-up");
-  assertContentABI(exports, true);
+  assertContentABI(exports, true, "image/svg+xml");
   assert.equal(exports.key_event.length, 2);
   assert.equal(exports.pointer_event.length, 3);
+  assert.equal(typeof exports.output_utf8_cap, "function");
+  assert.equal(exports.output_bytes_cap, undefined);
 
   const size = qipRenderSize(exports, 0);
-  assert.equal(size, 224 + 470 * 364 * 4);
+  assert.ok(size > 1000);
+  assert.match(new TextDecoder().decode(output(exports, size)), /^<svg /);
   const firstCard = digest(exports, size);
 
   exports.begin_update_at(75n);
   assert.equal(exports.finish_update(), 150n);
   assert.equal(digest(exports, size), firstCard);
 
+  const secondSize = qipRenderSize(exports, 0);
+  assert.notEqual(digest(exports, secondSize), firstCard);
   exports.begin_update_at(150n);
   assert.equal(exports.finish_update(), 225n);
-  assert.equal(qipRenderSize(exports, 0), size);
-  assert.notEqual(digest(exports, size), firstCard);
+  exports.begin_update_at(225n);
+  assert.equal(exports.finish_update(), 225n);
+  const fourCards = new TextDecoder().decode(output(exports, qipRenderSize(exports, 0)));
+  assert.match(fourCards, /FOUR PILES/);
+  assert.match(fourCards, /48 left/);
 });
 
 test("Aces Up traps on update lifecycle misuse", () => {
@@ -100,6 +108,45 @@ test("Aces Up traps on update lifecycle misuse", () => {
   assert.throws(() => qipRenderSize(exports, 0), WebAssembly.RuntimeError);
   exports.finish_update();
   assert.throws(() => exports.begin_update_at(1n), WebAssembly.RuntimeError);
+});
+
+test("Aces Up discards a lower top card and moves another into its empty pile", () => {
+  const exports = instantiate("aces-up");
+  const frame = () => new TextDecoder().decode(output(exports, qipRenderSize(exports, 0)));
+  frame();
+  for (const now of [75n, 150n, 225n]) {
+    exports.begin_update_at(now);
+    exports.finish_update();
+  }
+  const initial = frame();
+  assert.match(initial, /<g transform="translate\(598 218\)">/);
+
+  exports.begin_update_at(226n);
+  exports.pointer_event(1, 650, 290); // Discard the outlined 6 of spades.
+  assert.equal(exports.pointer_event(0, 650, 290), 1);
+  exports.finish_update();
+  const afterDiscard = frame();
+  assert.match(afterDiscard, />1 discarded<\/text>/);
+  assert.match(afterDiscard, /<g transform="translate\(824 418\)">/);
+  assert.doesNotMatch(afterDiscard, /<g transform="translate\(598 218\)">/);
+
+  exports.begin_update_at(227n);
+  exports.pointer_event(1, 300, 290); // Move the 10 of spades from pile two.
+  exports.pointer_event(1, 650, 290);
+  assert.equal(exports.pointer_event(0, 650, 290), 1);
+  exports.finish_update();
+  const afterMove = frame();
+  assert.match(afterMove, /<g transform="translate\(598 218\)">/);
+  assert.doesNotMatch(afterMove, /<g transform="translate\(246 218\)">/);
+  assert.match(afterMove, /Move a top card into the empty pile/);
+
+  exports.begin_update_at(228n);
+  assert.equal(exports.pointer_event(1, 875, 290), 1); // Deal onto all four piles, including the empty one.
+  exports.pointer_event(0, 875, 290);
+  assert.equal(exports.finish_update(), 303n);
+  const afterDeal = frame();
+  assert.match(afterDeal, /Dealing a row/);
+  assert.match(afterDeal, /47 left/);
 });
 
 test("God Rays is an event-free Timed KTX2 component", () => {

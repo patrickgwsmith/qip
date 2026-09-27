@@ -616,6 +616,7 @@ class QIPPlayElement extends HTMLElement {
 
   _installSVGPresentation() {
     this._inlineSVG = this.hasAttribute("svg-inline");
+    this._noTextSelection = this.hasAttribute("no-text-selection");
     // SVG coordinates drive both pointer mapping and the inline surface ratio.
     const svgWidth = Number(this.getAttribute("svg-width") || 800);
     const svgHeight = Number(this.getAttribute("svg-height") || 600);
@@ -629,7 +630,7 @@ class QIPPlayElement extends HTMLElement {
       surface.setAttribute("role", "img");
       surface.setAttribute("aria-label", label);
       surface.style.aspectRatio = `${svgWidth} / ${svgHeight}`;
-      surface.style.userSelect = "text";
+      surface.style.userSelect = this._noTextSelection ? "none" : "text";
     } else {
       surface.alt = label;
       surface.draggable = false;
@@ -665,6 +666,7 @@ class QIPPlayElement extends HTMLElement {
       root.style.display = "block";
       root.style.width = "100%";
       root.style.height = "100%";
+      if (this._noTextSelection) root.style.userSelect = "none";
       this._canvas.replaceChildren(root);
     } else {
       // Copy before the next component render can reuse its output buffer.
@@ -1147,11 +1149,11 @@ class QIPPlayElement extends HTMLElement {
       return;
     }
 
-    if (this._canvas.style.touchAction === "none" && (!this._inlineSVG || event.pointerType === "touch")) {
+    if (this._canvas.style.touchAction === "none" && (!this._inlineSVG || this._noTextSelection || event.pointerType === "touch")) {
       event.preventDefault();
     }
     if (event.type === "pointerdown") {
-      const selectingSVGText = this._inlineSVG && event.pointerType === "mouse" && event.target?.closest?.("text");
+      const selectingSVGText = this._inlineSVG && !this._noTextSelection && event.pointerType === "mouse" && event.target?.closest?.("text");
       if (!selectingSVGText && typeof this._canvas.setPointerCapture === "function") {
         this._canvas.setPointerCapture(event.pointerId);
       }

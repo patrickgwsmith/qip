@@ -198,3 +198,24 @@ test("inline SVG swaps only the child and keeps the focused pointer surface", ()
     URL.createObjectURL = oldCreate;
   }
 });
+
+test("no-text-selection lets inline SVG card labels start a captured drag", () => {
+  const element = new QIPPlayElement();
+  element._attrs.set("svg-inline", "");
+  element._attrs.set("no-text-selection", "");
+  element._exports = { pointer_event() { return 1; } };
+  element._memory = new WebAssembly.Memory({ initial: 1 });
+  element._resumeLoop = () => {};
+  element._installSVGPresentation();
+  assert.equal(element._canvas.style.userSelect, "none");
+
+  let prevented = 0;
+  element._dispatchPointer({
+    type: "pointerdown", pointerType: "mouse", pointerId: 9, buttons: 1,
+    target: { closest(selector) { return selector === "text" ? {} : null; } },
+    clientX: 110, clientY: 70, preventDefault() { prevented++; },
+  });
+  assert.equal(prevented, 1);
+  assert.deepEqual(element._canvas.captured, [9]);
+  assert.equal(element._pendingEvents[0].buttonMask, 1);
+});
