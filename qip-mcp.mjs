@@ -12,6 +12,9 @@ const PROTOCOL_VERSION = "2026-07-28";
 const CATALOG_HEADER = "path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,output_capacity_bytes";
 const MAX_REQUEST_BYTES = 1_048_576;
 const MAX_RECIPES = 512;
+const DEFAULT_MODULE_LIMIT = 25;
+const MAX_MODULE_LIMIT = 100;
+const QIP_DEV_ORIGIN = "https://qip.dev";
 const DEFAULT_CATALOG = new URL("./site/data/component-catalog.csv", import.meta.url);
 const DEFAULT_GENERATOR = new URL("./text/csv/content-recipe-to-browser-javascript.wasm", import.meta.url);
 
@@ -77,7 +80,7 @@ const FILE_EXTENSIONS = {
   "text/x-c": "c",
 };
 
-const PREFERENCES = new Set(["balanced", "quality", "smallest", "fastest"]);
+const PREFERENCES = new Set(["balanced", "shortest", "quality", "smallest", "fastest"]);
 const KTX2_RGBA8_SRGB = "ktx2-r8g8b8a8-srgb";
 const KTX2_BGRA8_SRGB = "ktx2-b8g8r8a8-srgb";
 const KTX2_RGBA32FLOAT_BT709_LINEAR = "ktx2-rgba32float-bt709-linear";
@@ -280,19 +283,21 @@ export function findRecipes(catalog, inputMime, outputMime) {
   if (inputMime === outputMime) return [[]];
   const recipes = [];
   const start = { mime: inputMime, encoding: null, profile: inputMime === "image/ktx2" ? KTX2_RGBA8_SRGB : null };
-  function visit(state, steps, visited) {
-    if (recipes.length >= MAX_RECIPES) return;
-    for (const component of catalog) {
+  const queue = [{ state: start, steps: [], visited: new Set([stateKey(start)]) }];
+  const components = catalog.slice().sort((left, right) => left.path.localeCompare(right.path));
+  for (let index = 0; index < queue.length && recipes.length < MAX_RECIPES; index += 1) {
+    const { state, steps, visited } = queue[index];
+    for (const component of components) {
       if (!accepts(component, state)) continue;
       const next = nextState(component);
       const nextKey = stateKey(next);
       if (visited.has(nextKey)) continue;
       const nextSteps = [...steps, component];
       if (next.mime === outputMime) recipes.push(nextSteps);
-      else visit(next, nextSteps, new Set([...visited, nextKey]));
+      else queue.push({ state: next, steps: nextSteps, visited: new Set([...visited, nextKey]) });
+      if (recipes.length >= MAX_RECIPES) break;
     }
   }
-  visit(start, [], new Set([stateKey(start)]));
   return recipes;
 }
 
@@ -315,15 +320,27 @@ function scalarPenalty(recipe) {
   return recipe.filter((component) => component.path.includes("rasterize") && !component.path.includes("-simd")).length;
 }
 
+function recipeMetrics(recipe) {
+  return {
+    steps: recipe.length,
+    lossy_steps: countLossy(recipe),
+    lossless_steps: countLossless(recipe),
+    intermediate_penalty: intermediatePenalty(recipe),
+    scalar_fallbacks: scalarPenalty(recipe),
+  };
+}
+
 function score(recipe, preference) {
-  const lossiness = countLossy(recipe);
-  const losslessness = countLossless(recipe);
-  const bridge = intermediatePenalty(recipe);
-  const scalar = scalarPenalty(recipe);
-  if (preference === "quality") return [lossiness, bridge, recipe.length, scalar];
-  if (preference === "smallest") return [losslessness, recipe.length, bridge, scalar];
-  if (preference === "fastest") return [recipe.length, scalar, bridge, lossiness];
-  return [lossiness, recipe.length, bridge, scalar];
+  const metrics = recipeMetrics(recipe);
+  if (preference === "shortest") return [metrics.steps, metrics.lossy_steps, metrics.intermediate_penalty, metrics.scalar_fallbacks];
+  if (preference === "quality") return [metrics.lossy_steps, metrics.intermediate_penalty, metrics.steps, metrics.scalar_fallbacks];
+  if (preference === "smallest") return [metrics.lossless_steps, metrics.steps, metrics.intermediate_penalty, metrics.scalar_fallbacks];
+  if (preference === "fastest") return [metrics.steps, metrics.scalar_fallbacks, metrics.intermediate_penalty, metrics.lossy_steps];
+  return [metrics.lossy_steps, metrics.steps, metrics.intermediate_penalty, metrics.scalar_fallbacks];
+}
+
+function rankingFor(recipe, preference, rank) {
+  return { rank, preference, score: score(recipe, preference), metrics: recipeMetrics(recipe) };
 }
 
 function compareNumbers(left, right) {
@@ -345,6 +362,46 @@ function commandFor(recipe, inputMime, outputMime) {
   const outputExtension = FILE_EXTENSIONS[outputMime] ?? "output";
   const paths = recipe.map((component) => component.path.replace(/^\//, "")).join(" \\\n  ");
   return `qip run -i input.${inputExtension} -o output.${outputExtension} -- \\\n  ${paths}`;
+}
+
+function moduleDescriptor(component) {
+  return {
+    path: component.path,
+    url: `${QIP_DEV_ORIGIN}${component.path}`,
+    input: {
+      encoding: component.inputEncoding,
+      mime: component.inputMime,
+      content_type: component.inputContentType,
+      capacity_bytes: component.inputCapacity,
+    },
+    output: {
+      encoding: component.outputEncoding,
+      mime: component.outputMime,
+      content_type: component.outputContentType,
+      capacity_bytes: component.outputCapacity,
+      role: outputRole(component.outputMime),
+    },
+  };
+}
+
+function moduleMatches(component, { inputMime, outputMime }) {
+  return (inputMime === undefined || component.inputMime === inputMime)
+    && (outputMime === undefined || component.outputMime === outputMime);
+}
+
+function findModules(catalog, filters) {
+  return catalog
+    .filter((component) => moduleMatches(component, filters))
+    .sort((left, right) => left.path.localeCompare(right.path));
+}
+
+function moduleFromArguments(catalog, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ToolError("tool arguments must be an object.");
+  const { path } = value;
+  if (typeof path !== "string") throw new ToolError("path must be a catalog component path.");
+  const component = catalog.find((candidate) => candidate.path === path);
+  if (!component) throw new ToolError("path must be a qip.dev catalog component path.");
+  return component;
 }
 
 function csvField(value) {
@@ -430,6 +487,42 @@ function toolDefinitions() {
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     {
+      name: "qip.dev.mime_types.list",
+      title: "List qip.dev MIME types",
+      description: "List input and output MIME types in qip.dev's public component catalog, including how many catalog modules accept or produce each type.",
+      inputSchema: { type: "object", additionalProperties: false },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
+      name: "qip.dev.modules.find",
+      title: "Find qip.dev Wasm modules",
+      description: "Find public qip.dev Wasm modules by input MIME type, output MIME type, or both. Results include download URLs and each module's declared content contract.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          input_mime: { type: "string", description: "Input MIME type to match." },
+          output_mime: { type: "string", description: "Output MIME type to match." },
+          limit: { type: "integer", minimum: 1, maximum: MAX_MODULE_LIMIT, default: DEFAULT_MODULE_LIMIT, description: "Maximum modules to return." },
+        },
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
+      name: "qip.dev.modules.get_browser_javascript",
+      title: "Get qip.dev module browser JavaScript",
+      description: "Generate browser JavaScript that fetches and runs one explicit qip.dev Wasm module using its catalog-declared content contract.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          path: { type: "string", description: "Catalog component path, such as /text/rgb-to-hex.wasm." },
+        },
+        required: ["path"],
+        additionalProperties: false,
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    {
       name: "qip.dev.recipes.search",
       title: "Search qip.dev component recipes",
       description: "Find up to five compatible qip.dev component recipes between two MIME types. Results are ranked for the requested tradeoff and keep incompatible KTX2 pixel profiles apart.",
@@ -438,7 +531,7 @@ function toolDefinitions() {
         properties: {
           from: { type: "string", description: "Input MIME type." },
           to: { type: "string", description: "Desired output MIME type." },
-          preference: { type: "string", enum: [...PREFERENCES], default: "balanced", description: "Ranking tradeoff." },
+          preference: { type: "string", enum: [...PREFERENCES], default: "balanced", description: "Ranking tradeoff. Use shortest for fewest modules, quality to avoid lossy conversions, smallest to prefer lossy encoders, and fastest to avoid scalar fallbacks." },
         },
         required: ["from", "to"],
         additionalProperties: false,
@@ -518,6 +611,16 @@ export async function createQIPDevServer({ catalogPath = DEFAULT_CATALOG, genera
   const knownMimes = new Set(catalog.flatMap((component) => [component.inputMime, component.outputMime]));
   const definitions = toolDefinitions();
 
+  function mimeTypeRows() {
+    return [...knownMimes].sort().map((mime) => ({
+      mime,
+      label: labelFor(mime),
+      role: outputRole(mime),
+      input_modules: catalog.filter((component) => component.inputMime === mime).length,
+      output_modules: catalog.filter((component) => component.outputMime === mime).length,
+    }));
+  }
+
   async function dispatch(request) {
     validateRequest(request);
     if (request.method === "server/discover") {
@@ -536,15 +639,37 @@ export async function createQIPDevServer({ catalogPath = DEFAULT_CATALOG, genera
     if (typeof name !== "string") throw new ProtocolError(-32602, "tools/call requires a tool name.");
     try {
       if (name === "qip.dev.content_types.list") {
-        const contentTypes = [...knownMimes].sort().map((mime) => ({ mime, label: labelFor(mime), role: outputRole(mime) }));
-        return complete({ content_types: contentTypes });
+        return complete({ content_types: mimeTypeRows() });
+      }
+      if (name === "qip.dev.mime_types.list") {
+        return complete({ mime_types: mimeTypeRows() });
+      }
+      if (name === "qip.dev.modules.find") {
+        const { input_mime: inputMime, output_mime: outputMime, limit = DEFAULT_MODULE_LIMIT } = objectArguments(args);
+        if (inputMime === undefined && outputMime === undefined) throw new ToolError("At least one of input_mime or output_mime is required.");
+        if (inputMime !== undefined && !knownMimes.has(inputMime)) throw new ToolError("input_mime must be a MIME type in the qip.dev catalog.");
+        if (outputMime !== undefined && !knownMimes.has(outputMime)) throw new ToolError("output_mime must be a MIME type in the qip.dev catalog.");
+        if (!Number.isInteger(limit) || limit < 1 || limit > MAX_MODULE_LIMIT) throw new ToolError(`limit must be an integer from 1 through ${MAX_MODULE_LIMIT}.`);
+        const matches = findModules(catalog, { inputMime, outputMime });
+        return complete({
+          input_mime: inputMime ?? null,
+          output_mime: outputMime ?? null,
+          count: matches.length,
+          modules: matches.slice(0, limit).map(moduleDescriptor),
+        });
+      }
+      if (name === "qip.dev.modules.get_browser_javascript") {
+        const component = moduleFromArguments(catalog, args);
+        const javascript = await browserJavaScriptFor([component], generatorPath);
+        return complete({ module: moduleDescriptor(component), javascript });
       }
       if (name === "qip.dev.recipes.search") {
         const { from, to, preference = "balanced" } = objectArguments(args);
         if (!knownMimes.has(from) || !knownMimes.has(to)) throw new ToolError("from and to must be MIME types in the qip.dev catalog.");
-        const recipes = findRankedRecipes(catalog, from, to, preference).slice(0, 5).map((recipe) => ({
+        const recipes = findRankedRecipes(catalog, from, to, preference).slice(0, 5).map((recipe, index) => ({
           from,
           to,
+          ranking: rankingFor(recipe, preference, index + 1),
           steps: recipe.map((component) => component.path),
           command: commandFor(recipe, from, to),
         }));
@@ -685,10 +810,14 @@ function parseArgs(argv) {
   return options;
 }
 
-export async function main(argv = process.argv.slice(2)) {
+function processGlobal() {
+  return typeof process === "undefined" ? undefined : process;
+}
+
+export async function main(argv = processGlobal()?.argv.slice(2) ?? []) {
   const options = parseArgs(argv);
   if (options.help) {
-    process.stdout.write(usage());
+    processGlobal()?.stdout.write(usage());
     return;
   }
   const server = await createQIPDevServer(options);
@@ -698,12 +827,13 @@ export async function main(argv = process.argv.slice(2)) {
     http.once("error", reject);
     http.listen(options.port, options.host, resolve);
   });
-  process.stderr.write(`qip-mcp: listening on http://${options.host}:${options.port}/mcp\n`);
+  processGlobal()?.stderr.write(`qip-mcp: listening on http://${options.host}:${options.port}/mcp\n`);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+const currentProcess = processGlobal();
+if (currentProcess && import.meta.url === pathToFileURL(currentProcess.argv[1] ?? "").href) {
   main().catch((error) => {
-    process.stderr.write(`qip-mcp: ${error.message ?? error}\n`);
-    process.exitCode = 1;
+    currentProcess.stderr.write(`qip-mcp: ${error.message ?? error}\n`);
+    currentProcess.exitCode = 1;
   });
 }

@@ -51,10 +51,69 @@ test("MCP discovery and tool listing use qip.dev names", async () => {
   const listing = await server.dispatch(request(2, "tools/list"));
   assert.deepEqual(listing.tools.map((tool) => tool.name), [
     "qip.dev.content_types.list",
+    "qip.dev.mime_types.list",
+    "qip.dev.modules.find",
+    "qip.dev.modules.get_browser_javascript",
     "qip.dev.recipes.search",
     "qip.dev.recipes.get_cli",
     "qip.dev.recipes.get_browser_javascript",
   ]);
+});
+
+test("MIME type listing includes catalog usage counts", async () => {
+  const server = await createQIPDevServer();
+  const result = await call(server, "qip.dev.mime_types.list");
+  const svg = result.structuredContent.mime_types.find((row) => row.mime === "image/svg+xml");
+  assert.equal(svg.label, "SVG image");
+  assert.equal(svg.role, "deliverable");
+  assert.equal(svg.input_modules > 0, true);
+  assert.equal(svg.output_modules > 0, true);
+});
+
+test("module finder returns direct qip.dev Wasm modules by MIME type", async () => {
+  const server = await createQIPDevServer();
+  const result = await call(server, "qip.dev.modules.find", {
+    input_mime: "image/svg+xml",
+    output_mime: "image/ktx2",
+    limit: 1,
+  });
+  assert.equal(result.structuredContent.input_mime, "image/svg+xml");
+  assert.equal(result.structuredContent.output_mime, "image/ktx2");
+  assert.equal(result.structuredContent.count > 0, true);
+  assert.equal(result.structuredContent.modules.length, 1);
+  const [module] = result.structuredContent.modules;
+  assert.match(module.path, /^\/image\/svg\+xml\/.+\.wasm$/);
+  assert.equal(module.url, `https://qip.dev${module.path}`);
+  assert.equal(module.input.mime, "image/svg+xml");
+  assert.equal(module.output.mime, "image/ktx2");
+  assert.equal(module.output.role, "working");
+});
+
+test("module finder requires a MIME filter", async () => {
+  const server = await createQIPDevServer();
+  const result = await call(server, "qip.dev.modules.find");
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /At least one/);
+});
+
+test("module JavaScript tool generates browser code for one Wasm module", async () => {
+  const server = await createQIPDevServer();
+  const result = await call(server, "qip.dev.modules.get_browser_javascript", {
+    path: "/text/text-to-svg-inter.wasm",
+  });
+  assert.equal(result.structuredContent.module.path, "/text/text-to-svg-inter.wasm");
+  assert.equal(result.structuredContent.module.url, "https://qip.dev/text/text-to-svg-inter.wasm");
+  assert.match(result.structuredContent.javascript, /text-to-svg-inter\.wasm/);
+  assert.match(result.structuredContent.javascript, /const components = await Promise\.all/);
+});
+
+test("module JavaScript tool rejects unknown paths as tool errors", async () => {
+  const server = await createQIPDevServer();
+  const result = await call(server, "qip.dev.modules.get_browser_javascript", {
+    path: "/text/not-a-real-component.wasm",
+  });
+  assert.equal(result.isError, true);
+  assert.match(result.content[0].text, /catalog component path/);
 });
 
 test("recipe tools return catalog-backed CLI and browser JavaScript", async () => {
@@ -66,6 +125,18 @@ test("recipe tools return catalog-backed CLI and browser JavaScript", async () =
   });
   const [recipe] = search.structuredContent.recipes;
   assert.equal(search.structuredContent.output_role, "deliverable");
+  assert.deepEqual(recipe.ranking, {
+    rank: 1,
+    preference: "quality",
+    score: [0, 0, 2, 0],
+    metrics: {
+      steps: 2,
+      lossy_steps: 0,
+      lossless_steps: 1,
+      intermediate_penalty: 0,
+      scalar_fallbacks: 0,
+    },
+  });
   assert.match(recipe.steps[0], /svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd\.wasm$/);
   assert.match(recipe.steps[1], /ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless\.wasm$/);
 
@@ -75,6 +146,20 @@ test("recipe tools return catalog-backed CLI and browser JavaScript", async () =
 
   const browser = await call(server, "qip.dev.recipes.get_browser_javascript", { recipe });
   assert.match(browser.structuredContent.javascript, /const components = await Promise\.all/);
+});
+
+test("recipe search can rank shortest paths first", async () => {
+  const server = await createQIPDevServer();
+  const search = await call(server, "qip.dev.recipes.search", {
+    from: "image/svg+xml",
+    to: "image/webp",
+    preference: "shortest",
+  });
+  const [recipe] = search.structuredContent.recipes;
+  assert.equal(recipe.ranking.preference, "shortest");
+  assert.equal(recipe.ranking.metrics.steps, recipe.steps.length);
+  assert.equal(recipe.steps.length, 2);
+  assert.deepEqual(recipe.ranking.score.slice(0, 2), [2, 0]);
 });
 
 test("recipe tools reject made-up recipe steps as tool errors", async () => {
