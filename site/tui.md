@@ -177,7 +177,7 @@ The same component works in a terminal via `qiptui` and in the browser via `<qip
       </div>
       <span class="tui-flow-arrow" aria-hidden="true">→</span>
       <div class="tui-flow-card">
-        Copy data to WebAssembly memory, calls <code>key_event()</code>
+        Pass text and navigation uniforms, or call <code>key_event()</code>
       </div>
       <span class="tui-flow-arrow" aria-hidden="true">→</span>
       <div class="tui-flow-card">
@@ -198,15 +198,13 @@ terminal.
 
 ### Emoji finder
 
-Focus the list and type a name such as `woman technologist`, an emoji such as
-`👩`, or a code point such as `1F469`. Each result shows its Unicode name and
-code points in separate columns.
-Emoji 18.0 entries appear after older entries. Use Up and Down to select a
-result; press Enter for its full details. Press Tab to show combinations that
-contain the selected emoji, then type a partner such as `laptop` or
-`medium skin tone`.
-Select a result and press Tab again to extend it further. Escape returns to
-the original search.
+Type a name such as `woman technologist`, an emoji such as `👩`, or a code
+point such as `1F469` in the input above the results. Use Up and Down to inspect
+another result. Its details appear below the list. Editing the query returns
+to the first result. The input limit is 1,024 UTF-8 bytes.
+
+Emoji 18.0 entries appear after older entries. Each result shows its emoji and
+Unicode name. Code points appear in the active result’s details below.
 
 <qip-tui aria-label="Emoji finder" height="26rem">
   <source src="/tui/emoji-finder.wasm" type="application/wasm" />
@@ -222,19 +220,21 @@ npx qiptui qip.dev tui/emoji-finder.wasm
 
 The finder contains 3,972 fully qualified emoji and emoji components from
 [Unicode Emoji 18.0](https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt).
-Combination results come from that list; the finder does not join arbitrary
-emoji. The glyph you see depends on your system's emoji font. Newer sequences
+The glyph you see depends on your system's emoji font. Newer sequences
 can appear as separate symbols or missing characters on current systems. The
 source data is distributed under the [Unicode License v3](https://www.unicode.org/license.txt).
 
+The original finder is available as [emoji-finder-old.wasm](/tui/emoji-finder-old.wasm).
+Run `npx qiptui qip.dev tui/emoji-finder-old.wasm` for its Tab combination mode
+and Enter/Escape details view. Its combinations come from the Unicode list;
+it does not join arbitrary emoji.
+
 ### Browser compatibility
 
-Focus the list and type part of a feature path, such as `backdrop-filter` or
-`Navigator.gpu`. Press Enter to compare Chrome, Firefox, Safari, and Edge.
-Up and Down select a browser; Page Up and Page Down scroll its support notes.
-Escape returns to the search. A `*` marks support with a note, flag, prefix,
-alternate name, or partial implementation. The detail pane also shows older
-support statements, including removed forms.
+Type part of a feature path, such as `backdrop-filter` or `Navigator.gpu`.
+Use Up and Down to select a feature. Chrome, Firefox, Safari, and Edge summaries
+appear below the list. Use Page Up and Page Down to read the longer support
+statements, including notes, flags, prefixes, and removed forms.
 
 <qip-tui aria-label="Browser compatibility finder" height="28rem">
   <source src="/tui/browser-compat-finder.wasm" type="application/wasm" />
@@ -258,9 +258,9 @@ before treating a version number as unconditional support.
 ### Can I Use finder
 
 Search Can I Use feature titles, slugs, or keywords, such as `WebP`, `css-grid`,
-or `masonry`. Press Enter to see the current status in Chrome, Firefox, Safari,
-and Edge. Use Up and Down to select a browser, then Page Up and Page Down to
-read its version history and support notes. Escape returns to the search.
+or `masonry`. Use Up and Down to select a feature. Chrome, Firefox, Safari,
+and Edge summaries appear below the list. Use Page Up and Page Down to read
+the version histories and support notes.
 
 <qip-tui aria-label="Can I Use finder" height="26rem">
   <source src="/tui/caniuse-finder.wasm" type="application/wasm" />
@@ -283,9 +283,9 @@ The snapshot does not update when browser releases change.
 
 ### Media types
 
-Focus the list and type `application/json`, `+xml`, or an RFC number such as
-`RFC 8259`. Enter opens the IANA label, references, and record date. Escape
-returns to the search. The list keeps IANA's obsolete and deprecated labels.
+Type `application/json`, `+xml`, or an RFC number such as `RFC 8259`.
+Use Up and Down to select a media type. Its IANA label, references, and record
+date appear below the list. The list keeps IANA's obsolete and deprecated labels.
 
 <qip-tui aria-label="IANA media type finder" height="26rem">
   <source src="/tui/iana-media-type-finder.wasm" type="application/wasm" />
@@ -305,11 +305,11 @@ does not map file extensions or prove that a file has the stated format.
 
 ### Service ports
 
-Focus the list and type a service such as `https`, a port such as `443`, or
+Type a service such as `https`, a port such as `443`, or
 both a port and protocol such as `53 udp`. A number matches that exact port
-or a registered range containing it. Enter shows the description, reference,
-assignee, dates, and assignment notes. Use Page Up and Page Down to scroll long
-notes; Escape returns to the search.
+or a registered range containing it. Use Up and Down to select a registration.
+Its description, reference, assignee, dates, and assignment notes appear below.
+Use Page Up and Page Down to scroll long notes.
 
 <qip-tui aria-label="IANA service port finder" height="26rem">
   <source src="/tui/iana-service-port-finder.wasm" type="application/wasm" />
@@ -330,10 +330,10 @@ service name. A registration does not identify the traffic on a live port.
 
 ### Top-level domains
 
-Focus the list and type a domain such as `.dev`, a type such as `country-code`,
+Type a domain such as `.dev`, a type such as `country-code`,
 or a manager such as `Charleston Road`. Search also accepts Unicode labels such
 as `中国`, while the list shows their ASCII (IDNA) form. Use Up and Down to select
-a row, Enter for details, and Escape to clear the filter.
+a row and read its details below. Edit the text to change the filter.
 
 <qip-tui aria-label="Top-level domain finder" height="26rem">
   <source src="/tui/tld-finder.wasm" type="application/wasm" />
@@ -354,8 +354,8 @@ domain is not necessarily open for public registration.
 
 ### Country finder
 
-Focus the list and type to filter it. For example, try `aud`, `+61`, or `australia`.
-Use Up and Down to select a row, Enter for details, and Escape to clear the filter.
+Type in the input to filter the list. For example, try `aud`, `+61`, or `australia`.
+Use Up and Down to select a row and read its details below. Edit the text to change the filter.
 
 <qip-tui aria-label="Country finder" height="26rem">
   <source src="/tui/country-finder.wasm" type="application/wasm" />
@@ -371,6 +371,10 @@ npx qiptui qip.dev tui/country-finder.wasm
 
 The list contains 249 ISO alpha-2 entries from a [pinned country-code data snapshot](https://github.com/datasets/country-codes/tree/6a595f1a6f10b3d00175fe67375da88f64f7f76b).
 Some calling prefixes include an area prefix, and some places list more than one currency.
+
+The six finders above use host-managed text input and navigation. Their
+original eventful versions remain available with `-old` before `.wasm`, for
+example [country-finder-old.wasm](/tui/country-finder-old.wasm).
 
 ### Time-zone converter
 
@@ -504,11 +508,13 @@ layout, use a full EPUB reading app.
 
 ## How they work
 
-The component keeps its screen state and renders a complete UTF-8 text frame.
-The browser element or `qiptui` host sends key events, supplies the screen size,
-and redraws the frame. The host handles terminal mode and key decoding when
-you run the component in a terminal. See the [TUI contract](/docs/tui-components)
-for the input, key, timing, and ANSI rules.
+Each component renders a complete UTF-8 text frame. The emoji finder is a
+Content component: its host owns the query and active index, supplies both on
+each render, and provides a text field. The other examples keep interaction
+state inside the component and receive key events through Time and Events.
+Both hosts supply the screen size and redraw after changes. The terminal host
+also handles terminal mode and key decoding. See the
+[TUI contract](/docs/tui-components) for input, navigation, timing, and ANSI rules.
 
 ## Why qiptui keeps input local
 

@@ -197,7 +197,7 @@ test("Node and Rust qipx use empty input for an unused terminal", { skip: proces
 
 test("Node and Rust qipx render the same TUI rows at column zero", { skip: process.platform === "win32" }, () => {
   const frames = implementations.map((implementation) => {
-    const output = runInTerminal(implementation, ["tui", "tui/emoji-finder.wasm"], {
+    const output = runInTerminal(implementation, ["tui", "tui/emoji-finder-old.wasm"], {
       mode: "tui", marker: "Type to filter",
     });
     assert.match(output, /\x1b\[\?1049l/, implementation.name);

@@ -1,14 +1,14 @@
 # TUI Components
 
-A TUI component renders retained state as UTF-8 text for a terminal host. The
-contract combines Content presentation, the
-[Time and Events](/docs/time-and-events) capability, a required keyboard event
-function, and an optional narrow ANSI SGR profile. `npx qiptui` runs this
-contract in a terminal.
+A TUI component produces complete UTF-8 text frames for a terminal or browser
+host. `npx qiptui` and `<qip-tui>` support two models: an eventful component
+that owns its interaction state, and a plain-text Content component whose host
+owns text editing and result navigation. Both use the same narrow ANSI SGR
+profile and terminal safety rules.
 
-The host owns terminal mode, screen redraws, timing, and key decoding. The
-component produces complete text frames and cannot issue general terminal
-commands. A frame may be plain text or use the supported SGR styles.
+The host owns terminal mode, screen redraws, and input decoding. For eventful
+components, it also owns the update clock. The component cannot issue general
+terminal commands. A frame may be plain text or use the supported SGR styles.
 
 In a browser, `<qip-tui>` presents the same frames in a focusable, resizable
 grid. It measures available width and height and supplies `uniform_set_columns`
@@ -29,9 +29,9 @@ exit. `qiptui` retains one instance of the component, calls its initial Content
 render, delivers key events through Time and Events updates, renders accepted
 changes, and honors later wake times returned by `finish_update`.
 
-## Contract Composition
+## Eventful components
 
-The TUI component implements Content with UTF-8 output and exports:
+An eventful TUI component implements Content with UTF-8 output and exports:
 
 ```text
 begin_update_at(now_ms: i64)
@@ -42,6 +42,110 @@ finish_update() -> i64
 It can also export uniforms such as `uniform_set_columns`,
 `uniform_set_lines`, or an authored option that enables ANSI SGR. The host
 validates every completed frame before writing it to the terminal.
+
+## Host-managed text input
+
+A plain-text Content component can run with a host-managed text field. It must:
+
+- Export `input_ptr`, `input_utf8_cap`, `render`, and `output_utf8_cap` as
+  defined by [Content](/docs/content-component).
+- Declare `text/plain` input through both input content-type exports.
+- Omit `begin_update_at`, `finish_update`, `key_event`, and `pointer_event`.
+- Produce UTF-8 output with no declared output type or with `text/plain`.
+
+These exports select text input mode in `qiptui` and `<qip-tui>`. The terminal
+host shows a line editor above the frame. The browser host shows an HTML
+`<input>`. Hosts accept one printable line, check its UTF-8 byte length against
+`input_utf8_cap`, and report an exceeded limit beside the field. The Content
+component can still accept other valid UTF-8 input in an ordinary Content host.
+
+The host keeps the complete input outside Wasm memory. Before every render,
+it writes that input at `input_ptr`, applies presentation uniforms, and calls
+`render(input_size)`. This sequence also runs after an arrow or resize. An
+empty text field calls `render(0)` and means empty input. There is no bootstrap
+update, event delivery, or wake schedule.
+
+The [emoji finder on the TUI examples page](/tui) uses this model:
+
+```sh
+npx qiptui qip.dev tui/emoji-finder.wasm
+```
+
+Type a name, emoji, or code point. Use Up and Down to inspect another result.
+The terminal editor also supports Left, Right, Home, End, Backspace, Delete,
+`Ctrl-A` and `Ctrl-E` to move to the ends, `Ctrl-U` and `Ctrl-K` to delete text
+before or after the cursor, and `Ctrl-W` to delete the preceding word. Cursor
+movement and deletion use Unicode grapheme clusters. Bracketed paste inserts
+one complete value; the host rejects pasted control characters and input that
+exceeds the byte limit. `Ctrl-C` exits.
+
+### Active result navigation
+
+A component that supports result navigation exports both:
+
+```text
+uniform_set_active_index(value: i32) -> i32
+active_count() -> i32
+```
+
+`active_index` is an unsigned, zero-based index in the current filtered result
+order. Its authored default is zero. It identifies the result to highlight,
+keep visible, and show details for. The component clamps the requested index
+to the available results during `render`; with no results, it shows no active
+item. This is a Content uniform and resets after every render.
+
+`active_count()` returns the unsigned number of navigable results from the last
+successful render. It is result metadata, not a static Content ABI getter. It
+must not change component behavior. Before a successful render, its value is
+unspecified. A host reads it after rendering to bound its stored index. The
+rendered frame and count must describe the same results.
+
+The host resets `active_index` to zero whenever the text changes. An ordinal
+index can refer to a different emoji after filtering, so retaining the ordinal
+would not preserve the previously active emoji. Up and Down change the index
+within `0..active_count - 1`; cursor movement and resize preserve it. Hosts
+reapply the index before each render. A component that exports neither
+navigation function still gets a text field, with no result arrow navigation.
+
+### Detail scrolling
+
+A component with long details can export all three functions:
+
+```text
+uniform_set_detail_offset(value: i32) -> i32
+detail_count() -> i32
+detail_page_size() -> i32
+```
+
+`detail_offset` is an unsigned, zero-based offset in wrapped detail lines. Its
+authored default is zero. It resets after each render. The component clamps it
+to `max(0, detail_count - detail_page_size)` and displays that range below the
+active result. Scrolling details does not change `active_count` or the result
+order.
+
+The two getters return unsigned counts from the last successful render.
+`detail_count` is the full number of wrapped detail lines for the active result.
+`detail_page_size` is the number of viewport rows reserved for details. It is
+zero if the viewport cannot show details. Both counts are zero with no results.
+Like `active_count`, these getters must not change component behavior.
+
+The host reads both counts after rendering and reapplies its stored offset
+before each render. Page Up and Page Down move by `detail_page_size` rows within
+the available range. Text edits, active result changes, and viewport resize
+reset the offset to zero. A component without these exports has no detail page
+navigation.
+
+The country, top-level domain, IANA media type, IANA service port, MDN browser
+compatibility, and Can I Use finders use this model. Each accepts up to 1,024
+UTF-8 input bytes. The two compatibility finders select one feature at a time
+and show Chrome, Firefox, Safari, and Edge summaries before the longer notes.
+Their original eventful versions are preserved as `tui/<name>-old.wasm`.
+
+The new emoji finder accepts up to 1,024 UTF-8 input bytes and shows the active
+emoji's details without a separate Enter or Escape action. The original finder
+is preserved as `tui/emoji-finder-old.wasm`, including its combination mode.
+`qip tui` and `qipx tui` currently run eventful components; use `qiptui` or
+`<qip-tui>` for host-managed text input, or `qip run` for a finite render.
 
 ## Input And Component Files
 

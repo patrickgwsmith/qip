@@ -348,26 +348,26 @@ image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-r
 
 tui/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 
-tui/country-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-tui/country-finder.wasm: tui/lib/country-data.zig
+tui/country-finder.wasm tui/country-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/country-finder.wasm tui/country-finder-old.wasm: tui/lib/country-data.zig
 
-tui/tld-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-tui/tld-finder.wasm: tui/lib/tld-data.zig
+tui/tld-finder.wasm tui/tld-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/tld-finder.wasm tui/tld-finder-old.wasm: tui/lib/tld-data.zig
 
-tui/emoji-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
-tui/emoji-finder.wasm: tui/lib/emoji-data.zig
+tui/emoji-finder.wasm tui/emoji-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/emoji-finder.wasm tui/emoji-finder-old.wasm: tui/lib/emoji-data.zig
 
-tui/browser-compat-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
-tui/browser-compat-finder.wasm: tui/lib/browser-compat-data.zig
+tui/browser-compat-finder.wasm tui/browser-compat-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/browser-compat-finder.wasm tui/browser-compat-finder-old.wasm: tui/lib/browser-compat-data.zig
 
-tui/caniuse-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
-tui/caniuse-finder.wasm: tui/lib/caniuse-data.zig
+tui/caniuse-finder.wasm tui/caniuse-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/caniuse-finder.wasm tui/caniuse-finder-old.wasm: tui/lib/caniuse-data.zig
 
-tui/iana-media-type-finder.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-tui/iana-media-type-finder.wasm: tui/lib/iana-media-type-data.zig
+tui/iana-media-type-finder.wasm tui/iana-media-type-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+tui/iana-media-type-finder.wasm tui/iana-media-type-finder-old.wasm: tui/lib/iana-media-type-data.zig
 
-tui/iana-service-port-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
-tui/iana-service-port-finder.wasm: tui/lib/iana-service-port-data.zig
+tui/iana-service-port-finder.wasm tui/iana-service-port-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/iana-service-port-finder.wasm tui/iana-service-port-finder-old.wasm: tui/lib/iana-service-port-data.zig
 
 tui/time-zone-converter.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 tui/time-zone-converter.wasm: tui/lib/time-zone-data.zig
@@ -1019,7 +1019,11 @@ qipx-rust:
 test-qipx-rust: qipx-rust
 	node --test test/qipx-rust.mjs
 
-test-qipx-parity: qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder.wasm
+.PHONY: test-tui-text-input
+test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/country-finder-old.wasm tui/tld-finder-old.wasm tui/iana-media-type-finder-old.wasm tui/iana-service-port-finder-old.wasm tui/browser-compat-finder-old.wasm tui/caniuse-finder-old.wasm tui/emoji-finder.wasm tui/emoji-finder-old.wasm tui/calendar-gregorian.wasm
+	node --test test/finder-content-tui.mjs test/*finder-old-tui.mjs test/emoji-finder-tui.mjs test/qiptui.mjs test/qip-tui.mjs
+
+test-qipx-parity: qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm
 	node --test test/qipx-parity.mjs
 
 test-wasm-core-1-spec: application/wasm/wasm-validate-core-1.0.wasm
@@ -1085,13 +1089,14 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/epub-reader-tui.mjs
 	node --test test/plist-viewer-tui.mjs
 	node --test test/calendar-gregorian-tui.mjs
-	node --test test/country-finder-tui.mjs
-	node --test test/tld-finder-tui.mjs
-	node --test test/emoji-finder-tui.mjs
-	node --test test/browser-compat-finder-tui.mjs
-	node --test test/caniuse-finder-tui.mjs
-	node --test test/iana-media-type-finder-tui.mjs
-	node --test test/iana-service-port-finder-tui.mjs
+	node --test test/finder-content-tui.mjs
+	node --test test/country-finder-old-tui.mjs
+	node --test test/tld-finder-old-tui.mjs
+	node --test test/emoji-finder-tui.mjs test/emoji-finder-old-tui.mjs
+	node --test test/browser-compat-finder-old-tui.mjs
+	node --test test/caniuse-finder-old-tui.mjs
+	node --test test/iana-media-type-finder-old-tui.mjs
+	node --test test/iana-service-port-finder-old-tui.mjs
 	node --test test/time-zone-converter-tui.mjs
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/time-series-polylines.mjs
@@ -1534,3 +1539,5 @@ dev:
 
 defluff:
 	find . -name '.DS_Store' -type f -delete
+
+tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm: tui/lib/finder-content.zig

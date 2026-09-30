@@ -467,7 +467,7 @@ test("Rust qipx tui starts each emoji finder row at column zero", { skip: proces
 pid, fd = pty.fork()
 if pid == 0:
     fcntl.ioctl(0, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 80, 0, 0))
-    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'tui/emoji-finder.wasm'])
+    os.execv(sys.argv[1], [sys.argv[1], 'tui', 'tui/emoji-finder-old.wasm'])
 data = b''
 deadline = time.monotonic() + 5
 sent_exit = False

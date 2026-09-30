@@ -4,7 +4,7 @@ import test from "node:test";
 
 import { renderSize, renderedOutputPointer } from "./lib/content-component-host.mjs";
 
-const wasm = await readFile("tui/caniuse-finder.wasm");
+const wasm = await readFile("tui/caniuse-finder-old.wasm");
 const decoder = new TextDecoder("utf-8", { fatal: true });
 
 function finder() {

@@ -12,6 +12,7 @@ import {
 import { linkifyHttpURLs } from "./_qip-tui-links.js";
 
 const decoder = new TextDecoder("utf-8", { fatal: true });
+const encoder = new TextEncoder();
 const htmlPrefix = '<!doctype html><meta charset="utf-8"><pre>';
 const htmlSuffix = "</pre>";
 let ansiRendererPromise;
@@ -45,6 +46,21 @@ class QIPTUIElement extends HTMLElement {
     this._generation = 0;
     this._sourceUniforms = [];
     this._postStages = [];
+    this._textMode = false;
+    this._input = null;
+    this._inputError = null;
+    this._inputBytes = new Uint8Array(0);
+    this._activeIndex = 0;
+    this._activeCount = 0;
+    this._detailOffset = 0;
+    this._detailCount = 0;
+    this._detailPageSize = 0;
+    this._onInput = (event) => {
+      if (!event.isComposing) {
+        try { this._editTextInput(); }
+        catch (error) { this._showError(error); }
+      }
+    };
     this._onKeyDown = (event) => this._handleKey(event, true);
     this._onKeyUp = (event) => this._handleKey(event, false);
   }
@@ -60,6 +76,8 @@ class QIPTUIElement extends HTMLElement {
     shell.style.minHeight = "8rem";
     shell.style.resize = "both";
     shell.style.overflow = "hidden";
+    shell.style.display = "flex";
+    shell.style.flexDirection = "column";
     shell.style.border = "1px solid color-mix(in srgb, currentColor 30%, transparent)";
     shell.style.borderRadius = "0.5rem";
     shell.style.background = "#111";
@@ -72,7 +90,8 @@ class QIPTUIElement extends HTMLElement {
     screen.tabIndex = this.hasAttribute("tabindex") ? this.tabIndex : 0;
     screen.style.boxSizing = "border-box";
     screen.style.width = "100%";
-    screen.style.height = "100%";
+    screen.style.flex = "1";
+    screen.style.minHeight = "0";
     screen.style.margin = "0";
     screen.style.padding = "1rem";
     screen.style.overflow = "auto";
@@ -102,6 +121,7 @@ class QIPTUIElement extends HTMLElement {
     this._resizeObserver = null;
     this._screen?.removeEventListener("keydown", this._onKeyDown);
     this._screen?.removeEventListener("keyup", this._onKeyUp);
+    this._removeTextInput();
     this._session = null;
     this._screen = null;
     this._shell = null;
@@ -109,6 +129,7 @@ class QIPTUIElement extends HTMLElement {
 
   get exports() { return this._session?.exports ?? null; }
   get screen() { return this._screen; }
+  get input() { return this._input; }
 
   async _loadSource() {
     const steps = sourceSteps(this);
@@ -160,6 +181,8 @@ class QIPTUIElement extends HTMLElement {
     const generation = ++this._generation;
     this._clearWake();
     this._session = null;
+    this._removeTextInput();
+    this._textMode = false;
     this._screen.textContent = "Loading…";
     const bytes = moduleBytes instanceof Uint8Array ? moduleBytes : new Uint8Array(moduleBytes);
     const input = inputBytes instanceof Uint8Array ? inputBytes : new Uint8Array(inputBytes);
@@ -170,7 +193,26 @@ class QIPTUIElement extends HTMLElement {
     if (generation !== this._generation) return;
     const exportsObj = instantiated.instance?.exports ?? instantiated.exports;
     if (!(exportsObj.memory instanceof WebAssembly.Memory)) throw new Error("TUI module must export memory");
-    if (typeof exportsObj.key_event !== "function") throw new Error("TUI module must export key_event");
+    const eventful = ["begin_update_at", "finish_update", "key_event", "pointer_event"].some((name) => exportsObj[name] !== undefined);
+    if (eventful && typeof exportsObj.key_event !== "function") throw new Error("TUI module must export key_event");
+    if (!eventful) {
+      const declaredInputType = readDeclaredContentType(exportsObj, exportsObj.memory, "input_content_type_ptr", "input_content_type_size");
+      if (declaredInputType !== "text/plain" || typeof exportsObj.input_ptr !== "function" ||
+          typeof exportsObj.input_utf8_cap !== "function" || exportsObj.input_bytes_cap !== undefined) {
+        throw new Error("TUI text input requires UTF-8 text/plain input");
+      }
+      if (exportsObj.uniform_set_active_index !== undefined || exportsObj.active_count !== undefined) {
+        if (typeof exportsObj.uniform_set_active_index !== "function" || exportsObj.uniform_set_active_index.length !== 1 ||
+            typeof exportsObj.active_count !== "function" || exportsObj.active_count.length !== 0) {
+          throw new Error("TUI navigation requires uniform_set_active_index and active_count");
+        }
+      }
+    }
+    if (!eventful && ["uniform_set_detail_offset", "detail_count", "detail_page_size"].some((name) => exportsObj[name] !== undefined)) {
+      for (const [name, arity] of [["uniform_set_detail_offset", 1], ["detail_count", 0], ["detail_page_size", 0]]) {
+        if (typeof exportsObj[name] !== "function" || exportsObj[name].length !== arity) throw new Error("TUI detail scrolling requires offset, count, and page size exports");
+      }
+    }
     const contentType = readDeclaredContentType(
       exportsObj, exportsObj.memory, "output_content_type_ptr", "output_content_type_size",
     );
@@ -194,24 +236,102 @@ class QIPTUIElement extends HTMLElement {
       );
       if (declaredInputType !== inputType) throw new Error("TUI input source type does not match the component input type");
     }
-    const session = new QIPInteractiveSession(exportsObj, exportsObj.memory);
+    const session = eventful ? new QIPInteractiveSession(exportsObj, exportsObj.memory) :
+      { exports: exportsObj, memory: exportsObj.memory };
     if (input.length > 0) {
       const pointer = readI32Export(exportsObj, "input_ptr");
-      const capacity = readI32Export(exportsObj, "input_bytes_cap");
+      const capacity = readI32Export(exportsObj, typeof exportsObj.input_utf8_cap === "function" ? "input_utf8_cap" : "input_bytes_cap");
       if (input.length > capacity || pointer + capacity > session.memory.buffer.byteLength) {
         throw new Error("TUI input exceeds the declared input buffer");
       }
       new Uint8Array(session.memory.buffer, pointer, input.length).set(input);
     }
     this._session = session;
+    this._textMode = !eventful;
     this._postStages = postStages;
     this._renderer = renderer;
     this._timeOrigin = performance.now();
+    if (this._textMode) this._createTextInput(input);
     this._measureGrid();
     this.render(input.length);
-    session.update(1, [], () => this._applyUniforms());
-    this._scheduleWake();
+    if (eventful) {
+      session.update(1, [], () => this._applyUniforms());
+      this._scheduleWake();
+    }
     this.dispatchEvent(new Event("qip-ready"));
+  }
+
+  _createTextInput(bytes) {
+    const value = decoder.decode(bytes);
+    const capacity = readI32Export(this.exports, "input_utf8_cap");
+    if (bytes.length > capacity) throw new Error("TUI input exceeds the declared input buffer");
+    if (/[\u0000-\u001f\u007f-\u009f]/u.test(value)) throw new Error("TUI text input must be one printable line");
+    const field = document.createElement("input");
+    field.type = "text";
+    field.value = value;
+    field.placeholder = "Type to search";
+    field.setAttribute("aria-label", (this.getAttribute("aria-label") || "Component") + " input");
+    field.style.margin = "0.75rem 1rem 0";
+    field.style.padding = "0.5rem";
+    field.style.font = this._screen.style.font;
+    field.style.color = "inherit";
+    field.style.background = "#222";
+    field.style.border = "1px solid #888";
+    field.style.borderRadius = "0.25rem";
+    const error = document.createElement("span");
+    error.hidden = true;
+    error.setAttribute("role", "status");
+    error.style.margin = "0.25rem 1rem 0";
+    this._shell.prepend(field, error);
+    this._input = field;
+    this._inputError = error;
+    this._inputBytes = bytes.slice();
+    const configured = this._sourceUniforms.find((uniform) => uniform.key === "active_index");
+    this._activeIndex = configured ? Number(configured.value) : 0;
+    if (!Number.isInteger(this._activeIndex) || this._activeIndex < 0 || this._activeIndex > 0xffff_ffff) {
+      throw new Error("active_index must be a u32");
+    }
+    this._activeCount = 0;
+    const configuredOffset = this._sourceUniforms.find((uniform) => uniform.key === "detail_offset");
+    this._detailOffset = configuredOffset ? Number(configuredOffset.value) : 0;
+    if (!Number.isInteger(this._detailOffset) || this._detailOffset < 0 || this._detailOffset > 0xffff_ffff) {
+      throw new Error("detail_offset must be a u32");
+    }
+    this._detailCount = 0;
+    this._detailPageSize = 0;
+    field.addEventListener("input", this._onInput);
+    field.addEventListener("compositionend", this._onInput);
+    field.addEventListener("keydown", this._onKeyDown);
+    field.addEventListener("keyup", this._onKeyUp);
+  }
+
+  _removeTextInput() {
+    this._input?.removeEventListener("input", this._onInput);
+    this._input?.removeEventListener("compositionend", this._onInput);
+    this._input?.removeEventListener("keydown", this._onKeyDown);
+    this._input?.removeEventListener("keyup", this._onKeyUp);
+    this._input?.remove();
+    this._inputError?.remove();
+    this._input = null;
+    this._inputError = null;
+  }
+
+  _editTextInput() {
+    if (!this._textMode || !this._session) return;
+    const bytes = encoder.encode(this._input.value);
+    const capacity = readI32Export(this.exports, "input_utf8_cap");
+    if (bytes.length > capacity || /[\u0000-\u001f\u007f-\u009f]/u.test(this._input.value)) {
+      this._input.setAttribute("aria-invalid", "true");
+      this._inputError.textContent = bytes.length > capacity ? `Input limit: ${capacity} UTF-8 bytes` : "Use one printable line";
+      this._inputError.hidden = false;
+      return;
+    }
+    this._input.removeAttribute("aria-invalid");
+    this._inputError.hidden = true;
+    this._activeIndex = 0;
+    this._detailOffset = 0;
+    this._inputBytes = bytes;
+    this.render();
   }
 
   _measureGrid() {
@@ -239,7 +359,10 @@ class QIPTUIElement extends HTMLElement {
   }
 
   _measureAndRender() {
-    if (this._measureGrid() && this._session) this.render(0);
+    if (this._measureGrid() && this._session) {
+      this._detailOffset = 0;
+      this.render(0);
+    }
   }
 
   _applyGrid() {
@@ -257,11 +380,29 @@ class QIPTUIElement extends HTMLElement {
 
   render(inputSize = 0) {
     if (!this._session) return;
+    if (this._textMode) {
+      const pointer = readI32Export(this.exports, "input_ptr");
+      const capacity = readI32Export(this.exports, "input_utf8_cap");
+      if (this._inputBytes.length > capacity) throw new Error("TUI input exceeds the declared input buffer");
+      readSlice(this._session.memory, pointer, capacity, "TUI input").set(this._inputBytes);
+      inputSize = this._inputBytes.length;
+    }
     this._applyUniforms();
     const { exports: exportsObj, memory } = this._session;
+    if (this._textMode && typeof exportsObj.uniform_set_active_index === "function") exportsObj.uniform_set_active_index(this._activeIndex);
+    if (this._textMode && typeof exportsObj.uniform_set_detail_offset === "function") exportsObj.uniform_set_detail_offset(this._detailOffset);
     const capacity = readI32Export(exportsObj, "output_utf8_cap");
     const result = decodeRenderResult(exportsObj.render(inputSize), capacity, memory, "TUI");
     if (result.failed) throw new Error("rejected input at " + result.detail);
+    if (this._textMode && typeof exportsObj.active_count === "function") {
+      this._activeCount = readI32Export(exportsObj, "active_count");
+      this._activeIndex = Math.min(this._activeIndex, Math.max(0, this._activeCount - 1));
+    }
+    if (this._textMode && typeof exportsObj.detail_count === "function") {
+      this._detailCount = readI32Export(exportsObj, "detail_count");
+      this._detailPageSize = readI32Export(exportsObj, "detail_page_size");
+      this._detailOffset = Math.min(this._detailOffset, Math.max(0, this._detailCount - this._detailPageSize));
+    }
     let output = readSlice(memory, result.pointer, result.size, "TUI output");
     for (const stage of this._postStages) {
       const candidates = stage.selectedCandidate ? [stage.selectedCandidate] : stage.candidates;
@@ -295,6 +436,25 @@ class QIPTUIElement extends HTMLElement {
 
   sendKey(keysym, flags = 1, updateUniforms = null) {
     if (!this._session) return false;
+    if (this._textMode) {
+      if ((flags & 1) === 0 || (flags & (8 | 16 | 32)) !== 0) return false;
+      if (keysym === 0xff55 || keysym === 0xff56) {
+        if (!this._detailPageSize) return false;
+        const offset = Math.max(0, Math.min(this._detailOffset + (keysym === 0xff55 ? -1 : 1) * this._detailPageSize,
+          this._detailCount - this._detailPageSize));
+        if (offset === this._detailOffset) return false;
+        this._detailOffset = offset;
+        this.render();
+        return true;
+      }
+      if (keysym !== 0xff52 && keysym !== 0xff54) return false;
+      const index = Math.max(0, Math.min(this._activeIndex + (keysym === 0xff52 ? -1 : 1), this._activeCount - 1));
+      if (index === this._activeIndex) return false;
+      this._activeIndex = index;
+      this._detailOffset = 0;
+      this.render();
+      return true;
+    }
     const time = Math.max(1, Math.floor(performance.now() - this._timeOrigin));
     const result = this._session.update(time, [{ type: "key", keysym, flags }], () => {
       this._applyUniforms();
@@ -307,6 +467,8 @@ class QIPTUIElement extends HTMLElement {
 
   _handleKey(event, down) {
     if (this.hasAttribute("manual-keys")) return;
+    if (this._textMode && (event.isComposing || event.keyCode === 229)) return;
+    if (this._textMode && event.target === this._input && !["ArrowUp", "ArrowDown", "PageUp", "PageDown"].includes(event.key)) return;
     if (event.target?.closest?.("a[href]")) {
       if (down && event.key === "Escape") {
         event.preventDefault();
@@ -325,6 +487,9 @@ class QIPTUIElement extends HTMLElement {
     if (event.metaKey || event.ctrlKey) return;
     const keysym = mapKeyboardEventToKeysym(event);
     if (keysym === null) return;
+    if (this._textMode && ![0xff52, 0xff54, 0xff55, 0xff56].includes(keysym)) return;
+    if (this._textMode && (keysym === 0xff55 || keysym === 0xff56) &&
+        typeof this.exports?.uniform_set_detail_offset !== "function") return;
     event.preventDefault();
     try { this.sendKey(keysym, keyFlags(event, down)); }
     catch (error) { this._showError(error); }

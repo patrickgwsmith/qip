@@ -12,7 +12,7 @@ an application calls them.
 | [Content](/docs/content-component) | Text, binary data, documents, validators, generators, and finite renderers | Write one input, call `render`, and read one output | Mostly stable |
 | [Time and Events](/docs/time-and-events) | Retained state, animation, input, and scheduled work | Call update functions as time passes or events arrive, then render the new state | Implemented; evolving |
 | [GUI](/docs/gui-components) | Graphical applications, games, simulations, and animation | Render KTX2 frames and display them in a graphical host | Implemented; evolving |
-| [TUI](/docs/tui-components) | Keyboard-driven terminal interfaces | Render UTF-8 or ANSI frames and display them in a terminal | Implemented; evolving |
+| [TUI](/docs/tui-components) | Text search tools and keyboard-driven terminal interfaces | Render UTF-8 or ANSI frames with host-managed text input or Time and Events | Implemented; evolving |
 | [Compliance](/docs/comply) | Executable specifications for Content components | Run declared cases against a Content component | Evolving |
 
 Choose Content when each call completes one job. Content can still produce an
@@ -40,7 +40,8 @@ The output format determines how an application presents that state:
 
 ```text
 GUI   Content as KTX2       + optional Time and Events
-TUI   Content as UTF-8/ANSI + Time and Events + key_event
+TUI   Content as UTF-8/ANSI + host-managed text input
+      or Content as UTF-8/ANSI + Time and Events + key_event
 ```
 
 The linked GUI and TUI pages define their output formats and host rules.
@@ -57,9 +58,11 @@ path:
 2. `<qip-play>` runs Time and Events components and presents either a supported
    KTX2 profile or `image/svg+xml`. KTX2 components use the GUI contract; SVG
    components retain the generic Time and Events contract.
-3. `<qip-tui>` runs a TUI component in a browser text grid. `qip tui` and
-   `qipx tui` use the TUI contract in a native terminal. Later CLI stages are
-   finite Content transforms over each rendered frame.
+3. `<qip-tui>` and `qiptui` present TUI text frames. A plain-text Content
+   component without event exports gets a host-managed text field; an eventful
+   component receives keyboard events. `qip tui` and `qipx tui` currently run
+   eventful TUIs in a native terminal. Later CLI stages are finite Content
+   transforms over each rendered frame.
 4. `qip form` uses Form.
 5. `qip comply --with` uses Compliance and requires an exported `memory` and
    `comply() -> i32` entry point.

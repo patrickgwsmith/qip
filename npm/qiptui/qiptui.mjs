@@ -168,6 +168,7 @@ function decodeOne(buffer, final) {
         return { event: { keysym: XK_ESCAPE, flags: 0 }, consumed: 1 };
       }
       const body = decoder.decode(buffer.subarray(2, end));
+      if (body === "200" && buffer[end] === 0x7e) return { pasteStart: true, consumed: end + 1 };
       return { event: csiKey(body, String.fromCharCode(buffer[end])), consumed: end + 1 };
     }
     if (buffer[1] === 0x4f) {
@@ -195,13 +196,19 @@ function decodeOne(buffer, final) {
   if (decoded.incomplete && !final) return decoded;
   return {
     event: decoded.keysym === undefined ? null : { keysym: decoded.keysym, flags: printableFlags(decoded.keysym) },
+    text: decoded.keysym === undefined ? undefined : String.fromCodePoint(decoded.keysym),
     consumed: decoded.consumed ?? 1,
   };
 }
 
 export class TerminalKeyDecoder {
-  constructor(emit) {
+  constructor(emit, { text = null, paste = null, pasteCapacity = 0 } = {}) {
     this.emit = emit;
+    this.emitText = text;
+    this.emitPaste = paste;
+    this.pasteCapacity = pasteCapacity;
+    this.pasteChunks = null;
+    this.pasteSize = 0;
     this.pending = new Uint8Array();
   }
 
@@ -221,10 +228,28 @@ export class TerminalKeyDecoder {
 
   #drain(final) {
     while (this.pending.length > 0) {
+      if (this.pasteChunks !== null) {
+        const endMarker = Buffer.from("\x1b[201~");
+        const end = Buffer.from(this.pending).indexOf(endMarker);
+        const consumed = end >= 0 ? end : Math.max(0, this.pending.length - endMarker.length + 1);
+        const kept = Math.min(consumed, Math.max(0, this.pasteCapacity - this.pasteSize));
+        if (kept) this.pasteChunks.push(this.pending.slice(0, kept));
+        this.pasteSize += consumed;
+        this.pending = this.pending.subarray(consumed + (end >= 0 ? endMarker.length : 0));
+        if (end < 0) return;
+        const bytes = Buffer.concat(this.pasteChunks);
+        const exceeded = this.pasteSize > this.pasteCapacity;
+        this.pasteChunks = null;
+        this.pasteSize = 0;
+        this.emitPaste(bytes, exceeded);
+        continue;
+      }
       const decoded = decodeOne(this.pending, final);
       if (decoded.incomplete) return;
       this.pending = this.pending.subarray(decoded.consumed);
-      if (decoded.event) this.emit(decoded.event);
+      if (decoded.pasteStart && this.emitPaste) this.pasteChunks = [];
+      if (decoded.text !== undefined && this.emitText) this.emitText(decoded.text);
+      else if (decoded.event) this.emit(decoded.event);
     }
   }
 }
@@ -241,12 +266,177 @@ function unpackRender(stage, packed) {
   if (typeof packed !== "bigint") throw new Error(`${stage.label} render must return i64`);
   const bits = BigInt.asUintN(64, packed);
   const size = Number(bits & 0xffff_ffffn);
-  if ((bits & (1n << 63n)) !== 0n) throw new Error(`${stage.label} rejected its initial input`);
+  if ((bits & (1n << 63n)) !== 0n) throw new Error(`${stage.label} rejected input`);
   const pointer = Number((bits >> 32n) & 0x7fff_ffffn);
   if (size > stage.outputCapacity || pointer + size > stage.component.exports.memory.buffer.byteLength) {
     throw new Error(`${stage.label} returned output outside its declared capacity`);
   }
   return new Uint8Array(stage.component.exports.memory.buffer, pointer, size).slice();
+}
+
+// A plain-text Content transform opts into host editing by omitting events and
+// declaring UTF-8 text/plain input. Navigation is an optional pair of exports.
+export function textInputMode(exports, label = "TUI component") {
+  const eventNames = ["begin_update_at", "finish_update", "key_event", "pointer_event"];
+  if (eventNames.some((name) => exports[name] !== undefined)) {
+    requireFunction(exports, "begin_update_at", 1);
+    requireFunction(exports, "finish_update", 0);
+    requireFunction(exports, "key_event", 2);
+    return false;
+  }
+  requireFunction(exports, "input_ptr", 0);
+  requireFunction(exports, "input_utf8_cap", 0);
+  if (exports.input_bytes_cap !== undefined || declaredInputType(exports, label) !== "text/plain") {
+    throw new Error(`${label} text input requires UTF-8 text/plain input`);
+  }
+  if (exports.uniform_set_active_index !== undefined || exports.active_count !== undefined) {
+    requireFunction(exports, "uniform_set_active_index", 1);
+    requireFunction(exports, "active_count", 0);
+  }
+  if (["uniform_set_detail_offset", "detail_count", "detail_page_size"].some((name) => exports[name] !== undefined)) {
+    requireFunction(exports, "uniform_set_detail_offset", 1);
+    requireFunction(exports, "detail_count", 0);
+    requireFunction(exports, "detail_page_size", 0);
+  }
+  return true;
+}
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const textEncoder = new TextEncoder();
+
+export class TextInputState {
+  constructor(value, capacity) {
+    this.capacity = capacity;
+    this.value = decoder.decode(value);
+    if (value.byteLength > capacity) throw new Error("text input exceeds its UTF-8 byte capacity");
+    if (/[\u0000-\u001f\u007f-\u009f]/u.test(this.value)) throw new Error("text input must be one printable line");
+    this.cursor = this.value.length;
+    this.activeIndex = 0;
+    this.activeCount = 0;
+    this.detailOffset = 0;
+    this.detailCount = 0;
+    this.detailPageSize = 0;
+    this.error = "";
+  }
+
+  setActiveCount(count) {
+    if (!Number.isInteger(count) || count < 0 || count > 0xffff_ffff) throw new Error("active_count must return a u32 result count");
+    this.activeCount = count;
+    this.activeIndex = Math.min(this.activeIndex, Math.max(0, count - 1));
+  }
+
+  setDetailWindow(count, pageSize) {
+    for (const value of [count, pageSize]) {
+      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error("detail metadata must return u32 counts");
+    }
+    this.detailCount = count;
+    this.detailPageSize = pageSize;
+    this.detailOffset = Math.min(this.detailOffset, Math.max(0, count - pageSize));
+  }
+
+  insertText(text) {
+    if (/[\u0000-\u001f\u007f-\u009f]/u.test(text)) {
+      this.error = "Use one printable line";
+      return true;
+    }
+    const value = this.value.slice(0, this.cursor) + text + this.value.slice(this.cursor);
+    if (textEncoder.encode(value).byteLength > this.capacity) {
+      this.error = `Input limit: ${this.capacity} UTF-8 bytes`;
+      return true;
+    }
+    if (!text) return false;
+    this.value = value;
+    this.cursor += text.length;
+    this.activeIndex = 0;
+    this.detailOffset = 0;
+    this.error = "";
+    return true;
+  }
+
+  handleKey({ keysym, flags = 0 }) {
+    const control = (flags & FLAG_CONTROL) !== 0;
+    if ((flags & FLAG_ALT) !== 0) return false;
+    const segments = [...graphemes.segment(this.value)];
+    const previous = segments.findLast((part) => part.index < this.cursor)?.index ?? 0;
+    const next = segments.find((part) => part.index >= this.cursor);
+    const following = next ? next.index + next.segment.length : this.value.length;
+    if (keysym === XK_PAGE_UP || keysym === XK_PAGE_DOWN) {
+      if (!this.detailPageSize) return false;
+      const offset = Math.max(0, Math.min(this.detailOffset + (keysym === XK_PAGE_UP ? -1 : 1) * this.detailPageSize,
+        this.detailCount - this.detailPageSize));
+      if (offset === this.detailOffset) return false;
+      this.detailOffset = offset;
+      return true;
+    }
+    if (keysym === XK_UP || keysym === XK_DOWN) {
+      const index = Math.max(0, Math.min(this.activeIndex + (keysym === XK_UP ? -1 : 1), this.activeCount - 1));
+      if (index === this.activeIndex) return false;
+      this.activeIndex = index;
+      this.detailOffset = 0;
+      return true;
+    }
+    if (keysym === XK_LEFT || keysym === XK_RIGHT || keysym === XK_HOME || keysym === XK_END ||
+        (control && (keysym === 0x61 || keysym === 0x65))) {
+      this.cursor = keysym === XK_LEFT ? previous : keysym === XK_RIGHT ? following :
+        keysym === XK_HOME || keysym === 0x61 ? 0 : this.value.length;
+      return true;
+    }
+    let start = this.cursor;
+    let end = this.cursor;
+    let inserted = "";
+    if (keysym === XK_BACKSPACE && !control) start = previous;
+    else if (keysym === XK_DELETE && !control) end = following;
+    else if (control && keysym === 0x75) start = 0;
+    else if (control && keysym === 0x6b) end = this.value.length;
+    else if (control && keysym === 0x77) {
+      start = this.value.slice(0, this.cursor).replace(/\s*\S+\s*$/u, "").length;
+    } else if (!control && keysym >= 0x20 && keysym <= 0x10ffff &&
+               !(keysym >= 0x7f && keysym <= 0x9f) && !(keysym >= 0xd800 && keysym <= 0xdfff) &&
+               !(keysym >= 0xff00 && keysym <= 0xffff)) inserted = String.fromCodePoint(keysym);
+    else return false;
+    const value = this.value.slice(0, start) + inserted + this.value.slice(end);
+    if (value === this.value) return false;
+    if (textEncoder.encode(value).byteLength > this.capacity) {
+      this.error = `Input limit: ${this.capacity} UTF-8 bytes`;
+      return true;
+    }
+    this.value = value;
+    this.cursor = start + inserted.length;
+    this.activeIndex = 0;
+    this.detailOffset = 0;
+    this.error = "";
+    return true;
+  }
+}
+
+function cellWidth(value) {
+  if (/\p{Extended_Pictographic}|\p{Regional_Indicator}/u.test(value)) return 2;
+  const codepoint = value.codePointAt(0);
+  return codepoint >= 0x1100 && (codepoint <= 0x115f || codepoint >= 0x2e80 && codepoint <= 0xa4cf ||
+    codepoint >= 0xac00 && codepoint <= 0xd7a3 || codepoint >= 0xf900 && codepoint <= 0xfaff ||
+    codepoint >= 0xfe10 && codepoint <= 0xfe6f || codepoint >= 0xff01 && codepoint <= 0xff60 ||
+    codepoint >= 0x20000 && codepoint <= 0x3fffd) ? 2 : 1;
+}
+
+function textInputLine(state, columns) {
+  const prefix = "Find: ".slice(0, Math.max(0, columns - 1));
+  const available = Math.max(0, columns - prefix.length - 1);
+  const parts = [...graphemes.segment(state.value)];
+  const cursor = parts.filter((part) => part.index < state.cursor).length;
+  let first = cursor;
+  let before = 0;
+  while (first > 0 && before + cellWidth(parts[first - 1].segment) <= available) {
+    before += cellWidth(parts[--first].segment);
+  }
+  let visible = "";
+  let width = 0;
+  for (let index = first; index < parts.length; index++) {
+    const nextWidth = cellWidth(parts[index].segment);
+    if (width + nextWidth > available) break;
+    visible += parts[index].segment;
+    width += nextWidth;
+  }
+  return { text: prefix + visible, cursorColumn: prefix.length + before + 1 };
 }
 
 function writeInitialInput(stage, input) {
@@ -271,10 +461,26 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
     throw new Error("qiptui requires terminal stdin and stdout");
   }
   const exports = stage.component.exports;
-  const beginUpdate = requireFunction(exports, "begin_update_at", 1);
-  const finishUpdate = requireFunction(exports, "finish_update", 0);
-  const keyEvent = requireFunction(exports, "key_event", 2);
+  const textMode = textInputMode(exports, stage.label);
+  const beginUpdate = textMode ? null : requireFunction(exports, "begin_update_at", 1);
+  const finishUpdate = textMode ? null : requireFunction(exports, "finish_update", 0);
+  const keyEvent = textMode ? null : requireFunction(exports, "key_event", 2);
   const source = input instanceof Uint8Array ? input : new Uint8Array(input);
+  const editor = textMode ? new TextInputState(source, stage.inputCapacity) : null;
+  if (editor) {
+    const configuredIndex = stage.uniforms?.findLast((value) => value.startsWith("active_index="));
+    if (configuredIndex) {
+      const value = Number(configuredIndex.slice("active_index=".length));
+      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error("active_index must be a u32");
+      editor.activeIndex = value;
+    }
+    const configuredOffset = stage.uniforms?.findLast((value) => value.startsWith("detail_offset="));
+    if (configuredOffset) {
+      const value = Number(configuredOffset.slice("detail_offset=".length));
+      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error("detail_offset must be a u32");
+      editor.detailOffset = value;
+    }
+  }
   writeInitialInput(stage, source);
   const wasRaw = Boolean(stdin.isRaw);
   let terminalActive = false;
@@ -291,9 +497,11 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
     if (!wasRaw) stdin.setRawMode(true);
     stdin.resume();
     stdout.write(ENTER_SCREEN);
+    if (editor) stdout.write("\x1b[?2004h");
     terminalActive = true;
   };
   const leaveTerminal = () => {
+    if (terminalActive && editor) stdout.write("\x1b[?2004l");
     if (terminalActive) stdout.write(LEAVE_SCREEN);
     terminalActive = false;
     if (!wasRaw && stdin.isTTY) stdin.setRawMode(false);
@@ -303,13 +511,34 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
     if (rendering) return;
     rendering = true;
     try {
-      const dimensions = size();
+      const terminal = size();
+      const inputLines = editor ? (editor.error ? 2 : 1) : 0;
+      const dimensions = { ...terminal, lines: Math.max(1, terminal.lines - inputLines) };
+      const currentInput = editor ? textEncoder.encode(editor.value) : source;
+      if (editor) writeInitialInput(stage, currentInput);
       applyUniforms(stage, dimensions);
-      const packed = exports.render(initial ? (stage.inputless ? 0 : source.byteLength) : 0);
+      if (editor && typeof exports.uniform_set_active_index === "function") exports.uniform_set_active_index(editor.activeIndex);
+      if (editor && typeof exports.uniform_set_detail_offset === "function") exports.uniform_set_detail_offset(editor.detailOffset);
+      const packed = exports.render(editor ? currentInput.byteLength : initial ? (stage.inputless ? 0 : source.byteLength) : 0);
       const safe = validateTerminalFrame(unpackRender(stage, packed));
+      if (editor && typeof exports.active_count === "function") {
+        const count = exports.active_count();
+        if (!Number.isInteger(count)) throw new Error("active_count must return i32");
+        editor.setActiveCount(count >>> 0);
+      }
+      if (editor && typeof exports.detail_count === "function") {
+        editor.setDetailWindow(exports.detail_count() >>> 0, exports.detail_page_size() >>> 0);
+      }
       stdout.write(REDRAW_PREFIX);
-      stdout.write(safe);
+      let field;
+      if (editor) {
+        field = textInputLine(editor, terminal.columns);
+        stdout.write(field.text + "\r\n");
+        if (editor.error) stdout.write(editor.error.slice(0, terminal.columns) + "\r\n");
+      }
+      stdout.write(Buffer.from(decoder.decode(safe).replaceAll("\n", "\r\n")));
       stdout.write(REDRAW_SUFFIX);
+      if (editor) stdout.write(`\x1b[1;${field.cursorColumn}H\x1b[?25h`);
     } finally {
       rendering = false;
     }
@@ -378,12 +607,27 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
     if ((event.flags & FLAG_CONTROL) !== 0 && event.keysym === 0x7a) return suspend();
     if ((event.flags & FLAG_CONTROL) !== 0 && (event.keysym === 0x71 || event.keysym === 0x73)) return;
     try {
-      runUpdate([event]);
+      if (editor) {
+        if (editor.handleKey(event)) renderFrame(false);
+      } else runUpdate([event]);
     } catch (error) {
       fail(error);
     }
   };
-  const keyDecoder = new TerminalKeyDecoder(onKey);
+  const keyDecoder = new TerminalKeyDecoder(onKey, editor ? {
+    pasteCapacity: stage.inputCapacity,
+    text(value) {
+      try { if (editor.insertText(value)) renderFrame(false); }
+      catch (error) { fail(error); }
+    },
+    paste(bytes, exceeded) {
+      try {
+        if (exceeded) editor.error = `Input limit: ${stage.inputCapacity} UTF-8 bytes`;
+        else editor.insertText(decoder.decode(bytes));
+        renderFrame(false);
+      } catch (error) { fail(error); }
+    },
+  } : {});
   const armEscapeTimer = () => {
     if (escapeTimer !== null) clearTimeout(escapeTimer);
     escapeTimer = setTimeout(() => {
@@ -399,6 +643,7 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
     }
   };
   const onResize = () => {
+    if (editor) editor.detailOffset = 0;
     try {
       renderFrame(false);
     } catch (error) {
@@ -415,7 +660,7 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
   for (const [signal, handler] of signals) process.on(signal, handler);
   try {
     renderFrame(true);
-    runUpdate([]);
+    if (!editor) runUpdate([]);
     await done;
   } finally {
     if (wakeTimer !== null) clearTimeout(wakeTimer);
@@ -448,10 +693,12 @@ function usage() {
     `Quote arguments containing < in a shell.\n\n` +
     `Examples:\n` +
     `  qiptui qip.dev/tui/calendar-gregorian.wasm\n` +
+    `  qiptui qip.dev/tui/emoji-finder.wasm\n` +
     `  qiptui -F 'component=@text/wc.wasm' tui/qipdb.wasm\n` +
     `  qiptui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n\n` +
     `A leading host or a hosted path such as qip.dev/tui/calendar-gregorian.wasm uses HTTPS.\n` +
-    `Hosted components are downloaded into memory for each run.\n`;
+    `Hosted components are downloaded into memory for each run.\n` +
+    `Plain-text Content components get a text field. Up/Down changes active_index when supported.\n`;
 }
 
 export function parseArgs(args) {
@@ -619,9 +866,9 @@ function applyUniforms(stage, dimensions) {
   }
 }
 
-function declaredInputType(exports, label) {
-  const pointer = exports.input_content_type_ptr;
-  const size = exports.input_content_type_size;
+function declaredInputType(exports, label, direction = "input") {
+  const pointer = exports[`${direction}_content_type_ptr`];
+  const size = exports[`${direction}_content_type_size`];
   if (pointer === undefined && size === undefined) return "";
   if (typeof pointer !== "function" || typeof size !== "function" || pointer.length !== 0 || size.length !== 0) {
     throw new Error(`${label} has incomplete input content-type exports`);
@@ -855,7 +1102,13 @@ export function validateTUIBinary(data, label = "TUI component") {
   validateStrictProfile(data, label);
   const exports = new Map(WebAssembly.Module.exports(module).map((entry) => [entry.name, entry.kind]));
   if (exports.get("memory") !== "memory") throw new Error("TUI component must export memory");
-  for (const name of ["render", "begin_update_at", "finish_update", "key_event", "output_utf8_cap"]) {
+  const eventful = ["begin_update_at", "finish_update", "key_event", "pointer_event"].some((name) => exports.has(name));
+  const required = eventful ? ["begin_update_at", "finish_update", "key_event"] :
+    ["input_ptr", "input_utf8_cap", "input_content_type_ptr", "input_content_type_size"];
+  if (!eventful && (exports.has("active_count") || exports.has("uniform_set_active_index"))) {
+    required.push("active_count", "uniform_set_active_index");
+  }
+  for (const name of ["render", "output_utf8_cap", ...required]) {
     if (exports.get(name) !== "function") throw new Error(`TUI component must export ${name}`);
   }
   if (exports.has("output_bytes_cap")) throw new Error("TUI component must produce UTF-8");
@@ -872,9 +1125,7 @@ export async function main(args = process.argv.slice(2)) {
   const exports = new WebAssembly.Instance(module).exports;
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error("TUI component must export memory");
   requireFunction(exports, "render", 1);
-  requireFunction(exports, "begin_update_at", 1);
-  requireFunction(exports, "finish_update", 0);
-  requireFunction(exports, "key_event", 2);
+  textInputMode(exports, options.component);
   if (typeof exports.output_utf8_cap !== "function" || typeof exports.output_bytes_cap === "function") {
     throw new Error("TUI component must export output_utf8_cap only");
   }
@@ -896,6 +1147,8 @@ export async function main(args = process.argv.slice(2)) {
   if (options.forms.length && inputType && inputType !== FORM_CONTENT_TYPE) {
     throw new Error(`${options.component} expects ${inputType}, but -F supplies ${FORM_CONTENT_TYPE}`);
   }
+  const outputType = declaredInputType(exports, options.component, "output");
+  if (outputType && outputType !== "text/plain") throw new Error("TUI output must be text/plain");
   const stdinFields = options.forms.filter((value) => {
     const raw = field(value).raw;
     return raw === "@-" || raw === "<-";

@@ -1,6 +1,6 @@
 # qiptui
 
-`qiptui` runs one QIP TUI component in a terminal. The package has no runtime
+`qiptui` runs one QIP TUI or plain-text Content component in a terminal. The package has no runtime
 dependencies and ships one executable JavaScript file. It requires Node.js 22
 or newer.
 
@@ -46,6 +46,33 @@ per-function reasoning), and static Content ABI getters.
 Component memory is fixed at its declared initial size. Downloads have
 a 16 MiB limit, a 30-second timeout, and at most two redirects within the same
 HTTPS origin.
+
+## Text input and result navigation
+
+A Content component with UTF-8 `text/plain` input and no event or update exports
+gets a text field above its rendered output:
+
+```sh
+npx qiptui qip.dev/tui/emoji-finder.wasm
+```
+
+Type to search. Up and Down change `active_index` when the component exports
+both `uniform_set_active_index` and `active_count`. Each text edit resets the
+active index to zero. Arrow navigation and resize preserve the query. The host
+writes the complete query and reapplies uniforms before every render; empty
+input uses `render(0)`.
+
+Left, Right, Home, End, Backspace, and Delete edit the field. `Ctrl-A` and
+`Ctrl-E` move to the ends, `Ctrl-U` and `Ctrl-K` delete before or after the
+cursor, and `Ctrl-W` deletes the preceding word. Cursor movement and deletion
+use grapheme clusters, so a composed emoji is one editing unit. Bracketed paste
+inserts a complete value. Input must be one printable line within the
+component's UTF-8 byte capacity; the host reports an exceeded limit beside the
+field. `-i` can supply its initial value, and `-u active_index=...` can supply
+its initial active result. `Ctrl-C` exits.
+
+The original eventful emoji finder, including combination mode, is available
+as `tui/emoji-finder-old.wasm`.
 
 ## Publish
 

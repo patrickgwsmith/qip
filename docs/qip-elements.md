@@ -339,8 +339,17 @@ accept and emit exact content types. The final step must emit `text/plain`.
 The browser retains the first post-processing alternative that accepts the
 initial frame, as `<qip-play>` does.
 
-The component must export `key_event`, the Time and Events functions, and
-UTF-8 output. It can declare `text/plain` as its output content type. The host
+An eventful component exports `key_event`, the Time and Events functions, and
+UTF-8 output. A plain-text Content component can instead declare UTF-8
+`text/plain` input and omit all event and update exports. The host then shows
+an HTML text input above its output. Each edit supplies the complete input to
+`render`, including a zero-byte render when the field is empty. A component
+with `uniform_set_active_index` and `active_count` also gets Up/Down result
+navigation. Text edits reset the active index; resize preserves it. See
+[TUI components](/docs/tui-components#host-managed-text-input) for the complete
+text input and navigation rules.
+
+Both models can declare `text/plain` as their output content type. The host
 validates the terminal's narrow ANSI SGR
 profile through `ansi-sgr-to-html.wasm` before presenting the frame. It accepts
 at most 256 KiB of frame text. Its `load({moduleBytes, inputBytes})` method also
@@ -355,8 +364,8 @@ The host does not fetch URLs found in frames. It does not accept terminal OSC 8
 hyperlink sequences.
 
 Use `<qip-play>` for KTX2 or SVG frames, pointer coordinates, or image-specific
-canvas behavior. Use ordinary HTML when the interface needs native controls,
-text editing services, or semantic document navigation.
+canvas behavior. Use ordinary HTML when the interface needs controls beyond the supported text
+field or semantic document navigation.
 
 ## Pre-Rendering
 
