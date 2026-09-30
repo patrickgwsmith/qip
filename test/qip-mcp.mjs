@@ -191,6 +191,34 @@ test("HTTP validates the MCP header and JSON-RPC body agreement", async () => {
   assert.equal(bad.body.error.code, -32020);
 });
 
+test("HTTP serves MCP requests at root and /mcp without redirects", async () => {
+  const handler = createHTTPHandler(await createQIPDevServer());
+  const message = request(1, "tools/list");
+  const expected = await httpCall(handler, message);
+  for (const path of ["/", "/?client=test", "/mcp", "/mcp?client=test"]) {
+    const result = await httpCall(handler, message, {}, "POST", path);
+    assert.equal(result.status, 200);
+    assert.deepEqual(result.body, expected.body);
+  }
+  const result = await httpCall(handler, request(2, "tools/call", {
+    name: "qip.dev.modules.find", arguments: { input_mime: "image/svg+xml", output_mime: "image/ktx2" },
+  }), {}, "POST", "/");
+  assert.equal(result.status, 200);
+  assert.ok(result.body.result.structuredContent.modules.length > 0);
+});
+
+test("root MCP endpoint applies the same request checks as /mcp", async () => {
+  const handler = createHTTPHandler(await createQIPDevServer());
+  const message = request(1, "tools/list");
+  for (const path of ["/", "/mcp"]) {
+    assert.equal((await httpCall(handler, message, {}, "GET", path)).status, 405);
+    assert.equal((await httpCall(handler, message, { origin: "https://untrusted.example" }, "POST", path)).status, 403);
+    assert.equal((await httpCall(handler, message, { "content-type": "text/plain" }, "POST", path)).status, 415);
+    assert.equal((await httpCall(handler, message, { "mcp-method": "tools/call" }, "POST", path)).status, 400);
+  }
+  assert.equal((await httpCall(handler, message, {}, "POST", "/other")).status, 404);
+});
+
 test("HTTP serves a no-store health check outside the MCP endpoint", async () => {
   const server = await createQIPDevServer();
   const handler = createHTTPHandler(server);

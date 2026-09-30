@@ -712,12 +712,13 @@ async function readHTTPBody(request) {
 
 export function createHTTPHandler(server, { allowedOrigins = [] } = {}) {
   return async (request, responseWriter) => {
-    if (request.method === "GET" && request.url?.split("?", 1)[0] === "/healthz") {
+    const path = request.url?.split("?", 1)[0];
+    if (request.method === "GET" && path === "/healthz") {
       responseWriter.writeHead(200, { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" });
       responseWriter.end("ok\n");
       return;
     }
-    if (request.url?.split("?", 1)[0] !== "/mcp") {
+    if (path !== "/" && path !== "/mcp") {
       responseWriter.writeHead(404);
       responseWriter.end();
       return;
@@ -781,7 +782,7 @@ function usage() {
     + `A read-only MCP 2026-07-28 server for qip.dev recipes.\n\n`
     + `Options:\n`
     + `  --stdio                 Serve newline-delimited JSON-RPC on stdin/stdout.\n`
-    + `  --http                  Serve Streamable HTTP.\n`
+    + `  --http                  Serve Streamable HTTP at / and /mcp.\n`
     + `  --host <host>           HTTP host (default: 127.0.0.1).\n`
     + `  --port <port>           HTTP port (default: 8787).\n`
     + `  --origin <origin>       Allowed HTTP Origin; repeat as needed.\n`
@@ -830,7 +831,7 @@ export async function main(argv = processGlobal()?.argv.slice(2) ?? []) {
     http.once("error", reject);
     http.listen(options.port, options.host, resolve);
   });
-  processGlobal()?.stderr.write(`qip-mcp: listening on http://${options.host}:${options.port}/mcp\n`);
+  processGlobal()?.stderr.write(`qip-mcp: listening on http://${options.host}:${options.port}/ (also /mcp)\n`);
 }
 
 const currentProcess = processGlobal();
