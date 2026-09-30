@@ -777,10 +777,10 @@ export async function serveStdio(server, input = process.stdin, output = process
 }
 
 function usage() {
-  return `Usage: qip-mcp [--stdio | --http] [options]\n\n`
+  return `Usage: qip-mcp (--stdio | --http) [options]\n\n`
     + `A read-only MCP 2026-07-28 server for qip.dev recipes.\n\n`
     + `Options:\n`
-    + `  --stdio                 Serve newline-delimited JSON-RPC on stdin/stdout (default).\n`
+    + `  --stdio                 Serve newline-delimited JSON-RPC on stdin/stdout.\n`
     + `  --http                  Serve Streamable HTTP.\n`
     + `  --host <host>           HTTP host (default: 127.0.0.1).\n`
     + `  --port <port>           HTTP port (default: 8787).\n`
@@ -790,13 +790,15 @@ function usage() {
 }
 
 function parseArgs(argv) {
-  const options = { mode: "stdio", host: "127.0.0.1", port: 8787, allowedOrigins: [], catalogPath: DEFAULT_CATALOG, generatorPath: DEFAULT_GENERATOR };
+  const options = { mode: undefined, host: "127.0.0.1", port: 8787, allowedOrigins: [], catalogPath: DEFAULT_CATALOG, generatorPath: DEFAULT_GENERATOR };
   for (let index = 0; index < argv.length; index += 1) {
     const argument = argv[index];
     if (argument === "--help" || argument === "-h") return { help: true };
-    if (argument === "--stdio") options.mode = "stdio";
-    else if (argument === "--http") options.mode = "http";
-    else if (["--host", "--port", "--origin", "--catalog", "--generator"].includes(argument)) {
+    if (argument === "--stdio" || argument === "--http") {
+      const mode = argument.slice(2);
+      if (options.mode !== undefined && options.mode !== mode) throw new Error("Choose only one mode: --stdio or --http.");
+      options.mode = mode;
+    } else if (["--host", "--port", "--origin", "--catalog", "--generator"].includes(argument)) {
       const value = argv[++index];
       if (!value) throw new Error(`${argument} requires a value.`);
       if (argument === "--host") options.host = value;
@@ -806,6 +808,7 @@ function parseArgs(argv) {
       else options.generatorPath = value;
     } else throw new Error(`Unknown option: ${argument}.`);
   }
+  if (options.mode === undefined) throw new Error("Choose a mode: --stdio or --http.\n\n" + usage());
   if (!Number.isInteger(options.port) || options.port < 1 || options.port > 65535) throw new Error("--port must be an integer from 1 through 65535.");
   return options;
 }

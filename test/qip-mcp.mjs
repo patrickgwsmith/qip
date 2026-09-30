@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { Readable } from "node:stream";
 import test from "node:test";
 import { createHTTPHandler, createQIPDevServer } from "../qip-mcp.mjs";
@@ -195,4 +197,43 @@ test("HTTP serves a no-store health check outside the MCP endpoint", async () =>
   const health = await httpCall(handler, null, {}, "GET", "/healthz");
   assert.equal(health.status, 200);
   assert.equal(health.body, "ok\n");
+});
+
+function runCLI(args, input = "") {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL("../qip-mcp.mjs", import.meta.url)), ...args],
+    { input, encoding: "utf8", timeout: 5000 });
+  assert.equal(result.error, undefined);
+  return result;
+}
+
+test("CLI requires an explicit transport and shows usage without waiting for input", () => {
+  for (const args of [[], ["--port", "8787"]]) {
+    const result = runCLI(args);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Choose a mode: --stdio or --http/);
+    assert.match(result.stderr, /Usage: qip-mcp \(--stdio \| --http\)/);
+  }
+  const help = runCLI(["--help"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /Usage:/);
+  assert.doesNotMatch(help.stdout, /stdin\/stdout \(default\)/);
+});
+
+test("CLI rejects conflicting transport modes", () => {
+  for (const args of [["--stdio", "--http"], ["--http", "--stdio"]]) {
+    const result = runCLI(args);
+    assert.equal(result.status, 1);
+    assert.equal(result.stdout, "");
+    assert.match(result.stderr, /Choose only one mode/);
+  }
+});
+
+test("explicit stdio serves MCP messages and keeps stdout free of startup text", () => {
+  const result = runCLI(["--stdio"], JSON.stringify(request(1, "tools/list")) + "\n");
+  assert.equal(result.status, 0);
+  assert.equal(result.stderr, "");
+  const message = JSON.parse(result.stdout);
+  assert.equal(message.id, 1);
+  assert.ok(message.result.tools.some(tool => tool.name === "qip.dev.modules.find"));
 });
