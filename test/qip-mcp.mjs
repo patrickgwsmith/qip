@@ -62,14 +62,19 @@ test("MCP discovery and tool listing use qip.dev names", async () => {
   ]);
 });
 
-test("MIME type listing includes catalog usage counts", async () => {
+test("MIME type listings use en for English names and include catalog usage counts", async () => {
   const server = await createQIPDevServer();
-  const result = await call(server, "qip.dev.mime_types.list");
-  const svg = result.structuredContent.mime_types.find((row) => row.mime === "image/svg+xml");
-  assert.equal(svg.label, "SVG image");
-  assert.equal(svg.role, "deliverable");
-  assert.equal(svg.input_modules > 0, true);
-  assert.equal(svg.output_modules > 0, true);
+  for (const key of ["mime_types", "content_types"]) {
+    const result = await call(server, `qip.dev.${key}.list`);
+    const rows = result.structuredContent[key];
+    const svg = rows.find((row) => row.mime === "image/svg+xml");
+    assert.equal(svg.en, "SVG image");
+    assert.equal(rows.find((row) => row.mime === "text/markdown").en, "Markdown");
+    assert.ok(rows.every((row) => !Object.hasOwn(row, "label")));
+    assert.equal(svg.role, "deliverable");
+    assert.equal(svg.input_modules > 0, true);
+    assert.equal(svg.output_modules > 0, true);
+  }
 });
 
 test("module finder returns direct qip.dev Wasm modules by MIME type", async () => {

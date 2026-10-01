@@ -614,7 +614,7 @@ export async function createQIPDevServer({ catalogPath = DEFAULT_CATALOG, genera
   function mimeTypeRows() {
     return [...knownMimes].sort().map((mime) => ({
       mime,
-      label: labelFor(mime),
+      en: labelFor(mime),
       role: outputRole(mime),
       input_modules: catalog.filter((component) => component.inputMime === mime).length,
       output_modules: catalog.filter((component) => component.outputMime === mime).length,

@@ -509,8 +509,8 @@ async function registerWebMCPTools(knownMimes) {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: async ({ from, to, preference = "balanced" }, { signal }) => {
-        signal.throwIfAborted();
+      execute: async ({ from, to, preference = "balanced" }, { signal } = {}) => {
+        signal?.throwIfAborted();
         if (!knownMimes.has(from) || !knownMimes.has(to)) throw new RangeError("Unknown MIME type.");
         if (!PREFERENCES.has(preference)) throw new RangeError("Unsupported preference.");
         inputSelect.value = from;
@@ -544,8 +544,8 @@ async function registerWebMCPTools(knownMimes) {
         additionalProperties: false,
       },
       annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: async ({ from, to, preference = "balanced", recipe_index: recipeIndex, format }, { signal }) => {
-        signal.throwIfAborted();
+      execute: async ({ from, to, preference = "balanced", recipe_index: recipeIndex, format }, { signal } = {}) => {
+        signal?.throwIfAborted();
         if (!knownMimes.has(from) || !knownMimes.has(to)) throw new RangeError("Unknown MIME type.");
         if (format !== "cli" && format !== "javascript") throw new RangeError("Unsupported code format.");
         const recipe = chooseRecipe(from, to, preference, recipeIndex);

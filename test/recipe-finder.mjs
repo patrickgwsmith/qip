@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
+import { runInNewContext } from "node:vm";
 import { findRankedRecipes, mediaTypeOf, parseContentType, profileFromParameters } from "../site/_elements/lib/recipe-finder.js";
 
 function component(path, inputMime, outputMime, inputEncoding = "bytes", outputEncoding = "bytes") {
@@ -98,4 +100,40 @@ test("content type helpers read parameters case-sensitively by value", () => {
   assert.equal(profileFromParameters(parseContentType("image/ktx2").params), undefined);
   assert.equal(profileFromParameters(parseContentType("image/ktx2;vkFormat=BC7_SRGB_BLOCK").params), null);
   assert.equal(profileFromParameters(parseContentType("image/ktx2;vkFormat=r8g8b8a8_srgb").params), null);
+});
+
+test("recipe page WebMCP callbacks work when the browser omits execution context", async () => {
+  const page = await readFile(new URL("../site/recipes.md", import.meta.url), "utf8");
+  const start = page.indexOf("async function registerWebMCPTools(");
+  const end = page.indexOf("\ntry {", start);
+  assert.ok(start >= 0 && end > start);
+  const tools = new Map();
+  const pipeline = [component("/plain-to-html.wasm", "text/plain", "text/html", "utf8", "utf8")];
+  let renders = 0;
+  const context = {
+    document: { modelContext: { registerTool: tool => tools.set(tool.name, tool) } },
+    PREFERENCES: new Set(["balanced"]),
+    catalog: pipeline,
+    inputSelect: { value: "" }, outputSelect: { value: "" }, preferenceSelect: { value: "" },
+    updateOutputOptions() {}, render() { renders += 1; },
+    findRankedRecipes, outputRole: () => "deliverable",
+    recipeForAgent: recipe => ({ steps: recipe.map(step => step.path) }),
+    chooseRecipe: () => pipeline, commandFor: () => "qip run plain-to-html.wasm",
+  };
+  const register = runInNewContext(page.slice(start, end) + "\nregisterWebMCPTools", context);
+  await register(new Set(["text/plain", "text/html"]));
+  const search = tools.get("find_component_recipes");
+  const result = JSON.parse(await search.execute({ from: "text/plain", to: "text/html" }));
+  assert.deepEqual(result.recipes[0].steps, ["/plain-to-html.wasm"]);
+  assert.equal(context.inputSelect.value, "text/plain");
+  assert.equal(context.outputSelect.value, "text/html");
+  assert.equal(renders, 1);
+  const code = JSON.parse(await tools.get("get_recipe_code").execute({
+    from: "text/plain", to: "text/html", recipe_index: 0, format: "cli",
+  }));
+  assert.equal(code.code, "qip run plain-to-html.wasm");
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(search.execute({ from: "text/plain", to: "text/html" }, { signal: controller.signal }),
+    error => error.name === "AbortError");
 });
