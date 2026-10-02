@@ -29,3 +29,8 @@ echo "https://example.com" \
 ```
 
 This module expects `text/uri-list` and outputs `image/svg+xml`.
+
+Set `-u error_correction_level=<n>` to choose the QR error correction level:
+`0` = L, `1` = M (default), `2` = Q, `3` = H. Higher levels survive more damage
+but hold less data: a URL can be at most 2953, 2331, 1663, or 1273 bytes
+respectively. Values above `3` clamp to H.

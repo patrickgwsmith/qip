@@ -3,14 +3,21 @@ const std = @import("std");
 // QR encoding logic adapted from Project Nayuki's QR Code generator (MIT License):
 // https://www.nayuki.io/page/qr-code-generator-library
 
-const INPUT_CAP: usize = 256;
-const OUTPUT_CAP: usize = 512 * 1024;
+// Version 40 byte-mode capacity per error correction level (L, M, Q, H); the
+// rest of the input allows for comment lines and surrounding whitespace.
+const MAX_PAYLOAD_LEN = [4]usize{ 2953, 2331, 1663, 1273 };
+const INPUT_CAP: usize = 4096;
+// A version 40 checkerboard needs about 670 KB of dark-run rects.
+const OUTPUT_CAP: usize = 768 * 1024;
 const INPUT_CONTENT_TYPE = "text/uri-list";
 const OUTPUT_CONTENT_TYPE = "image/svg+xml";
 
 const MIN_VERSION: usize = 1;
 const MAX_VERSION: usize = 40;
-const ECL_MEDIUM: usize = 1;
+// Error correction level ordinal: 0 = L, 1 = M, 2 = Q, 3 = H. This is not the
+// two-bit format-info encoding; drawFormatBits maps it.
+const DEFAULT_ERROR_CORRECTION_LEVEL: u32 = 1;
+const MAX_ERROR_CORRECTION_LEVEL: u32 = 3;
 const BYTE_MODE_INDICATOR: u32 = 0x4;
 const BORDER_MODULES: usize = 4;
 const TARGET_SVG_PIXELS: usize = 360;
@@ -21,6 +28,8 @@ const MAX_QR_SIZE: usize = MAX_VERSION * 4 + 17; // 177
 const MAX_MODULES: usize = MAX_QR_SIZE * MAX_QR_SIZE;
 const MAX_RAW_CODEWORDS: usize = 29648 / 8; // version 40 max data modules / 8
 const MAX_RS_DEGREE: usize = 30;
+
+var error_correction_level: u32 = DEFAULT_ERROR_CORRECTION_LEVEL;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -57,6 +66,18 @@ export fn input_utf8_cap() u32 {
 
 export fn output_utf8_cap() u32 {
     return @as(u32, @intCast(OUTPUT_CAP));
+}
+
+// Rejections report the input offset of the first offending byte: the second
+// URI, a control byte, the first byte past the QR capacity, or input_size when
+// no URI is present.
+export fn failure_modes_per_input_offset() u32 {
+    return 1;
+}
+
+export fn uniform_set_error_correction_level(value: u32) u32 {
+    error_correction_level = @min(value, MAX_ERROR_CORRECTION_LEVEL);
+    return error_correction_level;
 }
 
 export fn input_content_type_ptr() u32 {
@@ -119,14 +140,23 @@ fn trimAsciiWhitespace(s: []const u8) []const u8 {
     return s[start..end];
 }
 
-fn hasControlBytes(s: []const u8) bool {
-    for (s) |b| {
-        if (b < 0x20 or b == 0x7F) return true;
+fn firstControlByte(s: []const u8) ?usize {
+    for (s, 0..) |b, i| {
+        if (b < 0x20 or b == 0x7F) return i;
     }
-    return false;
+    return null;
 }
 
-fn extractSingleUri(input: []const u8) ![]const u8 {
+fn offsetIn(input: []const u8, part: []const u8) usize {
+    return @intFromPtr(part.ptr) - @intFromPtr(input.ptr);
+}
+
+const Rejection = struct {
+    reason: enum { empty, multiple_uris, control_bytes, data_too_long },
+    offset: usize,
+};
+
+fn extractSingleUri(input: []const u8) union(enum) { uri: []const u8, rejected: Rejection } {
     var i: usize = 0;
     var found: ?[]const u8 = null;
 
@@ -144,11 +174,14 @@ fn extractSingleUri(input: []const u8) ![]const u8 {
         if (trimmed.len == 0) continue;
         if (trimmed[0] == '#') continue;
 
-        if (found != null) return error.MultipleUris;
+        if (found != null) {
+            return .{ .rejected = .{ .reason = .multiple_uris, .offset = offsetIn(input, trimmed) } };
+        }
         found = trimmed;
     }
 
-    return found orelse error.Empty;
+    if (found) |uri| return .{ .uri = uri };
+    return .{ .rejected = .{ .reason = .empty, .offset = input.len } };
 }
 
 fn moduleIndex(size: usize, x: usize, y: usize) usize {
@@ -197,12 +230,12 @@ fn getNumDataCodewords(version: usize, ecl: usize) usize {
             @as(usize, @intCast(NUM_ERROR_CORRECTION_BLOCKS[ecl][version]));
 }
 
-fn selectVersion(byte_len: usize) !usize {
+fn selectVersion(byte_len: usize, ecl: usize) !usize {
     var version: usize = MIN_VERSION;
     while (version <= MAX_VERSION) : (version += 1) {
         const char_count_bits: usize = if (version <= 9) 8 else 16;
         const used_bits = 4 + char_count_bits + byte_len * 8;
-        const cap_bits = getNumDataCodewords(version, ECL_MEDIUM) * 8;
+        const cap_bits = getNumDataCodewords(version, ecl) * 8;
         if (used_bits <= cap_bits) return version;
     }
     return error.DataTooLong;
@@ -425,9 +458,9 @@ fn getBit(x: usize, i: usize) bool {
     return ((x >> @as(std.math.Log2Int(usize), @intCast(i))) & 1) != 0;
 }
 
-fn drawFormatBits(mask: usize, size: usize, dst: []u8) void {
+fn drawFormatBits(ecl: usize, mask: usize, size: usize, dst: []u8) void {
     const ecl_format_table = [_]usize{ 1, 0, 3, 2 };
-    const data = (ecl_format_table[ECL_MEDIUM] << 3) | mask;
+    const data = (ecl_format_table[ecl] << 3) | mask;
 
     var rem = data;
     var i: usize = 0;
@@ -624,17 +657,20 @@ fn renderSvg(size: usize) !usize {
     const full_modules = size + BORDER_MODULES * 2;
     const dim_px = full_modules * scale;
 
+    // The viewBox is in module units so each rect uses small coordinates;
+    // width and height scale it to a whole number of pixels per module.
     var w = Writer{};
     try w.appendSlice("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ");
-    try w.appendUsize(dim_px);
+    try w.appendUsize(full_modules);
     try w.appendByte(' ');
-    try w.appendUsize(dim_px);
+    try w.appendUsize(full_modules);
     try w.appendSlice("\" width=\"");
     try w.appendUsize(dim_px);
     try w.appendSlice("\" height=\"");
     try w.appendUsize(dim_px);
-    try w.appendSlice("\" shape-rendering=\"crispEdges\">\n");
-    try w.appendSlice("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>\n");
+    try w.appendSlice("\" shape-rendering=\"crispEdges\">");
+    try w.appendSlice("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>");
+    try w.appendSlice("<g fill=\"#000\">");
 
     var y: usize = 0;
     while (y < size) : (y += 1) {
@@ -651,27 +687,25 @@ fn renderSvg(size: usize) !usize {
             const run_width = x - start;
 
             try w.appendSlice("<rect x=\"");
-            try w.appendUsize((start + BORDER_MODULES) * scale);
+            try w.appendUsize(start + BORDER_MODULES);
             try w.appendSlice("\" y=\"");
-            try w.appendUsize((y + BORDER_MODULES) * scale);
+            try w.appendUsize(y + BORDER_MODULES);
             try w.appendSlice("\" width=\"");
-            try w.appendUsize(run_width * scale);
-            try w.appendSlice("\" height=\"");
-            try w.appendUsize(scale);
-            try w.appendSlice("\" fill=\"#000\"/>\n");
+            try w.appendUsize(run_width);
+            try w.appendSlice("\" height=\"1\"/>");
         }
     }
 
-    try w.appendSlice("</svg>");
+    try w.appendSlice("</g></svg>");
     return w.idx;
 }
 
-fn encodeQrByteMode(payload: []const u8) !usize {
-    const version = try selectVersion(payload.len);
+fn encodeQrByteMode(payload: []const u8, ecl: usize) !usize {
+    const version = try selectVersion(payload.len, ecl);
     const size = version * 4 + 17;
 
     const raw_codewords = getNumRawDataModules(version) / 8;
-    const data_codewords = getNumDataCodewords(version, ECL_MEDIUM);
+    const data_codewords = getNumDataCodewords(version, ecl);
     const data_capacity_bits = data_codewords * 8;
 
     @memset(data_buf[0..raw_codewords], 0);
@@ -700,7 +734,7 @@ fn encodeQrByteMode(payload: []const u8) !usize {
         pad_byte = if (pad_byte == 0xEC) 0x11 else 0xEC;
     }
 
-    addEccAndInterleave(version, ECL_MEDIUM, data_codewords, raw_codewords);
+    addEccAndInterleave(version, ecl, data_codewords, raw_codewords);
 
     initializeFunctionModules(version, size, function_modules[0 .. size * size]);
     @memcpy(modules[0 .. size * size], function_modules[0 .. size * size]);
@@ -715,7 +749,7 @@ fn encodeQrByteMode(payload: []const u8) !usize {
     var mask: usize = 0;
     while (mask < 8) : (mask += 1) {
         applyMask(mask, size, function_tmp[0 .. size * size], modules[0 .. size * size]);
-        drawFormatBits(mask, size, modules[0 .. size * size]);
+        drawFormatBits(ecl, mask, size, modules[0 .. size * size]);
         const penalty = getPenaltyScore(size, modules[0 .. size * size]);
         if (penalty < best_penalty) {
             best_penalty = penalty;
@@ -725,40 +759,61 @@ fn encodeQrByteMode(payload: []const u8) !usize {
     }
 
     applyMask(best_mask, size, function_tmp[0 .. size * size], modules[0 .. size * size]);
-    drawFormatBits(best_mask, size, modules[0 .. size * size]);
+    drawFormatBits(ecl, best_mask, size, modules[0 .. size * size]);
 
     return size;
 }
 
-fn renderImpl(input_size_in: u32) u32 {
-    const input_size = @min(@as(usize, @intCast(input_size_in)), INPUT_CAP);
-    const input = input_buf[0..input_size];
+fn renderImpl(input_size_in: u32) union(enum) { output_len: usize, rejected: Rejection } {
+    if (input_size_in > INPUT_CAP) @trap();
+    const input = input_buf[0..@as(usize, @intCast(input_size_in))];
 
-    const uri = extractSingleUri(input) catch @trap();
-    if (uri.len == 0 or uri.len > INPUT_CAP) @trap();
-    if (hasControlBytes(uri)) @trap();
+    const uri = switch (extractSingleUri(input)) {
+        .uri => |uri| uri,
+        .rejected => |rejection| return .{ .rejected = rejection },
+    };
+    const uri_offset = offsetIn(input, uri);
+    if (firstControlByte(uri)) |i| {
+        return .{ .rejected = .{ .reason = .control_bytes, .offset = uri_offset + i } };
+    }
+    const ecl: usize = error_correction_level;
+    const max_payload_len = MAX_PAYLOAD_LEN[ecl];
+    if (uri.len > max_payload_len) {
+        return .{ .rejected = .{ .reason = .data_too_long, .offset = uri_offset + max_payload_len } };
+    }
 
-    const size = encodeQrByteMode(uri) catch @trap();
-    const out_len = renderSvg(size) catch @trap();
-    return @as(u32, @intCast(out_len));
+    // Both are invariants: every payload up to MAX_PAYLOAD_LEN[ecl] has a
+    // version, and the worst-case version 40 matrix fits OUTPUT_CAP.
+    const size = encodeQrByteMode(uri, ecl) catch @trap();
+    return .{ .output_len = renderSvg(size) catch @trap() };
 }
 
 export fn render(input_size_in: u32) packed struct(u64) {
-    output_size: u32,
+    output_size_or_failure: u32,
     output_ptr: u31,
     failed: u1,
 } {
+    defer resetUniforms();
+    const out_len = switch (renderImpl(input_size_in)) {
+        .output_len => |len| len,
+        .rejected => |rejection| return .{ .output_size_or_failure = @intCast(rejection.offset), .output_ptr = 0, .failed = 1 },
+    };
     return .{
-        .output_size = renderImpl(input_size_in),
+        .output_size_or_failure = @intCast(out_len),
         .output_ptr = @intCast(@intFromPtr(&output_buf)),
         .failed = 0,
     };
 }
 
+fn resetUniforms() void {
+    error_correction_level = DEFAULT_ERROR_CORRECTION_LEVEL;
+}
+
 test "selectVersion handles URL-size payloads" {
-    try std.testing.expectEqual(@as(usize, 1), try selectVersion(1));
-    try std.testing.expectEqual(@as(usize, 2), try selectVersion(20));
-    try std.testing.expect((try selectVersion(256)) <= 40);
+    const ecl: usize = DEFAULT_ERROR_CORRECTION_LEVEL;
+    try std.testing.expectEqual(@as(usize, 1), try selectVersion(1, ecl));
+    try std.testing.expectEqual(@as(usize, 2), try selectVersion(20, ecl));
+    try std.testing.expect((try selectVersion(256, ecl)) <= 40);
 }
 
 test "extractSingleUri ignores comments and enforces single value" {
@@ -766,13 +821,96 @@ test "extractSingleUri ignores comments and enforces single value" {
         \\# example
         \\https://example.com/a
     ;
-    try std.testing.expectEqualStrings("https://example.com/a", try extractSingleUri(one));
+    try std.testing.expectEqualStrings("https://example.com/a", extractSingleUri(one).uri);
 
     const two =
         \\https://a.example
         \\https://b.example
     ;
-    try std.testing.expectError(error.MultipleUris, extractSingleUri(two));
+    try std.testing.expectEqual(.multiple_uris, extractSingleUri(two).rejected.reason);
+}
+
+fn renderInput(input: []const u8) !usize {
+    @memcpy(input_buf[0..input.len], input);
+    return switch (renderImpl(@intCast(input.len))) {
+        .output_len => |len| len,
+        .rejected => error.TestUnexpectedRejection,
+    };
+}
+
+fn expectRejectedAt(expected: @FieldType(Rejection, "reason"), expected_offset: usize, input: []const u8) !void {
+    @memcpy(input_buf[0..input.len], input);
+    switch (renderImpl(@intCast(input.len))) {
+        .output_len => return error.TestExpectedRejection,
+        .rejected => |rejection| {
+            try std.testing.expectEqual(expected, rejection.reason);
+            try std.testing.expectEqual(expected_offset, rejection.offset);
+        },
+    }
+}
+
+test "rejects empty, multiple, and control-byte input at their offsets and then renders again" {
+    try expectRejectedAt(.empty, 0, "");
+    try expectRejectedAt(.empty, 17, "# only a comment\n");
+    try expectRejectedAt(.multiple_uris, 18, "https://a.example\nhttps://b.example\n");
+    try expectRejectedAt(.multiple_uris, 21, "https://a.example\r\n  https://b.example\n");
+    try expectRejectedAt(.control_bytes, 22, "# c\nhttps://a.example/\x01");
+
+    const len = try renderInput("https://example.com");
+    try std.testing.expect(std.mem.startsWith(u8, output_buf[0..len], "<svg "));
+    try std.testing.expect(std.mem.endsWith(u8, output_buf[0..len], "</svg>"));
+}
+
+test "renders the largest version 40 payload and rejects one byte more at each error correction level" {
+    defer resetUniforms();
+    var buf: [INPUT_CAP]u8 = undefined;
+    var ecl: u32 = 0;
+    while (ecl <= MAX_ERROR_CORRECTION_LEVEL) : (ecl += 1) {
+        const max_len = MAX_PAYLOAD_LEN[ecl];
+        _ = uniform_set_error_correction_level(ecl);
+        @memset(buf[0 .. max_len + 2], 'a');
+
+        _ = try renderInput(buf[0..max_len]);
+        try std.testing.expectEqual(@as(usize, 40), try selectVersion(max_len, ecl));
+        try std.testing.expectError(error.DataTooLong, selectVersion(max_len + 1, ecl));
+        try expectRejectedAt(.data_too_long, max_len, buf[0 .. max_len + 1]);
+
+        buf[0] = ' ';
+        try expectRejectedAt(.data_too_long, 1 + max_len, buf[0 .. max_len + 2]);
+    }
+}
+
+test "error_correction_level clamps to H, writes format bits, and resets after render" {
+    try std.testing.expectEqual(@as(u32, 3), uniform_set_error_correction_level(7));
+    try std.testing.expectEqual(@as(u32, 0), uniform_set_error_correction_level(0));
+
+    // Format bits for L and M differ, so the same URL renders differently.
+    const url = "https://example.com";
+    @memcpy(input_buf[0..url.len], url);
+    const low_result = render(url.len);
+    try std.testing.expectEqual(@as(u1, 0), low_result.failed);
+    const low_hash = std.hash.Wyhash.hash(0, output_buf[0..low_result.output_size_or_failure]);
+
+    try std.testing.expectEqual(DEFAULT_ERROR_CORRECTION_LEVEL, error_correction_level);
+    const medium_result = render(url.len);
+    try std.testing.expectEqual(@as(u1, 0), medium_result.failed);
+    const medium_hash = std.hash.Wyhash.hash(0, output_buf[0..medium_result.output_size_or_failure]);
+    try std.testing.expect(low_hash != medium_hash);
+
+    // A rejected render also resets.
+    _ = uniform_set_error_correction_level(3);
+    try std.testing.expectEqual(@as(u1, 1), render(0).failed);
+    try std.testing.expectEqual(DEFAULT_ERROR_CORRECTION_LEVEL, error_correction_level);
+}
+
+test "worst-case version 40 matrix fits the output capacity" {
+    const size = MAX_QR_SIZE;
+    var y: usize = 0;
+    while (y < size) : (y += 1) {
+        var x: usize = 0;
+        while (x < size) : (x += 1) setModule(modules[0 .. size * size], size, x, y, (x + y) % 2 == 0);
+    }
+    _ = try renderSvg(size);
 }
 
 test "alignment positions known versions" {
