@@ -1,4 +1,4 @@
-# Running QIP In JavaScript
+# Running QIP in JavaScript
 
 QIP components can be imported as WebAssembly ES modules and wrapped as
 ordinary synchronous JavaScript functions. The wrapper writes directly into
@@ -21,7 +21,7 @@ it before the first UTF-8 component. Once a known-valid component returns an
 `output_utf8_cap` result, a pipeline may pass those bytes to another UTF-8
 component without decoding and validating them again.
 
-## Direct Import: E.164
+## Direct import: E.164
 
 This example wraps the E.164 canonicalizer:
 
@@ -72,7 +72,7 @@ The input `Uint8Array` is a view over the component's linear memory.
 writes UTF-8 bytes into that memory directly, avoiding the temporary encoded
 array created by `TextEncoder.encode()`.
 
-## GFM CommonMark To HTML
+## GFM CommonMark to HTML
 
 The same wrapper shape works for a larger text transformation. This component
 accepts Markdown and returns HTML, including GFM tables and task lists:
@@ -97,7 +97,7 @@ function decodeRenderResult(value) {
   };
 }
 
-export function markdownToHtml(markdown) {
+export function markdownToHTML(markdown) {
   const input = new Uint8Array(
     memory.buffer,
     input_ptr(),
@@ -115,7 +115,7 @@ export function markdownToHtml(markdown) {
   );
 }
 
-const html = markdownToHtml(`
+const html = markdownToHTML(`
 # Release checklist
 
 - [x] Build
@@ -129,7 +129,7 @@ assigning it to `innerHTML` when the Markdown is untrusted.
 This version of the GFM CommonMark component has no uniforms; its behavior is
 fixed.
 
-## Currency Formatting With A Uniform
+## Currency formatting with a uniform
 
 Uniforms configure a component without changing its content input. The en-US
 currency formatter accepts an exact decimal string and uses an ISO 4217 numeric
@@ -184,7 +184,7 @@ imports generally share one instance, so set every value needed by each
 invocation instead of relying on state left by an earlier call. See
 [Uniforms](/docs/uniforms) for setter types, returned values, and CLI mapping.
 
-## Capacity And UTF-8 Length
+## Capacity and UTF-8 length
 
 `encodeInto` does not throw when its destination is too small. It returns two
 progress values:
@@ -213,7 +213,7 @@ partial encoded character at the end.
 QIP inputs are length-delimited. Do not append a zero terminator unless a
 particular non-QIP library interface explicitly requires one.
 
-## Call Order
+## Call order
 
 For a UTF-8 content component:
 
@@ -247,7 +247,7 @@ module again before another render.
 The returned size and output pointer can be used directly because a valid QIP
 component guarantees that they describe output within its declared region.
 
-## JavaScript-Specific Nuances
+## JavaScript-specific nuances
 
 - When converting UTF-8 output to a JavaScript string, use
   `new TextDecoder("utf-8", { fatal: true })`. Without `fatal: true`, malformed
@@ -271,7 +271,7 @@ component guarantees that they describe output within its declared region.
 - A trap throws `WebAssembly.RuntimeError`. Do not read output after a trap, and
   remember that mutations made before the trap are not rolled back.
 
-## Binary Components
+## Binary components
 
 For `input_bytes_cap`, the caller already has bytes, so copy them directly:
 
@@ -293,14 +293,54 @@ export function runBytes(bytes) {
 The final `slice()` owns its bytes independently of component memory. Without
 it, a later render could overwrite the returned view.
 
-## Traps And Reuse
+## Traps and reuse
 
 A WebAssembly trap appears as a JavaScript exception. A trap does not roll back
 memory or mutable globals. Do not read output after a trap. Discard the instance
 and instantiate the module again before another request. Recoverable rejection
 returns normally, so the same instance remains reusable.
 
-## Explicit Instantiation
+## Run untrusted Wasm through the QIP host
+
+Core Wasm validation does not establish the QIP contract. Use the `qip` CLI
+for a module whose exports and behavior you do not trust. The host checks the
+component contract and returned output range and capacity. It rejects memory
+growth by default.
+
+Install the Go QIP CLI and put `$(go env GOPATH)/bin` on `PATH`:
+
+```bash
+go install github.com/royalicing/qip@latest
+```
+
+This Node.js example runs `./component.wasm`, reads stdin, and writes stdout.
+A failed host call raises an error. It allows 64 MiB of Wasm linear memory and
+one second of component execution, with a five-second limit on the subprocess:
+
+```js
+import { spawnSync } from "node:child_process";
+
+const result = spawnSync("qip", [
+  "run", "--max-memory", "67108864", "--timeout-ms", "1000",
+  "--capacities-must-fit", "./component.wasm",
+], { stdio: "inherit", timeout: 5000, killSignal: "SIGKILL" });
+if (result.error) throw result.error;
+if (result.status !== 0) throw new Error(`QIP host failed: ${result.status}`);
+```
+
+Browsers cannot launch this subprocess. A browser that accepts untrusted
+Wasm needs contract validation and memory limits before instantiation, plus
+an isolated worker that the host can terminate when execution exceeds its
+limit. `WebAssembly.instantiate` alone does not supply these controls.
+
+The host uses the module's declared content types; this example does not
+assume the output is HTML. Contract checks do not prove that the module
+performs the intended transform. The memory limit covers Wasm linear memory,
+not the whole host process. See [Hard limits](/docs/hard-limits) for the checks
+and their limits. Hosting untrusted Wasm in process requires these validation
+and resource controls before using the direct call flow.
+
+## Explicit instantiation
 
 When direct `.wasm` imports are unavailable, only the loading step changes:
 

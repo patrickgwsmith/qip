@@ -1,4 +1,4 @@
-# Running QIP In Java
+# Running QIP in Java
 
 Java can run a QIP component with [Chicory](https://chicory.dev/), a WebAssembly runtime implemented in Java. The app loads the `.wasm` file from disk, writes UTF-8 input into its memory, calls `render`, and copies the UTF-8 output back into Java.
 
@@ -22,67 +22,45 @@ The example uses Java 17. Put the downloaded component in the project root:
 markdown-example/
 ├── gfm-commonmark.0.31.2.wasm
 ├── pom.xml
-└── src/main/java/MarkdownRenderer.java
+└── src/main/java/MarkdownExample.java
 ```
 
 ## Render Markdown
 
+This example assumes a trusted GFM component that follows the QIP Content contract. Use an artifact you built, tested, or admitted through a controlled process. The function checks caller-controlled input capacity; it does not validate arbitrary Wasm.
+
+Create `src/main/java/MarkdownExample.java`. `markdownToHtml` returns HTML or throws an exception; it does not terminate the application itself.
+
 ```java
-import com.dylibso.chicory.runtime.ExportFunction;
 import com.dylibso.chicory.runtime.Instance;
-import com.dylibso.chicory.runtime.Memory;
 import com.dylibso.chicory.wasm.Parser;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 
-public final class MarkdownRenderer {
-    private static final Path WASM_PATH =
-            Path.of("gfm-commonmark.0.31.2.wasm");
-
-    private final Memory memory;
-    private final ExportFunction inputPtr;
-    private final ExportFunction inputCap;
-    private final ExportFunction render;
-
-    public MarkdownRenderer() {
-        var module = Parser.parse(WASM_PATH.toFile());
-        var instance = Instance.builder(module).build();
-
-        memory = instance.exports().memory("memory");
-        inputPtr = instance.export("input_ptr");
-        inputCap = instance.export("input_utf8_cap");
-        render = instance.export("render");
-    }
-
-    private static int callI32(ExportFunction function, long... arguments) {
-        return (int) function.apply(arguments)[0];
-    }
-
-    public String markdownToHtml(String markdown) {
-        byte[] source = markdown.getBytes(StandardCharsets.UTF_8);
-
-        int inputCapacity = callI32(inputCap);
-        if (source.length > inputCapacity) {
+public final class MarkdownExample {
+    public static String markdownToHtml(String markdown, Instance instance) {
+        var memory = instance.exports().memory("memory");
+        byte[] input = markdown.getBytes(StandardCharsets.UTF_8);
+        int capacity = (int) instance.export("input_utf8_cap").apply()[0];
+        if (input.length > capacity) {
             throw new IllegalArgumentException(
-                    "Markdown input exceeds component capacity: "
-                            + source.length + " > " + inputCapacity);
+                    "Markdown input exceeds capacity: " + input.length + " > " + capacity);
         }
+        int inputPtr = (int) instance.export("input_ptr").apply()[0];
+        memory.write(inputPtr, input);
 
-        int inputStart = callI32(inputPtr);
-        memory.write(inputStart, source);
-
-        long packed = render.apply(source.length)[0];
-        if (packed < 0) throw new IllegalArgumentException("rejected input");
+        long packed = instance.export("render").apply(input.length)[0];
+        if (packed < 0) throw new IllegalArgumentException("component rejected input");
         int outputSize = (int) packed;
-        int outputStart = (int) ((packed >>> 32) & 0x7fff_ffffL);
-        byte[] output = memory.readBytes(outputStart, outputSize);
+        int outputPtr = (int) (packed >>> 32);
+        byte[] output = memory.readBytes(outputPtr, outputSize);
         return new String(output, StandardCharsets.UTF_8);
     }
 
     public static void main(String[] args) {
-        var renderer = new MarkdownRenderer();
-
+        var module = Parser.parse(Path.of("gfm-commonmark.0.31.2.wasm").toFile());
+        var instance = Instance.builder(module).build();
         String markdown = """
                 # Project status
 
@@ -93,8 +71,7 @@ public final class MarkdownRenderer {
                 - [x] Load the component from disk
                 - [x] Render **GFM**
                 """;
-
-        System.out.println(renderer.markdownToHtml(markdown));
+        System.out.println(markdownToHtml(markdown, instance));
     }
 }
 ```
@@ -118,7 +95,7 @@ The output begins with the rendered HTML:
 <!-- ... -->
 ```
 
-## How The Boundary Maps To Java
+## How the boundary maps to Java
 
 The loader is runtime-specific; the QIP calls are not:
 
@@ -135,16 +112,61 @@ caller-controlled input size. A host accepting arbitrary Wasm has a different
 validation boundary; see [Known And Untrusted
 Components](/docs/content-component#known-and-untrusted-components).
 
-## Traps And Reuse
+## Traps and reuse
 
 If `render` traps, Chicory throws an exception. Treat that render as failed and
 do not read the output buffer; it may contain stale or partial bytes. Discard
 that instance and instantiate the module again before another render.
 
-The example parses and instantiates the component once, then reuses it. A `MarkdownRenderer` owns mutable component memory and is not safe to call concurrently. Create one renderer per worker thread, request, or pool entry instead of sharing an instance. The application can then choose instance ownership that matches its concurrency model without paying for synchronization inside every render call.
+The example renders once. For repeated renders, keep the instance and call `markdownToHtml` again. Each instance owns mutable memory. Create one instance per worker thread, request, or pool entry, or serialize access to a shared instance.
 
 Chicory's default interpreter keeps setup small. It also offers runtime and build-time compilation when profiling shows that interpretation is the bottleneck; those modes add build or startup work and are separate from the QIP contract.
 
-## When To Use Something Else
+## Run untrusted Wasm through the QIP host
+
+Core Wasm validation does not establish the QIP contract. Use the `qip` CLI
+for a module whose exports and behavior you do not trust. The host checks the
+component contract and returned output range and capacity. It rejects memory
+growth by default.
+
+Install the Go QIP CLI and put `$(go env GOPATH)/bin` on `PATH`:
+
+```bash
+go install github.com/royalicing/qip@latest
+```
+
+This separate example runs `./component.wasm`, reads stdin, and writes stdout.
+A failed host call raises an error. It allows 64 MiB of Wasm linear memory and
+one second of component execution, with a five-second limit on the subprocess:
+
+```java
+import java.io.IOException;
+import java.util.concurrent.TimeUnit;
+
+public final class Untrusted {
+    public static void main(String[] args) throws IOException, InterruptedException {
+        var process = new ProcessBuilder(
+                "qip", "run", "--max-memory", "67108864", "--timeout-ms", "1000",
+                "--capacities-must-fit", "./component.wasm")
+                .inheritIO().start();
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            throw new IOException("QIP host timed out");
+        }
+        if (process.exitValue() != 0) {
+            throw new IOException("QIP host failed: " + process.exitValue());
+        }
+    }
+}
+```
+
+The host uses the module's declared content types; this example does not
+assume the output is HTML. Contract checks do not prove that the module
+performs the intended transform. The memory limit covers Wasm linear memory,
+not the whole host process. See [Hard limits](/docs/hard-limits) for the checks
+and their limits. Hosting untrusted Wasm in process requires these validation
+and resource controls before using the direct call flow.
+
+## When to use something else
 
 Keep ordinary Java code in charge of database access, HTTP calls, authentication, logging, and application workflow. QIP fits the deterministic Markdown-to-HTML step. If the transform needs Java objects, callbacks, or framework services throughout its execution, a normal Java library will usually be simpler.

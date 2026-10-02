@@ -51,7 +51,10 @@ its own public or server asset directory instead.
 ## Wrap The Content Contract
 
 React does not need a QIP-specific package. A small wrapper writes UTF-8 into
-component memory, calls `render`, and decodes the returned bytes:
+component memory, calls `render`, and decodes the returned bytes. This wrapper
+assumes a trusted component that follows the QIP Content contract. It throws
+on oversized input, rejection, or invalid UTF-8 output; it does not validate
+arbitrary Wasm. See [Known and untrusted components](/docs/content-component#known-and-untrusted-components):
 
 ```js
 const encoder = new TextEncoder();

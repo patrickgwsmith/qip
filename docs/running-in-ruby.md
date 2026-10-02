@@ -1,4 +1,4 @@
-# Running QIP In Ruby
+# Running QIP in Ruby
 
 Ruby can run a QIP component with the [Wasmtime Ruby gem](https://github.com/bytecodealliance/wasmtime-rb) and a small wrapper around the QIP memory contract. The app loads the `.wasm` file from disk, writes UTF-8 input into its memory, calls `render`, and copies the UTF-8 output back into a Ruby `String`.
 
@@ -41,58 +41,40 @@ markdown-example/
 
 ## Render Markdown
 
-Create `markdown.rb`:
+This example assumes a trusted GFM component that follows the QIP Content contract. Use an artifact you built, tested, or admitted through a controlled process. The function checks caller-controlled input capacity; it does not validate arbitrary Wasm.
+
+Create `markdown.rb`. `markdown_to_html` returns HTML or raises an exception.
 
 ```ruby
 # frozen_string_literal: true
 
 require "wasmtime"
 
-class MarkdownRenderer
-  def initialize(wasm_path)
-    @engine = Wasmtime::Engine.new
-    @module = Wasmtime::Module.from_file(@engine, wasm_path)
-    @store = Wasmtime::Store.new(@engine)
-    @instance = Wasmtime::Instance.new(@store, @module, [])
+def markdown_to_html(markdown, instance)
+  memory = instance.export("memory").to_memory
+  source = markdown.encode(Encoding::UTF_8)
+  raise ArgumentError, "Markdown input is not valid UTF-8" unless source.valid_encoding?
 
-    @memory = export("memory").to_memory
-    @input_ptr = export("input_ptr").to_func
-    @input_cap = export("input_utf8_cap").to_func
-    @render = export("render").to_func
+  capacity = instance.export("input_utf8_cap").to_func.call
+  if source.bytesize > capacity
+    raise ArgumentError,
+      "Markdown input exceeds capacity: #{source.bytesize} > #{capacity}"
   end
+  input_ptr = instance.export("input_ptr").to_func.call
+  memory.write(input_ptr, source)
 
-  def markdown_to_html(markdown)
-    source = markdown.encode(Encoding::UTF_8)
-    capacity = @input_cap.call
-
-    if source.bytesize > capacity
-      raise ArgumentError,
-        "Markdown input exceeds component capacity: " \
-        "#{source.bytesize} > #{capacity}"
-    end
-
-    @memory.write(@input_ptr.call, source)
-
-    packed = @render.call(source.bytesize) & 0xffff_ffff_ffff_ffff
-    raise "rejected input" unless (packed >> 63).zero?
-    output_size = packed & 0xffff_ffff
-    output_ptr = (packed >> 32) & 0x7fff_ffff
-    @memory.read_utf8(output_ptr, output_size)
-  end
-
-  private
-
-  def export(name)
-    @instance.export(name) ||
-      raise("Component does not export #{name}")
-  end
+  packed = instance.export("render").to_func.call(source.bytesize) & 0xffff_ffff_ffff_ffff
+  raise ArgumentError, "component rejected input" unless (packed >> 63).zero?
+  output_size = packed & 0xffff_ffff
+  output_ptr = packed >> 32
+  memory.read_utf8(output_ptr, output_size)
 end
 
-wasm_path = File.expand_path(
-  "gfm-commonmark.0.31.2.wasm",
-  __dir__
-)
-renderer = MarkdownRenderer.new(wasm_path)
+wasm_path = File.expand_path("gfm-commonmark.0.31.2.wasm", __dir__)
+engine = Wasmtime::Engine.new
+wasm_module = Wasmtime::Module.from_file(engine, wasm_path)
+store = Wasmtime::Store.new(engine)
+instance = Wasmtime::Instance.new(store, wasm_module, [])
 
 markdown = <<~MARKDOWN
   # Project status
@@ -105,7 +87,7 @@ markdown = <<~MARKDOWN
   - [x] Render **GFM**
 MARKDOWN
 
-puts renderer.markdown_to_html(markdown)
+puts markdown_to_html(markdown, instance)
 ```
 
 Run it from the project directory:
@@ -127,7 +109,7 @@ The output begins with the rendered HTML:
 <!-- ... -->
 ```
 
-## How The Boundary Maps To Ruby
+## How the boundary maps to Ruby
 
 The loader is runtime-specific; the QIP calls are not:
 
@@ -139,23 +121,60 @@ The loader is runtime-specific; the QIP calls are not:
    one packed `i64` value.
 6. `Memory#read_utf8` copies and validates the accepted output range.
 
-Resolving each export during initialization catches a missing export before the first render. Converting it with `to_func` or `to_memory` also rejects an export of the wrong kind.
+The function relies on the trusted component's exports. `to_func` and `to_memory` convert them to callable functions and memory.
 
 This wrapper trusts the known-valid GFM component and checks only the caller-controlled input size. A host accepting arbitrary Wasm has a different validation boundary; see [Known And Untrusted Components](/docs/content-component#known-and-untrusted-components).
 
-## Traps, Threads, And Reuse
+## Traps, threads, and reuse
 
 If `render` traps, Wasmtime raises a `Wasmtime::Trap`. Treat that render as
 failed and do not read the output buffer; it may contain stale or partial bytes.
 Discard that instance and instantiate the module again before another render.
 
-The class compiles and instantiates the component once, then reuses it. A `MarkdownRenderer` owns mutable component memory and is not safe to call concurrently. Give each thread, worker, or pool entry its own renderer instead of sharing one instance.
+The example renders once. For repeated renders, keep the store and instance and call `markdown_to_html` again. Each instance owns mutable memory. Give each thread, worker, or pool entry its own store and instance, or serialize access.
 
 Wasmtime calls hold Ruby's Global VM Lock by default. The gem can release it with `to_func(gvl: false)`, but that mode requires a separate `Wasmtime::Store` for every calling thread. Use the default until profiling shows that long WebAssembly calls are blocking useful Ruby work; violating the store-per-thread requirement can cause undefined behavior.
 
-Preloading a renderer before a process server forks can also produce unclear ownership of native runtime state. Prefer constructing renderers in each worker after the fork.
+Preloading an instance before a process server forks can also produce unclear ownership of native runtime state. Prefer creating stores and instances in each worker after the fork.
 
-## When To Use Something Else
+## Run untrusted Wasm through the QIP host
+
+Core Wasm validation does not establish the QIP contract. Use the `qip` CLI
+for a module whose exports and behavior you do not trust. The host checks the
+component contract and returned output range and capacity. It rejects memory
+growth by default.
+
+Install the Go QIP CLI and put `$(go env GOPATH)/bin` on `PATH`:
+
+```bash
+go install github.com/royalicing/qip@latest
+```
+
+This separate example runs `./component.wasm`, reads stdin, and writes stdout.
+A failed host call raises an error. It allows 64 MiB of Wasm linear memory and
+one second of component execution:
+
+```ruby
+system(
+  "qip", "run",
+  "--max-memory", "67108864",
+  "--timeout-ms", "1000",
+  "--capacities-must-fit",
+  "./component.wasm",
+  exception: true
+)
+```
+
+The host uses the module's declared content types; this example does not
+assume the output is HTML. Contract checks do not prove that the module
+performs the intended transform. The memory limit covers Wasm linear memory,
+not the whole host process. See [Hard limits](/docs/hard-limits) for the checks
+and their limits. Hosting untrusted Wasm in process requires these validation
+and resource controls before using the direct call flow.
+
+The execution timeout does not limit compilation or subprocess startup.
+
+## When to use something else
 
 Keep ordinary Ruby code in charge of database access, HTTP calls, authentication, logging, and application workflow. QIP fits the deterministic Markdown-to-HTML step and gives that code no access to the rest of the application.
 

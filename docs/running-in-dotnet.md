@@ -1,10 +1,10 @@
-# Running QIP In .NET
+# Running QIP in .NET
 
 .NET can run a QIP component with the [Wasmtime NuGet package](https://www.nuget.org/packages/Wasmtime/). The app loads the `.wasm` file from disk, writes UTF-8 input into its memory, calls `render`, and copies the UTF-8 output back into a C# string.
 
 QIP uses *component* to mean a small unit that follows a QIP contract. A QIP component is currently a [WebAssembly Core module](https://webassembly.github.io/spec/core/), not a [WebAssembly Component Model](https://component-model.bytecodealliance.org/) component. Use Wasmtime's `Module` and `Instance` APIs. QIP components also have no WASI imports, so this example does not configure WASI or expose host capabilities.
 
-## Create The Project
+## Create the project
 
 Create a .NET 8 console application and add Wasmtime:
 
@@ -20,91 +20,24 @@ Put the downloaded component next to the project file:
 markdown-example/
 ├── gfm-commonmark.0.31.2.wasm
 ├── markdown-example.csproj
-├── MarkdownRenderer.cs
 └── Program.cs
 ```
 
 ## Render Markdown
 
-Create `MarkdownRenderer.cs`:
+This example assumes a trusted GFM component that follows the QIP Content contract. Use an artifact you built, tested, or admitted through a controlled process. The function checks caller-controlled input capacity; it does not validate arbitrary Wasm.
+
+Create `Program.cs`. `MarkdownToHtml` returns HTML or throws an exception. The `using` declarations dispose the runtime resources when the program exits.
 
 ```csharp
 using System.Text;
 using Wasmtime;
 
-public sealed class MarkdownRenderer : IDisposable
-{
-    private const string WasmPath = "gfm-commonmark.0.31.2.wasm";
-
-    private readonly Engine engine = new();
-    private readonly Module module;
-    private readonly Linker linker;
-    private readonly Store store;
-    private readonly Wasmtime.Memory memory;
-    private readonly Func<int> inputPtr;
-    private readonly Func<int> inputCap;
-    private readonly Func<int, long> render;
-
-    public MarkdownRenderer()
-    {
-        module = Module.FromFile(engine, WasmPath);
-        linker = new Linker(engine);
-        store = new Store(engine);
-
-        var instance = linker.Instantiate(store, module);
-        memory = instance.GetMemory("memory")
-            ?? throw new InvalidOperationException(
-                "Component does not export memory");
-        inputPtr = instance.GetFunction<int>("input_ptr")
-            ?? throw new InvalidOperationException(
-                "Component does not export input_ptr");
-        inputCap = instance.GetFunction<int>("input_utf8_cap")
-            ?? throw new InvalidOperationException(
-                "Component does not export input_utf8_cap");
-        render = instance.GetFunction<int, long>("render")
-            ?? throw new InvalidOperationException(
-                "Component does not export render");
-    }
-
-    public string Render(string markdown)
-    {
-        byte[] source = Encoding.UTF8.GetBytes(markdown);
-
-        int inputCapacity = inputCap();
-        if (source.Length > inputCapacity)
-        {
-            throw new ArgumentException(
-                $"Markdown input exceeds component capacity: " +
-                $"{source.Length} > {inputCapacity}");
-        }
-
-        int inputStart = inputPtr();
-        source.AsSpan().CopyTo(
-            memory.GetSpan(inputStart, source.Length));
-
-        ulong packed = unchecked((ulong)render(source.Length));
-        if ((packed >> 63) != 0)
-            throw new ArgumentException("rejected input");
-        int outputSize = unchecked((int)(uint)packed);
-        int outputStart = (int)((packed >> 32) & 0x7fff_ffffUL);
-        return Encoding.UTF8.GetString(
-            memory.GetSpan(outputStart, outputSize));
-    }
-
-    public void Dispose()
-    {
-        store.Dispose();
-        linker.Dispose();
-        module.Dispose();
-        engine.Dispose();
-    }
-}
-```
-
-`Program.cs` only needs to construct the renderer and supply application input:
-
-```csharp
-using var renderer = new MarkdownRenderer();
+using var engine = new Engine();
+using var module = Module.FromFile(engine, "gfm-commonmark.0.31.2.wasm");
+using var linker = new Linker(engine);
+using var store = new Store(engine);
+var instance = linker.Instantiate(store, module);
 
 string markdown = """
     # Project status
@@ -116,8 +49,32 @@ string markdown = """
     - [x] Load the component from disk
     - [x] Render **GFM**
     """;
+Console.WriteLine(MarkdownToHtml(markdown, instance));
 
-Console.WriteLine(renderer.Render(markdown));
+static string MarkdownToHtml(string markdown, Instance instance)
+{
+    var memory = instance.GetMemory("memory")
+        ?? throw new InvalidOperationException("Component does not export memory");
+    var inputPtr = instance.GetFunction<int>("input_ptr")
+        ?? throw new InvalidOperationException("Component does not export input_ptr");
+    var inputCap = instance.GetFunction<int>("input_utf8_cap")
+        ?? throw new InvalidOperationException("Component does not export input_utf8_cap");
+    var render = instance.GetFunction<int, long>("render")
+        ?? throw new InvalidOperationException("Component does not export render");
+
+    byte[] input = Encoding.UTF8.GetBytes(markdown);
+    int capacity = inputCap();
+    if (input.Length > capacity)
+        throw new ArgumentException($"Markdown input exceeds capacity: {input.Length} > {capacity}");
+    input.AsSpan().CopyTo(memory.GetSpan(inputPtr(), input.Length));
+
+    ulong packed = unchecked((ulong)render(input.Length));
+    if ((packed >> 63) != 0)
+        throw new ArgumentException("Component rejected input");
+    int outputSize = unchecked((int)(uint)packed);
+    int outputPtr = (int)(packed >> 32);
+    return Encoding.UTF8.GetString(memory.GetSpan(outputPtr, outputSize));
+}
 ```
 
 Run it from the project directory:
@@ -139,7 +96,7 @@ The output begins with the rendered HTML:
 <!-- ... -->
 ```
 
-## How The Boundary Maps To .NET
+## How the boundary maps to .NET
 
 The loader is runtime-specific; the QIP calls are not:
 
@@ -153,7 +110,7 @@ The loader is runtime-specific; the QIP calls are not:
 
 The code asks for typed delegates such as `Func<int, long>` when resolving
 exports. A missing export or mismatched WebAssembly signature therefore fails
-during setup rather than at the first render.
+before copying input or calling `render`.
 
 This wrapper trusts the known-valid GFM component and checks only the
 caller-controlled input size. A host accepting arbitrary Wasm has a different
@@ -162,17 +119,65 @@ Components](/docs/content-component#known-and-untrusted-components).
 
 The input span is used only before calling `render`. A span returned by Wasmtime may become invalid when WebAssembly runs and grows its memory, so the output is read through a new span after `render` returns.
 
-## Traps And Reuse
+## Traps and reuse
 
 If `render` traps, Wasmtime throws an exception. Treat that render as failed and
 do not read the output buffer; it may contain stale or partial bytes. Discard
 that instance and instantiate the module again before another render.
 
-The class compiles and instantiates the component once, then reuses it until disposal. A `MarkdownRenderer` owns mutable component memory and is not safe to call concurrently.
+The example renders once. For repeated renders, keep the runtime resources
+open and call `MarkdownToHtml` again. Each instance owns mutable memory and
+must not receive concurrent calls.
 
-For an ASP.NET application, extract the `Engine` and compiled `Module` into a singleton factory, then let it create a renderer with its own store and instance for each scope or pool entry. Do not register one `MarkdownRenderer` as a singleton. Scoped renderers or a small instance pool make ownership explicit and avoid synchronization inside each render call.
+For an ASP.NET application, keep the `Engine` and compiled `Module` in a
+factory, then create a store and instance for each scope or pool entry. Do not
+share one instance across concurrent requests.
 
-## When To Use Something Else
+## Run untrusted Wasm through the QIP host
+
+Core Wasm validation does not establish the QIP contract. Use the `qip` CLI
+for a module whose exports and behavior you do not trust. The host checks the
+component contract and returned output range and capacity. It rejects memory
+growth by default.
+
+Install the Go QIP CLI and put `$(go env GOPATH)/bin` on `PATH`:
+
+```bash
+go install github.com/royalicing/qip@latest
+```
+
+This separate example runs `./component.wasm`, reads stdin, and writes stdout.
+A failed host call raises an error. It allows 64 MiB of Wasm linear memory and
+one second of component execution, with a five-second limit on the subprocess:
+
+```csharp
+using System.Diagnostics;
+
+var start = new ProcessStartInfo("qip") { UseShellExecute = false };
+foreach (var argument in new[] {
+    "run", "--max-memory", "67108864", "--timeout-ms", "1000",
+    "--capacities-must-fit", "./component.wasm"
+})
+    start.ArgumentList.Add(argument);
+using var process = Process.Start(start)
+    ?? throw new InvalidOperationException("Could not start QIP host");
+if (!process.WaitForExit(5000))
+{
+    process.Kill(entireProcessTree: true);
+    throw new TimeoutException("QIP host timed out");
+}
+if (process.ExitCode != 0)
+    throw new InvalidOperationException($"QIP host failed: {process.ExitCode}");
+```
+
+The host uses the module's declared content types; this example does not
+assume the output is HTML. Contract checks do not prove that the module
+performs the intended transform. The memory limit covers Wasm linear memory,
+not the whole host process. See [Hard limits](/docs/hard-limits) for the checks
+and their limits. Hosting untrusted Wasm in process requires these validation
+and resource controls before using the direct call flow.
+
+## When to use something else
 
 Keep ordinary .NET code in charge of database access, HTTP calls, authentication, logging, and application workflow. QIP isolates the third-party Markdown renderer from that application authority. Because this component has no imports, it cannot read environment variables, secrets, or files, make network requests, or reach other .NET objects in the process. An ordinary third-party library runs with the application's access to those resources.
 

@@ -1,12 +1,12 @@
-# Running QIP In Go
+# Running QIP in Go
 
 Go can run a QIP component with [wazero](https://wazero.io/), a WebAssembly runtime written in Go. The app loads the `.wasm` file from disk, writes UTF-8 input into its memory, calls `render`, and copies the UTF-8 output back into a Go `string`.
 
 wazero is the default choice for Go applications because it does not require CGO, native libraries, or platform-specific package artifacts. The `qip` command-line host uses the same runtime.
 
-QIP uses *component* to mean a small unit that follows a QIP contract. A QIP component is currently a [WebAssembly Core module](https://webassembly.github.io/spec/core/), not a [WebAssembly Component Model](https://component-model.bytecodealliance.org/) component. Use wazero's `CompileModule` and `InstantiateModule` APIs. QIP components also have no WASI imports, so this example does not instantiate WASI or expose host capabilities.
+QIP uses *component* to mean a small unit that follows a QIP contract. A QIP component is currently a [WebAssembly Core module](https://webassembly.github.io/spec/core/), not a [WebAssembly Component Model](https://component-model.bytecodealliance.org/) component. Use wazero's `Instantiate` API to compile and instantiate the module. QIP components also have no WASI imports, so this example does not instantiate WASI or expose host capabilities.
 
-## Create The Module
+## Create the module
 
 Create a Go module and add wazero. This example pins the version so the setup is reproducible:
 
@@ -29,14 +29,13 @@ markdown-example/
 
 ## Render Markdown
 
-Create `main.go`:
+Create `main.go` for a trusted GFM component that you built, tested, or admitted through a controlled artifact process. This example assumes its exports and behavior follow the QIP Content contract. `markdownToHTML` returns the HTML or an error. The `call` helper checks each exported function and returns its single result or an error. Only `main` uses `panic` to stop this command-line example on an error.
 
 ```go
 package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"unicode/utf8"
@@ -45,167 +44,20 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-type MarkdownRenderer struct {
-	runtime   wazero.Runtime
-	memory    api.Memory
-	inputPtr  api.Function
-	inputCap  api.Function
-	render    api.Function
-}
-
-func NewMarkdownRenderer(
-	ctx context.Context,
-	wasmPath string,
-) (_ *MarkdownRenderer, returnErr error) {
-	wasm, err := os.ReadFile(wasmPath)
-	if err != nil {
-		return nil, err
-	}
-
-	config := wazero.NewRuntimeConfig().
-		WithCloseOnContextDone(true)
-	runtime := wazero.NewRuntimeWithConfig(ctx, config)
-	defer func() {
-		if returnErr != nil {
-			_ = runtime.Close(ctx)
-		}
-	}()
-
-	compiled, err := runtime.CompileModule(ctx, wasm)
-	if err != nil {
-		return nil, fmt.Errorf("compile component: %w", err)
-	}
-
-	module, err := runtime.InstantiateModule(
-		ctx,
-		compiled,
-		wazero.NewModuleConfig().WithName("markdown"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("instantiate component: %w", err)
-	}
-
-	memory := module.ExportedMemory("memory")
-	if memory == nil {
-		return nil, errors.New("component does not export memory")
-	}
-
-	inputPtr, err := exportedFunction(module, "input_ptr")
-	if err != nil {
-		return nil, err
-	}
-	inputCap, err := exportedFunction(module, "input_utf8_cap")
-	if err != nil {
-		return nil, err
-	}
-	render, err := exportedFunction(module, "render")
-	if err != nil {
-		return nil, err
-	}
-
-	return &MarkdownRenderer{
-		runtime:   runtime,
-		memory:    memory,
-		inputPtr:  inputPtr,
-		inputCap:  inputCap,
-		render:    render,
-	}, nil
-}
-
-func (r *MarkdownRenderer) MarkdownToHTML(
-	ctx context.Context,
-	markdown string,
-) (string, error) {
-	if !utf8.ValidString(markdown) {
-		return "", errors.New("Markdown input is not valid UTF-8")
-	}
-	source := []byte(markdown)
-
-	capacity, err := callI32(ctx, r.inputCap)
-	if err != nil {
-		return "", fmt.Errorf("read input capacity: %w", err)
-	}
-	if uint64(len(source)) > capacity {
-		return "", fmt.Errorf(
-			"Markdown input exceeds component capacity: %d > %d",
-			len(source),
-			capacity,
-		)
-	}
-
-	inputStart, err := callI32(ctx, r.inputPtr)
-	if err != nil {
-		return "", fmt.Errorf("read input pointer: %w", err)
-	}
-	if ok := r.memory.Write(uint32(inputStart), source); !ok {
-		return "", errors.New("input range is outside component memory")
-	}
-
-	results, err := r.render.Call(ctx, uint64(len(source)))
-	if err != nil {
-		return "", fmt.Errorf("render Markdown: %w", err)
-	}
-	if len(results) != 1 {
-		return "", errors.New("render must return one i64")
-	}
-	result := results[0]
-	if result>>63 != 0 {
-		return "", errors.New("rejected input")
-	}
-	outputSize := uint32(result)
-	outputStart := uint32((result >> 32) & 0x7fff_ffff)
-	output, ok := r.memory.Read(outputStart, outputSize)
-	if !ok {
-		return "", errors.New("output range is outside component memory")
-	}
-	if !utf8.Valid(output) {
-		return "", errors.New("component returned invalid UTF-8")
-	}
-
-	return string(output), nil
-}
-
-func (r *MarkdownRenderer) Close(ctx context.Context) error {
-	return r.runtime.Close(ctx)
-}
-
-func exportedFunction(
-	module api.Module,
-	name string,
-) (api.Function, error) {
-	function := module.ExportedFunction(name)
-	if function == nil {
-		return nil, fmt.Errorf("component does not export %s", name)
-	}
-	return function, nil
-}
-
-func callI32(
-	ctx context.Context,
-	function api.Function,
-) (uint64, error) {
-	results, err := function.Call(ctx)
-	if err != nil {
-		return 0, err
-	}
-	if len(results) != 1 {
-		return 0, errors.New("function must return one i32")
-	}
-	return results[0], nil
-}
-
 func main() {
 	ctx := context.Background()
+	config := wazero.NewRuntimeConfig().WithCloseOnContextDone(true)
+	runtime := wazero.NewRuntimeWithConfig(ctx, config)
+	defer runtime.Close(ctx)
 
-	renderer, err := NewMarkdownRenderer(
-		ctx,
-		"gfm-commonmark.0.31.2.wasm",
-	)
+	wasm, err := os.ReadFile("gfm-commonmark.0.31.2.wasm")
 	if err != nil {
 		panic(err)
 	}
-	defer renderer.Close(ctx)
-
+	module, err := runtime.Instantiate(ctx, wasm)
+	if err != nil {
+		panic(err)
+	}
 	markdown := `# Project status
 
 | Feature | Status |
@@ -215,12 +67,69 @@ func main() {
 - [x] Load the component from disk
 - [x] Render **GFM**
 `
-
-	html, err := renderer.MarkdownToHTML(ctx, markdown)
+	html, err := markdownToHTML(ctx, module, markdown)
 	if err != nil {
 		panic(err)
 	}
 	fmt.Print(html)
+}
+
+func markdownToHTML(ctx context.Context, module api.Module, markdown string) (string, error) {
+	memory := module.ExportedMemory("memory")
+	if memory == nil {
+		return "", fmt.Errorf("component does not export memory")
+	}
+	input := []byte(markdown)
+	if !utf8.Valid(input) {
+		return "", fmt.Errorf("Markdown input is not valid UTF-8")
+	}
+	capacity, err := call(ctx, module, "input_utf8_cap")
+	if err != nil {
+		return "", err
+	}
+	if uint64(len(input)) > capacity {
+		return "", fmt.Errorf("Markdown input exceeds capacity: %d > %d", len(input), capacity)
+	}
+	inputPtr, err := call(ctx, module, "input_ptr")
+	if err != nil {
+		return "", err
+	}
+	if !memory.Write(uint32(inputPtr), input) {
+		return "", fmt.Errorf("input range is outside component memory")
+	}
+
+	result, err := call(ctx, module, "render", uint64(len(input)))
+	if err != nil {
+		return "", err
+	}
+	if result>>63 != 0 {
+		return "", fmt.Errorf("component rejected input")
+	}
+	outputPtr, outputSize := uint32(result>>32), uint32(result)
+	output, ok := memory.Read(outputPtr, outputSize)
+	if !ok {
+		return "", fmt.Errorf("output range is outside component memory")
+	}
+	if !utf8.Valid(output) {
+		return "", fmt.Errorf("component returned invalid UTF-8")
+	}
+	return string(output), nil
+}
+
+// Each QIP function used here returns one value.
+func call(ctx context.Context, module api.Module, name string, args ...uint64) (uint64, error) {
+	function := module.ExportedFunction(name)
+	if function == nil {
+		return 0, fmt.Errorf("component does not export %s", name)
+	}
+	results, err := function.Call(ctx, args...)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", name, err)
+	}
+	if len(results) != 1 {
+		return 0, fmt.Errorf("%s must return one value", name)
+	}
+	return results[0], nil
 }
 ```
 
@@ -243,19 +152,18 @@ The output begins with the rendered HTML:
 <!-- ... -->
 ```
 
-## How The Boundary Maps To Go
+## How the boundary maps to Go
 
 The loader is runtime-specific; the QIP calls are not:
 
 1. `os.ReadFile` reads the WebAssembly bytes from disk.
-2. `CompileModule` validates and compiles the WebAssembly Core module.
-3. `InstantiateModule` creates an instance with no imports.
-4. Go converts the Markdown to UTF-8 bytes and checks `input_utf8_cap()`.
-5. `Memory.Write` copies those bytes to `input_ptr()`.
-6. `render(input_size)` returns one packed `i64` value.
-7. Bit 63 reports rejection. Bits 32 through 62 contain the output pointer, and
+2. `Instantiate` validates, compiles, and instantiates the WebAssembly Core module with no imports.
+3. Go converts the Markdown to UTF-8 bytes and checks `input_utf8_cap()`.
+4. `Memory.Write` copies those bytes to `input_ptr()`.
+5. `render(input_size)` returns one packed `i64` value.
+6. Bit 63 reports rejection. Bits 32 through 62 contain the output pointer, and
    the low 32 bits contain the output size.
-8. `Memory.Read` exposes accepted output at the returned pointer, and
+7. `Memory.Read` exposes accepted output at the returned pointer, and
    conversion to `string` copies it out of component memory.
 
 Wazero represents the raw `i64` result as `uint64`, so the host can test bit 63
@@ -268,31 +176,86 @@ host therefore calls `utf8.Valid` when caller-provided bytes first enter an
 `input_utf8_cap` pipeline. It does not repeat that scan between known-valid
 components whose output and input both use the UTF-8 exports.
 
-`Memory.Read` returns a view into WebAssembly memory. Do not keep that byte slice across another component call or memory growth. This example validates it and converts it to a string before returning.
+`Memory.Read` returns a view into WebAssembly memory. Do not keep that byte slice across another component call or memory growth. This example validates it and copies it to a string before returning.
 
 The example's output check is a defensive component check. A production
 pipeline may rely on `output_utf8_cap`; Compliance and debug hosts can keep the
 check to detect a defective component.
 
-This wrapper trusts the known-valid GFM component and checks only the caller-controlled input size. A host accepting arbitrary Wasm has a different validation boundary; see [Known And Untrusted Components](/docs/content-component#known-and-untrusted-components).
+The checks above catch invalid input, rejection, traps, and invalid output ranges or UTF-8. They do not validate an arbitrary module's QIP contract or enforce a memory budget. See [Known and untrusted components](/docs/content-component#known-and-untrusted-components).
 
-## Cancellation, Concurrency, And Reuse
+## Cancellation, concurrency, and reuse
 
-`WithCloseOnContextDone(true)` adds checks that stop WebAssembly when the context passed to `Function.Call` is canceled or reaches its deadline. This prevents a non-terminating component from occupying a goroutine indefinitely, at the cost of some execution overhead.
+`WithCloseOnContextDone(true)` adds checks that stop WebAssembly when the context passed to `Function.Call` is canceled or reaches its deadline. These checks add some execution overhead. The trusted example uses `context.Background()`, so it has no deadline. Use `context.WithTimeout` when a call must stop after a fixed time.
 
-A canceled call closes its module instance. Discard that `MarkdownRenderer` and create another instead of trying to reuse it.
+A canceled call closes its module instance. Create a new instance before rendering again.
 
-The example compiles and instantiates the component once, then reuses it. A `MarkdownRenderer` owns mutable component memory and is not safe for concurrent renders: one goroutine could overwrite another's input before `render` reads it. Serialize access, or compile the module once and create one instance per worker or pool entry.
+The example renders once. For repeated renders, keep the runtime and module open and repeat the input write, render call, and output read. Each instance owns mutable memory: concurrent calls could overwrite another call's input. Serialize access to an instance. For parallel workers, use `CompileModule` once, then `InstantiateModule` to create one instance per worker or pool entry.
 
 wazero uses its compiler backend by default on supported `amd64` and `arm64` hosts and falls back to an interpreter where the compiler is unavailable. Both modes use the same public API.
 
-## Why Wazero
+## Run untrusted Wasm through the QIP host
+
+Core Wasm validation does not establish the QIP contract. For a module whose
+exports and behavior you do not trust, use the `qip` CLI from Go. The host
+checks the component contract before rendering and validates the returned
+output range and capacity. It rejects memory growth by default. Set a memory
+limit and an execution timeout explicitly.
+
+Install the Go QIP CLI and put `$(go env GOPATH)/bin` on `PATH`:
+
+```bash
+go install github.com/royalicing/qip@latest
+```
+
+This separate `main.go` runs a local `component.wasm` with a 64 MiB linear-memory limit and a
+one-second execution timeout. The Go context limits the whole subprocess to
+five seconds:
+
+```go
+package main
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "qip", "run",
+		"--max-memory", "67108864",
+		"--timeout-ms", "1000",
+		"--capacities-must-fit",
+		"./component.wasm",
+	)
+	cmd.Stdin = strings.NewReader("# Project status\n")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		panic(err)
+	}
+}
+```
+
+This uses the module's declared content types; it does not assume the result
+is HTML. Contract checks and timeouts do not prove that the module performs
+the intended transform. The memory limit covers Wasm linear memory, not the
+whole subprocess. See [Hard limits](/docs/hard-limits) for the checks and their
+limits. An application that must host untrusted Wasm in process needs these
+validation and resource controls before it can use the direct call flow.
+
+## Why wazero
 
 wazero keeps the Go build operationally simple: no CGO, shared library, Rust toolchain, or per-platform runtime package is required. Cross-compilation remains a normal Go build, and the runtime follows `context.Context` for cancellation.
 
 [Wasmtime Go](https://github.com/bytecodealliance/wasmtime-go) is worth benchmarking when a specific workload is CPU-bound or needs a Wasmtime feature that wazero does not provide. It introduces CGO and native-library build requirements, so measured runtime gains need to justify a more complicated build and deployment path.
 
-## When To Use Something Else
+## When to use something else
 
 Keep ordinary Go code in charge of database access, HTTP calls, authentication, logging, and application workflow. QIP fits the deterministic Markdown-to-HTML step and gives that code no access to the rest of the application.
 
