@@ -8,11 +8,20 @@ const LEFT = 46;
 const GAP = 34;
 const TOP_Y = 82;
 const TABLEAU_Y = 292;
-const OUTPUT_CAP = 96 * 1024;
+// The win cascade stamps up to ~4.4k card copies; each is a short <use>.
+const OUTPUT_CAP = 320 * 1024;
 const OUTPUT_CONTENT_TYPE = "image/svg+xml";
 const PRIMARY = 1;
 const KEY_DOWN = 1;
 const DEFAULT_SEED: u32 = 0x482ce17b;
+const FLIGHT_MS = 240;
+const FRAME_MS = 16;
+const POKE = 12;
+const LAUNCH_MS = 200;
+const TRAIL_EVERY = 2;
+const FLOOR: f32 = H - CARD_H;
+const GRAVITY: f32 = 0.9;
+const BOUNCE: f32 = 0.78;
 
 const Pile = struct {
     cards: [52]u8 = undefined,
@@ -47,6 +56,13 @@ const Drag = struct {
     active: bool = false,
 };
 const Hover = struct { col: u8, index: u8 };
+// A clicked card glides from its old spot to its foundation. Game state moves
+// at once; only the drawing lags behind, so input never waits on the animation.
+const Flight = struct { card: u8, from_x: i32, from_y: i32, start: i64 };
+// After a win, cards leave the foundations one by one, Windows-style, bouncing
+// along the floor and leaving a trail. Every frame re-simulates from the start
+// time, so the cascade needs no state beyond when it began.
+const Bouncer = struct { x: f32, y: f32, vx: f32, vy: f32 };
 
 var stock = Pile{};
 var waste = Pile{};
@@ -55,6 +71,9 @@ var face_down = [_]u8{0} ** 7;
 var foundation = [_]u8{0} ** 4;
 var drag: ?Drag = null;
 var hovered: ?Hover = null;
+var flight: ?Flight = null;
+var cascade_at: ?i64 = null;
+var cascade_skipped = false;
 var primary_down = false;
 var seed: u32 = DEFAULT_SEED;
 var requested_seed: u32 = DEFAULT_SEED;
@@ -108,15 +127,23 @@ export fn finish_update() i64 {
     if (!updating) @trap();
     updating = false;
     committed_at = begun_at;
-    return committed_at;
+    var wake = committed_at;
+    if (flight) |f| {
+        const end = f.start + FLIGHT_MS;
+        if (end > committed_at) {
+            wake = @min(committed_at + FRAME_MS, end);
+        } else flight = null;
+    }
+    if (cascade_at == null and won()) cascade_at = if (flight) |f| f.start + FLIGHT_MS else committed_at;
+    if (wake == committed_at and cascadeRunning(committed_at)) wake = committed_at + FRAME_MS;
+    return wake;
 }
 
 export fn key_event(key: i32, flags: i32) i32 {
     if (!updating) @trap();
     if ((flags & KEY_DOWN) == 0) return 0;
     if (key == 'n' or key == 'N' or key == 'r' or key == 'R') {
-        const time_bits: u32 = @truncate(@as(u64, @bitCast(begun_at)));
-        newGame(requested_seed ^ time_bits ^ (deals *% 0x9e3779b9));
+        dealFresh();
         return 1;
     }
     if (key == ' ' or key == 0xff0d) {
@@ -130,17 +157,30 @@ export fn pointer_event(mask: i32, x: i32, y: i32) i32 {
     if (!updating) @trap();
     const down = (mask & PRIMARY) != 0;
     defer primary_down = down;
-    if (down and !primary_down) {
-        const had_hover = hovered != null;
-        hovered = null;
-        if (inside(x, y, 845, 24, 112, 38)) {
-            const time_bits: u32 = @truncate(@as(u64, @bitCast(begun_at)));
-            newGame(requested_seed ^ time_bits ^ (deals *% 0x9e3779b9));
+    if (cascade_at != null) {
+        // The board is finished: a press skips the cascade or starts a new game.
+        if (!down or primary_down) return 0;
+        const finished = !cascadeRunning(begun_at);
+        if (inside(x, y, 845, 24, 112, 38) or (finished and inside(x, y, WIN_BUTTON_X, WIN_BUTTON_Y, 112, 38))) {
+            dealFresh();
             return 1;
         }
-        if (inside(x, y, colX(0), TOP_Y, CARD_W, CARD_H)) return @intFromBool(drawStock() or had_hover);
+        if (finished) return 0;
+        cascade_skipped = true;
+        flight = null;
+        return 1;
+    }
+    if (down and !primary_down) {
+        const had_overlay = hovered != null or flight != null;
+        hovered = null;
+        flight = null; // A new press lands any card still in flight.
+        if (inside(x, y, 845, 24, 112, 38)) {
+            dealFresh();
+            return 1;
+        }
+        if (inside(x, y, colX(0), TOP_Y, CARD_W, CARD_H)) return @intFromBool(drawStock() or had_overlay);
         drag = hitCard(x, y);
-        return @intFromBool(drag != null or had_hover);
+        return @intFromBool(drag != null or had_overlay);
     }
     if (down and primary_down) {
         if (drag) |*d| {
@@ -193,6 +233,15 @@ fn nextRandom() u32 {
     return seed;
 }
 
+// The "You won!" panel carries its own New game button.
+const WIN_BUTTON_X = 444;
+const WIN_BUTTON_Y = 406;
+
+fn dealFresh() void {
+    const time_bits: u32 = @truncate(@as(u64, @bitCast(begun_at)));
+    newGame(requested_seed ^ time_bits ^ (deals *% 0x9e3779b9));
+}
+
 fn newGame(value: u32) void {
     seed = if (value == 0) DEFAULT_SEED else value;
     deals +%= 1;
@@ -204,6 +253,9 @@ fn newGame(value: u32) void {
     foundation = [_]u8{0} ** 4;
     drag = null;
     hovered = null;
+    flight = null;
+    cascade_at = null;
+    cascade_skipped = false;
     var deck: [52]u8 = undefined;
     for (&deck, 0..) |*card, i| card.* = @intCast(i);
     var i: usize = deck.len - 1;
@@ -321,8 +373,124 @@ fn moveToFoundation(d: Drag) bool {
     return true;
 }
 
+fn sourcePos(d: Drag) [2]i32 {
+    return switch (d.source) {
+        .tableau => .{ colX(d.pile), TABLEAU_Y + @as(i32, d.index) * tableauGap(d.pile) },
+        .waste => .{ colX(1), TOP_Y },
+        .foundation => .{ colX(@as(usize, d.pile) + 3), TOP_Y },
+    };
+}
+
 fn autoFoundation(d: Drag) bool {
-    return moveToFoundation(d);
+    const from = sourcePos(d);
+    const card = sourceCard(d);
+    if (!moveToFoundation(d)) return false;
+    flight = .{ .card = card, .from_x = from[0], .from_y = from[1], .start = begun_at };
+    return true;
+}
+
+fn flightPos(f: Flight) [2]i32 {
+    const to_x = colX(@as(usize, suit(f.card)) + 3);
+    const t: i64 = @min(FLIGHT_MS, @max(0, committed_at - f.start));
+    // Cubic ease-out in thousandths: 1 - (1 - t)^3.
+    const rest = 1000 - @divTrunc(t * 1000, FLIGHT_MS);
+    const eased: i32 = @intCast(1000 - @divTrunc(rest * rest * rest, 1_000_000));
+    return .{
+        f.from_x + @divTrunc((to_x - f.from_x) * eased, 1000),
+        f.from_y + @divTrunc((TOP_Y - f.from_y) * eased, 1000),
+    };
+}
+
+fn won() bool {
+    for (foundation) |n| if (n != 13) return false;
+    return true;
+}
+
+// Kings leave first, cycling through the four foundations.
+fn cascadeCard(k: usize) u8 {
+    return @intCast((k % 4) * 13 + 12 - k / 4);
+}
+
+fn launch(k: usize) Bouncer {
+    var h: u32 = seed ^ (@as(u32, @intCast(k + 1)) *% 0x9e3779b9);
+    h ^= h >> 16;
+    h *%= 0x7feb352d;
+    h ^= h >> 15;
+    h *%= 0x846ca68b;
+    h ^= h >> 16;
+    const speed: f32 = @floatFromInt(6 + h % 7);
+    return .{
+        .x = @floatFromInt(colX(k % 4 + 3)),
+        .y = TOP_Y,
+        .vx = if ((h >> 8) & 1 == 0) -speed else speed,
+        .vy = @as(f32, @floatFromInt((h >> 12) % 12)) - 9,
+    };
+}
+
+fn advance(b: *Bouncer) void {
+    b.x += b.vx;
+    b.vy += GRAVITY;
+    b.y += b.vy;
+    if (b.y > FLOOR) {
+        b.y = FLOOR;
+        b.vy = -b.vy * BOUNCE;
+    }
+}
+
+fn offscreen(b: Bouncer) bool {
+    return b.x < -CARD_W or b.x > W;
+}
+
+fn cascadeEnd(start: i64) i64 {
+    var end = start;
+    for (0..52) |k| {
+        var b = launch(k);
+        var steps: i64 = 0;
+        while (!offscreen(b)) : (steps += 1) advance(&b);
+        end = @max(end, start + @as(i64, @intCast(k)) * LAUNCH_MS + steps * FRAME_MS);
+    }
+    return end;
+}
+
+fn cascadeRunning(now: i64) bool {
+    const start = cascade_at orelse return false;
+    return !cascade_skipped and now < cascadeEnd(start);
+}
+
+fn cascadeElapsed() i64 {
+    if (cascade_skipped) return std.math.maxInt(i32);
+    return committed_at - (cascade_at orelse return -1);
+}
+
+fn cascadeLaunched(f: usize) u8 {
+    const elapsed = cascadeElapsed();
+    if (elapsed < 0) return 0;
+    const count: usize = @intCast(@min(52, @divTrunc(elapsed, LAUNCH_MS) + 1));
+    return @intCast(count / 4 + @intFromBool(count % 4 > f));
+}
+
+fn drawCascade(w: *Writer) !void {
+    const elapsed = cascadeElapsed();
+    if (elapsed < 0) return;
+    const count: usize = @intCast(@min(52, @divTrunc(elapsed, LAUNCH_MS) + 1));
+    try w.bytes("<defs>");
+    for (0..count) |k| {
+        try w.fmt("<g id=\"kc{d}\">", .{cascadeCard(k)});
+        try drawFace(w, cascadeCard(k), false);
+        try w.bytes("</g>");
+    }
+    try w.bytes("</defs>");
+    for (0..count) |k| {
+        const steps = @divTrunc(elapsed - @as(i64, @intCast(k)) * LAUNCH_MS, FRAME_MS);
+        var b = launch(k);
+        var i: i64 = 0;
+        while (!offscreen(b)) : (i += 1) {
+            if (i == steps or @mod(i, TRAIL_EVERY) == 0)
+                try w.fmt("<use href=\"#kc{d}\" x=\"{d}\" y=\"{d}\"/>", .{ cascadeCard(k), @as(i32, @intFromFloat(@round(b.x))), @as(i32, @intFromFloat(@round(b.y))) });
+            if (i == steps) break;
+            advance(&b);
+        }
+    }
 }
 
 fn drop(d: Drag, x: i32, y: i32) bool {
@@ -364,6 +532,17 @@ fn rankText(card: u8) []const u8 {
         else => |r| (&[_][]const u8{ "", "", "2", "3", "4", "5", "6", "7", "8", "9" })[r],
     };
 }
+// Approximate advance width of the 20 px bold rank, so the suit beneath it can be centred.
+fn rankWidth(card: u8) i32 {
+    return switch (rank(card)) {
+        1 => 14,
+        10 => 25,
+        11 => 11,
+        12 => 15,
+        13 => 14,
+        else => 12,
+    };
+}
 fn suitName(s: usize) []const u8 {
     return (&[_][]const u8{ "SPADES", "HEARTS", "DIAMONDS", "CLUBS" })[s];
 }
@@ -385,17 +564,30 @@ fn drawSuit(w: *Writer, card: u8, x: i32, y: i32, size: i32) !void {
 fn drawCard(w: *Writer, card: ?u8, x: i32, y: i32, back: bool) !void {
     try w.fmt("<g transform=\"translate({d} {d})\">", .{ x, y });
     try w.bytes("<rect x=\"2\" y=\"5\" width=\"106\" height=\"146\" rx=\"12\" fill=\"#06281f\" opacity=\".28\"/>");
+    try drawFace(w, card, back);
+    try w.bytes("</g>");
+}
+
+fn drawFace(w: *Writer, card: ?u8, back: bool) !void {
     if (back) {
         try w.bytes("<rect width=\"106\" height=\"146\" rx=\"12\" fill=\"#fbf7ec\" stroke=\"#d6d3c7\"/><rect x=\"5\" y=\"5\" width=\"96\" height=\"136\" rx=\"8\" fill=\"#183f76\"/><rect x=\"10\" y=\"10\" width=\"86\" height=\"126\" rx=\"5\" fill=\"url(#back)\" stroke=\"#9ab9dc\" stroke-width=\"1.2\"/><path d=\"M53 26 78 73 53 120 28 73Z\" fill=\"none\" stroke=\"#b7d4ed\" stroke-width=\"2\"/><circle cx=\"53\" cy=\"73\" r=\"18\" fill=\"#f4e7bd\"/><path d=\"M53 58 65 73 53 88 41 73Z\" fill=\"#204d80\"/>");
     } else if (card) |c| {
         const color = if (red(c)) "#bd3b42" else "#1c3144";
         try w.bytes("<rect width=\"106\" height=\"146\" rx=\"12\" fill=\"url(#face)\" stroke=\"#d2d2cb\"/>");
-        try w.fmt("<text x=\"11\" y=\"30\" font-size=\"25\" font-weight=\"700\" fill=\"{s}\">{s}</text>", .{ color, rankText(c) });
-        try drawSuit(w, c, 11, 34, 21);
+        try drawIndex(w, c, color);
         try drawSuit(w, c, 29, 51, 49);
-        try w.fmt("<text x=\"94\" y=\"137\" text-anchor=\"end\" font-size=\"19\" font-weight=\"700\" fill=\"{s}\">{s}</text>", .{ color, rankText(c) });
+        // The bottom-right index is the top-left one turned upside down, as on a real card.
+        try w.bytes("<g transform=\"rotate(180 53 73)\">");
+        try drawIndex(w, c, color);
+        try w.bytes("</g>");
     }
-    try w.bytes("</g>");
+}
+
+fn drawIndex(w: *Writer, c: u8, color: []const u8) !void {
+    // The rank sits in the top 16 px so it stays readable in the tightest tableau fan.
+    try w.fmt("<text x=\"8\" y=\"19\" font-size=\"20\" font-weight=\"700\" fill=\"{s}\">{s}</text>", .{ color, rankText(c) });
+    // As on a standard deck, the small suit is centred beneath the rank.
+    try drawSuit(w, c, 8 + @divTrunc(rankWidth(c), 2) - 7, 23, 14);
 }
 
 fn drawSlot(w: *Writer, x: i32, y: i32, label: []const u8) !void {
@@ -422,7 +614,9 @@ fn drawBoard(w: *Writer) !void {
         const x = colX(f + 3);
         try drawSlot(w, x, TOP_Y, suitName(f));
         const dragging_foundation = if (drag) |d| d.active and d.source == .foundation and d.pile == f else false;
-        if (foundation[f] > 0 and !dragging_foundation) try drawCard(w, @intCast(f * 13 + foundation[f] - 1), x, TOP_Y, false);
+        const landing = if (flight) |fl| suit(fl.card) == f else false;
+        const shown = foundation[f] - @intFromBool(dragging_foundation or landing) - cascadeLaunched(f);
+        if (shown > 0) try drawCard(w, @intCast(f * 13 + shown - 1), x, TOP_Y, false);
     }
     for (0..7) |col| {
         const x = colX(col);
@@ -432,13 +626,16 @@ fn drawBoard(w: *Writer) !void {
             if (drag) |d| {
                 if (d.active and d.source == .tableau and d.pile == col and i >= d.index) continue;
             }
-            const y = TABLEAU_Y + @as(i32, @intCast(i)) * gap;
+            // A hovered covered card pokes up from its stack to show more of itself.
+            const poked = if (hovered) |h| drag == null and h.col == col and h.index == i else false;
+            const y = TABLEAU_Y + @as(i32, @intCast(i)) * gap - if (poked) @as(i32, POKE) else 0;
             const hidden = i < face_down[col];
             try drawCard(w, if (hidden) null else tableau[col].cards[i], x, y, hidden);
         }
     }
-    if (hovered) |h| {
-        if (drag == null) try drawCard(w, tableau[h.col].cards[h.index], colX(h.col) + 8, TABLEAU_Y + @as(i32, @intCast(h.index)) * tableauGap(h.col) - 8, false);
+    if (flight) |f| {
+        const pos = flightPos(f);
+        try drawCard(w, f.card, pos[0], pos[1], false);
     }
     if (drag) |d| {
         if (d.active) {
@@ -453,12 +650,10 @@ fn drawBoard(w: *Writer) !void {
             }
         }
     }
-    var won = true;
-    for (foundation) |n| if (n != 13) {
-        won = false;
-    };
-    if (won) {
-        try w.bytes("<rect x=\"315\" y=\"326\" width=\"370\" height=\"120\" rx=\"22\" fill=\"#f8f0d8\"/><text x=\"500\" y=\"380\" text-anchor=\"middle\" font-size=\"29\" font-weight=\"700\" fill=\"#114b38\">You won!</text><text x=\"500\" y=\"411\" text-anchor=\"middle\" font-size=\"15\" fill=\"#416e5b\">Start a new game to play again.</text>");
+    try drawCascade(w);
+    if (cascade_at != null and !cascadeRunning(committed_at)) {
+        try w.fmt("<rect x=\"315\" y=\"306\" width=\"370\" height=\"160\" rx=\"22\" fill=\"#f8f0d8\"/><text x=\"500\" y=\"356\" text-anchor=\"middle\" font-size=\"29\" font-weight=\"700\" fill=\"#114b38\">You won!</text><text x=\"500\" y=\"385\" text-anchor=\"middle\" font-size=\"15\" fill=\"#416e5b\">Finished in {d} moves.</text>", .{moves});
+        try w.fmt("<rect x=\"{d}\" y=\"{d}\" width=\"112\" height=\"38\" rx=\"19\" fill=\"#124735\"/><text x=\"500\" y=\"{d}\" text-anchor=\"middle\" font-size=\"14\" font-weight=\"700\" fill=\"#f5edcf\">New game</text>", .{ WIN_BUTTON_X, WIN_BUTTON_Y, WIN_BUTTON_Y + 25 });
     }
     try w.bytes("<text x=\"46\" y=\"715\" font-size=\"13\" fill=\"#b9dbc2\">Drag cards to move · Click a top card to send it to a foundation · Click stock to draw</text></svg>");
 }
@@ -502,4 +697,39 @@ test "foundations accept one card at a time in suit order" {
     try std.testing.expect(!moveToFoundation(ace));
     try std.testing.expectEqual(@as(u8, 1), foundation[1]);
     try std.testing.expectEqual(@as(u8, 1), waste.len);
+}
+
+test "a win cascades every card off the foundations and fits the output" {
+    newGame(777);
+    initialized = true;
+    stock = .{};
+    waste = .{};
+    tableau = [_]Pile{.{}} ** 7;
+    foundation = [_]u8{13} ** 4;
+    committed_at = 1000;
+    begin_update_at(2000);
+    try std.testing.expectEqual(@as(i64, 2016), finish_update());
+    try std.testing.expectEqual(@as(?i64, 2000), cascade_at);
+    begin_update_at(2500);
+    _ = finish_update();
+    try std.testing.expectEqual(@as(u8, 1), cascadeLaunched(0));
+    try std.testing.expectEqual(@as(u8, 1), cascadeLaunched(2));
+    try std.testing.expectEqual(@as(u8, 0), cascadeLaunched(3));
+    _ = render(0);
+    begin_update_at(2600);
+    try std.testing.expectEqual(@as(i32, 1), pointer_event(1, 500, 500)); // Skip.
+    try std.testing.expectEqual(@as(i64, 2600), finish_update());
+    const packed_out = render(0);
+    const svg = output_buf[0..@as(u32, @truncate(packed_out))];
+    try std.testing.expect(std.mem.indexOf(u8, svg, "You won!") != null);
+    for (0..4) |f| try std.testing.expectEqual(@as(u8, 13), cascadeLaunched(f));
+    try std.testing.expectEqual(@as(usize, 2), std.mem.count(u8, svg, "New game")); // Header and panel buttons.
+    begin_update_at(2700);
+    try std.testing.expectEqual(@as(i32, 0), pointer_event(0, 500, 425)); // Release from the skip.
+    _ = finish_update();
+    begin_update_at(2800);
+    try std.testing.expectEqual(@as(i32, 1), pointer_event(1, 500, 425)); // Panel button deals again.
+    _ = finish_update();
+    try std.testing.expectEqual(@as(?i64, null), cascade_at);
+    try std.testing.expectEqual(@as(u8, 0), foundation[0]);
 }

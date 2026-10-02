@@ -95,7 +95,10 @@ test("a legal tableau drag moves the card and reveals the next one", async () =>
   game.begin_update_at(2n);
   assert.equal(game.pointer_event(0, 60, 306), 1); // Hover the covered queen.
   game.finish_update();
-  assert.match(frame(), /<g transform="translate\(54 284\)">/);
+  const hovering = frame();
+  assert.match(hovering, /<g transform="translate\(46 280\)">/); // Queen pokes up in place.
+  assert.doesNotMatch(hovering, /<g transform="translate\(46 292\)">/);
+  assert.ok(hovering.indexOf("translate(46 280)") < hovering.indexOf("translate(46 322)"), "jack still covers the queen");
 
   game.begin_update_at(3n);
   assert.equal(game.pointer_event(0, 60, 306), 0); // Same card needs no redraw.
@@ -134,4 +137,43 @@ test("dragging waste reveals the previous drawn card", async () => {
   const dragging = frame();
   assert.equal(wasteCard(dragging), previous);
   assert.match(dragging, /<g transform="translate\(286 222\)">/);
+});
+
+test("clicking an ace animates it to its foundation", async () => {
+  const { instance } = await WebAssembly.instantiate(bytes);
+  const game = instance.exports;
+  const frame = () => {
+    const packed = game.render(0);
+    return new TextDecoder().decode(new Uint8Array(game.memory.buffer, Number(packed >> 32n), Number(packed & 0xffffffffn)));
+  };
+  const wasteAce = /<g transform="translate\(186 82\)">(?:(?!<\/g>).)*>A<\/text><svg [^>]*data-suit="(\w+)"/;
+  frame();
+  let time = 0;
+  let suit;
+  for (let n = 0; n < 24 && !suit; n++) {
+    game.begin_update_at(BigInt(++time));
+    game.key_event(32, 1);
+    game.finish_update();
+    suit = frame().match(wasteAce)?.[1];
+  }
+  assert.ok(suit, "the default deal turns up an ace from the stock");
+  const slotX = 46 + (["spades", "hearts", "diamonds", "clubs"].indexOf(suit) + 3) * 140;
+
+  game.begin_update_at(BigInt(++time));
+  game.pointer_event(1, 200, 110);
+  assert.equal(game.pointer_event(0, 200, 110), 1);
+  const start = time;
+  assert.equal(game.finish_update(), BigInt(start + 16));
+  const takeoff = frame();
+  assert.match(takeoff, /<g transform="translate\(186 82\)">(?:(?!<\/g>).)*>A<\/text>/); // Still at the waste.
+
+  game.begin_update_at(BigInt(start + 120));
+  assert.equal(game.finish_update(), BigInt(start + 136));
+  const midway = frame().match(/<g transform="translate\((\d+) 82\)">(?:(?!<\/g>).)*>A<\/text>/g).at(-1);
+  const midX = Number(midway.match(/translate\((\d+)/)[1]);
+  assert.ok(midX > 186 && midX < slotX, `midway x ${midX}`);
+
+  game.begin_update_at(BigInt(start + 240));
+  assert.equal(game.finish_update(), BigInt(start + 240)); // Landed; no further wake.
+  assert.match(frame(), new RegExp(`<g transform="translate\\(${slotX} 82\\)">(?:(?!</g>).)*>A</text>`));
 });
