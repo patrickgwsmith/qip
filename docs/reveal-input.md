@@ -90,7 +90,7 @@ q=&sort=relevance
 
 A host can use this input without first asking the component to render. It might inspect the fields, present native controls, modify documented editable values, and supply the resulting bytes to the first `render(input_size)`.
 
-A component exporting `reveal_input()` therefore MUST have default input that is valid ordinary input for that component.
+Default input MUST use the component's input format, but it need not be accepted by `render`. For example, it may leave required fields empty for the user to fill in. A component whose default input can be rejected MUST reject it as an ordinary failure (see [Failures and errors](/docs/content-component#failures-and-errors)), not trap.
 
 Calling `reveal_input()` before the first render does not initialize the component, render output, advance time, or otherwise advance its lifecycle. It only makes the input representation of its default state available.
 
