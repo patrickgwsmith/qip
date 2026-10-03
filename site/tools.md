@@ -27,6 +27,7 @@ Browse the complete lists of [`text/*` components](/text) and [`image/*` compone
 - [Unicode transforms](/unicode) applies Unicode 17 uppercase and lowercase mappings to pasted text.
 - [JSON prettifier](/json-prettify) validates and indents JSON.
 - [Base64 encoder and decoder](/base64) converts text or bytes to and from Base64.
+- [AWS SigV4 request signer](/sigv4) outputs the signed headers for an AWS request without sending it.
 - [PDF to text](/pdf) extracts positioned text from born-digital PDFs locally.
 - [Favicon generator](/favicon) converts a PNG or BMP into a `favicon.ico`.
 - [BMP to WebP encoder](/webp) produces lossy or exact lossless WebP locally.

@@ -1210,6 +1210,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/webp-bmp.mjs
 	node --test test/bmp-rgb-metrics.mjs
 	node --test test/form-data-to-tar.mjs
+	node --test test/aws-sigv4-sign.mjs
 	node --test test/wasm-trap-instance-continues.mjs
 
 test-svg-rasterizers: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm application/wasm/wasm-bounded-output.wasm
