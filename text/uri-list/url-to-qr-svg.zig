@@ -800,7 +800,7 @@ export fn render(input_size_in: u32) packed struct(u64) {
     };
     return .{
         .output_size_or_failure = @intCast(out_len),
-        .output_ptr = @intCast(@intFromPtr(&output_buf)),
+        .output_ptr = @truncate(@intFromPtr(&output_buf)),
         .failed = 0,
     };
 }

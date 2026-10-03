@@ -67,6 +67,6 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /text/markdown/gfm-commonmark.0.31.2.wasm,utf8,text/markdown,2097152,utf8,text/html,2097152
 /text/markdown/markdown-basic.wasm,utf8,text/markdown,131072,utf8,text/html,262144
 /text/uri-list/data-uri-to-css-url.wasm,utf8,text/uri-list,20477,utf8,text/plain,61440
-/text/uri-list/url-to-qr-svg.wasm,utf8,text/uri-list,256,utf8,image/svg+xml,524288
+/text/uri-list/url-to-qr-svg.wasm,utf8,text/uri-list,4096,utf8,image/svg+xml,1048576
 /text/vnd.mermaid/mermaid-to-unicode-html.wasm,utf8,text/vnd.mermaid,65536,utf8,text/html,1048576
 /text/x-c/c-to-bmp.wasm,utf8,text/x-c,65536,bytes,image/bmp,8388608
