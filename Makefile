@@ -596,7 +596,9 @@ image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
 # arena supports the measured 25 MP 4:4:4 peak within 512 MiB fixed memory.
 image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
 image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
-audio/wav/wav-to-mp3-lossy.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+# 1008 MiB of WAV input, which the MP3 overwrites as it is encoded, plus an
+# 8 MiB arena for LAME (measured peak under 2 MiB), stack, and data.
+audio/wav/wav-to-mp3-lossy.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
 image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
 image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
 image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 671088640

@@ -127,24 +127,41 @@ function rejected(wav) {
   return qipRenderSize(exports, wav.length) === 0;
 }
 
-test("the encoder is self-contained with one fixed 256 MiB memory", () => {
+test("the encoder is self-contained with one fixed 1 GiB memory", () => {
   assert.deepEqual(WebAssembly.Module.imports(encoderModule), []);
   const exports = newEncoder();
-  assert.equal(exports.memory.buffer.byteLength, 256 * 1024 * 1024);
+  assert.equal(exports.memory.buffer.byteLength, 1024 * 1024 * 1024);
   assert.throws(() => exports.memory.grow(1), RangeError);
-  assert.equal(exports.input_bytes_cap(), 64 * 1024 * 1024);
-  assert.equal(exports.output_bytes_cap(), 64 * 1024 * 1024);
+  assert.equal(exports.input_bytes_cap(), 1008 * 1024 * 1024);
+  assert.equal(exports.output_bytes_cap(), 1008 * 1024 * 1024);
   assert.equal(exportedString(exports, "input_content_type_ptr", "input_content_type_size"), "audio/wav");
   assert.equal(exportedString(exports, "output_content_type_ptr", "output_content_type_size"), "audio/mpeg");
 });
 
-test("the bitrate uniform clamps to 32-320 kbps", () => {
+test("the bitrate uniform snaps to an MPEG-1 bitrate in 32-320 kbps", () => {
   const exports = newEncoder();
   assert.equal(exports.uniform_set_bitrate_kbps(0), 32);
   assert.equal(exports.uniform_set_bitrate_kbps(31), 32);
   assert.equal(exports.uniform_set_bitrate_kbps(128), 128);
+  assert.equal(exports.uniform_set_bitrate_kbps(100), 96);
+  assert.equal(exports.uniform_set_bitrate_kbps(104), 96); // ties round down, like LAME
+  assert.equal(exports.uniform_set_bitrate_kbps(105), 112);
+  assert.equal(exports.uniform_set_bitrate_kbps(300), 320);
   assert.equal(exports.uniform_set_bitrate_kbps(321), 320);
   assert.equal(exports.uniform_set_bitrate_kbps(0xffffffff), 320);
+  for (const kbps of MPEG1_BITRATES.filter((rate) => rate >= 32)) {
+    assert.equal(exports.uniform_set_bitrate_kbps(kbps), kbps);
+  }
+});
+
+test("the returned bitrate is the one in the frames, and resets after render", () => {
+  const wav = makeWav({ channels: 2, sampleRate: 44100, frames: 4410 });
+  for (const requested of [100, 150, 300]) {
+    const exports = newEncoder();
+    const applied = exports.uniform_set_bitrate_kbps(requested);
+    assert.equal(summarize(encodeWith(exports, wav)).bitrate, applied);
+    assert.deepEqual(encodeWith(exports, wav), encode(wav));
+  }
 });
 
 test("LAME's testcase.wav encodes to deterministic 192 kbps MPEG-1 Layer III", () => {
@@ -287,7 +304,7 @@ test("input sizes beyond the input buffer are rejected without reading it", () =
   assert.equal(qipRenderSize(exports, 0xffffffff), 0);
 });
 
-test("a reused instance matches fresh instances and keeps its uniform", () => {
+test("a reused instance matches fresh instances when the uniform is set per render", () => {
   const exports = newEncoder();
   const inputs = [
     makeWav({ channels: 2, sampleRate: 44100, frames: 30000 }),
@@ -296,7 +313,6 @@ test("a reused instance matches fresh instances and keeps its uniform", () => {
     makeWav({ channels: 2, sampleRate: 48000, frames: 1 }),
     lameTestcase,
   ];
-  exports.uniform_set_bitrate_kbps(96);
   for (let round = 0; round < 4; round += 1) {
     for (const wav of inputs) {
       const fresh = newEncoder();
@@ -304,7 +320,7 @@ test("a reused instance matches fresh instances and keeps its uniform", () => {
       new Uint8Array(fresh.memory.buffer, fresh.input_ptr(), wav.length).set(wav);
       const freshSize = qipRenderSize(fresh, wav.length);
       const expected = Buffer.from(new Uint8Array(fresh.memory.buffer, qipRenderedOutputPointer(fresh), freshSize));
-      assert.deepEqual(encodeWith(exports, wav), expected);
+      assert.deepEqual(encodeWith(exports, wav, 96), expected);
     }
   }
 });
@@ -315,6 +331,23 @@ test("a long recording stays within the arena", () => {
   const info = summarize(mp3);
   assert.ok(info.samples >= 48000 * 60);
   assert.ok(exports.arena_peak_bytes() < 2 * 1024 * 1024, `arena peak ${exports.arena_peak_bytes()}`);
+});
+
+test("the MP3 is written over input already encoded", () => {
+  const exports = newEncoder();
+  const wav = makeWav({ channels: 2, sampleRate: 44100, frames: 44100 });
+  encodeWith(exports, wav, 128);
+  assert.equal(qipRenderedOutputPointer(exports), exports.input_ptr());
+  // Mono at low sample rates with the bitrate maxed out gives the largest
+  // output relative to the input, and still fits behind the read cursor.
+  for (const sampleRate of [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000]) {
+    for (const sample of [tone(1, sampleRate), (i) => ((i * 2654435761) % 65536) / 32768 - 1]) {
+      const input = makeWav({ channels: 1, sampleRate, frames: sampleRate * 2, sample });
+      const mp3 = encode(input, 320);
+      assert.ok(mp3.length < input.length, `${sampleRate} Hz mono gave ${mp3.length} of ${input.length} bytes`);
+      summarize(mp3);
+    }
+  }
 });
 
 function decodeMp3(mp3, channels) {

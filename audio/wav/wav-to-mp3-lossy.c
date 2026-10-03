@@ -8,18 +8,30 @@
 
 #include "lame.h"
 
-#define INPUT_CAP (64u * 1024u * 1024u)
-#define OUTPUT_CAP (64u * 1024u * 1024u)
-#define ARENA_CAP (64u * 1024u * 1024u)
+/* The MP3 is written over input that has already been encoded, so there is no
+   separate output buffer. CBR MP3 is always smaller than 16-bit PCM at the same
+   sample rate; render() still checks the write never passes the read cursor
+   until every sample has been read. */
+#define INPUT_CAP (1008u * 1024u * 1024u)
+#define OUTPUT_CAP INPUT_CAP
+#define ARENA_CAP (8u * 1024u * 1024u)
 #define ENCODE_SAMPLES 1152u
 #define ENCODE_MP3_CAP (8192u + (ENCODE_SAMPLES * 5u / 4u))
 
 static uint8_t input_buf[INPUT_CAP] __attribute__((aligned(16)));
-static uint8_t output_buf[OUTPUT_CAP] __attribute__((aligned(16)));
+static uint8_t* const output_buf = input_buf;
 static uint8_t arena[ARENA_CAP] __attribute__((aligned(16)));
 static uint8_t mp3_chunk[ENCODE_MP3_CAP] __attribute__((aligned(16)));
 
-static uint32_t bitrate_kbps = 192;
+#define DEFAULT_BITRATE_KBPS 192u
+
+/* MPEG-1 Layer III CBR bitrates. Input below 32 kHz is encoded as MPEG-2,
+   whose table tops out at 160 kbps, so LAME lowers higher values there. */
+static const uint16_t mpeg1_bitrates_kbps[] = {32,  40,  48,  56,  64,
+                                               80,  96,  112, 128, 160,
+                                               192, 224, 256, 320};
+
+static uint32_t bitrate_kbps = DEFAULT_BITRATE_KBPS;
 static size_t arena_used;
 static size_t arena_peak;
 static size_t arena_alloc_count;
@@ -293,10 +305,20 @@ uint32_t output_content_type_size(void) {
   return sizeof(output_content_type) - 1;
 }
 
+/* Snaps to the nearest MPEG-1 bitrate, rounding ties down like LAME's
+   FindNearestBitrate, so the returned value is the bitrate in the frames. */
 uint32_t uniform_set_bitrate_kbps(uint32_t value) {
-  if (value < 32) value = 32;
-  if (value > 320) value = 320;
-  bitrate_kbps = value;
+  uint32_t nearest = mpeg1_bitrates_kbps[0];
+  for (size_t i = 1;
+       i < sizeof(mpeg1_bitrates_kbps) / sizeof(mpeg1_bitrates_kbps[0]); i++) {
+    uint32_t candidate = mpeg1_bitrates_kbps[i];
+    uint32_t candidate_distance =
+        candidate > value ? candidate - value : value - candidate;
+    uint32_t nearest_distance =
+        nearest > value ? nearest - value : value - nearest;
+    if (candidate_distance < nearest_distance) nearest = candidate;
+  }
+  bitrate_kbps = nearest;
   return bitrate_kbps;
 }
 
@@ -310,7 +332,7 @@ uint32_t arena_free_unmatched_count(void) {
   return (uint32_t)arena_free_unmatched_count_value;
 }
 
-uint64_t render(uint32_t input_size_value) {
+static uint64_t encode_wav(uint32_t input_size_value) {
   size_t input_size = input_size_value;
   uint32_t offset = 12;
   uint16_t channels = 0;
@@ -322,6 +344,7 @@ uint64_t render(uint32_t input_size_value) {
   uint32_t samples_per_channel;
   uint32_t sample_index = 0;
   uint32_t output_size = 0;
+  uint32_t output_limit;
   lame_t lame;
 
   arena_reset();
@@ -390,13 +413,18 @@ uint64_t render(uint32_t input_size_value) {
     else
       written = lame_encode_buffer(lame, pcm, pcm, (int)todo, mp3_chunk,
                                    (int)ENCODE_MP3_CAP);
-    if (written < 0 || (uint32_t)written > OUTPUT_CAP - output_size) {
+    sample_index += todo;
+    /* Until the last samples are read, stay behind the read cursor. */
+    if (sample_index < samples_per_channel)
+      output_limit = data_offset + sample_index * block_align;
+    else
+      output_limit = OUTPUT_CAP;
+    if (written < 0 || (uint32_t)written > output_limit - output_size) {
       lame_close(lame);
       return ((uint64_t)output_ptr() << 32) | 0u;
     }
     memcpy(output_buf + output_size, mp3_chunk, (size_t)written);
     output_size += (uint32_t)written;
-    sample_index += todo;
   }
 
   {
@@ -413,4 +441,11 @@ uint64_t render(uint32_t input_size_value) {
   if (arena_used != 0 || arena_free_unmatched_count_value != 0)
     __builtin_trap();
   return ((uint64_t)output_ptr() << 32) | output_size;
+}
+
+/* Content uniforms apply to one render only (docs/uniforms.md). */
+uint64_t render(uint32_t input_size_value) {
+  uint64_t result = encode_wav(input_size_value);
+  bitrate_kbps = DEFAULT_BITRATE_KBPS;
+  return result;
 }
