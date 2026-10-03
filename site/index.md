@@ -94,7 +94,7 @@ QIP uses a narrower boundary: explicit input, output, memory, and zero host acce
 
 Use QIP components for text, images, documents, archives, interactive UI, or any MIME type.
 
-Browse the [text](/text), [image](/image), [TUI](/tui), and [GUI](/gui) component collections.
+Browse the [text](/text), [image](/image), [audio](/audio), [TUI](/tui), and [GUI](/gui) component collections.
 
 Just like the web is `request -> response`, QIP components are `input -> output`. Yet QIP components are not tied to HTML or JavaScript: they take any content as input and render any content as output.
 

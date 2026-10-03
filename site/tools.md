@@ -17,7 +17,7 @@
 
 Tools that run entirely in your browser. Nothing is uploaded. You can download the same `.wasm` files to run in JavaScript or in your terminal. Powered by [QIP content components](/docs/component-contract). For reusable behavior tests, see the [Compliance oracle downloads](/oracles).
 
-Browse the complete lists of [`text/*` components](/text) and [`image/*` components](/image) when you need the reusable module rather than a browser interface.
+Browse the complete lists of [`text/*` components](/text), [`image/*` components](/image), and [`audio/*` components](/audio) when you need the reusable module rather than a browser interface.
 
 - [Markdown to HTML](/markdown-to-html) renders either GitHub Flavored Markdown or CommonMark 0.31.2.
 - [Open Graph image maker](/og-image) previews a title and subtitle in Inter Display and DejaVu Sans Mono, then downloads self-contained SVG.
@@ -34,6 +34,7 @@ Browse the complete lists of [`text/*` components](/text) and [`image/*` compone
 - [Image compressor](/image-compress) compares lossy WebP, AVIF, and JPEG encodes locally, ordered by file size.
 - [High-quality image resizer](/image-resize) uses Lanczos3 for reduction and Mitchell-Netravali bicubic reconstruction for enlargement.
 - [WebP to PNG or BMP](/webp-to-png) decodes static lossy or lossless WebP locally.
+- [WAV to MP3 encoder](/mp3) encodes 16-bit PCM WAV to constant-bitrate MP3 locally with LAME.
 - [Syntax highlighter](/syntax-highlight) turns pasted code into self-contained highlighted HTML.
 - [Syntax highlight comparison](/syntax-highlight-comparison) compares QIP with gpu-lexer, Sugar High, Prism, Starry Night, and Shiki.
 - [HTML accessibility tree](/accessibility-tree) shows the roles and accessible names screen readers compute from your HTML.
