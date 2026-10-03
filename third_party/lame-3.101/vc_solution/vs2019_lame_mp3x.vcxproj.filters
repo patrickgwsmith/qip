@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Source">
+      <UniqueIdentifier>{ceee11be-bab8-48a6-b372-a1794367fc02}</UniqueIdentifier>
+      <Extensions>c</Extensions>
+    </Filter>
+    <Filter Include="Include">
+      <UniqueIdentifier>{4ccfcd50-9719-48fb-80d8-847ac042d4d1}</UniqueIdentifier>
+      <Extensions>h</Extensions>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\frontend\brhist.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\console.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\get_audio.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\gpkplotting.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\gtkanal.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\lametime.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\main.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\mp3x.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\parse.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\frontend\timestatus.c">
+      <Filter>Source</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\frontend\brhist.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\configMS.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\console.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\get_audio.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\gpkplotting.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\lametime.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\main.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\parse.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+    <ClInclude Include="..\frontend\timestatus.h">
+      <Filter>Include</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\libmp3lame\lame.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\README.WINGTK" />
+  </ItemGroup>
+</Project>

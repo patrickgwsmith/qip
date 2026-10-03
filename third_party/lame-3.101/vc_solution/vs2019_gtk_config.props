@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <WinGtkPath>./WinGtk/</WinGtkPath>
+  </PropertyGroup>
+  <PropertyGroup>
+  </PropertyGroup>
+  <ItemGroup>
+    <BuildMacro Include="WinGtkPath">
+      <Value>$(WinGtkPath)</Value>
+    </BuildMacro>
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(WinGtkPath)gtk;$(WinGtkPath)gtk\glib;$(WinGtkPath)gtk\gdk;$(WinGtkPath)gtk\glib\glib</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <!-- Deliberately only use the Debug version of gtk1-win, since the release libs have some missing symbols -->
+      <AdditionalLibraryDirectories>$(WinGtkPath)gtk\build\vcpp\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>gdk.lib;gtk.lib;glib.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command>xcopy /y "$(WinGtkPath)gtk\build\vcpp\Debug\*.dll" "$(OutputPath)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+</Project>

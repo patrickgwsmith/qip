@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <!-- libsndfile configuration; set to true and adjust path, ending with a backslash -->
+    <HaveLibsndfile>false</HaveLibsndfile>
+    <LibsndfilePath>.\libsndfile\$(Platform)\</LibsndfilePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <BuildMacro Include="HaveLibsndfile">
+      <Value>$(HaveLibsndfile)</Value>
+    </BuildMacro>
+    <BuildMacro Include="LibsndfilePath">
+      <Value>$(LibsndfilePath)</Value>
+    </BuildMacro>
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions Condition="$(HaveLibsndfile) == 'true'">LIBSNDFILE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories Condition="$(HaveLibsndfile) == 'true'">$(LibsndfilePath)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
+    <Link>
+      <AdditionalLibraryDirectories Condition="$(HaveLibsndfile) == 'true'">$(LibsndfilePath)lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies Condition="$(HaveLibsndfile) == 'true'">libsndfile-1.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Command Condition="$(HaveLibsndfile) == 'true'">copy "$(LibsndfilePath)bin\libsndfile-1.dll" "$(OutputPath)"</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+</Project>

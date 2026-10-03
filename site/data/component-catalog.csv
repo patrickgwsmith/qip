@@ -11,6 +11,7 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /application/wasm/qip-component-to-swift.wasm,bytes,application/wasm,1048576,utf8,text/x-swift,16777216
 /application/wasm/qip-component-to-zig.wasm,bytes,application/wasm,1048576,utf8,text/x-zig,16777216
 /application/wasm/wasm-to-js.wasm,bytes,application/wasm,1048576,utf8,text/javascript,2097152
+/audio/wav/wav-to-mp3-lossy.wasm,bytes,audio/wav,67108864,bytes,audio/mpeg,67108864
 /application/x-tar/recipes-tar-to-csv.wasm,bytes,application/x-tar,134217728,utf8,text/csv,524288
 /application/x-tar/tar-to-zip.wasm,bytes,application/x-tar,134217728,bytes,application/zip,167772160
 /application/zip/zip-extract-file.wasm,bytes,application/zip,134217728,bytes,application/octet-stream,167772160

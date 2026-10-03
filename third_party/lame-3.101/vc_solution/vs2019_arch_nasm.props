@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <NasmPath>.\nasm\</NasmPath>
+  </PropertyGroup>
+  <PropertyGroup>
+    <ExecutablePath>$(NasmPath);$(ExecutablePath)</ExecutablePath>
+  </PropertyGroup>
+  <ItemGroup>
+    <BuildMacro Include="NasmPath">
+      <Value>$(NasmPath)</Value>
+    </BuildMacro>
+  </ItemGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <PreprocessorDefinitions>HAVE_NASM;MMX_choose_table;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

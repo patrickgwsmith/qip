@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectName>lame_DirectShow</ProjectName>
+    <ProjectGuid>{6D348A4E-8B40-4FB0-BB57-C982D51FFA01}</ProjectGuid>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+    <CharacterSet>MultiByte</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="vs2019_win71sdk_config.props" />
+    <Import Project="vs2019_lame_config.props" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="vs2019_win71sdk_config.props" />
+    <Import Project="vs2019_lame_config.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <TargetExt>.ax</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <TargetExt>.ax</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>..\include;..\DShow;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>DEBUG;INC_OLE2;WINVER=0x0400;_X86_=1;STRICT;_WINDOWS;WIN32;STDC_HEADERS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <CallingConvention>StdCall</CallingConvention>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+    <Link>
+      <AdditionalDependencies>strmbasD.lib;vfw32.lib;winmm.lib;version.lib;Comdlg32.lib;comctl32.lib;quartz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <OutputFile>$(OutDir)lame.ax</OutputFile>
+      <ModuleDefinitionFile>..\DShow\Mpegac.def</ModuleDefinitionFile>
+      <SubSystem>Windows</SubSystem>
+      <EntryPointSymbol>DllEntryPoint%4012</EntryPointSymbol>
+      <AdditionalLibraryDirectories>..\DShow;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <Optimization>MaxSpeed</Optimization>
+      <InlineFunctionExpansion>OnlyExplicitInline</InlineFunctionExpansion>
+      <AdditionalIncludeDirectories>..\include;..\DShow;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NDEBUG;INC_OLE2;STRICT;WINVER=0x0400;_X86_=1;_WINDOWS;WIN32;STDC_HEADERS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <CallingConvention>StdCall</CallingConvention>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+    <Link>
+      <AdditionalDependencies>strmbase.lib;vfw32.lib;winmm.lib;version.lib;Comdlg32.lib;comctl32.lib;quartz.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\DShow\Mpegac.def</ModuleDefinitionFile>
+      <SubSystem>Windows</SubSystem>
+      <EntryPointSymbol>DllEntryPoint%4012</EntryPointSymbol>
+      <OutputFile>$(OutDir)lame.ax</OutputFile>
+      <AdditionalLibraryDirectories>..\DShow;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\DShow\aboutprp.cpp" />
+    <ClCompile Include="..\DShow\Encoder.cpp" />
+    <ClCompile Include="..\DShow\Mpegac.cpp" />
+    <ClCompile Include="..\DShow\PropPage.cpp" />
+    <ClCompile Include="..\DShow\PropPage_adv.cpp" />
+    <ClCompile Include="..\DShow\REG.CPP" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\DShow\Mpegac.def" />
+    <None Include="..\DShow\README" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\DShow\Property.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\DShow\aboutprp.h" />
+    <ClInclude Include="..\DShow\Encoder.h" />
+    <ClInclude Include="..\DShow\iaudioprops.h" />
+    <ClInclude Include="..\DShow\Mpegac.h" />
+    <ClInclude Include="..\DShow\PropPage.h" />
+    <ClInclude Include="..\DShow\PropPage_adv.h" />
+    <ClInclude Include="..\DShow\reg.h" />
+    <ClInclude Include="..\DShow\resource.h" />
+    <ClInclude Include="..\DShow\uids.h" />
+    <ClInclude Include="..\include\lame.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\DShow\elogo.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="vs2019_libmp3lame.vcxproj">
+      <Project>{20536101-3b0e-43ef-94f9-080d595dac57}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

@@ -36,7 +36,7 @@ tmp/
 __pycache__
 .zig-cache/
 
-qip
+/qip
 site-static.tar
 site-static/
 

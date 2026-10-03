@@ -1,0 +1,134 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|Win32">
+      <Configuration>Debug</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|Win32">
+      <Configuration>Release</Configuration>
+      <Platform>Win32</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectName>lameACM</ProjectName>
+    <ProjectGuid>{FC3D65E7-B7CB-406E-B6C9-0B26E30FE7F4}</ProjectGuid>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="Configuration">
+    <ConfigurationType>DynamicLibrary</ConfigurationType>
+    <PlatformToolset>v142</PlatformToolset>
+    <UseOfMfc>false</UseOfMfc>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="vs2019_lame_config.props" />
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+    <Import Project="vs2019_lame_config.props" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <TargetExt>.acm</TargetExt>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <TargetExt>.acm</TargetExt>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <ClCompile>
+      <InlineFunctionExpansion>AnySuitable</InlineFunctionExpansion>
+      <AdditionalIncludeDirectories>../include;../ACM;../ACM/ddk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>NDEBUG;_BLADEDLL;_WINDOWS;WIN32;LAME_ACM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
+      <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+    <Link>
+      <ModuleDefinitionFile>..\ACM\lameACM.def</ModuleDefinitionFile>
+      <SubSystem>Windows</SubSystem>
+      <AdditionalDependencies>Winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PostBuildEvent>
+      <Message>ACM config files</Message>
+      <Command>copy ..\ACM\lameacm.inf $(TargetDir)*.*
+copy ..\ACM\lame_acm.xml $(TargetDir)*.*
+</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>../include;../ACM;../ACM/ddk;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>_DEBUG;_BLADEDLL;_WINDOWS;WIN32;LAME_ACM;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <TreatWChar_tAsBuiltInType>false</TreatWChar_tAsBuiltInType>
+    </ClCompile>
+    <ResourceCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <Culture>0x0409</Culture>
+    </ResourceCompile>
+    <Link>
+      <AdditionalDependencies>winmm.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <ModuleDefinitionFile>..\ACM\lameACM.def</ModuleDefinitionFile>
+      <SubSystem>Windows</SubSystem>
+    </Link>
+    <PostBuildEvent>
+      <Message>ACM config files</Message>
+      <Command>copy ..\ACM\lameacm.inf $(TargetDir)*.*
+copy ..\ACM\lame_acm.xml $(TargetDir)*.*
+</Command>
+    </PostBuildEvent>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="..\ACM\ACM.cpp" />
+    <ClCompile Include="..\ACM\ACMStream.cpp" />
+    <ClCompile Include="..\ACM\AEncodeProperties.cpp" />
+    <ClCompile Include="..\ACM\DecodeStream.cpp" />
+    <ClCompile Include="..\ACM\main.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\ACM\lameACM.def" />
+    <None Include="..\ACM\LameACM.inf" />
+    <None Include="..\ACM\TODO" />
+    <None Include="..\ACM\readme.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\ACM\ACM.h" />
+    <ClInclude Include="..\ACM\ACMStream.h" />
+    <ClInclude Include="..\ACM\adebug.h" />
+    <ClInclude Include="..\ACM\AEncodeProperties.h" />
+    <ClInclude Include="..\ACM\DecodeStream.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="..\ACM\acm.rc" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="..\ACM\lame.ico" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="vs2019_lame_acm_adbg.vcxproj">
+      <Project>{0d7cab1b-ae57-4ba1-bdbf-d7391aaa81aa}</Project>
+    </ProjectReference>
+    <ProjectReference Include="vs2019_lame_acm_tinyxml.vcxproj">
+      <Project>{30219289-3b7f-4e02-bc34-c1dbd08cd848}</Project>
+    </ProjectReference>
+    <ProjectReference Include="vs2019_libmp3lame.vcxproj">
+      <Project>{20536101-3b0e-43ef-94f9-080d595dac57}</Project>
+    </ProjectReference>
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

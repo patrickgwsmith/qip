@@ -197,7 +197,7 @@ endif
 endif
 ZIG_TEST_FLAGS ?=
 
-CONTENT_COMPONENT_DIRS := application bytes font image multipart text
+CONTENT_COMPONENT_DIRS := application audio bytes font image multipart text
 COMPONENT_DIRS := components gui tui $(CONTENT_COMPONENT_DIRS)
 
 COMPONENT_WAT_FILES := $(shell find $(COMPONENT_DIRS) -type f -name '*.wat')
@@ -596,6 +596,7 @@ image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 1073741824
 # arena supports the measured 25 MP 4:4:4 peak within 512 MiB fixed memory.
 image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
 image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+audio/wav/wav-to-mp3-lossy.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
 image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 469762048
 image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -686,9 +687,11 @@ THORVG_CPP_SOURCES += $(THORVG_ROOT)/src/loaders/raw/tvgRawLoader.cpp
 LIBAVIF_ROOT := third_party/libavif-1.4.1
 LIBAOM_ROOT := third_party/libaom-3.13.0
 MOZJPEG_ROOT := third_party/mozjpeg-4.1.1
+LAME_ROOT := third_party/lame-3.101
 AVIF_COMPAT_ROOT := third_party/qip-avif-compat
 LCMS_ROOT := third_party/lcms2-2.19.1
 LCMS_C_SOURCES := $(addprefix $(LCMS_ROOT)/src/,cmsalpha.c cmscam02.c cmscgats.c cmscnvrt.c cmserr.c cmsgamma.c cmsgmt.c cmsintrp.c cmsio0.c cmsio1.c cmslut.c cmsplugin.c cmssm.c cmsmd5.c cmsmtrx.c cmspack.c cmspcs.c cmswtpnt.c cmsxform.c cmssamp.c cmsnamed.c cmsvirt.c cmstypes.c cmsps2.c cmsopt.c cmshalf.c)
+LAME_C_SOURCES := $(addprefix $(LAME_ROOT)/libmp3lame/,VbrTag.c bitstream.c encoder.c fft.c gain_analysis.c id3tag.c lame.c newmdct.c presets.c psymodel.c quantize.c quantize_pvt.c reservoir.c set_get.c tables.c takehiro.c util.c vbrquantize.c version.c mpglib_interface.c)
 AVIF_AOM_SOURCE_FILES := $(shell find $(LIBAOM_ROOT) -type f)
 AVIF_LIBAVIF_SOURCE_FILES := $(shell find $(LIBAVIF_ROOT) -type f)
 
@@ -725,6 +728,7 @@ MOZJPEG_STAMP := $(EMCC_CACHE)/qip-mozjpeg-4.1.1.stamp
 MOZJPEG_CLANG_RAW_WASM := $(EMCC_CACHE)/bmp-b8g8r8a8-srgb-to-jpeg-lossy.raw.wasm
 MOZJPEG_KTX_CLANG_RAW_WASM := $(EMCC_CACHE)/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.raw.wasm
 MOZJPEG_DEC_KTX_CLANG_RAW_WASM := $(EMCC_CACHE)/jpeg-to-ktx2-r8g8b8a8-srgb.raw.wasm
+LAME_CLANG_RAW_WASM := $(EMCC_CACHE)/wav-to-mp3-lossy.raw.wasm
 LCMS_CLANG_RAW_WASM := $(EMCC_CACHE)/bmp-b8g8r8a8-icc-to-srgb.raw.wasm
 LIBWEBP_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_quality uniform_set_method uniform_set_sharp_yuv uniform_set_low_memory arena_peak_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_null_count arena_free_matched_count arena_free_unmatched_count arena_freed_bytes arena_allocation_size arena_allocation_event arena_allocation_free_event
 LIBWEBP_CLANG_EXPORT_FLAGS := $(foreach name,$(LIBWEBP_CLANG_EXPORTS),-Xlinker --export=$(name))
@@ -753,6 +757,11 @@ MOZJPEG_CLANG_EXPORT_FLAGS := $(foreach name,$(MOZJPEG_CLANG_EXPORTS),-Xlinker -
 MOZJPEG_DEC_KTX_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size
 MOZJPEG_DEC_KTX_CLANG_EXPORT_FLAGS := $(foreach name,$(MOZJPEG_DEC_KTX_CLANG_EXPORTS),-Xlinker --export=$(name))
 MOZJPEG_CMAKE_C_FLAGS := -O3 -DNDEBUG -DQIP_FREESTANDING=1 -flto -ffunction-sections -fdata-sections -mbulk-memory -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free
+LAME_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_bitrate_kbps arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count
+LAME_CLANG_EXPORT_FLAGS := $(foreach name,$(LAME_CLANG_EXPORTS),-Xlinker --export=$(name))
+LAME_CLANG_FLAGS := -O3 -flto -ffunction-sections -fdata-sections -mbulk-memory -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-exit -DNDEBUG -DHAVE_CONFIG_H=1
+LAME_CLANG_WRAP_NAMES := printf fprintf vfprintf fflush fread fwrite fseek ftell fclose fd_write fd_close fd_seek __wasi_fd_write __wasi_fd_close __wasi_fd_seek
+LAME_CLANG_WRAP_FLAGS := $(foreach name,$(LAME_CLANG_WRAP_NAMES),-Xlinker --wrap=$(name))
 AVIF_CLANG_WRAP_NAMES := fopen fclose fread fwrite fseek feof fputc fscanf fiprintf __small_fprintf
 AVIF_CLANG_WRAP_FLAGS := $(foreach name,$(AVIF_CLANG_WRAP_NAMES),-Xlinker --wrap=$(name))
 LCMS_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size arena_peak_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_matched_count arena_free_unmatched_count
@@ -874,6 +883,12 @@ $(MOZJPEG_DEC_KTX_CLANG_RAW_WASM): image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.c image
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(MOZJPEG_BUILD) -I$(MOZJPEG_ROOT) -isystem $(EMSDK_SYSROOT)/include/compat -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -mbulk-memory -DNDEBUG -nostdlib -Wl,--gc-sections $< $(MOZJPEG_BUILD)/libjpeg.a -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(MOZJPEG_DEC_KTX_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
 image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm: $(MOZJPEG_DEC_KTX_CLANG_RAW_WASM)
+	$(EMSDK_WASM_OPT) -O3 --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+$(LAME_CLANG_RAW_WASM): audio/wav/wav-to-mp3-lossy.c $(LAME_C_SOURCES) $(LAME_ROOT)/qip/config.h $(EMSDK_LTO_STAMP)
+	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(LAME_ROOT)/qip -I$(LAME_ROOT) -I$(LAME_ROOT)/include -I$(LAME_ROOT)/libmp3lame -isystem $(EMSDK_SYSROOT)/include/compat $(LAME_CLANG_FLAGS) -nostdlib -Wl,--gc-sections $(LAME_CLANG_WRAP_FLAGS) $(filter %.c,$^) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LAME_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
+
+audio/wav/wav-to-mp3-lossy.wasm: $(LAME_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
 image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb-zig-progressive.wasm: image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
@@ -1197,6 +1212,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs
 	node --test test/bmp-b8g8r8a8-srgb-avif-lossy.mjs
 	node --test test/bmp-b8g8r8a8-srgb-jpeg-lossy.mjs
+	node --test test/wav-to-mp3-lossy.mjs
 	node --test test/image-compress-jpeg.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy-opaque.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossless.mjs

@@ -1,0 +1,7 @@
+## $Id$
+
+# global section for every Makefile.am
+
+AUTOMAKE_OPTIONS = 1.15 foreign
+
+# end global section
