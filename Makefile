@@ -130,6 +130,9 @@ compliance/tldraw-draw-font-metrics-current-output.comply.wasm: compliance/tldra
 compliance/tldraw-draw-font-metrics-harfbuzz.comply.wasm: compliance/tldraw-draw-font-metrics-harfbuzz.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/tldraw-draw-bold-font-metrics-harfbuzz.comply.wasm: compliance/tldraw-draw-bold-font-metrics-harfbuzz.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/tldraw-mono-font-metrics-chrome.comply.wasm: compliance/tldraw-mono-font-metrics-chrome.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -488,6 +491,8 @@ text/tldraw-draw-font-metrics-csv.wasm: text/tldraw-draw-font-metrics-csv.zig te
 text/tldraw-draw-font-metrics-csv-compact.wasm: text/tldraw-draw-font-metrics-csv-compact.zig text/lib/tldraw_draw_shantell_sans_informal_regular_compact_metrics.zig
 
 text/tldraw-draw-font-metrics-csv-packed.wasm: text/tldraw-draw-font-metrics-csv-packed.zig text/lib/tldraw_draw_shantell_sans_informal_regular_packed_metrics.zig
+
+text/tldraw-draw-bold-font-metrics-csv.wasm: text/tldraw-draw-bold-font-metrics-csv.zig text/lib/tldraw_draw_shantell_sans_informal_bold_packed_metrics.zig
 
 text/tldraw-mono-font-metrics-csv.wasm: text/tldraw-mono-font-metrics-csv.zig text/lib/tldraw_mono_ibm_plex_mono_medium_metrics.zig
 

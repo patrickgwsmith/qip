@@ -68,7 +68,7 @@ def main() -> None:
         formatted = ", ".join(hex_codepoint(cp) for cp in missing)
         raise SystemExit(f"{font_path} is missing requested codepoints: {formatted}")
 
-    profile = "shantell" if font_name == "tldraw_draw" else "simple"
+    profile = "shantell" if font_name.startswith("tldraw_draw") else "simple"
     variant_glyphs = collect_variant_glyphs(font, cmap, profile)
     glyph_name_to_states = collect_glyph_name_to_states(variant_glyphs)
     default_rows, variant_rows = collect_metric_rows(font, variant_glyphs)
