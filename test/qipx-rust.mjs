@@ -240,14 +240,66 @@ test("Rust qipx matches Node for PNG decoding, SIMD shrinking, and WebP encoding
   assert.deepEqual(rust.stdout, node.stdout);
 });
 
-test("Rust qipx converts unsigned and hex i32 uniforms like the Node CLI", () => {
-  for (const value of ["4294967295", "0xffffffff", "4294967296"]) {
+test("Rust and Node qipx pass exact unsigned i32 uniforms", () => {
+  for (const [value, expected] of [["0", 0], ["4294967295", 0xffffffff], ["0xffffffff", 0xffffffff], ["0x0001", 1]]) {
     const args = ["run", "test/fixtures/qipx-rust-uniform-u32.wasm", "-u", `value=${value}`];
     const node = spawnSync(process.execPath, ["npm/qipx/cli.mjs", ...args]);
     const rust = spawnSync(rustCLI, args);
     assert.equal(node.status, 0, node.stderr.toString());
     assert.equal(rust.status, 0, rust.stderr.toString());
+    assert.equal(rust.stdout.readUInt32LE(0), expected, value);
     assert.deepEqual(rust.stdout, node.stdout);
+  }
+});
+
+test("Rust and Node qipx reject i32 uniforms instead of truncating or wrapping", () => {
+  for (const value of ["4294967296", "0x100000000", "-1", "+1", "1.5", "1e3", "0x", "abc", ""]) {
+    const args = ["run", "test/fixtures/qipx-rust-uniform-u32.wasm", "-u", `value=${value}`];
+    const node = spawnSync(process.execPath, ["npm/qipx/cli.mjs", ...args]);
+    const rust = spawnSync(rustCLI, args);
+    assert.notEqual(node.status, 0, value);
+    assert.notEqual(rust.status, 0, value);
+    assert.match(node.stderr.toString(), /is not an unsigned i32 integer/, value);
+    assert.match(rust.stderr.toString(), /is not an unsigned i32 integer/, value);
+  }
+});
+
+test("Rust and Node qipx reject f32 uniforms that overflow to infinity", () => {
+  const oklch = "image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm";
+  for (const value of ["1e39", "-1e39", "1e400"]) {
+    const args = ["run", oklch, "-u", `lightness=${value}`];
+    const node = spawnSync(process.execPath, ["npm/qipx/cli.mjs", ...args]);
+    const rust = spawnSync(rustCLI, args);
+    assert.notEqual(node.status, 0, value);
+    assert.notEqual(rust.status, 0, value);
+    assert.match(node.stderr.toString(), /is not a finite f32 number/, value);
+    assert.match(rust.stderr.toString(), /is not a finite f32 number/, value);
+  }
+});
+
+const sigv4GetVanilla = [
+  "-F", "method=GET",
+  "-F", "url=https://example.amazonaws.com/",
+  "-F", "region=us-east-1",
+  "-F", "service=service",
+  "-F", "access_key_id=AKIDEXAMPLE",
+  "-F", "secret_access_key=wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY",
+  "multipart/form-data/aws-sigv4-sign.wasm",
+];
+
+test("Rust qipx passes exact i64 uniforms", () => {
+  for (const value of ["1440938160", "+1440938160", "0x55E2F8B0"]) {
+    const rust = run(rustCLI, ["run", ...sigv4GetVanilla, "-u", `timestamp=${value}`]);
+    assert.equal(rust.status, 0, `${value}: ${rust.stderr}`);
+    assert.match(rust.stdout, /Signature=5fa00fa31553b73ebf1942676e86291e8372ff2a2260956d9b8aae1d763fbf31/, value);
+  }
+});
+
+test("Rust qipx rejects i64 uniforms instead of rounding, truncating or clamping", () => {
+  for (const value of ["9223372036854775808", "-9223372036854775809", "1440938160.5", "1e3", "0x", "abc", ""]) {
+    const rust = run(rustCLI, ["run", ...sigv4GetVanilla, "-u", `timestamp=${value}`]);
+    assert.notEqual(rust.status, 0, value);
+    assert.match(rust.stderr, /is not an i64 integer/, value);
   }
 });
 

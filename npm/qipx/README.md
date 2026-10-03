@@ -179,7 +179,10 @@ start with `[a-z]`, continue with `[a-z0-9_]*`, must not end with `_`, and must
 not contain `__`.
 
 Integer `i32` uniforms are treated as unsigned values. Use an `i64` uniform when
-a component needs signed integer configuration.
+a component needs signed integer configuration. qipx rejects a value its
+setter's type cannot hold exactly: `i32` values must be decimal or `0x` hex
+integers from 0 to 4294967295, so `1.5`, `-1` and `4294967296` are errors rather
+than being truncated or wrapped.
 
 ## Comply
 
@@ -307,7 +310,7 @@ and lists eligible host candidates. It does not read or download the field.
 ## JavaScript API
 
 Use Node's standard library to load files and the built-in `WebAssembly` APIs to
-compile and instantiate. Then pass the instance to `newComponent`:
+compile and instantiate. Then pass the bytes and the instance to `newComponent`:
 
 ```js
 import { readFile } from "node:fs/promises";
@@ -333,7 +336,7 @@ wasmMustComplyWithComponentContract(wasm, contract);
 // Synchronous equivalent:
 // const instance = new WebAssembly.Instance(new WebAssembly.Module(wasm));
 const { instance } = await WebAssembly.instantiate(wasm);
-const markdown = newComponent(instance, contract);
+const markdown = newComponent(wasm, instance, contract);
 
 const recipe = createRecipe([markdown]);
 const result = render(recipe, "# Hello\n");
@@ -367,12 +370,17 @@ choose async or sync setup. It provides QIP-specific validation and execution:
   rely on. See [Provable Loops](https://qip.dev/docs/provable-loops).
 - `newContentComponentContract(options)` creates a reusable contract object for
   byte-level checks and instantiated component checks.
-- `newComponent(instance, contract)` validates the instantiated QIP Content ABI
+- `newComponent(wasm, instance, contract)` validates the instantiated QIP Content ABI
   and reads callable getter values and content-type metadata bytes. The
   contract can include `inputType: contentTypeUTF8(...)`, `inputType:
   contentTypeBytes(...)`, `outputType: contentTypeUTF8(...)`, or `outputType:
   contentTypeBytes(...)` when your code must verify the expected component
-  contract.
+  contract. The module bytes are required because an instance cannot report
+  its setters' parameter types: qipx reads them from the bytes so recipe
+  uniforms reach each `uniform_set_*` setter as its parameter type (a
+  `BigInt` for `i64` setters, a `Number` otherwise) and values the type can't
+  hold exactly are rejected. Pass the same bytes the instance was created
+  from.
 - `createRecipe(stages, options)` checks stage compatibility before input
   bytes run. This is where content-type mismatches and
   `capacitiesMustFit` failures are reported.
@@ -395,7 +403,7 @@ When validation or execution fails, the library throws an `Error` or
 | Phase | Function or CLI point | Typical failures |
 | --- | --- | --- |
 | Component contract bytes | `wasmMustComplyWithComponentContract(bytes, contract)` or CLI component loading | invalid Wasm binary header; imports; start function; shared memory; `memory.grow`; atomics; malformed function bodies; declared memory exceeds `maxMemory`; memory has no declared maximum when `maxMemory` is set; missing Content exports; non-static ABI getters |
-| Instantiation and ABI | `newComponent(instance, contract)` | exported memory is missing; `render` is missing; the input pointer or input/output capacity exports are missing or ambiguous; declared content type is invalid |
+| Instantiation and ABI | `newComponent(wasm, instance, contract)` | module bytes or instance missing; instance exports a uniform setter the bytes do not; exported memory is missing; `render` is missing; the input pointer or input/output capacity exports are missing or ambiguous; declared content type is invalid |
 | Recipe validation | `createRecipe(...)` | a stage expects a different content type than the previous stage produced; recipe content type is unspecified for a stage that declares an input type; `capacitiesMustFit` finds producer output capacity larger than consumer input capacity |
 | Execution | `render(componentOrRecipe, input)` | input bytes do not fit the stage input buffer; the component rejects input or traps; returned output length exceeds the advertised output capacity or memory bounds |
 | Compliance bridge | `qipx comply impl.wasm --with oracle.wasm` | oracle does not export `memory` or `comply`; oracle imports other than the `qip` bridge; bridge ordinals are not sequential; expected output does not match actual output; expected trap does not trap; must_render_into protocol is not closed |

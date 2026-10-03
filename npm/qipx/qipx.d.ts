@@ -76,6 +76,6 @@ export function contentTypeUTF8(optionalMIMEType?: string): ContentType;
 export function contentTypeBytes(optionalMIMEType?: string): ContentType;
 export function newContentComponentContract(options?: ContentComponentContractOptions): ContentComponentContract;
 export function wasmMustComplyWithComponentContract(wasm: Uint8Array | ArrayBuffer, contract?: ContentComponentContract): void;
-export function newComponent(instance: WebAssembly.Instance, contract?: ContentComponentContract): ContentComponent;
+export function newComponent(wasm: Uint8Array | ArrayBuffer, instance: WebAssembly.Instance, contract?: ContentComponentContract): ContentComponent;
 export function createRecipe(steps: RecipeStep[], options?: RecipeOptions): Recipe;
 export function render(target: ContentComponent | Recipe, input: Uint8Array | ArrayBuffer | string): RenderResult;

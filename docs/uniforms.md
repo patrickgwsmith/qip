@@ -27,6 +27,12 @@ Each setter:
 
 An `i32` uniform is treated as unsigned. Use `i64` when callers need to pass a signed integer value.
 
+Hosts parse each value as its setter's type and reject a value the type cannot
+hold exactly. An `i32` value must be a decimal or `0x` hex integer from 0 to
+4294967295, so `1.5`, `-1` and `4294967296` are errors rather than being
+truncated or wrapped. An `i64` value must fit in a signed 64-bit integer. An
+`f32` or `f64` value must be finite at that precision.
+
 For example:
 
 ```zig

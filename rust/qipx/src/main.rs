@@ -2210,33 +2210,95 @@ fn apply_uniform(
         return Err(format!("{path} {export} has an invalid signature"));
     }
     let trimmed = raw_value.trim();
-    let (negative, unsigned) = if let Some(value) = trimmed.strip_prefix('-') {
-        (true, value)
-    } else {
-        (false, trimmed.strip_prefix('+').unwrap_or(trimmed))
+    let invalid = |expected: &str| format!("uniform value {raw_value:?} is not {expected}");
+    let value = match &params[0] {
+        ValType::I32 => parse_uniform_u32(trimmed)
+            .map(|value| Val::I32(value as i32))
+            .ok_or_else(|| invalid("an unsigned i32 integer"))?,
+        ValType::I64 => parse_uniform_i64(trimmed)
+            .map(Val::I64)
+            .ok_or_else(|| invalid("an i64 integer"))?,
+        ValType::F32 => parse_uniform_float(trimmed)
+            .map(|value| value as f32)
+            .filter(|value| value.is_finite())
+            .map(|value| Val::F32(value.to_bits()))
+            .ok_or_else(|| invalid("a finite f32 number"))?,
+        ValType::F64 => parse_uniform_float(trimmed)
+            .map(|value| Val::F64(value.to_bits()))
+            .ok_or_else(|| invalid("a finite f64 number"))?,
+        _ => return Err(format!("{path} {export} has an unsupported parameter")),
     };
-    let number: f64 = if let Some(hex) = unsigned
+    call_uniform_setter(function, store, path, &export, value, &results)
+}
+
+// Unsigned decimal or 0x hex up to 2^32 - 1, like the Go CLI. Fractions and larger values are
+// rejected rather than truncated or wrapped.
+fn parse_uniform_u32(value: &str) -> Option<u32> {
+    match value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        Some(hex) if !hex.is_empty() && hex.bytes().all(|byte| byte.is_ascii_hexdigit()) => {
+            u32::from_str_radix(hex, 16).ok()
+        }
+        None if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) => {
+            value.parse().ok()
+        }
+        _ => None,
+    }
+}
+
+// Finite decimal numbers, or signed 0x hex integers, like the Node CLI.
+fn parse_uniform_float(value: &str) -> Option<f64> {
+    let (negative, unsigned) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    let magnitude = match unsigned
         .strip_prefix("0x")
         .or_else(|| unsigned.strip_prefix("0X"))
     {
-        let integer = u128::from_str_radix(hex, 16)
-            .map_err(|_| format!("uniform value {raw_value:?} is not a number"))?;
-        (integer as f64) * if negative { -1.0 } else { 1.0 }
-    } else {
-        trimmed
-            .parse()
-            .map_err(|_| format!("uniform value {raw_value:?} is not a number"))?
+        Some(hex) => u128::from_str_radix(hex, 16).ok()? as f64,
+        // Leaves inf, nan and a second sign to be rejected.
+        None if unsigned.starts_with(|c: char| c.is_ascii_digit() || c == '.') => {
+            unsigned.parse().ok()?
+        }
+        None => return None,
     };
-    if !number.is_finite() {
-        return Err(format!("uniform value {raw_value:?} is not a number"));
+    let number = if negative { -magnitude } else { magnitude };
+    number.is_finite().then_some(number)
+}
+
+// Signed decimal or 0x hex, exact and range-checked, like the Go CLI.
+fn parse_uniform_i64(value: &str) -> Option<i64> {
+    let (negative, unsigned) = match value.as_bytes().first() {
+        Some(b'-') => (true, &value[1..]),
+        Some(b'+') => (false, &value[1..]),
+        _ => (false, value),
+    };
+    let (digits, radix) = match unsigned
+        .strip_prefix("0x")
+        .or_else(|| unsigned.strip_prefix("0X"))
+    {
+        Some(hex) => (hex, 16),
+        None => (unsigned, 10),
+    };
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
     }
-    let value = match &params[0] {
-        ValType::I32 => Val::I32(number.trunc().rem_euclid(4_294_967_296.0) as u32 as i32),
-        ValType::I64 => Val::I64(number as i64),
-        ValType::F32 => Val::F32((number as f32).to_bits()),
-        ValType::F64 => Val::F64(number.to_bits()),
-        _ => return Err(format!("{path} {export} has an unsupported parameter")),
-    };
+    let magnitude = i128::from(u64::from_str_radix(digits, radix).ok()?);
+    i64::try_from(if negative { -magnitude } else { magnitude }).ok()
+}
+
+fn call_uniform_setter(
+    function: wasmtime::Func,
+    store: &mut Store<()>,
+    path: &str,
+    export: &str,
+    value: Val,
+    results: &[ValType],
+) -> Result<(), String> {
     let mut output: Vec<Val> = results
         .iter()
         .map(|ty| match ty {

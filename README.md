@@ -617,6 +617,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
 
 ## TODO
 
+- [ ] Decide how `i64` uniforms handle hex above `0x7FFFFFFFFFFFFFFF`. `docs/uniforms.md` calls hex values "unsigned bit patterns", which implies `0xFFFFFFFFFFFFFFFF` means -1, but Go qip, JS qipx, and Rust qipx all reject it. Update the docs or all three runtimes.
 - [ ] Adopt `image/ktx2; vkFormat=R32G32B32A32_SFLOAT; colorPrimaries=BT709; transferFunction=LINEAR` for ktx2 components.
 - [ ] Define opaque black as Tideland SVG Rendered's unresolved `currentColor` default.
 - [ ] Redesign `/view-source`. Its source-file walker does not follow symlinked component directories. Define which source files the router can publish before changing that behavior.

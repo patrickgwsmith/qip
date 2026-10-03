@@ -210,7 +210,7 @@ try {
     inputType: contentTypeUTF8("text/javascript"),
     outputType: contentTypeUTF8("text/html"),
   });
-  const component = newComponent(instance, contract);
+  const component = newComponent(wasmBytes, instance, contract);
 
   function highlight(source) {
     const inputSize = encoder.encode(source).byteLength;

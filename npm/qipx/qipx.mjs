@@ -512,21 +512,118 @@ function parseUniformValue(value) {
   throw new Error(`uniform value ${JSON.stringify(value)} is not a number`);
 }
 
+const minI64 = -(2n ** 63n);
+const maxI64 = 2n ** 63n - 1n;
+
+// Wasm i64 parameters only accept a BigInt, so i64 uniforms are parsed exactly rather than
+// through a Number. Matches the Go CLI: signed decimal or 0x hex within the i64 range.
+function parseUniformI64(value) {
+  const match = /^([-+]?)(0x[0-9a-f]+|\d+)$/i.exec(String(value).trim());
+  if (match) {
+    const magnitude = BigInt(match[2]);
+    const parsed = match[1] === "-" ? -magnitude : magnitude;
+    if (parsed >= minI64 && parsed <= maxI64) return parsed;
+  }
+  throw new Error(`uniform value ${JSON.stringify(value)} is not an i64 integer`);
+}
+
+// i32 uniforms are unsigned. Like the Go CLI, only exact decimal or 0x hex integers from 0 to
+// 2^32 - 1 are accepted, so fractions are not truncated and large values do not wrap.
+function parseUniformU32(value) {
+  const trimmed = String(value).trim();
+  if (/^(?:0x[0-9a-f]+|\d+)$/i.test(trimmed)) {
+    const parsed = BigInt(trimmed);
+    if (parsed <= 0xffffffffn) return Number(parsed);
+  }
+  throw new Error(`uniform value ${JSON.stringify(value)} is not an unsigned i32 integer`);
+}
+
+// Rejects values that overflow to Infinity instead of passing them to the setter.
+function parseUniformFloat(value, f32) {
+  const parsed = parseUniformValue(value);
+  if (!Number.isFinite(f32 ? Math.fround(parsed) : parsed)) {
+    throw new Error(`uniform value ${JSON.stringify(value)} is not a finite ${f32 ? "f32" : "f64"} number`);
+  }
+  return parsed;
+}
+
+function uniformArgument(stage, key, rawValue) {
+  const params = stage.component.uniformParamTypes.get(key);
+  if (params.length !== 1) throw new Error(`${stage.label} uniform_set_${key} must accept exactly one argument`);
+  switch (params[0]) {
+    case 0x7f: return parseUniformU32(rawValue);
+    case 0x7e: return parseUniformI64(rawValue);
+    case 0x7d: return parseUniformFloat(rawValue, true);
+    case 0x7c: return parseUniformFloat(rawValue, false);
+    default: throw new Error(`${stage.label} uniform_set_${key} has an unsupported parameter type`);
+  }
+}
+
 function validateUniforms(stage) {
   for (const [key, rawValue] of stage.uniforms ?? []) {
     if (!validUniformKey(key)) throw new Error(`${stage.label} has invalid uniform key ${key}`);
-    parseUniformValue(rawValue);
     const setterName = `uniform_set_${key}`;
     const setter = stage.component.exports[setterName];
     if (typeof setter !== "function") throw new Error(`${stage.label} does not export ${setterName}`);
+    uniformArgument(stage, key, rawValue);
   }
 }
 
 function applyUniforms(stage) {
   validateUniforms(stage);
   for (const [key, rawValue] of stage.uniforms ?? []) {
-    stage.component.exports[`uniform_set_${key}`](parseUniformValue(rawValue));
+    stage.component.exports[`uniform_set_${key}`](uniformArgument(stage, key, rawValue));
   }
+}
+
+// Maps each uniform key to its uniform_set_* parameter types, decoded from the type, function
+// and export sections. The JS API does not expose a function's signature, and the setter's
+// parameter type decides whether it takes a Number or a BigInt. Because components must not
+// import, function indices are function-section indices.
+function readUniformParamTypes(wasm) {
+  const types = [];
+  let functionTypes = [];
+  const setters = [];
+  let offset = 8;
+  while (offset < wasm.length) {
+    const sectionID = wasm[offset++];
+    offset = readULEB(wasm, offset);
+    const sectionEnd = offset + lebValue;
+    if (sectionEnd > wasm.length) throw new Error("truncated Wasm section");
+    if (sectionID === 1) {
+      let cursor = readULEB(wasm, offset);
+      for (let count = lebValue; count > 0; count -= 1) {
+        if (wasm[cursor++] !== 0x60) throw new Error("unsupported Wasm type form");
+        cursor = readULEB(wasm, cursor);
+        const params = Array.from(wasm.subarray(cursor, cursor + lebValue));
+        cursor = readULEB(wasm, cursor + lebValue);
+        cursor += lebValue;
+        types.push(params);
+      }
+    } else if (sectionID === 3) {
+      let cursor = readULEB(wasm, offset);
+      functionTypes = new Array(lebValue);
+      for (let index = 0; index < functionTypes.length; index += 1) {
+        cursor = readULEB(wasm, cursor);
+        functionTypes[index] = lebValue;
+      }
+    } else if (sectionID === 7) {
+      let cursor = readULEB(wasm, offset);
+      for (let count = lebValue; count > 0; count -= 1) {
+        const name = readName(wasm, cursor);
+        const kind = wasm[name.offset];
+        cursor = readULEB(wasm, name.offset + 1);
+        if (kind === 0x00 && name.value.startsWith("uniform_set_")) setters.push([name.value.slice(12), lebValue]);
+      }
+    }
+    offset = sectionEnd;
+  }
+  const paramTypes = new Map();
+  for (const [key, funcIndex] of setters) {
+    const params = types[functionTypes[funcIndex]];
+    if (params !== undefined) paramTypes.set(key, params);
+  }
+  return paramTypes;
 }
 
 // Module inspection reads plain Numbers: every LEB128 value the checks decode (section
@@ -836,10 +933,17 @@ export function wasmMustComplyWithComponentContract(wasm, options = {}) {
   wasmMustExportComponentFunctions(analyzeStrictModule(data, label, maxMemory), label);
 }
 
-export function newComponent(instance, options = {}) {
+// The module bytes give each uniform setter's parameter type, which an instance cannot report.
+export function newComponent(wasm, instance, options = {}) {
   const contract = componentContractOptions(options);
   const label = contract.label ?? "component";
+  if (!(wasm instanceof Uint8Array || wasm instanceof ArrayBuffer)) throw new TypeError(`${label} newComponent(wasm, instance, contract) requires the module bytes as a Uint8Array or ArrayBuffer`);
+  if (!(instance instanceof WebAssembly.Instance)) throw new TypeError(`${label} newComponent(wasm, instance, contract) requires a WebAssembly.Instance`);
+  const uniformParamTypes = readUniformParamTypes(bytes(wasm));
   const exports = instance.exports;
+  for (const name of Object.keys(exports)) {
+    if (name.startsWith("uniform_set_") && !uniformParamTypes.has(name.slice(12))) throw new Error(`${label} instance exports ${name}, which the module bytes do not; pass the bytes the instance was created from`);
+  }
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error(`${label} does not export memory`);
   requireFunction(exports, "render", label);
   const hasInputUTF8 = typeof exports.input_utf8_cap === "function";
@@ -872,6 +976,7 @@ export function newComponent(instance, options = {}) {
     clearsContentType: !inputless && hasOutputUTF8 && hasInputBytes,
     inputCapacity: inputless ? 0 : exportedValue(exports, inputCapName, label),
     outputCapacity: exportedValue(exports, outputCapName, label),
+    uniformParamTypes,
   });
   if (inputless && contract.inputType !== undefined) throw new Error(`${label} inputless generator does not accept an inputType contract`);
   if (!inputless) assertComponentContract(component, "inputType", contract.inputType);
@@ -1236,7 +1341,7 @@ async function instantiateContentComponent(wasm, label, options = {}) {
   wasmMustComplyWithComponentContract(wasm, { label, maxMemory: options.maxMemory });
   const module = new WebAssembly.Module(wasm);
   const instance = new WebAssembly.Instance(module);
-  return newComponent(instance, { label });
+  return newComponent(wasm, instance, { label });
 }
 
 function instantiateComplianceOracle(wasm, label, imports) {
@@ -1593,7 +1698,7 @@ async function loadStages(componentSpecs, options, hosts) {
     });
     const module = new WebAssembly.Module(wasm);
     const instance = new WebAssembly.Instance(module);
-    const component = newComponent(instance, contract);
+    const component = newComponent(wasm, instance, contract);
     stages.push({ component, label: spec.label, uniforms: spec.uniforms });
   }
   return stages;
@@ -1680,7 +1785,7 @@ async function dryRunCommand(argv, hosts) {
     wasmMustComplyWithComponentContract(observation.local.bytes, contract);
     const module = new WebAssembly.Module(observation.local.bytes);
     const instance = new WebAssembly.Instance(module);
-    const component = newComponent(instance, contract);
+    const component = newComponent(observation.local.bytes, instance, contract);
     const stage = makeStage({ component, label: observation.spec.label, uniforms: observation.spec.uniforms }, component);
     applyUniforms(stage);
     stages.push(stage);
@@ -2028,7 +2133,7 @@ async function loadBenchmarkCandidate(spec, options, hosts) {
   const instance = new WebAssembly.Instance(module);
   const instantiateNanoseconds = Number(process.hrtime.bigint() - instantiateStart);
 
-  const component = newComponent(instance, contract);
+  const component = newComponent(wasm, instance, contract);
   const recipe = createRecipe([{ component, label: spec.label, uniforms: spec.uniforms }]);
   return {
     label: spec.label,

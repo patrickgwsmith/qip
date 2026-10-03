@@ -8,7 +8,7 @@ import { ContentRejection, newComponent, render, wasmMustComplyWithComponentCont
 test("qipx accepts and rejects fallible Content renders", async () => {
   const wasm = await readFile("text/utf8-must-be-valid.wasm");
   const { instance } = await WebAssembly.instantiate(wasm);
-  const component = newComponent(instance, { label: "utf8 validator" });
+  const component = newComponent(wasm, instance, { label: "utf8 validator" });
 
   assert.equal(render(component, "hello").outputString, "hello");
   let rejected;
@@ -32,7 +32,7 @@ test("qipx runs the inputless OKLCH Content generator", async () => {
   const wasm = await readFile("image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm");
   wasmMustComplyWithComponentContract(wasm, { label: "OKLCH solid color" });
   const { instance } = await WebAssembly.instantiate(wasm);
-  const component = newComponent(instance, { label: "OKLCH solid color" });
+  const component = newComponent(wasm, instance, { label: "OKLCH solid color" });
 
   assert.equal(component.inputless, true);
   assert.equal(instance.exports.input_ptr, undefined);
@@ -62,7 +62,7 @@ test("qipx runs the inputless OKLCH Content generator", async () => {
   const resetHue = render(component, new Uint8Array()).outputBytes;
 
   const { instance: freshInstance } = await WebAssembly.instantiate(wasm);
-  const freshComponent = newComponent(freshInstance, { label: "fresh OKLCH solid color" });
+  const freshComponent = newComponent(wasm, freshInstance, { label: "fresh OKLCH solid color" });
   freshInstance.exports.uniform_set_width(1);
   freshInstance.exports.uniform_set_height(1);
   freshInstance.exports.uniform_set_chroma(0.2);
