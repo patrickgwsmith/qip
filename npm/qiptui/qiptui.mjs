@@ -469,17 +469,9 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
   const editor = textMode ? new TextInputState(source, stage.inputCapacity) : null;
   if (editor) {
     const configuredIndex = stage.uniforms?.findLast((value) => value.startsWith("active_index="));
-    if (configuredIndex) {
-      const value = Number(configuredIndex.slice("active_index=".length));
-      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error("active_index must be a u32");
-      editor.activeIndex = value;
-    }
+    if (configuredIndex) editor.activeIndex = parseUniformU32(configuredIndex.slice("active_index=".length));
     const configuredOffset = stage.uniforms?.findLast((value) => value.startsWith("detail_offset="));
-    if (configuredOffset) {
-      const value = Number(configuredOffset.slice("detail_offset=".length));
-      if (!Number.isInteger(value) || value < 0 || value > 0xffff_ffff) throw new Error("detail_offset must be a u32");
-      editor.detailOffset = value;
-    }
+    if (configuredOffset) editor.detailOffset = parseUniformU32(configuredOffset.slice("detail_offset=".length));
   }
   writeInitialInput(stage, source);
   const wasRaw = Boolean(stdin.isRaw);
@@ -847,23 +839,135 @@ export async function multipart(values, host = "", stdin = process.stdin, limit 
   return Buffer.concat(chunks);
 }
 
-function applyUniforms(stage, dimensions) {
-  const settings = new Map();
-  for (const [key, value] of [["columns", dimensions.columns], ["lines", dimensions.lines]]) {
-    if (typeof stage.component.exports[`uniform_set_${key}`] === "function") settings.set(key, value);
+// Uniform parsing matches @qip.dev/qipx and the Go CLI: each value is parsed for its setter's
+// parameter type and rejected unless that type holds it exactly, so nothing is truncated,
+// wrapped, or rounded to Infinity.
+function validUniformKey(key) {
+  return key.length >= 1 && key.length <= 63 && /^[a-z][a-z0-9_]*$/.test(key) && !key.endsWith("_") && !key.includes("__");
+}
+
+function parseUniformValue(value) {
+  const trimmed = String(value).trim();
+  if (/^[-+]?0x[0-9a-f]+$/i.test(trimmed)) return Number.parseInt(trimmed, 16);
+  if (/^[-+]?\d+$/.test(trimmed)) return Number.parseInt(trimmed, 10);
+  if (/^[-+]?(?:\d+\.\d*|\d*\.\d+|\d+)(?:e[-+]?\d+)?$/i.test(trimmed)) return Number(trimmed);
+  throw new Error(`uniform value ${JSON.stringify(value)} is not a number`);
+}
+
+const minI64 = -(2n ** 63n);
+const maxI64 = 2n ** 63n - 1n;
+
+// Wasm i64 parameters only accept a BigInt: signed decimal or 0x hex within the i64 range.
+function parseUniformI64(value) {
+  const match = /^([-+]?)(0x[0-9a-f]+|\d+)$/i.exec(String(value).trim());
+  if (match) {
+    const magnitude = BigInt(match[2]);
+    const parsed = match[1] === "-" ? -magnitude : magnitude;
+    if (parsed >= minI64 && parsed <= maxI64) return parsed;
   }
+  throw new Error(`uniform value ${JSON.stringify(value)} is not an i64 integer`);
+}
+
+// i32 uniforms are unsigned: exact decimal or 0x hex integers from 0 to 2^32 - 1.
+function parseUniformU32(value) {
+  const trimmed = String(value).trim();
+  if (/^(?:0x[0-9a-f]+|\d+)$/i.test(trimmed)) {
+    const parsed = BigInt(trimmed);
+    if (parsed <= 0xffffffffn) return Number(parsed);
+  }
+  throw new Error(`uniform value ${JSON.stringify(value)} is not an unsigned i32 integer`);
+}
+
+function parseUniformFloat(value, f32) {
+  const parsed = parseUniformValue(value);
+  if (!Number.isFinite(f32 ? Math.fround(parsed) : parsed)) {
+    throw new Error(`uniform value ${JSON.stringify(value)} is not a finite ${f32 ? "f32" : "f64"} number`);
+  }
+  return parsed;
+}
+
+function uniformArgument(stage, key, rawValue) {
+  const params = stage.component.uniformParamTypes.get(key);
+  if (params === undefined || params.length !== 1) throw new Error(`${stage.label} uniform_set_${key} must accept exactly one argument`);
+  switch (params[0]) {
+    case 0x7f: return parseUniformU32(rawValue);
+    case 0x7e: return parseUniformI64(rawValue);
+    case 0x7d: return parseUniformFloat(rawValue, true);
+    case 0x7c: return parseUniformFloat(rawValue, false);
+    default: throw new Error(`${stage.label} uniform_set_${key} has an unsupported parameter type`);
+  }
+}
+
+// Maps each uniform key to its uniform_set_* parameter types, decoded from the type, function
+// and export sections. The JS API does not expose a function's signature, and the setter's
+// parameter type decides whether it takes a Number or a BigInt. Components must not import,
+// so function indices are function-section indices.
+export function readUniformParamTypes(wasm) {
+  const types = [];
+  let functionTypes = [];
+  const setters = [];
+  let offset = 8;
+  while (offset < wasm.length) {
+    const sectionID = wasm[offset++];
+    offset = readULEB(wasm, offset);
+    const sectionEnd = offset + lebValue;
+    if (sectionID === 1) {
+      let cursor = readULEB(wasm, offset);
+      for (let count = lebValue; count > 0; count -= 1) {
+        cursor = readULEB(wasm, cursor + 1);
+        const params = Array.from(wasm.subarray(cursor, cursor + lebValue));
+        cursor = readULEB(wasm, cursor + lebValue);
+        cursor += lebValue;
+        types.push(params);
+      }
+    } else if (sectionID === 3) {
+      let cursor = readULEB(wasm, offset);
+      functionTypes = new Array(lebValue);
+      for (let index = 0; index < functionTypes.length; index += 1) {
+        cursor = readULEB(wasm, cursor);
+        functionTypes[index] = lebValue;
+      }
+    } else if (sectionID === 7) {
+      let cursor = readULEB(wasm, offset);
+      for (let count = lebValue; count > 0; count -= 1) {
+        cursor = readULEB(wasm, cursor);
+        const nameEnd = cursor + lebValue;
+        const name = decoder.decode(wasm.subarray(cursor, nameEnd));
+        const kind = wasm[nameEnd];
+        cursor = readULEB(wasm, nameEnd + 1);
+        if (kind === 0x00 && name.startsWith("uniform_set_")) setters.push([name.slice(12), lebValue]);
+      }
+    }
+    offset = sectionEnd;
+  }
+  const paramTypes = new Map();
+  for (const [key, funcIndex] of setters) {
+    const params = types[functionTypes[funcIndex]];
+    if (params !== undefined) paramTypes.set(key, params);
+  }
+  return paramTypes;
+}
+
+// Parses -u values once, before the terminal is taken over, so a bad value fails up front.
+export function parseUniforms(stage) {
+  const parsed = new Map();
   for (const value of stage.uniforms) {
     const at = value.indexOf("=");
-    const key = value.slice(0, at);
-    const number = Number(value.slice(at + 1));
-    if (at < 1 || !/^[a-z][a-z0-9_]*$/.test(key) || !Number.isFinite(number)) throw new Error(`invalid uniform ${value}`);
-    settings.set(key, number);
+    const key = at < 0 ? value : value.slice(0, at);
+    if (at < 1 || !validUniformKey(key)) throw new Error(`invalid uniform ${value}`);
+    if (typeof stage.component.exports[`uniform_set_${key}`] !== "function") throw new Error(`${stage.label} does not export uniform_set_${key}`);
+    parsed.set(key, uniformArgument(stage, key, value.slice(at + 1)));
   }
-  for (const [key, value] of settings) {
-    const setter = stage.component.exports[`uniform_set_${key}`];
-    if (typeof setter !== "function") throw new Error(`${stage.label} does not export uniform_set_${key}`);
-    setter(value);
+  return parsed;
+}
+
+export function applyUniforms(stage, dimensions) {
+  const settings = new Map();
+  for (const [key, value] of [["columns", dimensions.columns], ["lines", dimensions.lines]]) {
+    if (typeof stage.component.exports[`uniform_set_${key}`] === "function") settings.set(key, uniformArgument(stage, key, String(value)));
   }
+  for (const [key, value] of stage.uniformArguments) settings.set(key, value);
+  for (const [key, value] of settings) stage.component.exports[`uniform_set_${key}`](value);
 }
 
 function declaredInputType(exports, label, direction = "input") {
@@ -1137,12 +1241,13 @@ export async function main(args = process.argv.slice(2)) {
   }
   const stage = {
     label: options.component,
-    component: { exports },
+    component: { exports, uniformParamTypes: readUniformParamTypes(data) },
     inputless,
     inputCapacity: inputless ? 0 : exports[inputCapName](),
     outputCapacity: exports.output_utf8_cap(),
     uniforms: options.uniforms,
   };
+  stage.uniformArguments = parseUniforms(stage);
   const inputType = declaredInputType(exports, options.component);
   if (options.forms.length && inputType && inputType !== FORM_CONTENT_TYPE) {
     throw new Error(`${options.component} expects ${inputType}, but -F supplies ${FORM_CONTENT_TYPE}`);

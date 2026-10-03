@@ -71,6 +71,12 @@ component's UTF-8 byte capacity; the host reports an exceeded limit beside the
 field. `-i` can supply its initial value, and `-u active_index=...` can supply
 its initial active result. `Ctrl-C` exits.
 
+`-u name=value` values are parsed for the setter's parameter type, as in
+qipx: `i32` takes an unsigned integer up to 4294967295, `i64` a signed 64-bit
+integer, and `f32` or `f64` a finite number. Decimal or `0x` hex is accepted for
+integers. A fractional, out-of-range or overflowing value is an error, not
+truncated, wrapped or rounded.
+
 The original eventful emoji finder, including combination mode, is available
 as `tui/emoji-finder-old.wasm`.
 

@@ -6,7 +6,7 @@ import { Readable, PassThrough } from "node:stream";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 
-import { loadWasm, main, multipart, parseArgs, runTUI, TextInputState, textInputMode, validateTerminalFrame, validateTUIBinary } from "../npm/qiptui/qiptui.mjs";
+import { applyUniforms, loadWasm, main, multipart, parseArgs, parseUniforms, readUniformParamTypes, runTUI, TextInputState, textInputMode, validateTerminalFrame, validateTUIBinary } from "../npm/qiptui/qiptui.mjs";
 
 const calendar = await readFile("tui/calendar-gregorian.wasm");
 
@@ -239,6 +239,46 @@ test("qiptui applies the Strict Wasm Profile checks that qipx applies", async ()
   });
   for (const name of ["epub-reader", "qipdb", "calendar-gregorian"]) {
     validateTUIBinary(await readFile(new URL(`../tui/${name}.wasm`, import.meta.url)), name);
+  }
+});
+
+// From wat2wasm: uniform_set_count (i32), uniform_set_timestamp (i64), uniform_set_scale (f32),
+// uniform_set_ratio (f64), uniform_set_columns (i64) and uniform_set_pair (i32, i32), plus
+// last_i32 and last_i64 getters that return what the count and timestamp setters received.
+const UNIFORM_SETTERS = Buffer.from(
+  "0061736d01000000011e0760017f0060017e0060017d0060017c0060027f7f006000017f6000017e03090800010203010405060504010101010617037e0142000b7c014400000000000000000b7f0141000b079d0109066d656d6f7279020011756e69666f726d5f7365745f636f756e74000015756e69666f726d5f7365745f74696d657374616d70000111756e69666f726d5f7365745f7363616c65000211756e69666f726d5f7365745f726174696f000313756e69666f726d5f7365745f636f6c756d6e73000410756e69666f726d5f7365745f706169720005086c6173745f6933320006086c6173745f69363400070a29080600200024020b0600200024000b02000b0600200024010b02000b02000b040023020b040023000b",
+  "hex",
+);
+
+test("qiptui parses uniforms exactly for each setter's parameter type", () => {
+  const exports = new WebAssembly.Instance(new WebAssembly.Module(UNIFORM_SETTERS)).exports;
+  const stageWith = (uniforms) => ({
+    label: "fixture", component: { exports, uniformParamTypes: readUniformParamTypes(UNIFORM_SETTERS) }, uniforms,
+  });
+
+  const stage = stageWith(["count=0xffffffff", "timestamp=9223372036854775807", "scale=1.5", "ratio=1e300"]);
+  stage.uniformArguments = parseUniforms(stage);
+  assert.deepEqual([...stage.uniformArguments], [["count", 0xffffffff], ["timestamp", 9223372036854775807n], ["scale", 1.5], ["ratio", 1e300]]);
+  applyUniforms(stage, { columns: 80, lines: 24 });
+  assert.equal(exports.last_i32() >>> 0, 0xffffffff);
+  assert.equal(exports.last_i64(), 9223372036854775807n);
+
+  for (const [uniform, message] of [
+    ["count=1.5", 'uniform value "1.5" is not an unsigned i32 integer'],
+    ["count=4294967296", 'uniform value "4294967296" is not an unsigned i32 integer'],
+    ["count=-1", 'uniform value "-1" is not an unsigned i32 integer'],
+    ["count=1e3", 'uniform value "1e3" is not an unsigned i32 integer'],
+    ["timestamp=9223372036854775808", 'uniform value "9223372036854775808" is not an i64 integer'],
+    ["timestamp=1440938160.5", 'uniform value "1440938160.5" is not an i64 integer'],
+    ["scale=1e39", 'uniform value "1e39" is not a finite f32 number'],
+    ["ratio=1e400", 'uniform value "1e400" is not a finite f64 number'],
+    ["ratio=abc", 'uniform value "abc" is not a number'],
+    ["pair=1", "fixture uniform_set_pair must accept exactly one argument"],
+    ["missing=1", "fixture does not export uniform_set_missing"],
+    ["bad__key=1", "invalid uniform bad__key=1"],
+    ["count", "invalid uniform count"],
+  ]) {
+    assert.throws(() => parseUniforms(stageWith([uniform])), { message }, uniform);
   }
 });
 
