@@ -121,6 +121,18 @@ compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.
 compliance/html-escape.comply.wasm: compliance/html-escape.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/tldraw-draw-font-metrics-chrome.comply.wasm: compliance/tldraw-draw-font-metrics-chrome.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/tldraw-draw-font-metrics-current-output.comply.wasm: compliance/tldraw-draw-font-metrics-current-output.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/tldraw-draw-font-metrics-harfbuzz.comply.wasm: compliance/tldraw-draw-font-metrics-harfbuzz.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/tldraw-mono-font-metrics-chrome.comply.wasm: compliance/tldraw-mono-font-metrics-chrome.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/autolink-https.comply.wasm: compliance/autolink-https.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -470,6 +482,14 @@ application/wasm/wasm-to-js.wasm: application/wasm/wasm-to-js.zig
 text/csv/content-recipe-to-browser-javascript.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 
 font/ttf/ttf-to-svg-paths-csv.wasm font/ttf/ttf-to-svg-path-defs.wasm: font/ttf/lib/ttf.zig font/ttf/lib/path-output.zig
+
+text/tldraw-draw-font-metrics-csv.wasm: text/tldraw-draw-font-metrics-csv.zig text/lib/tldraw_draw_shantell_sans_informal_regular_metrics.zig
+
+text/tldraw-draw-font-metrics-csv-compact.wasm: text/tldraw-draw-font-metrics-csv-compact.zig text/lib/tldraw_draw_shantell_sans_informal_regular_compact_metrics.zig
+
+text/tldraw-draw-font-metrics-csv-packed.wasm: text/tldraw-draw-font-metrics-csv-packed.zig text/lib/tldraw_draw_shantell_sans_informal_regular_packed_metrics.zig
+
+text/tldraw-mono-font-metrics-csv.wasm: text/tldraw-mono-font-metrics-csv.zig text/lib/tldraw_mono_ibm_plex_mono_medium_metrics.zig
 
 text/text-to-og-image-svg-dejavu-sans-mono.wasm: text/dejavu_sans_mono_56_latin1_paths.zig text/dejavu_sans_mono_bold_56_latin1_paths.zig
 
