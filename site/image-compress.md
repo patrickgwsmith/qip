@@ -120,9 +120,9 @@ Compress images locally in your browser. Nothing is uploaded.
     <label><input type="checkbox" name="image-compress-codec" value="jpeg"> JPEG</label>
   </fieldset>
   <label>
-    <strong>Select a JPEG or PNG image.</strong><br>
+    <strong>Select a JPEG, PNG, WebP or AVIF image.</strong><br>
     <input id="image-compress-input" type="file"
-      accept="image/jpeg,image/png,.jpg,.jpeg,.png" />
+      accept="image/jpeg,image/png,image/webp,image/avif,.jpg,.jpeg,.png,.webp,.avif" />
   </label>
   <p id="image-compress-input-meta" class="image-compress-meta"></p>
 
@@ -174,7 +174,13 @@ function formatBytes(bytes) {
 function fileFormat(file) {
   if (file.type === "image/jpeg" || /\.jpe?g$/i.test(file.name)) return "jpeg";
   if (file.type === "image/png" || /\.png$/i.test(file.name)) return "png";
+  if (file.type === "image/webp" || /\.webp$/i.test(file.name)) return "webp";
+  if (file.type === "image/avif" || /\.avif$/i.test(file.name)) return "avif";
   return null;
+}
+
+function formatName(format) {
+  return { avif: "AVIF", jpeg: "JPEG", png: "PNG", webp: "WebP" }[format] ?? format;
 }
 
 function codecName(codec) {
@@ -486,7 +492,7 @@ function startEncoders(token) {
     return;
   }
   const inputs = runnable.map((codec, index) =>
-    index === runnable.length - 1 ? decoded.bmp : decoded.bmp.slice(0)
+    index === runnable.length - 1 ? decoded.ktx2 : decoded.ktx2.slice(0)
   );
   runnable.forEach((codec, index) => {
     startCodec(codec, inputs[index], decoded.hasAlpha, token);
@@ -504,7 +510,7 @@ function startDecode() {
     status.textContent = "Select at least one output format.";
     return;
   }
-  status.textContent = `Decoding ${selectedFormat.toUpperCase()} in your browser…`;
+  status.textContent = `Decoding ${formatName(selectedFormat)} in your browser…`;
   decoderWorker = new Worker("/image-compress-decode-worker.js", { type: "module" });
   decoderWorker.onmessage = (event) => {
     if (token !== runToken) return;
@@ -515,7 +521,7 @@ function startDecode() {
     }
     if (data.type !== "done") return;
     decoded = {
-      bmp: data.output,
+      ktx2: data.output,
       width: data.width,
       height: data.height,
       pixels: data.pixels,
@@ -548,7 +554,7 @@ fileInput.addEventListener("change", () => {
     inputMeta.textContent = "";
     originalPreview.removeAttribute("src");
     originalSection.hidden = true;
-    status.textContent = selectedFile ? "Choose a JPEG or PNG image." : "";
+    status.textContent = selectedFile ? "Choose a JPEG, PNG, WebP or AVIF image." : "";
     return;
   }
   inputURL = URL.createObjectURL(selectedFile);
@@ -576,14 +582,17 @@ quality. The tool shows the file size on each result. A smaller file is not
 always a better image. Compare the previews. The same quality values are used
 for WebP, AVIF, and JPEG, but the codecs can produce different file sizes and visual
 results. Move the pointer over a preview to view source pixels at 1x scale.
-Hold the mouse button to view the original image. The JPEG and PNG
-decoders support common 8-bit images up to 25 MP. AVIF supports up to 12 MP.
+Hold the mouse button to view the original image. The decoders support
+images up to 25 MP. AVIF output supports up to 12 MP.
 
-The JPEG decoder supports baseline JPEG. The PNG decoder supports common
-non-interlaced 8-bit PNG files. The tool rejects other image features. It does
-not send your file to a server. The AVIF component uses libavif and libaom.
-The JPEG component uses MozJPEG and composites transparency onto white. Quality
-100 is not lossless.
+The JPEG decoder supports baseline and progressive JPEG. The PNG decoder
+supports common non-interlaced 8-bit PNG files. The WebP decoder supports still
+lossy and lossless WebP. The AVIF decoder supports still sRGB AVIF images
+without an embedded ICC profile. The tool rejects other image features,
+including animated WebP and AVIF. It does not send your file to a server. Each
+image is decoded to KTX2 (R8G8B8A8 sRGB) pixels, and each encoder reads those
+pixels. The AVIF components use libavif and libaom. The JPEG component uses
+MozJPEG and composites transparency onto white. Quality 100 is not lossless.
 
 The tool supports sRGB images only. It does not convert wider color profiles.
 Images with wider profiles, such as some Mac screenshots, can have color
@@ -591,9 +600,11 @@ shifts. Convert them to sRGB before selecting them.
 
 ## Components used by this tool
 
-- <a href="/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm" download>jpeg-to-bmp-b8g8r8a8-srgb.wasm</a>
-- <a href="/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm" download>png-to-bmp-b8g8r8a8-srgb-simd.wasm</a>
-- <a href="/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm" download>bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm</a>
-- <a href="/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm" download>bmp-b8g8r8a8-srgb-to-webp-lossy.wasm</a>
-- <a href="/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm" download>bmp-b8g8r8a8-srgb-to-avif-lossy.wasm</a>
-- <a href="/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm" download>bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm</a>
+- <a href="/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm" download>jpeg-to-ktx2-r8g8b8a8-srgb.wasm</a>
+- <a href="/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm" download>png-to-ktx2-r8g8b8a8-srgb.wasm</a>
+- <a href="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm" download>webp-to-ktx2-r8g8b8a8-srgb.wasm</a>
+- <a href="/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm" download>avif-to-ktx2-r8g8b8a8-srgb.wasm</a>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm</a>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm" download>ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm</a>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm</a>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm</a>

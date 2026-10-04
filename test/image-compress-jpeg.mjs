@@ -2,25 +2,17 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-function makeBmp(width, height) {
-  const offset = 54;
-  const bytes = Buffer.alloc(offset + width * height * 4);
-  bytes.write("BM");
-  bytes.writeUInt32LE(bytes.length, 2);
-  bytes.writeUInt32LE(offset, 10);
-  bytes.writeUInt32LE(40, 14);
-  bytes.writeInt32LE(width, 18);
-  bytes.writeInt32LE(height, 22);
-  bytes.writeUInt16LE(1, 26);
-  bytes.writeUInt16LE(32, 28);
-  bytes.writeUInt32LE(width * height * 4, 34);
-  for (let index = offset; index < bytes.length; index += 4) {
-    bytes[index] = index & 255;
-    bytes[index + 1] = (index * 3) & 255;
-    bytes[index + 2] = (index * 7) & 255;
-    bytes[index + 3] = 255;
-  }
-  return bytes;
+async function makeKtx2() {
+  const module = await WebAssembly.compile(
+    await readFile("image/png/png-to-ktx2-r8g8b8a8-srgb.wasm"),
+  );
+  const { exports } = new WebAssembly.Instance(module, {});
+  const png = await readFile("fixtures/image-compress/red-zeppelin-320x240.png");
+  new Uint8Array(exports.memory.buffer, exports.input_ptr(), png.length).set(png);
+  const bits = BigInt.asUintN(64, exports.render(png.length));
+  const size = Number(bits & 0xffff_ffffn);
+  const pointer = Number((bits >> 32n) & 0x7fff_ffffn);
+  return Buffer.from(new Uint8Array(exports.memory.buffer, pointer, size).slice());
 }
 
 test("image compressor keeps JPEG opt-in", async () => {
@@ -45,9 +37,9 @@ test("image compressor worker runs the MozJPEG component", async () => {
   );
   await import(`../site/image-compress-worker.js?jpeg-test=${Date.now()}`);
 
-  const bmp = makeBmp(16, 12);
+  const ktx2 = await makeKtx2();
   await self.onmessage({
-    data: { type: "init", codec: "jpeg", input: bmp.buffer, hasAlpha: false },
+    data: { type: "init", codec: "jpeg", input: ktx2.buffer, hasAlpha: false },
   });
   assert.deepEqual(messages.shift(), { type: "ready", codec: "jpeg" });
 

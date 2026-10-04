@@ -1,12 +1,20 @@
 const DECODER_PATHS = {
+  avif: [
+    "/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm",
+  ],
   jpeg: [
-    "/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm",
+    "/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm",
   ],
   png: [
-    "/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm",
-    "/image/png/png-to-bmp-b8g8r8a8-srgb.wasm",
+    "/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm",
+  ],
+  webp: [
+    "/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm",
   ],
 };
+const KTX2_HEADER_SIZE = 224;
+const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
+const VK_FORMAT_R8G8B8A8_SRGB = 43;
 
 function decoderError(error) {
   return error instanceof Error ? error.message : String(error);
@@ -25,26 +33,25 @@ async function compileDecoder(format) {
   throw lastError || Error(`No decoder is available for ${format}.`);
 }
 
-function readBMPMetadata(bytes) {
-  if (bytes.length < 54 || bytes[0] !== 0x42 || bytes[1] !== 0x4d) {
-    throw Error("The decoder did not return a BMP.");
+function readKTX2Metadata(bytes) {
+  if (
+    bytes.length < KTX2_HEADER_SIZE ||
+    KTX2_IDENTIFIER.some((byte, index) => bytes[index] !== byte)
+  ) {
+    throw Error("The decoder did not return a KTX2 image.");
   }
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const pixelOffset = view.getUint32(10, true);
-  const width = view.getInt32(18, true);
-  const signedHeight = view.getInt32(22, true);
-  const bits = view.getUint16(28, true);
-  const compression = view.getUint32(30, true);
-  const height = Math.abs(signedHeight);
-  if (width <= 0 || signedHeight === 0 || bits !== 32 || compression !== 0) {
-    throw Error("The decoder returned an unsupported BMP layout.");
+  const width = view.getUint32(20, true);
+  const height = view.getUint32(24, true);
+  if (view.getUint32(12, true) !== VK_FORMAT_R8G8B8A8_SRGB || width === 0 || height === 0) {
+    throw Error("The decoder returned an unsupported KTX2 layout.");
   }
   const pixelBytes = width * height * 4;
-  if (pixelOffset < 54 || pixelOffset + pixelBytes > bytes.length) {
-    throw Error("The decoder returned a truncated BMP.");
+  if (KTX2_HEADER_SIZE + pixelBytes !== bytes.length) {
+    throw Error("The decoder returned a truncated KTX2 image.");
   }
   let hasAlpha = false;
-  for (let offset = pixelOffset + 3; offset < pixelOffset + pixelBytes; offset += 4) {
+  for (let offset = KTX2_HEADER_SIZE + 3; offset < bytes.length; offset += 4) {
     if (bytes[offset] !== 255) {
       hasAlpha = true;
       break;
@@ -82,21 +89,21 @@ function run(exports, input) {
 self.onmessage = async (event) => {
   try {
     const { format, input } = event.data;
-    if (!DECODER_PATHS[format]) throw Error("Choose a JPEG or PNG image.");
+    if (!DECODER_PATHS[format]) throw Error("Choose a JPEG, PNG, WebP or AVIF image.");
     const inputBytes = new Uint8Array(input);
     const { module, path } = await compileDecoder(format);
     const { exports } = new WebAssembly.Instance(module, {});
     exports._initialize?.();
     const started = performance.now();
-    const bmp = run(exports, inputBytes);
-    const metadata = readBMPMetadata(bmp);
+    const ktx2 = run(exports, inputBytes);
+    const metadata = readKTX2Metadata(ktx2);
     self.postMessage({
       type: "done",
-      output: bmp.buffer,
+      output: ktx2.buffer,
       ...metadata,
       decoderPath: path,
       elapsedMs: performance.now() - started,
-    }, [bmp.buffer]);
+    }, [ktx2.buffer]);
   } catch (error) {
     self.postMessage({ type: "error", message: decoderError(error) });
   } finally {

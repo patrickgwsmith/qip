@@ -2,7 +2,7 @@
 
 # WebP to PNG, KTX2, or BMP
 
-Convert a WebP image to PNG, KTX2, or BMP locally in your browser. The image is not uploaded to a server.
+Convert a WebP image to PNG, KTX2, or BMP locally in your browser, or [compress it lossily to JPEG, WebP, or AVIF](/image-compress). The image is not uploaded to a server.
 
 <style>
 .webp-decode-tool {
@@ -258,16 +258,13 @@ first decoded to an uncompressed R8G8B8A8 sRGB KTX2, which is offered as-is or
 encoded to PNG or BMP. Conversion runs in disposable workers so the decoder and
 encoder do not keep their fixed Wasm memory attached to the page.
 
-## Components
+## Download components
 
 - <a href="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm" download>webp-to-ktx2-r8g8b8a8-srgb.wasm</a> — <qip-content-size src="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm"></qip-content-size>
 - <a href="/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm" download>webp-to-bmp-b8g8r8a8-srgb.wasm</a> — <qip-content-size src="/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm"></qip-content-size>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm</a> — <qip-content-size src="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm"></qip-content-size>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm" download>ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm</a> — <qip-content-size src="/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm"></qip-content-size>
 - <a href="/image/bmp/bmp-to-png.wasm" download>bmp-to-png.wasm</a> — <qip-content-size src="/image/bmp/bmp-to-png.wasm"></qip-content-size>
-
-The page decodes through KTX2. `webp-to-bmp-b8g8r8a8-srgb.wasm` and
-`bmp-to-png.wasm` remain available if you prefer a BMP-based pipeline.
 
 ## CLI equivalent
 

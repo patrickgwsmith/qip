@@ -2,18 +2,18 @@ const CODEC_CONFIG = {
   webp: {
     modulePath(hasAlpha) {
       return hasAlpha
-        ? "/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm"
-        : "/image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm";
+        ? "/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm"
+        : "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm";
     },
   },
   avif: {
     modulePath() {
-      return "/image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm";
+      return "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm";
     },
   },
   jpeg: {
     modulePath() {
-      return "/image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm";
+      return "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm";
     },
   },
 };
@@ -58,7 +58,7 @@ async function initialize(data) {
   exports._initialize?.();
   const inputCap = exports.input_bytes_cap() >>> 0;
   if (inputBytes.length > inputCap) {
-    throw Error(`BMP exceeds ${codec} input capacity: ${inputBytes.length} > ${inputCap} bytes.`);
+    throw Error(`KTX2 image exceeds ${codec} input capacity: ${inputBytes.length} > ${inputCap} bytes.`);
   }
 }
 
@@ -78,11 +78,11 @@ async function drain() {
       const renderResult = exports.render(inputBytes.length);
       if (typeof renderResult !== "bigint") throw TypeError("render must return i64");
       const renderBits = BigInt.asUintN(64, renderResult);
-      if ((renderBits & (1n << 63n)) !== 0n) throw Error("The encoder rejected the BMP.");
+      if ((renderBits & (1n << 63n)) !== 0n) throw Error("The encoder rejected the image.");
       const outputSize = Number(renderBits & 0xffff_ffffn);
       const outputPointer = Number((renderBits >> 32n) & 0x7fff_ffffn);
       if (outputSize === 0) {
-        throw Error("The encoder rejected the BMP or exceeded its fixed output capacity.");
+        throw Error("The encoder rejected the image or exceeded its fixed output capacity.");
       }
       if (outputSize > (exports.output_bytes_cap() >>> 0)) {
         throw Error("The encoder returned output beyond its declared capacity.");
