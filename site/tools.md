@@ -30,7 +30,7 @@ Browse the complete lists of [`text/*` components](/text), [`image/*` components
 - [AWS SigV4 request signer](/sigv4) outputs the signed headers for an AWS request without sending it.
 - [PDF to text](/pdf) extracts positioned text from born-digital PDFs locally.
 - [Favicon generator](/favicon) converts a PNG or BMP into a `favicon.ico`.
-- [BMP to WebP encoder](/webp) produces lossy or exact lossless WebP locally.
+- [Convert to WebP](/webp) converts JPEG, PNG, AVIF, WebP, or BMP to lossy or exact lossless WebP locally.
 - [Image compressor](/image-compress) compares lossy WebP, AVIF, and JPEG encodes locally, ordered by file size.
 - [High-quality image resizer](/image-resize) uses Lanczos3 for reduction and Mitchell-Netravali bicubic reconstruction for enlargement.
 - [WebP to PNG or BMP](/webp-to-png) decodes static lossy or lossless WebP locally.

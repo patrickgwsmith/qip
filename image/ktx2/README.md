@@ -260,6 +260,12 @@ lossless encoder preserves RGB beneath transparent pixels.
 profile and uses the same in-place swap. Both encoders avoid an image-sized
 libwebp import allocation and do not use a BMP component boundary.
 
+`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm` accepts either exact
+sRGB component order and composites alpha over `background_color_rgb` (white
+by default) in place before encoding lossy WebP without alpha. It reserves 448
+MiB instead of the alpha-preserving lossy encoder's 1.1875 GiB, so prefer it
+for photographs.
+
 `../bmp/bmp-b8g8r8a8-srgb-to-ktx2-b8g8r8a8-srgb.wasm` accepts both positive-height
 bottom-up BMP and negative-height top-down BMP. It copies BGRA channel bytes to
 a canonical top-down KTX2 payload.

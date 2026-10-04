@@ -25,7 +25,7 @@ Related tools: [favicon generator](/favicon) and [image compressor](/image-compr
 - [`webp-to-bmp-b8g8r8a8-srgb.wasm`](/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm) decodes static WebP to an 8-bit sRGB BMP image.
 - [`webp-to-ktx2-r8g8b8a8-srgb.wasm`](/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm) decodes static WebP to an 8-bit sRGB KTX2 image.
 
-Related tool: [WebP to PNG or BMP](/webp-to-png).
+Related tools: [WebP to PNG or BMP](/webp-to-png) and [convert to WebP](/webp).
 
 ## SVG (`image/svg+xml`)
 
@@ -76,7 +76,7 @@ Related tool: [image compressor](/image-compress).
 - [`bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm`](/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm) stores 8-bit RGBA sRGB pixels.
 - [`bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm`](/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm) stores 32-bit floating-point RGBA pixels.
 
-Related tools: [image color palette](/image-color-palette), [favicon generator](/favicon), [BMP to WebP](/webp), and [image compressor](/image-compress).
+Related tools: [image color palette](/image-color-palette), [favicon generator](/favicon), [convert to WebP](/webp), and [image compressor](/image-compress).
 
 ## KTX2 (`image/ktx2`)
 
@@ -120,6 +120,7 @@ Related tool: [high-quality image resizer](/image-resize).
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm) encodes PNG.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm) encodes exact lossless WebP.
 - [`ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm) encodes lossy WebP.
+- [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm) encodes lossy WebP without alpha.
 
 Related tool: [image vectorizer](/image/vectorize).
 
