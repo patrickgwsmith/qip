@@ -1,13 +1,12 @@
 self.onmessage = async (event) => {
   try {
     const input = new Uint8Array(event.data.input);
-    const module = await WebAssembly.compileStreaming(
-      fetch("/image/bmp/bmp-to-png.wasm"),
-    );
+    const { component, label } = event.data;
+    const module = await WebAssembly.compileStreaming(fetch(component));
     const exports = new WebAssembly.Instance(module, {}).exports;
     const inputCap = exports.input_bytes_cap() >>> 0;
     if (input.length > inputCap) {
-      throw Error(`Decoded BMP exceeds component capacity: ${input.length} > ${inputCap} bytes.`);
+      throw Error(`Decoded image exceeds ${label} component capacity: ${input.length} > ${inputCap} bytes.`);
     }
     new Uint8Array(exports.memory.buffer, exports.input_ptr() >>> 0, input.length)
       .set(input);
@@ -15,15 +14,15 @@ self.onmessage = async (event) => {
     const renderResult = exports.render(input.length);
     if (typeof renderResult !== "bigint") throw TypeError("render must return i64");
     const renderBits = BigInt.asUintN(64, renderResult);
-    if ((renderBits & (1n << 63n)) !== 0n) throw Error("The PNG component rejected the decoded BMP.");
+    if ((renderBits & (1n << 63n)) !== 0n) throw Error(`The ${label} component rejected the decoded image.`);
     const outputSize = Number(renderBits & 0xffff_ffffn);
     const outputPointer = Number((renderBits >> 32n) & 0x7fff_ffffn);
     const elapsedMs = performance.now() - started;
     if (outputSize === 0) {
-      throw Error("The PNG component rejected the decoded BMP.");
+      throw Error(`The ${label} component rejected the decoded image.`);
     }
     if (outputSize > (exports.output_bytes_cap() >>> 0)) {
-      throw Error("The PNG component returned output beyond its declared capacity.");
+      throw Error(`The ${label} component returned output beyond its declared capacity.`);
     }
     const output = new Uint8Array(
       exports.memory.buffer,

@@ -815,7 +815,7 @@ $(LIBWEBP_DEC_CLANG_RAW_WASM): image/webp/webp-to-bmp-b8g8r8a8-srgb.c $(LIBWEBP_
 image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm: $(LIBWEBP_DEC_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
 
-$(LIBWEBP_KTX_DEC_CLANG_RAW_WASM): image/webp/webp-to-ktx2-r8g8b8a8-srgb.c image/webp/webp-to-bmp-b8g8r8a8-srgb.c image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
+$(LIBWEBP_KTX_DEC_CLANG_RAW_WASM): image/webp/webp-to-ktx2-r8g8b8a8-srgb.c image/lib/ktx2-rgba8-srgb.h $(LIBWEBP_DEC_C_SOURCES) $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(LIBWEBP_ROOT) -O3 -flto -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-free $(LIBWEBP_CLANG_FEATURE_FLAGS) -DNDEBUG -nostdlib $< $(LIBWEBP_DEC_C_SOURCES) -L$(EMSDK_LTO_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) $(WASM_STACK_FLAG) $(LIBWEBP_DEC_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc_rt_wasm -lstandalonewasm -o $@
 
 image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm: $(LIBWEBP_KTX_DEC_CLANG_RAW_WASM)

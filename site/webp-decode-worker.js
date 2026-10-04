@@ -29,29 +29,29 @@ self.onmessage = async (event) => {
     const { input } = event.data;
     const inputBytes = new Uint8Array(input);
     const decoderModule = await WebAssembly.compileStreaming(
-      fetch("/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm"),
+      fetch("/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm"),
     );
     const decoder = new WebAssembly.Instance(decoderModule, {}).exports;
     decoder._initialize?.();
     const started = performance.now();
-    const bmp = run(decoder, inputBytes);
-    if (bmp === null) {
+    const ktx2 = run(decoder, inputBytes);
+    if (ktx2 === null) {
       throw Error(
         "The decoder rejected this WebP. It may be malformed, animated, or larger than 25 MP.",
       );
     }
-    const view = new DataView(bmp.buffer, bmp.byteOffset, bmp.byteLength);
-    const width = view.getInt32(18, true);
-    const height = Math.abs(view.getInt32(22, true));
+    const view = new DataView(ktx2.buffer, ktx2.byteOffset, ktx2.byteLength);
+    const width = view.getUint32(20, true);
+    const height = view.getUint32(24, true);
     const elapsedMs = performance.now() - started;
     self.postMessage({
       type: "done",
-      output: bmp.buffer,
+      output: ktx2.buffer,
       width,
       height,
       elapsedMs,
       peakBytes: decoder.arena_peak_bytes() >>> 0,
-    }, [bmp.buffer]);
+    }, [ktx2.buffer]);
   } catch (error) {
     self.postMessage({
       type: "error",

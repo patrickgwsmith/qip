@@ -4,18 +4,11 @@
 
 #include "src/webp/decode.h"
 
-#ifdef QIP_WEBP_OUTPUT_KTX2_RGBA8
-#include "../lib/ktx2-rgba8-srgb.h"
-#endif
 
 #define MAX_PIXELS 25000000u
 #define MAX_DIMENSION 8192u
 #define INPUT_CAP (64u * 1024u * 1024u)
-#ifdef QIP_WEBP_OUTPUT_KTX2_RGBA8
-#define OUTPUT_HEADER_SIZE QIP_KTX2_RGBA8_HEADER_SIZE
-#else
 #define OUTPUT_HEADER_SIZE 54u
-#endif
 #define OUTPUT_CAP (MAX_PIXELS * 4u + OUTPUT_HEADER_SIZE)
 #define ARENA_CAP (256u * 1024u * 1024u)
 
@@ -167,11 +160,7 @@ static uint32_t output_ptr(void) { return (uint32_t)(uintptr_t)output_buf; }
 uint32_t output_bytes_cap(void) { return OUTPUT_CAP; }
 
 static const char input_content_type[] = "image/webp";
-#ifdef QIP_WEBP_OUTPUT_KTX2_RGBA8
-static const char output_content_type[] = "image/ktx2";
-#else
 static const char output_content_type[] = "image/bmp";
-#endif
 
 uint32_t input_content_type_ptr(void) {
   return (uint32_t)(uintptr_t)input_content_type;
@@ -227,24 +216,11 @@ uint64_t render(uint32_t input_size_value) {
   pixel_bytes = (uint32_t)(pixel_count * 4u);
   output_size = OUTPUT_HEADER_SIZE + pixel_bytes;
 
-#ifdef QIP_WEBP_OUTPUT_KTX2_RGBA8
-  decoded = WebPDecodeRGBAInto(input_buf, input_size_value,
-                               output_buf + OUTPUT_HEADER_SIZE, pixel_bytes,
-                               features.width * 4);
-#else
   decoded = WebPDecodeBGRAInto(input_buf, input_size_value,
                                output_buf + OUTPUT_HEADER_SIZE, pixel_bytes,
                                features.width * 4);
-#endif
   if (decoded == NULL || arena_failed_size != 0) return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
 
-#ifdef QIP_WEBP_OUTPUT_KTX2_RGBA8
-  if (qip_ktx2_rgba8_write_header(output_buf, OUTPUT_CAP,
-                                   (uint32_t)features.width,
-                                   (uint32_t)features.height) != output_size) {
-    return ((uint64_t)output_ptr() << 32) | (uint32_t)(0);
-  }
-#else
   memset(output_buf, 0, OUTPUT_HEADER_SIZE);
   output_buf[0] = 'B';
   output_buf[1] = 'M';
@@ -258,6 +234,5 @@ uint64_t render(uint32_t input_size_value) {
   write_u32_le(output_buf + 34, pixel_bytes);
   write_u32_le(output_buf + 38, 2835);
   write_u32_le(output_buf + 42, 2835);
-#endif
   return ((uint64_t)output_ptr() << 32) | (uint32_t)(output_size);
 }

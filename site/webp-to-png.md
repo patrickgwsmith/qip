@@ -1,8 +1,8 @@
-<title>WebP to PNG or BMP</title>
+<title>WebP to PNG, KTX2, or BMP</title>
 
-# WebP to PNG or BMP
+# WebP to PNG, KTX2, or BMP
 
-Convert a WebP image to PNG or BMP locally in your browser. The image is not uploaded to a server.
+Convert a WebP image to PNG, KTX2, or BMP locally in your browser. The image is not uploaded to a server.
 
 <style>
 .webp-decode-tool {
@@ -56,6 +56,7 @@ Convert a WebP image to PNG or BMP locally in your browser. The image is not upl
     <label>Output
       <select id="webp-decode-format">
         <option value="png" selected>PNG</option>
+        <option value="ktx2">KTX2 (R8G8B8A8 sRGB)</option>
         <option value="bmp">32-bit BGRA BMP</option>
       </select>
     </label>
@@ -106,8 +107,13 @@ function finish() {
   cancelButton.disabled = true;
 }
 
+const encoders = {
+  png: "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm",
+  bmp: "/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm",
+};
+
 function publishOutput(output, format, inputName, width, height, elapsedMs, peakBytes) {
-  const mime = format === "png" ? "image/png" : "image/bmp";
+  const mime = `image/${format}`;
   outputURL = URL.createObjectURL(new Blob([output], { type: mime }));
   outputName = inputName.replace(/\.webp$/i, "") + `.${format}`;
   downloadButton.textContent = `Download ${format.toUpperCase()}`;
@@ -169,10 +175,10 @@ convertButton.addEventListener("click", async () => {
         finish();
         return;
       }
-      const bmp = new Uint8Array(event.data.output);
-      if (format === "bmp") {
+      const ktx2 = new Uint8Array(event.data.output);
+      if (format === "ktx2") {
         publishOutput(
-          bmp,
+          ktx2,
           format,
           inputName,
           event.data.width,
@@ -184,30 +190,34 @@ convertButton.addEventListener("click", async () => {
       }
 
       const decodeResult = event.data;
+      const label = format.toUpperCase();
       worker?.terminate();
-      status.textContent = "WebP decoded. Encoding PNG in a fresh worker…";
-      worker = new Worker("/bmp-to-png-worker.js", { type: "module" });
-      worker.onmessage = (pngEvent) => {
-        if (pngEvent.data.type === "error") {
-          status.textContent = pngEvent.data.message;
+      status.textContent = `WebP decoded to KTX2. Encoding ${label} in a fresh worker…`;
+      worker = new Worker("/image-encode-worker.js", { type: "module" });
+      worker.onmessage = (encodeEvent) => {
+        if (encodeEvent.data.type === "error") {
+          status.textContent = encodeEvent.data.message;
           finish();
           return;
         }
         publishOutput(
-          new Uint8Array(pngEvent.data.output),
+          new Uint8Array(encodeEvent.data.output),
           format,
           inputName,
           decodeResult.width,
           decodeResult.height,
-          decodeResult.elapsedMs + pngEvent.data.elapsedMs,
+          decodeResult.elapsedMs + encodeEvent.data.elapsedMs,
           decodeResult.peakBytes,
         );
       };
-      worker.onerror = (pngError) => {
-        status.textContent = pngError.message || "The PNG worker failed.";
+      worker.onerror = (encodeError) => {
+        status.textContent = encodeError.message || `The ${label} worker failed.`;
         finish();
       };
-      worker.postMessage({ input: bmp.buffer }, [bmp.buffer]);
+      worker.postMessage(
+        { input: ktx2.buffer, component: encoders[format], label },
+        [ktx2.buffer],
+      );
     };
     worker.onerror = (event) => {
       status.textContent = event.message || "The conversion worker failed.";
@@ -242,23 +252,45 @@ addEventListener("beforeunload", () => {
 });
 </script>
 
-Both output paths accept images up to 25 MP, with neither dimension above 8192
-pixels. Animated WebP is rejected rather than reduced to one frame. Conversion
-runs in disposable workers so the decoder and PNG encoder do not keep their
-fixed Wasm memory attached to the page.
+Every output accepts images up to 25 MP, with neither dimension above 8192
+pixels. Animated WebP is rejected rather than reduced to one frame. The WebP is
+first decoded to an uncompressed R8G8B8A8 sRGB KTX2, which is offered as-is or
+encoded to PNG or BMP. Conversion runs in disposable workers so the decoder and
+encoder do not keep their fixed Wasm memory attached to the page.
 
 ## Components
 
+- <a href="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm" download>webp-to-ktx2-r8g8b8a8-srgb.wasm</a> — <qip-content-size src="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm"></qip-content-size>
 - <a href="/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm" download>webp-to-bmp-b8g8r8a8-srgb.wasm</a> — <qip-content-size src="/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm"></qip-content-size>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm</a> — <qip-content-size src="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm"></qip-content-size>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm" download>ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm</a> — <qip-content-size src="/image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.wasm"></qip-content-size>
 - <a href="/image/bmp/bmp-to-png.wasm" download>bmp-to-png.wasm</a> — <qip-content-size src="/image/bmp/bmp-to-png.wasm"></qip-content-size>
+
+The page decodes through KTX2. `webp-to-bmp-b8g8r8a8-srgb.wasm` and
+`bmp-to-png.wasm` remain available if you prefer a BMP-based pipeline.
 
 ## CLI equivalent
 
 ```bash
-qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+# WebP to PNG (via KTX2)
+npx @qip.dev/qipx qip.dev run \
+  image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm \
+  image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm \
+  < input.webp > output.png
+
+# WebP to KTX2
+npx @qip.dev/qipx qip.dev run \
+  image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm \
+  < input.webp > output.ktx2
+
+# WebP to BMP
+npx @qip.dev/qipx qip.dev run \
+  image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
   < input.webp > output.bmp
 
-qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+# WebP to PNG (via BMP)
+npx @qip.dev/qipx qip.dev run \
+  image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
   image/bmp/bmp-to-png.wasm \
   < input.webp > output.png
 ```
