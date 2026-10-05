@@ -553,6 +553,7 @@ application/x-tar/tar-to-zip.wasm: ZIG_WASM_MAX_MEMORY = 402653184
 application/x-tar/tar-to-zip.wasm: application/x-tar/tar-to-zip.zig bytes/lib/deflate.zig
 	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate -Mroot=$< -Mdeflate=bytes/lib/deflate.zig -femit-bin=$@
 application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
+application/x-tar/tar-to-sha256sums.wasm: ZIG_WASM_MAX_MEMORY = 184549376
 application/x-tar/recipes-tar-to-node-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
 application/x-tar/recipes-tar-to-csv.wasm application/x-tar/recipes-tar-to-node-tar.wasm: application/x-tar/%.wasm: application/x-tar/%.zig application/x-tar/lib/recipe-book.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_reader -Mroot=$< -Mwasm_reader=application/wasm/lib/wasm-reader.zig -femit-bin=$@
@@ -1216,6 +1217,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/content-recipe-browser-javascript.mjs
 	node --test test/qip-router-node.mjs
 	node --test test/tar-to-zip.mjs
+	node --test test/tar-to-sha256sums.mjs
 	node --test test/zip-to-tar.mjs
 	node --test test/zip-list-extract.mjs
 	node --test test/bmp-png.mjs

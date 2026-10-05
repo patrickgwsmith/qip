@@ -37,6 +37,34 @@ Use this component when ZIP compatibility at a system boundary is useful.
 Keep TAR between components when sequential parsing or richer Unix archive
 semantics are more important.
 
+## SHA256SUMS
+
+`tar-to-sha256sums.wasm` lists the SHA-256 digest of each regular file in a
+TAR archive, in archive order, using the `sha256sum` text format:
+
+```sh
+qip run \
+  -i site.tar \
+  -o SHA256SUMS \
+  application/x-tar/tar-to-sha256sums.wasm
+mkdir site && /usr/bin/tar -xf site.tar -C site
+(cd site && sha256sum -c ../SHA256SUMS)
+```
+
+Each line is 64 lowercase hex digits, two spaces, and the member path as
+stored in the archive. As in GNU coreutils, a path that contains a backslash
+or newline gets a leading `\` on its line, and those characters are written as
+`\\` and `\n`. SHA256SUMS has no registered media type, so the output is
+`text/plain` and the component name pins the format.
+
+Directories, symbolic links, hard links, devices, and FIFOs are skipped
+because the archive stores no payload for them. A hard link therefore is not
+checked, even though extracting it creates a file. The component reads the
+same ustar, PAX, and GNU long-name headers as `tar-to-zip.wasm`. It traps on
+malformed TAR data, unsupported entry types such as GNU sparse files, paths
+that are not UTF-8, and output over 32 MiB. 32 MiB holds about 260,000 lines
+with 60-byte paths.
+
 ## Recipe books
 
 A recipe book packages a fixed `_recipes` directory for a deployment target
