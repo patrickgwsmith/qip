@@ -132,6 +132,9 @@ fn buildTable(lens: []const u8, table: []u16, table_bits: u5, allow_incomplete_s
     }
     if (left > 0 and (!allow_incomplete_single or max_len != 1)) return false;
 
+    // Unused symbols get no code. Counting them would offset every start
+    // code and overflow `next` once two or more symbols are unused.
+    count[0] = 0;
     var next: [MAX_BITS + 1]u16 = [_]u16{0} ** (MAX_BITS + 1);
     var code: u32 = 0;
     bits = 1;
