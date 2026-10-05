@@ -117,6 +117,7 @@ module: markdown-basic.wasm | html-page-wrap.wasm
             <li><a href="/recipes">Recipes</a></li>
             <li><a href="/tools">Tools</a></li>
             <li><a href="https://github.com/royalicing/qip">GitHub</a></li>
+            <li><a href="https://discord.gg/ZwMXf5p5e">Discord</a></li>
         </ul>
     </nav>
 </header><main><h1>Title</h1>
@@ -130,6 +131,7 @@ module: markdown-basic.wasm | html-page-wrap.wasm
             <li><a href="/docs">Docs</a></li>
             <li><a href="/view-source">View Source</a></li>
             <li><a href="https://github.com/royalicing/qip">GitHub</a></li>
+            <li><a href="https://discord.gg/ZwMXf5p5e">Discord</a></li>
         </ul>
     </nav>
 </footer>
