@@ -922,6 +922,8 @@ image/bmp/bmp-to-png.wasm: image/bmp/lib/deflate.zig
 image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm: image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.zig image/bmp/bmp-to-png.zig image/bmp/lib/deflate.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-bgra8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep png_encoder_impl -Mroot=$< --dep ktx2_rgba8_srgb --dep ktx2_bgra8_srgb -Mpng_encoder_impl=image/bmp/bmp-to-png.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_bgra8_srgb=image/lib/ktx2-bgra8-srgb.zig -femit-bin=$@
 bytes/zlib-decompress.wasm: bytes/lib/inflate.zig bytes/lib/deflate.zig
+bytes/gzip-compress.wasm bytes/bgzf-compress.wasm: bytes/lib/gzip.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
+bytes/gzip-decompress.wasm bytes/bgzf-decompress.wasm: bytes/lib/gzip.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
 image/png/png-to-bmp-b8g8r8a8-srgb.wasm image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: image/png/lib/inflate.zig image/png/lib/deflate.zig
 image/png/png-to-ktx2-r8g8b8a8-srgb.wasm: image/png/png-to-ktx2-r8g8b8a8-srgb.zig image/png/png-to-bmp-b8g8r8a8-srgb.zig image/png/lib/inflate.zig image/png/lib/deflate.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
@@ -1142,6 +1144,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
 	node --test test/qip-content-interpreter.mjs
+	node --test test/gzip-bgzf.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
 	node --test test/ktx2-resize-simd.mjs

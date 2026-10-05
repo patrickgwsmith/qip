@@ -211,6 +211,7 @@ features.
 | --- | --- | --- |
 | `application/x-tar` | A file collection that a component reads or writes in order. | TAR does not include compression. |
 | `application/zip` | A compressed archive for users and desktop tools. | Some ZIP operations must read the central directory at the end of the file. |
+| `application/gzip` | One compressed byte stream, such as a `.tar.gz` or `.vcf.gz` file. | A reader must decompress from the start, unless the file is BGZF. |
 | `application/x-www-form-urlencoded` | Small named UTF-8 form fields. | The format is not suitable for file bodies. |
 | `multipart/form-data` | Forms with files or separate metadata for each part. | Boundary parsing is more complex than URL-encoded form parsing. |
 
@@ -218,6 +219,16 @@ QIP uses TAR as the sequential archive inside pipelines and ZIP at external
 boundaries. The ZIP-to-TAR component accepts bounded classic ZIP archives. It
 supports stored and DEFLATE entries. It rejects ZIP64, encryption, split
 archives, special file types, and unsafe extraction paths.
+
+`bytes/gzip-compress.wasm` writes one gzip member. `bytes/bgzf-compress.wasm`
+writes BGZF: gzip members of at most 64 KiB each, followed by an empty EOF
+member. tabix, samtools, and other htslib tools need BGZF to read a file at an
+indexed offset, and any gunzip still reads it. On 600 KB text files, its
+output is 3% to 6% larger than one gzip member, because each member
+compresses on its own and cannot refer to earlier members. Use
+`bytes/gzip-decompress.wasm` for any gzip or BGZF input. Use
+`bytes/bgzf-decompress.wasm` when the input must be complete, valid BGZF. It
+rejects plain gzip and files that have lost their EOF member.
 
 ## WARC web snapshots
 

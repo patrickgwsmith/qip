@@ -451,6 +451,22 @@ pub fn inflateRawExact(input: []const u8, output: []u8) ?RawResult {
     };
 }
 
+pub const RawPrefixResult = struct {
+    length: usize,
+    consumed: usize,
+};
+
+/// Decompresses one raw DEFLATE stream that starts at `input[0]` and may be
+/// followed by other bytes, such as a gzip trailer. The result includes the
+/// decompressed length and the byte offset after the final block. A stream
+/// that is malformed, truncated, or too long for `output` returns null.
+pub fn inflateRawPrefix(input: []const u8, output: []u8) ?RawPrefixResult {
+    var br = BitReader.init(input, 0);
+    var writer = ContiguousWriter{ .output = output };
+    if (!inflateBlocks(&br, &writer)) return null;
+    return .{ .length = writer.out_i, .consumed = br.alignToByte() };
+}
+
 /// Inflates one complete zlib stream through fixed-size synchronous batches.
 /// `batch_bytes` is chosen by the caller and must fit in `work` after the
 /// retained 32 KiB DEFLATE history. The callback runs inside this function;

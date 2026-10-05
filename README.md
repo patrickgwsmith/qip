@@ -165,6 +165,13 @@ echo "qip + wasm" | qipx run bytes/zlib-compress-dynamic-huffman.wasm bytes/base
 echo "qip + wasm" | qipx run bytes/zlib-compress-dynamic-huffman.wasm bytes/zlib-decompress.wasm
 # qip + wasm
 
+# Create gzip bytes that any gunzip reads
+echo "qip + wasm" | qipx run bytes/gzip-compress.wasm | gunzip
+# qip + wasm
+
+# Create BGZF for tabix and samtools (also gunzip-compatible)
+qipx run -i regions.bed bytes/bgzf-compress.wasm > regions.bed.gz
+
 # Load Hacker News, extract all links
 curl -s https://news.ycombinator.com | qipx run text/html/html-link-extractor.wasm
 
