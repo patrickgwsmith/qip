@@ -7,7 +7,8 @@ const ktx_sdr = @import("ktx2_rgba8_srgb");
 
 const MAX_PIXELS: usize = 1_000_000;
 const CAP: usize = ktx_hdr.HEADER_SIZE + MAX_PIXELS * 16;
-const CONTENT_TYPE = ktx_hdr.CONTENT_TYPE;
+const INPUT_CONTENT_TYPE = "image/ktx2";
+const OUTPUT_CONTENT_TYPE = ktx_hdr.CONTENT_TYPE;
 const Color = @Vector(3, f32);
 const Lanes = @Vector(4, f32);
 
@@ -27,16 +28,16 @@ export fn output_bytes_cap() u32 {
     return CAP;
 }
 export fn input_content_type_ptr() u32 {
-    return @intCast(@intFromPtr(CONTENT_TYPE.ptr));
+    return @intCast(@intFromPtr(INPUT_CONTENT_TYPE.ptr));
 }
 export fn input_content_type_size() u32 {
-    return CONTENT_TYPE.len;
+    return INPUT_CONTENT_TYPE.len;
 }
 export fn output_content_type_ptr() u32 {
-    return @intCast(@intFromPtr(CONTENT_TYPE.ptr));
+    return @intCast(@intFromPtr(OUTPUT_CONTENT_TYPE.ptr));
 }
 export fn output_content_type_size() u32 {
-    return CONTENT_TYPE.len;
+    return OUTPUT_CONTENT_TYPE.len;
 }
 
 export fn uniform_set_shadow_r(value: f32) f32 {
