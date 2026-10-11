@@ -1156,6 +1156,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-interpret-memory-page-writes-csv.mjs
 	node --test test/qip-interpret-memory-thermal-ktx2.mjs
 	node --test test/gzip-bgzf.mjs
+	node --test test/zstd.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
 	node --test test/ktx2-resize-simd.mjs

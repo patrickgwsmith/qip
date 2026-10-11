@@ -212,6 +212,7 @@ features.
 | `application/x-tar` | A file collection that a component reads or writes in order. | TAR does not include compression. |
 | `application/zip` | A compressed archive for users and desktop tools. | Some ZIP operations must read the central directory at the end of the file. |
 | `application/gzip` | One compressed byte stream, such as a `.tar.gz` or `.vcf.gz` file. | A reader must decompress from the start, unless the file is BGZF. |
+| `application/zstd` | One Zstandard byte stream, such as a `.tar.zst` file or an HTTP body sent with `Content-Encoding: zstd`. | Frames compress on their own, so small frames compress poorly. |
 | `application/x-www-form-urlencoded` | Small named UTF-8 form fields. | The format is not suitable for file bodies. |
 | `multipart/form-data` | Forms with files or separate metadata for each part. | Boundary parsing is more complex than URL-encoded form parsing. |
 
@@ -229,6 +230,15 @@ compresses on its own and cannot refer to earlier members. Use
 `bytes/gzip-decompress.wasm` for any gzip or BGZF input. Use
 `bytes/bgzf-decompress.wasm` when the input must be complete, valid BGZF. It
 rejects plain gzip and files that have lost their EOF member.
+
+`bytes/zstd-compress.wasm` writes one Zstandard frame with the content size
+and an XXH64 checksum, and no dictionary. It stores literals raw and codes
+matches with the predefined FSE tables, so on text its output is about 1.3 to
+1.6 times the size of `zstd -3`. `bytes/zstd-decompress.wasm` reads any
+frames that `zstd` writes without a dictionary, as long as the window is at
+most 8 MiB, the limit browsers use. Concatenated frames decode to the
+concatenation of their contents and skippable frames are ignored, so a server
+can join compressed fragments without decompressing them.
 
 ## WARC web snapshots
 
