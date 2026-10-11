@@ -1,0 +1,72 @@
+                Size : 0x00007BFC : 31740
+    Data color space : 0x52474220 : 'RGB '
+                 PCS : 0x58595A20 : 'XYZ '
+ Input Channel Count :            : 3
+           Tag count : 0x0000000C : 12
+
+ Tag    : Type   : Size   : Offset
+ ------ : ------ : ------ : --------
+ 'desc' : 'desc' :    212 : 276
+ 'cprt' : 'text' :     41 : 488
+ 'wtpt' : 'XYZ ' :     20 : 532
+ 'rXYZ' : 'XYZ ' :     20 : 552
+ 'bXYZ' : 'XYZ ' :     20 : 572
+ 'gXYZ' : 'XYZ ' :     20 : 592
+ 'rTRC' : 'curv' :    522 : 612
+ 'gTRC' : 'curv' :    522 : 1136
+ 'bTRC' : 'curv' :    522 : 1660
+ 'A2B0' : 'mft2' :  29554 : 2184
+ 'A2B1' : 'mft2' :  29554 : 2184
+ 'A2B2' : 'mft2' :  29554 : 2184
+
+rTRC : 16-bit table with 255 entries
+gTRC : 16-bit table with 255 entries
+  ~= : 1, 0.003875792, 0, 0, 0, 0, 0 (Max error: 0.000128567) (f(1) = 0.00387573)
+bTRC : 16-bit table with 255 entries
+ XYZ : | 0.9642028 0. 0.9642028 |
+       | 1. 0. 1. |
+       | 0.8249054 0. 0.8249054 |
+ !!! This does not appear to use a D50 whitepoint, rather [1.92841 2 1.64981]
+ A2B : "A", CLUT, "B"
+ "A" : 3 inputs
+  A0 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+  A1 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+  A2 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+CLUT : 17 x 17 x 17 (16 bpp)
+ "B" : 3 outputs
+  B0 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+  B1 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+  B2 : 1, 1, 0, 0, 0, 0, 0 (f(1) = 1) (~Identity)
+WTPT : | 0.9642028 1. 0.8249054 |
+252 random bytes transformed to 84 linear XYZD50 pixels:
+     0.10  0.10  0.08     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.04  0.04  0.03     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.17  0.17  0.14     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.46  0.48  0.40     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.18  0.19  0.15     0.41  0.43  0.35
+     0.29  0.30  0.25     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.40  0.41  0.34     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.32  0.34  0.28     0.48  0.50  0.41     0.48  0.50  0.41     0.44  0.46  0.38
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.35  0.36  0.30     0.28  0.29  0.24     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.02  0.02  0.02
+     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41     0.48  0.50  0.41
+     0.48  0.50  0.41     0.41  0.42  0.35     0.48  0.50  0.41     0.48  0.50  0.41
+81 edge-case pixels transformed to sRGB 8888 (unpremul):
+	00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc
+	00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc
+	00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc  00000000 00bcbcbc 00bcbcbc
+	7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc
+	7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc
+	7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc  7f000000 7fbcbcbc 7fbcbcbc
+	ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc
+	ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc
+	ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc  ff000000 ffbcbcbc ffbcbcbc

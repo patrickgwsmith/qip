@@ -1,0 +1,60 @@
+# Copyright (c) the JPEG XL Project Authors. All rights reserved.
+#
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# Workflow for building and running tests.
+
+name: Build/Test Bazel
+on:
+  merge_group:
+  push:
+    branches:
+      - main
+      - v*.*.x
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build_test:
+    name: Bazel
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI:none') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout the source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          submodules: true
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Patch
+        run: |
+          cd third_party/highway
+          # TODO(eustas): stick to deps.sh commit
+          git fetch origin 457c891775a7397bdb0376bb1031e6e027af1c48
+          git checkout 457c891775a7397bdb0376bb1031e6e027af1c48
+          git apply ${{ github.workspace }}/.github/workflows/highway.patch
+      - name: Build
+        run: USE_BAZEL_VERSION=8.5.1 bazelisk build -c opt ...:all
+      - name: Test
+        if: |
+          github.event_name == 'push' ||
+          (github.event_name == 'pull_request' &&
+           contains(github.event.pull_request.labels.*.name, 'CI:full'))
+        run: USE_BAZEL_VERSION=8.5.1 bazelisk test -c opt --test_output=errors ...:all

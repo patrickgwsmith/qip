@@ -39,10 +39,11 @@ application boundary.
 | PNG | Lossless storage and broad interoperability. | Decoding needs more code and CPU time than BMP or QIP KTX2. |
 | JPEG | Small photographs for systems that need lossy compression and broad support. | JPEG does not preserve alpha and changes pixel values. |
 | WebP or AVIF | Compressed application and web boundaries. | Confirm that all target tools can decode the selected format. |
+| JPEG XL | Lossless images or lossy images when the recipient supports JPEG XL. | Decoder support is less common than JPEG or WebP; check the target system. |
 | JPEG 2000, GIF, or ICO | Interoperation with a system that requires that format. | Convert to a QIP working format after input enters the pipeline. |
 
 QIP can convert PNG, JPEG, WebP, AVIF, JPEG 2000, and SVG to a working raster
-format. QIP can write PNG, JPEG, WebP, AVIF, and ICO. QIP can also process GIF.
+format. QIP can write PNG, JPEG, WebP, AVIF, JPEG XL, and ICO. QIP can also process GIF.
 
 ### Raster limits
 

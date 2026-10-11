@@ -1,0 +1,68 @@
+# Copyright (c) the JPEG XL Project Authors. All rights reserved.
+#
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# CI on pull-requests to run the fuzzer from oss-fuzz. See:
+#
+#   https://google.github.io/oss-fuzz/getting-started/continuous-integration/
+
+name: CIFuzz
+on:
+  merge_group:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+    paths:
+      - '**.c'
+      - '**.cc'
+      - '**.cmake'
+      - '**.h'
+      - '**CMakeLists.txt'
+      - .github/workflows/fuzz.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  fuzzing:
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI:none') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Checkout source
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      id: checkout
+      with:
+        # The build_fuzzers action checks out the code to the storage/libjxl
+        # directory already, but doesn't check out the submodules. This step
+        # is a workaround for checking out the submodules.
+        path: storage/libjxl
+        submodules: true
+        persist-credentials: false
+
+    - name: Build Fuzzers
+      id: build
+      uses: google/oss-fuzz/infra/cifuzz/actions/build_fuzzers@3e6a7fd7bcd631647ab9beed1fe0897498e6af39 # 22.09.2025
+      with:
+        oss-fuzz-project-name: 'libjxl'
+        language: c++
+    - name: Run Fuzzers
+      uses: google/oss-fuzz/infra/cifuzz/actions/run_fuzzers@3e6a7fd7bcd631647ab9beed1fe0897498e6af39 # 22.09.2025
+      with:
+        oss-fuzz-project-name: 'libjxl'
+        language: c++
+        fuzz-seconds: 600
+    - name: Upload Crash
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      if: failure() && steps.build.outcome == 'success'
+      with:
+        name: artifacts
+        path: ./out/artifacts

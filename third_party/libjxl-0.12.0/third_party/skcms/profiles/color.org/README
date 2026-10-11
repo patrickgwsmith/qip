@@ -1,0 +1,15 @@
+All files in this directory come from The International Color Consortium, at http://color.org/
+
+File                        Version  Notes
+--------------------------- -------  ------------------------------
+sRGB2014.icc                      2
+sRGB_D65_colorimetric.icc       MAX
+sRGB_D65_MAT.icc                MAX
+sRGB_ICC_v4_Appearance.icc        4  Same as sRGB_V4_ICC_preference % Perceptual rendering intent
+sRGB_ISO22028.icc               MAX
+sRGB_v4_ICC_preference.icc        4
+
+Lower_Left.icc                    2  Color spin
+Lower_Right.icc                   2  Adobe RGB
+Upper_Left.icc                    4  e-SRGB
+Upper_Right.icc                   4  YCC-RGB

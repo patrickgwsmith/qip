@@ -1,0 +1,14 @@
+[source.crates-io]
+replace-with = "vendored-sources"
+
+[source.vendored-sources]
+directory = "../../../third_party/rust"
+
+# Fixed 448 MiB memory: 64 MiB input, 100 MB KTX2 output, a 256 MiB heap and
+# Rust's 1 MiB stack. Equal initial and maximum sizes; no memory.grow.
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+simd128,+bulk-memory",
+  "-C", "link-arg=--initial-memory=469762048",
+  "-C", "link-arg=--max-memory=469762048",
+]

@@ -40,7 +40,10 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm,bytes,image/jpeg,67108864,bytes,image/bmp,100000054
 /image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/jpeg,67108864,bytes,image/ktx2,100000224
 /image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/avif,67108864,bytes,image/ktx2,100000224
+/image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/jxl,67108864,bytes,image/ktx2,100000224
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm,bytes,image/ktx2,48000224,bytes,image/avif,67108864
+/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm,bytes,image/ktx2,100000224,bytes,image/jxl,134217728
+/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm,bytes,image/ktx2,100000224,bytes,image/jxl,134217728
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm,bytes,image/ktx2,100000224,bytes,image/jpeg,83886080
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm,bytes,image/ktx2,100000224,bytes,image/png,112513312
 /image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm,bytes,image/ktx2,100000224,bytes,image/webp,134217728

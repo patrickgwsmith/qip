@@ -249,6 +249,16 @@ filtering; BGRA rows swap red and blue in the encoder's bounded row buffer.
 order directly to libavif. It preserves alpha and exposes quality, alpha
 quality, speed, and chroma-subsampling uniforms.
 
+`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm` accepts either exact
+sRGB component order and encodes lossless JPEG XL with libjxl's fjxl encoder.
+It packs opaque images to RGB in place and otherwise swaps BGRA to RGBA in
+place. `../jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm` decodes still sRGB JPEG XL
+directly into canonical RGBA with jxl-rs and rejects other colour spaces.
+
+`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm` uses the full libjxl
+encoder for lossy JPEG XL. It accepts the same two KTX2 layouts, preserves
+alpha, and exposes perceptual `distance` and encoding `effort` uniforms.
+
 `ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm` accepts either exact
 sRGB component order with explicit `rd` orientation. It swaps R and B in a
 disposable `VK_FORMAT_R8G8B8A8_SRGB` payload; a

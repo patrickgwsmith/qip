@@ -50,6 +50,10 @@ Related tools: [SVG data URI](/svg-data-uri), [QR code maker](/qr), and [Open Gr
 
 Related tool: [image compressor](/image-compress).
 
+## JPEG XL (`image/jxl`)
+
+- [`jxl-to-ktx2-r8g8b8a8-srgb.wasm`](/image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm) decodes still sRGB JPEG XL to an 8-bit sRGB KTX2 image with jxl-rs.
+
 ## BMP (`image/bmp`)
 
 ### Color and size
@@ -117,6 +121,8 @@ Related tool: [high-quality image resizer](/image-resize).
 - [`ktx2-r8g8b8a8-srgb-to-favicon.wasm`](/image/ktx2/ktx2-r8g8b8a8-srgb-to-favicon.wasm) creates a single-image ICO favicon from canonical RGBA8 sRGB KTX2 up to 256×256.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm) encodes lossy AVIF.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm) encodes lossy JPEG.
+- [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm) encodes exact lossless JPEG XL with fjxl.
+- [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm) encodes lossy JPEG XL with libjxl and preserves alpha.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm) encodes PNG.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossless.wasm) encodes exact lossless WebP.
 - [`ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm) encodes lossy WebP.

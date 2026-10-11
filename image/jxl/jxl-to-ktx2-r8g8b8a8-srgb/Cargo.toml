@@ -1,0 +1,15 @@
+[package]
+name = "qip-jxl-to-ktx2-r8g8b8a8-srgb"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+jxl = { version = "=0.7.4", default-features = false, features = ["simd128"] }
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

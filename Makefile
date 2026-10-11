@@ -449,6 +449,14 @@ application/wasm/wasm-validate-core-2.0.wasm: $(CORE2_VALIDATOR_DEPS)
 	cd $(CORE2_VALIDATOR_DIR) && CARGO_TARGET_DIR=$(RUST_WASM_TARGET_DIR) cargo build --release --locked --offline --target wasm32-unknown-unknown $(RUST_WASM_CARGO_FLAGS)
 	cp $(RUST_WASM_TARGET_DIR)/wasm32-unknown-unknown/release/qip-wasm-validate-core-2.wasm $@
 
+JXL_DECODER_DIR := image/jxl/jxl-to-ktx2-r8g8b8a8-srgb
+JXL_DECODER_CRATES := jxl-0.7.4 jxl_simd-0.7.4 jxl_transforms-0.7.4 jxl_macros-0.7.4 array-init-2.1.0 byteorder-1.5.0 num-derive-0.4.2 num-traits-0.2.19 thiserror-2.0.21 thiserror-impl-2.0.21 proc-macro2-1.0.107 quote-1.0.47 syn-2.0.119 syn-3.0.6 unicode-ident-1.0.26 autocfg-1.5.1
+JXL_DECODER_DEPS := $(shell find $(JXL_DECODER_DIR) -path $(JXL_DECODER_DIR)/target -prune -o -type f -print) $(shell find $(addprefix third_party/rust/,$(JXL_DECODER_CRATES)) -type f)
+# jxl-rs needs Rust 1.89 or later with the wasm32-unknown-unknown target.
+image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm: $(JXL_DECODER_DEPS)
+	cd $(JXL_DECODER_DIR) && CARGO_TARGET_DIR=$(RUST_WASM_TARGET_DIR) cargo build --release --locked --offline --target wasm32-unknown-unknown $(RUST_WASM_CARGO_FLAGS)
+	cp $(RUST_WASM_TARGET_DIR)/wasm32-unknown-unknown/release/qip-jxl-to-ktx2-r8g8b8a8-srgb.wasm $@
+
 application/wasm/wasm-bounded-loops.wasm: ZIG_WASM_MAX_MEMORY = 25165824
 application/wasm/wasm-bounded-loops.wasm: application/wasm/wasm-bounded-loops.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
@@ -697,6 +705,17 @@ THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/renderer/cpu_engine/,$(adds
 THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/loaders/svg/,$(addsuffix .cpp,$(THORVG_SVG_NAMES)))
 THORVG_CPP_SOURCES += $(THORVG_ROOT)/src/loaders/raw/tvgRawLoader.cpp
 
+LIBJXL_ROOT := third_party/libjxl-0.12.0
+FJXL_SOURCES := $(LIBJXL_ROOT)/lib/jxl/enc_fast_lossless.cc $(LIBJXL_ROOT)/lib/jxl/enc_fast_lossless.h $(wildcard $(LIBJXL_ROOT)/lib/jxl/base/*.h)
+# 100 MB input, 128 MiB output and a 448 MiB arena.
+FJXL_WASM_MEMORY := 738197504
+LIBJXL_EMSDK_VERSION := 6.0.3
+LIBJXL_EM_CACHE := $(CURDIR)/tmp/qip-emsdk-6-cache
+LIBJXL_BUILD := tmp/qip-libjxl-0.12.0-wasm-cache
+LIBJXL_STAMP := $(LIBJXL_BUILD)/qip-jxl.stamp
+LIBJXL_SOURCE_FILES := $(shell find $(LIBJXL_ROOT)/lib $(LIBJXL_ROOT)/third_party/brotli $(LIBJXL_ROOT)/third_party/highway $(LIBJXL_ROOT)/third_party/skcms -type f)
+LIBJXL_LOSSY_RAW_WASM := $(LIBJXL_BUILD)/ktx2-to-jxl-lossy.raw.wasm
+
 LIBAVIF_ROOT := third_party/libavif-1.4.1
 LIBAOM_ROOT := third_party/libaom-3.13.0
 MOZJPEG_ROOT := third_party/mozjpeg-4.1.1
@@ -730,6 +749,7 @@ LIBWEBP_KTX_LOSSLESS_CLANG_RAW_WASM := $(EMCC_CACHE)/ktx2-r8g8b8a8-or-b8g8r8a8-s
 LIBWEBP_KTX_DEC_CLANG_RAW_WASM := $(EMCC_CACHE)/webp-to-ktx2-r8g8b8a8-srgb.raw.wasm
 OPENJPEG_DEC_CLANG_RAW_WASM := $(EMCC_CACHE)/jp2-to-bmp-b8g8r8a8-srgb.raw.wasm
 THORVG_SVG_CLANG_RAW_WASM := $(EMCC_CACHE)/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.raw.wasm
+FJXL_KTX_CLANG_RAW_WASM := $(EMCC_CACHE)/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.raw.wasm
 AVIF_AOM_BUILD := $(EMCC_CACHE)/libaom-3.13.0-qip-encode-decode
 AVIF_LIBAVIF_BUILD := $(EMCC_CACHE)/libavif-1.4.1-qip-encode-decode
 AVIF_AOM_STAMP := $(EMCC_CACHE)/qip-libaom-3.13.0-encode-decode.stamp
@@ -757,6 +777,9 @@ OPENJPEG_DEC_CLANG_EXPORT_FLAGS := $(foreach name,$(OPENJPEG_DEC_CLANG_EXPORTS),
 OPENJPEG_CLANG_FEATURE_FLAGS = $(LIBWEBP_CLANG_FEATURE_FLAGS)
 THORVG_SVG_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_width uniform_set_height uniform_set_background_color_rgba arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count __wasm_call_ctors
 THORVG_SVG_CLANG_EXPORT_FLAGS := $(foreach name,$(THORVG_SVG_CLANG_EXPORTS),-Xlinker --export=$(name))
+FJXL_KTX_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_effort encoded_channel_count arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count __wasm_call_ctors
+FJXL_KTX_CLANG_EXPORT_FLAGS := $(foreach name,$(FJXL_KTX_CLANG_EXPORTS),-Xlinker --export=$(name))
+FJXL_CLANG_FLAGS := -std=c++17 -O3 -ffunction-sections -fdata-sections -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-math-errno -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DFJXL_STANDALONE=1 -DNDEBUG
 THORVG_INCLUDE_FLAGS := -I$(THORVG_ROOT)/qip -I$(THORVG_ROOT)/inc -I$(THORVG_ROOT)/src/common -I$(THORVG_ROOT)/src/renderer -I$(THORVG_ROOT)/src/renderer/cpu_engine -I$(THORVG_ROOT)/src/loaders -I$(THORVG_ROOT)/src/loaders/svg -I$(THORVG_ROOT)/src/loaders/raw -Iimage/lib
 THORVG_CLANG_FLAGS := -std=c++14 -O3 -ffunction-sections -fdata-sections -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-math-errno -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-memcpy -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DTVG_STATIC -DNDEBUG
 LIBWEBP_CLANG_FEATURE_FLAGS := -msimd128 -mbulk-memory -DEMSCRIPTEN=1 -D__SSE__=1 -D__SSE2__=1 -D__SSE3__=1 -D__SSSE3__=1 -D__SSE4_1__=1
@@ -850,6 +873,33 @@ $(THORVG_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a
 
 image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm: $(THORVG_SVG_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+# fjxl is libjxl's single-file lossless encoder. Its SIMD paths are AVX2,
+# AVX-512 and NEON only, so the Wasm build uses its portable scalar path.
+$(FJXL_KTX_CLANG_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.cpp image/lib/ktx2-rgba8-srgb.h $(FJXL_SOURCES) $(EMSDK_LTO_STAMP)
+	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -I$(LIBJXL_ROOT) -Iimage/lib $(FJXL_CLANG_FLAGS) -nostdlib -Wl,--gc-sections $< $(LIBJXL_ROOT)/lib/jxl/enc_fast_lossless.cc -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=$(FJXL_WASM_MEMORY) -Wl,--max-memory=$(FJXL_WASM_MEMORY) $(WASM_STACK_FLAG) $(FJXL_KTX_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
+
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm: $(FJXL_KTX_CLANG_RAW_WASM)
+	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+components: image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm
+
+$(LIBJXL_STAMP): $(LIBJXL_SOURCE_FILES) $(LIBJXL_ROOT)/CMakeLists.txt
+	mkdir -p $(LIBJXL_BUILD) $(LIBJXL_EM_CACHE)
+	env EM_CACHE=$(LIBJXL_EM_CACHE) mise exec emsdk@$(LIBJXL_EMSDK_VERSION) -- emcmake cmake -S $(LIBJXL_ROOT) -B $(LIBJXL_BUILD) -G 'Unix Makefiles' -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DBUILD_TESTING=OFF -DCMAKE_HAVE_LIBC_PTHREAD=1 -DJPEGXL_ENABLE_TOOLS=OFF -DJPEGXL_ENABLE_DEVTOOLS=OFF -DJPEGXL_ENABLE_EXAMPLES=OFF -DJPEGXL_ENABLE_BENCHMARK=OFF -DJPEGXL_ENABLE_DOXYGEN=OFF -DJPEGXL_ENABLE_MANPAGES=OFF -DJPEGXL_ENABLE_JNI=OFF -DJPEGXL_ENABLE_SJPEG=OFF -DJPEGXL_ENABLE_OPENEXR=OFF -DJPEGXL_ENABLE_VIEWERS=OFF -DJPEGXL_ENABLE_PLUGINS=OFF -DJPEGXL_ENABLE_FUZZERS=OFF -DJPEGXL_ENABLE_TRANSCODE_JPEG=OFF -DJPEGXL_ENABLE_BOXES=OFF -DJPEGXL_ENABLE_WASM_THREADS=OFF -DJPEGXL_BUNDLE_LIBPNG=OFF -DJPEGXL_ENABLE_SKCMS=ON -DJPEGXL_ENABLE_HWY_WASM=ON -DJPEGXL_ENABLE_HWY_WASM_EMU256=OFF
+	env EM_CACHE=$(LIBJXL_EM_CACHE) mise exec emsdk@$(LIBJXL_EMSDK_VERSION) -- cmake --build $(LIBJXL_BUILD) --target jxl -j 8
+	touch $@
+
+LIBJXL_LOSSY_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_distance uniform_set_effort encoded_channel_count last_failure_stage last_encoder_error arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count __wasm_call_ctors
+LIBJXL_LOSSY_EXPORT_FLAGS := $(foreach name,$(LIBJXL_LOSSY_EXPORTS),-Wl,--export=$(name))
+$(LIBJXL_LOSSY_RAW_WASM): image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.cpp image/lib/ktx2-rgba8-srgb.h $(LIBJXL_STAMP)
+	env EM_CACHE=$(LIBJXL_EM_CACHE) mise exec emsdk@$(LIBJXL_EMSDK_VERSION) -- em++ -std=c++17 -O3 -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -DJXL_STATIC_DEFINE -DNDEBUG -I$(LIBJXL_ROOT)/lib/include -I$(LIBJXL_BUILD)/lib/include -Iimage/lib $< $(LIBJXL_BUILD)/lib/libjxl.a $(LIBJXL_BUILD)/lib/libjxl_cms.a $(LIBJXL_BUILD)/third_party/highway/libhwy.a $(LIBJXL_BUILD)/third_party/brotli/libbrotlienc.a $(LIBJXL_BUILD)/third_party/brotli/libbrotlicommon.a -Wl,--no-entry -Wl,--initial-memory=805306368 $(LIBJXL_LOSSY_EXPORT_FLAGS) -sSTANDALONE_WASM=1 -sALLOW_MEMORY_GROWTH=0 -sMALLOC=none -sERROR_ON_UNDEFINED_SYMBOLS=1 -o $@
+
+image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm: $(LIBJXL_LOSSY_RAW_WASM)
+	cp $< $@
+	chmod 644 $@
+
+components: image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm
 
 $(AVIF_AOM_STAMP): $(AVIF_AOM_SOURCE_FILES) $(AVIF_COMPAT_ROOT)/setjmp.h
 	rm -rf $(AVIF_AOM_BUILD)
@@ -1026,7 +1076,7 @@ components-zig-wasm: text/markdown/markdown-basic.wasm
 components-zig-wasm: text/html/html-page-wrap.wasm
 components-zig-wasm: recipes/text/markdown/10-markdown-basic.wasm
 components-zig-wasm: recipes/text/markdown/80-html-page-wrap.wasm
-components-rust-wasm: application/wasm/wasm-validate-core-2.0.wasm
+components-rust-wasm: application/wasm/wasm-validate-core-2.0.wasm image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm
 
 recipes: $(patsubst recipes/text/markdown/%.zig,recipes/text/markdown/%.wasm,$(wildcard recipes/text/markdown/*.zig))
 recipes: $(patsubst recipes/application/warc/%.zig,recipes/application/warc/%.wasm,$(wildcard recipes/application/warc/*.zig))
@@ -1249,6 +1299,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/ktx2-rgba8-srgb.mjs
 	node --test test/ktx2-rgba8-webp.mjs
 	node --test test/ktx2-rgba8-png-avif.mjs
+	node --test test/ktx2-jxl.mjs
 	node --test test/ktx2-bgra8-srgb.mjs
 	node --test test/webp-bmp.mjs
 	node --test test/bmp-rgb-metrics.mjs

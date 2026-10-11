@@ -1,0 +1,270 @@
+# Copyright (c) the JPEG XL Project Authors. All rights reserved.
+#
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file.
+
+# Workflow for running conformance tests.
+
+name: Conformance
+on:
+  merge_group:
+  push:
+    branches:
+      - main
+      - v*.*.x
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+permissions:
+  contents: read
+
+env:
+  CONFORMANCE_REPO_HASH: 4bf053529c7cefd2951be453475bb3dccc7e7be8
+  LIBJXL_VERSION: "0.12.0"
+  LIBJXL_ABI_VERSION: "0.12"
+  SDE_ID: "813591"
+  SDE_VERSION: "9.33.0-2024-01-07"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  warmup: # If necessary, fetch files just once, before tests are run.
+    name: Warmup caches
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI:none') }}
+    runs-on: ubuntu-latest
+    steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Checkout the conformance source
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        repository: libjxl/conformance
+        ref: ${{ env.CONFORMANCE_REPO_HASH }}
+        path: conformance
+        persist-credentials: false
+
+    - name: Cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ github.workspace }}/conformance/.objects
+        key: conformance-refs
+    - name: Download and link conformance files
+      run: |
+        ${{ github.workspace }}/conformance/scripts/download_and_symlink.sh
+
+  build:
+    name: CfB ${{ matrix.name }}
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI:none') }}
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: AVX3
+            cflags: -DHWY_DISABLED_TARGETS=HWY_AVX3-1
+            cmake_args: -DJPEGXL_ENABLE_HWY_AVX3=ON
+          - name: AVX2
+            cflags: -DHWY_DISABLED_TARGETS=HWY_AVX2-1
+          - name: SSE4
+            cflags: -DHWY_DISABLED_TARGETS=HWY_SSE4-1
+          - name: SSSE3
+            cflags: -DHWY_DISABLED_TARGETS=HWY_SSSE3-1
+          - name: EMU128
+            cflags: -DHWY_COMPILE_ONLY_EMU128=1
+          - name: SCALAR
+            cflags: -DHWY_COMPILE_ONLY_SCALAR=1
+          - name: SCALAR_ASAN
+            cflags: -DHWY_COMPILE_ONLY_SCALAR=1
+            build_type: asan
+          - name: SVE2_128
+            os: ubuntu-24.04-arm
+            cflags: -DHWY_DISABLED_TARGETS=HWY_SVE2_128-1
+            cc: gcc
+            cxx: g++
+          - name: SVE2
+            os: ubuntu-24.04-arm
+            cflags: -DHWY_DISABLED_TARGETS=HWY_SVE2-1
+            cc: gcc
+            cxx: g++
+          - name: SVE
+            os: ubuntu-24.04-arm
+            cflags: -DHWY_DISABLED_TARGETS=HWY_SVE-1
+            cc: gcc
+            cxx: g++
+          - name: NEON_WITHOUT_AES
+            os: ubuntu-24.04-arm
+            cflags: -DHWY_DISABLED_TARGETS=HWY_NEON_WITHOUT_AES-1
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+    steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Checkout the jxl source
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        submodules: true
+        fetch-depth: 2
+        persist-credentials: false
+
+    - name: Install build deps
+      run: |
+        sudo ./tools/scripts/install_deps.sh build
+
+    - name: Git environment
+      id: git-env
+      run: |
+        echo "parent=$(git rev-parse ${{ github.sha }}^)" >> $GITHUB_OUTPUT
+      shell: bash
+    - name: ccache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        # When the cache hits the key it is not updated, so if this is a rebuild
+        # of the same Pull Request it will reuse the cache if still around. For
+        # either Pull Requests or new pushes to main, this will use the parent
+        # hash as the starting point from the restore-keys entry.
+        key: conformance-${{ runner.os }}-${{ github.sha }}-${{ matrix.name }}
+        restore-keys: |
+          conformance-${{ runner.os }}-${{ steps.git-env.outputs.parent }}-${{ matrix.name }}
+    - name: Build
+      run: |
+        mkdir -p ${CCACHE_DIR}
+        echo "max_size = 200M" > ${CCACHE_DIR}/ccache.conf
+        CC=${{ matrix.cc || 'clang' }} CXX=${{ matrix.cxx || 'clang++' }} \
+        CMAKE_FLAGS="${{ matrix.cflags }} -DHWY_BROKEN_TARGETS=0" \
+        SKIP_TEST=1 TARGETS="hwy_list_targets tools/djxl" \
+        ./ci.sh ${{ matrix.build_type || 'release' }} \
+          -DJPEGXL_FORCE_SYSTEM_BROTLI=ON \
+          -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+          -DBUILD_TESTING=OFF \
+          ${{ matrix.cmake_args }}
+        # Flatten the artifacts directory structure
+        cp tools/conformance/conformance.py build/tools/conformance
+        cp tools/conformance/lcms2.py build/tools/conformance
+        cp build/tools/djxl build/tools/conformance
+        cp build/lib/libjxl.so.${{ env.LIBJXL_VERSION }} build/tools/conformance
+        cp build/lib/libjxl_cms.so.${{ env.LIBJXL_VERSION }} build/tools/conformance
+        cp build/lib/libjxl_threads.so.${{ env.LIBJXL_VERSION }} build/tools/conformance
+    - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: conformance_binary-${{ matrix.name }}
+        path: |
+          build/tools/conformance/conformance.py
+          build/tools/conformance/lcms2.py
+          build/tools/conformance/djxl
+          build/tools/conformance/libjxl.so.${{ env.LIBJXL_VERSION }}
+          build/tools/conformance/libjxl_cms.so.${{ env.LIBJXL_VERSION }}
+          build/tools/conformance/libjxl_threads.so.${{ env.LIBJXL_VERSION }}
+    - name: ccache stats
+      run: ccache --show-stats
+
+  test:
+    name: CfT ${{ matrix.name }} / ${{ matrix.target }}
+    if: ${{ !contains(github.event.pull_request.labels.*.name, 'CI:none') }}
+    needs: [warmup, build]
+    runs-on: ${{ (startsWith(matrix.target, 'SVE') || startsWith(matrix.target, 'NEON')) && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [level5, level10]
+        target: [AVX3, AVX2, SSE4, SSSE3, EMU128, SCALAR, SCALAR_ASAN, SVE2_128, SVE2, SVE, NEON_WITHOUT_AES]
+    steps:
+    - name: Harden Runner
+      uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
+      with:
+        egress-policy: audit
+
+    - name: Checkout install_deps.sh
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        sparse-checkout: tools/scripts/install_deps.sh
+        sparse-checkout-cone-mode: false
+        fetch-depth: 1
+        persist-credentials: false
+
+    - name: Install deps
+      run: |
+        sudo ./tools/scripts/install_deps.sh conformance
+
+    - name: Cache SDE
+      if: ${{ matrix.target == 'AVX3' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ github.workspace }}/sde
+        key: sde-${{ env.SDE_ID }}
+    - name: Download SDE ${{ env.SDE_VERSION }}
+      if: ${{ matrix.target == 'AVX3' }}
+      run: |
+        mkdir -p sde
+        cd sde
+        SDE_ARCHIVE=sde.tar.xz
+        if [ ! -f "${SDE_ARCHIVE}" ]; then
+          curl -L --show-error -o "${SDE_ARCHIVE}" \
+            https://downloadmirror.intel.com/${{ env.SDE_ID }}/sde-external-${{ env.SDE_VERSION }}-lin.tar.xz
+        fi
+        tar --strip-components=1 -xJf "${SDE_ARCHIVE}"
+        cd ..
+
+    - name: Checkout the conformance source
+      uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      with:
+        repository: libjxl/conformance
+        ref: ${{ env.CONFORMANCE_REPO_HASH }}
+        path: conformance
+        persist-credentials: false
+
+    - name: Cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ github.workspace }}/conformance/.objects
+        key: conformance-refs
+    - name: Download and link conformance files
+      run: |
+        ${{ github.workspace }}/conformance/scripts/download_and_symlink.sh
+    - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      with:
+        name: conformance_binary-${{ matrix.target }}
+    - name: Run conformance tests
+      run: |
+        HERE=`pwd`
+        export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:${HERE}
+        TARGET=${{ matrix.target }}
+
+        chmod +x djxl
+        ln -s libjxl.so.${{ env.LIBJXL_VERSION }} libjxl.so.${{ env.LIBJXL_ABI_VERSION }}
+        ln -s libjxl_cms.so.${{ env.LIBJXL_VERSION }} libjxl_cms.so.${{ env.LIBJXL_ABI_VERSION }}
+        ln -s libjxl_threads.so.${{ env.LIBJXL_VERSION }} libjxl_threads.so.${{ env.LIBJXL_ABI_VERSION }}
+
+        EMULATOR=
+        if [[ $TARGET == AVX3 ]]; then
+          EMULATOR="sde/sde64 -spr --"
+        elif [[ $TARGET == SVE_256 ]]; then
+          EMULATOR="qemu-aarch64-static -cpu max,sve-default-vector-length=32"
+        elif [[ $TARGET == SVE* ]]; then
+          EMULATOR="qemu-aarch64-static -cpu max,sve-default-vector-length=16"
+        fi
+
+        ${EMULATOR} ${HERE}/djxl -V | tee djxl_version.txt
+        if [[ $TARGET == *_ASAN ]]; then
+          grep -q ' ASAN ' djxl_version.txt || exit 1
+          TARGET=${TARGET%_ASAN}
+        fi
+
+        # Old HWY versions does not report selected target
+        SELECTED=_
+        grep -E "(\[|,)_.*_(,|\])" djxl_version.txt || SELECTED=
+
+        grep -q ${SELECTED}${TARGET}${SELECTED} djxl_version.txt || exit 1
+
+        python conformance.py \
+          --decoder="${EMULATOR} ${HERE}/djxl" \
+          --corpus=${HERE}/conformance/testcases/main_${{ matrix.name }}.txt
