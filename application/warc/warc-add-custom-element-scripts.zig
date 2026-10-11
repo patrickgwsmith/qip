@@ -145,15 +145,7 @@ fn startsWithIgnoreCase(a: []const u8, prefix: []const u8) bool {
     return eqlIgnoreCase(a[0..prefix.len], prefix);
 }
 
-fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8, start: usize) ?usize {
-    if (needle.len == 0) return start;
-    if (start >= haystack.len or haystack.len - start < needle.len) return null;
-    var i = start;
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
-}
+const indexOfIgnoreCase = warc.indexOfIgnoreCase;
 
 fn trimASCIIWhitespace(s: []const u8) []const u8 {
     var start: usize = 0;
@@ -177,8 +169,8 @@ fn skipASCIIWhitespaceIn(s: []const u8, start: usize) usize {
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
     if (start >= buf.len) return null;
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 
@@ -322,18 +314,13 @@ fn isTagBoundary(c: u8) bool {
 
 fn findTagEnd(body: []const u8, start: usize) ?usize {
     var i = start;
-    var quote: u8 = 0;
-    while (i < body.len) : (i += 1) {
-        const c = body[i];
-        if (quote != 0) {
-            if (c == quote) quote = 0;
-            continue;
-        }
-        if (c == '"' or c == '\'') {
-            quote = c;
-            continue;
-        }
-        if (c == '>') return i;
+    // Each quoted value moves i forward by at least two; the budget makes
+    // that bound provable to wasm-bounded-loops.
+    var steps = body.len -| start;
+    while (steps > 0) : (steps -= 1) {
+        const pos = warc.indexOfAnyPos(body, i, "\"'>") orelse return null;
+        if (body[pos] == '>') return pos;
+        i = (std.mem.indexOfScalarPos(u8, body, pos + 1, body[pos]) orelse return null) + 1;
     }
     return null;
 }
@@ -383,16 +370,6 @@ fn elementEntryFromTargetURI(record: WARCRecord) ?ElementEntry {
     const name = filename[0 .. filename.len - ".js".len];
     if (!isCustomElementName(name)) return null;
     return .{ .name = name, .request_path = request_path };
-}
-
-fn findLastIndexOfIgnoreCase(haystack: []const u8, needle: []const u8) ?usize {
-    if (needle.len == 0 or haystack.len < needle.len) return null;
-    var i = haystack.len - needle.len + 1;
-    while (i > 0) {
-        i -= 1;
-        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
 }
 
 fn tagAttributeValue(tag: []const u8, wanted_name: []const u8) ?[]const u8 {
@@ -446,8 +423,8 @@ fn requiredElements(elements: []const ElementEntry, body: []const u8) []const u1
     @memset(element_usage[0..elements.len], 0);
     var cursor: usize = 0;
     while (std.mem.indexOfPos(u8, body, cursor, "<")) |start| {
-        if (start + 4 <= body.len and std.mem.eql(u8, body[start .. start + 4], "<!--")) {
-            cursor = if (std.mem.indexOfPos(u8, body, start + 4, "-->")) |end| end + 3 else body.len;
+        if (start + 4 <= body.len and body[start + 1] == '!' and std.mem.eql(u8, body[start .. start + 4], "<!--")) {
+            cursor = if (warc.indexOfPos(body, start + 4, "-->")) |end| end + 3 else body.len;
             continue;
         }
         const name_start = start + 1;
@@ -461,8 +438,11 @@ fn requiredElements(elements: []const ElementEntry, body: []const u8) []const u1
         while (name_end < body.len and !isTagBoundary(body[name_end])) : (name_end += 1) {}
         const name = body[name_start..name_end];
 
-        if (elementIndexByName(elements, name)) |index| {
-            element_usage[index] |= ELEMENT_TAG_PRESENT;
+        // Element names always contain '-', so ordinary tags skip the lookup.
+        if (std.mem.indexOfScalar(u8, name, '-') != null) {
+            if (elementIndexByName(elements, name)) |index| {
+                element_usage[index] |= ELEMENT_TAG_PRESENT;
+            }
         }
 
         if (eqlIgnoreCase(name, "script")) {
@@ -576,10 +556,10 @@ fn writeAddedScripts(elements: []const ElementEntry, required: []const u16, out:
 
 fn writeHTTPPayloadWithElementScripts(elements: []const ElementEntry, required: []const u16, out: *Output, http: HTTPPayload, added_len: usize) void {
     writeHTTPHeaders(out, http, http.body.len + added_len);
-    const insert_at = findLastIndexOfIgnoreCase(http.body, "</body>") orelse http.body.len;
-    out.writeSlice(http.body[0..insert_at]);
+    // Module scripts are deferred, so appending is equivalent to placing them
+    // before </body>; parsers move trailing content back into <body>.
+    out.writeSlice(http.body);
     writeAddedScripts(elements, required, out);
-    out.writeSlice(http.body[insert_at..]);
 }
 
 fn processWARC(input: []const u8, out: *Output) void {
@@ -671,7 +651,7 @@ test "adds scripts only for available custom elements used by the page" {
 
     var out: [16384]u8 = undefined;
     const transformed = try runTransform(warc_buf[0..n], out[0..]);
-    try std.testing.expect(std.mem.indexOf(u8, transformed, "<script type=\"module\" src=\"/elements/copy-code.js\"></script>\n</body>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "</html><script type=\"module\" src=\"/elements/copy-code.js\"></script>\n") != null);
     try std.testing.expect(std.mem.indexOf(u8, transformed, "/elements/other-box.js\"></script>") == null);
 }
 

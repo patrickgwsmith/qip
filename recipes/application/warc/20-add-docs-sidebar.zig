@@ -53,9 +53,27 @@ const IndexedRecord = struct {
     flags: u8,
 };
 
+const NAV_CAP: usize = 1024 * 1024;
+const MAX_NAV_LINKS: usize = 4096;
+const ARIA_CURRENT_PAGE = " aria-current=\"page\"";
+
+const NavLink = struct {
+    href: ?[]const u8,
+    // Offset of the anchor's closing '>' in PreparedNav.html.
+    insert_at: usize,
+};
+
+// Every docs page gets the same nav apart from which link is aria-current, so
+// the nav is parsed once with aria-current removed and each page splices
+// ARIA_CURRENT_PAGE in before the matching link's '>'.
+const PreparedNav = struct {
+    html: []const u8,
+    links: []const NavLink,
+};
+
 const ArchiveIndex = struct {
     records: []const IndexedRecord,
-    nav: ?[]const u8,
+    nav: ?PreparedNav,
 };
 
 // Twenty-eight bytes per record keeps the full index below 1.75 MiB.
@@ -64,6 +82,8 @@ comptime {
 }
 
 var indexed_records: [MAX_WARC_RECORDS]IndexedRecord = undefined;
+var nav_html_buf: [NAV_CAP]u8 = undefined;
+var nav_links: [MAX_NAV_LINKS]NavLink = undefined;
 
 const Output = struct {
     idx: usize = 0,
@@ -139,15 +159,7 @@ fn startsWithIgnoreCase(a: []const u8, prefix: []const u8) bool {
     return eqlIgnoreCase(a[0..prefix.len], prefix);
 }
 
-fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8, start: usize) ?usize {
-    if (needle.len == 0) return start;
-    if (start >= haystack.len or haystack.len - start < needle.len) return null;
-    var i = start;
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
-}
+const indexOfIgnoreCase = warc.indexOfIgnoreCase;
 
 fn trimASCIIWhitespace(s: []const u8) []const u8 {
     var start: usize = 0;
@@ -165,8 +177,8 @@ fn trimASCIIWhitespace(s: []const u8) []const u8 {
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
     if (start >= buf.len) return null;
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 
@@ -394,11 +406,6 @@ fn findDocsNavRange(body: []const u8, main_range: MainRange) ?NavRange {
     return null;
 }
 
-fn bodyAlreadyHasSidebar(body: []const u8) bool {
-    return indexOfIgnoreCase(body, "<nav class=\"docs-sidebar\"", 0) != null or
-        indexOfIgnoreCase(body, "<nav class='docs-sidebar'", 0) != null;
-}
-
 fn mainStartsWithDocsSidebar(body: []const u8, main_range: MainRange) bool {
     const start = skipASCIIWhitespaceIn(body, main_range.open_end);
     if (start >= main_range.close_start or !startsWithIgnoreCase(body[start..], "<nav")) return false;
@@ -442,18 +449,20 @@ fn findAttributeRange(tag: []const u8, attr_name: []const u8) ?AttributeRange {
     return null;
 }
 
-fn adjustedOpenATagLen(tag: []const u8, add_current: bool) usize {
-    var len = tag.len;
-    if (findAttributeRange(tag, "aria-current")) |range| {
-        len -= range.end - range.start;
-        if (range.start > 0 and (tag[range.start - 1] == ' ' or tag[range.start - 1] == '\t')) len -= 1;
-    }
-    if (add_current) len += " aria-current=\"page\"".len;
-    return len;
-}
+const NavBuilder = struct {
+    len: usize = 0,
 
-fn adjustedNavLen(nav: []const u8, current_path: []const u8) usize {
-    var len: usize = nav.len;
+    fn append(self: *NavBuilder, s: []const u8) void {
+        if (s.len > nav_html_buf.len - self.len) @trap();
+        @memcpy(nav_html_buf[self.len .. self.len + s.len], s);
+        self.len += s.len;
+    }
+};
+
+fn prepareNav(nav: []const u8) PreparedNav {
+    var builder = NavBuilder{};
+    var link_count: usize = 0;
+    var written: usize = 0;
     var cursor: usize = 0;
     while (indexOfIgnoreCase(nav, "<a", cursor)) |a_start| {
         if (a_start + 2 < nav.len and !isTagBoundary(nav[a_start + 2])) {
@@ -462,9 +471,34 @@ fn adjustedNavLen(nav: []const u8, current_path: []const u8) usize {
         }
         const open_end = findTagEnd(nav, a_start) orelse break;
         const tag = nav[a_start .. open_end + 1];
-        const add_current = if (hrefFromOpenATag(tag)) |href| std.mem.eql(u8, href, current_path) else false;
-        len = len - tag.len + adjustedOpenATagLen(tag, add_current);
-        cursor = open_end + 1;
+        builder.append(nav[written..a_start]);
+        if (findAttributeRange(tag, "aria-current")) |range| {
+            const skip_start = if (range.start > 0 and (tag[range.start - 1] == ' ' or tag[range.start - 1] == '\t')) range.start - 1 else range.start;
+            builder.append(tag[0..skip_start]);
+            builder.append(tag[range.end .. tag.len - 1]);
+        } else {
+            builder.append(tag[0 .. tag.len - 1]);
+        }
+        if (link_count >= nav_links.len) @trap();
+        nav_links[link_count] = .{ .href = hrefFromOpenATag(tag), .insert_at = builder.len };
+        link_count += 1;
+        builder.append(">");
+        written = open_end + 1;
+        cursor = written;
+    }
+    builder.append(nav[written..]);
+    return .{ .html = nav_html_buf[0..builder.len], .links = nav_links[0..link_count] };
+}
+
+fn isCurrentNavLink(link: NavLink, current_path: []const u8) bool {
+    const href = link.href orelse return false;
+    return std.mem.eql(u8, href, current_path);
+}
+
+fn adjustedNavLen(nav: PreparedNav, current_path: []const u8) usize {
+    var len = nav.html.len;
+    for (nav.links) |link| {
+        if (isCurrentNavLink(link, current_path)) len += ARIA_CURRENT_PAGE.len;
     }
     return len;
 }
@@ -476,11 +510,11 @@ fn digits10(value: usize) usize {
     return digits;
 }
 
-fn injectedBodyLen(body: []const u8, nav: []const u8, current_path: []const u8) usize {
+fn injectedBodyLen(body: []const u8, nav: PreparedNav, current_path: []const u8) usize {
     return body.len + adjustedNavLen(nav, current_path) + "<article class=\"docs-content\">".len + "</article>".len;
 }
 
-fn injectedRootDocsBodyLen(body: []const u8, nav: []const u8, current_path: []const u8, nav_range: NavRange) usize {
+fn injectedRootDocsBodyLen(body: []const u8, nav: PreparedNav, current_path: []const u8, nav_range: NavRange) usize {
     return body.len - (nav_range.end - nav_range.start) + adjustedNavLen(nav, current_path) + "<article class=\"docs-content\">".len + "</article>".len;
 }
 
@@ -504,37 +538,18 @@ fn writeHTTPHeaders(out: *Output, http: HTTPPayload, body_len: usize) void {
     warc.writeRewrittenHTTPHeaders(out, http.header_block, http.status_line, body_len);
 }
 
-fn writeAdjustedOpenATag(out: *Output, tag: []const u8, add_current: bool) void {
-    const attr_range = findAttributeRange(tag, "aria-current");
-    if (attr_range) |range| {
-        const skip_start = if (range.start > 0 and (tag[range.start - 1] == ' ' or tag[range.start - 1] == '\t')) range.start - 1 else range.start;
-        out.writeSlice(tag[0..skip_start]);
-        out.writeSlice(tag[range.end .. tag.len - 1]);
-    } else {
-        out.writeSlice(tag[0 .. tag.len - 1]);
-    }
-    if (add_current) out.writeSlice(" aria-current=\"page\"");
-    out.writeSlice(">");
-}
-
-fn writeAdjustedNav(out: *Output, nav: []const u8, current_path: []const u8) void {
+fn writeAdjustedNav(out: *Output, nav: PreparedNav, current_path: []const u8) void {
     var cursor: usize = 0;
-    while (indexOfIgnoreCase(nav, "<a", cursor)) |a_start| {
-        if (a_start + 2 < nav.len and !isTagBoundary(nav[a_start + 2])) {
-            cursor = a_start + 2;
-            continue;
-        }
-        const open_end = findTagEnd(nav, a_start) orelse break;
-        const tag = nav[a_start .. open_end + 1];
-        const add_current = if (hrefFromOpenATag(tag)) |href| std.mem.eql(u8, href, current_path) else false;
-        out.writeSlice(nav[cursor..a_start]);
-        writeAdjustedOpenATag(out, tag, add_current);
-        cursor = open_end + 1;
+    for (nav.links) |link| {
+        if (!isCurrentNavLink(link, current_path)) continue;
+        out.writeSlice(nav.html[cursor..link.insert_at]);
+        out.writeSlice(ARIA_CURRENT_PAGE);
+        cursor = link.insert_at;
     }
-    out.writeSlice(nav[cursor..]);
+    out.writeSlice(nav.html[cursor..]);
 }
 
-fn writeHTTPPayloadWithSidebar(out: *Output, http: HTTPPayload, nav: []const u8, current_path: []const u8, main_range: MainRange, body_len: usize) void {
+fn writeHTTPPayloadWithSidebar(out: *Output, http: HTTPPayload, nav: PreparedNav, current_path: []const u8, main_range: MainRange, body_len: usize) void {
     writeHTTPHeaders(out, http, body_len);
     out.writeSlice(http.body[0..main_range.open_end]);
     writeAdjustedNav(out, nav, current_path);
@@ -544,7 +559,7 @@ fn writeHTTPPayloadWithSidebar(out: *Output, http: HTTPPayload, nav: []const u8,
     out.writeSlice(http.body[main_range.close_start..]);
 }
 
-fn writeRootDocsHTTPPayloadWithSidebar(out: *Output, http: HTTPPayload, nav: []const u8, current_path: []const u8, main_range: MainRange, nav_range: NavRange, body_len: usize) void {
+fn writeRootDocsHTTPPayloadWithSidebar(out: *Output, http: HTTPPayload, nav: PreparedNav, current_path: []const u8, main_range: MainRange, nav_range: NavRange, body_len: usize) void {
     writeHTTPHeaders(out, http, body_len);
     out.writeSlice(http.body[0..main_range.open_end]);
     writeAdjustedNav(out, nav, current_path);
@@ -563,7 +578,7 @@ fn inputOffset(input: []const u8, slice: []const u8) u32 {
 
 fn indexArchive(input: []const u8) ArchiveIndex {
     var record_count: usize = 0;
-    var nav: ?[]const u8 = null;
+    var nav: ?PreparedNav = null;
     var docs_page_decided = false;
     var cursor: usize = 0;
     while (cursor < input.len) {
@@ -585,7 +600,7 @@ fn indexArchive(input: []const u8) ArchiveIndex {
                         docs_page_decided = true;
                         if (findMainRange(http.body)) |range| {
                             if (findDocsNavRange(http.body, range)) |nav_range| {
-                                nav = http.body[nav_range.start..nav_range.end];
+                                nav = prepareNav(http.body[nav_range.start..nav_range.end]);
                             }
                         }
                     }
@@ -650,13 +665,17 @@ fn processWARC(input: []const u8, out: *Output) void {
                             }
                         }
                     }
-                } else if (http.status == 200 and isHTMLContentType(http.content_type) and childDocsPath(request_path) and !bodyAlreadyHasSidebar(http.body)) {
+                } else if (http.status == 200 and isHTMLContentType(http.content_type) and childDocsPath(request_path)) {
                     if (findMainRange(http.body)) |range| {
-                        const body_len = injectedBodyLen(http.body, archive.nav.?, request_path);
-                        payload_len = computeHeaderRewriteLen(http, body_len) + body_len;
-                        payload_to_write = http;
-                        main_range = range;
-                        rewritten_body_len = body_len;
+                        // The sidebar only ever goes first in <main>, so that is
+                        // the only place to look for one already there.
+                        if (!mainStartsWithDocsSidebar(http.body, range)) {
+                            const body_len = injectedBodyLen(http.body, archive.nav.?, request_path);
+                            payload_len = computeHeaderRewriteLen(http, body_len) + body_len;
+                            payload_to_write = http;
+                            main_range = range;
+                            rewritten_body_len = body_len;
+                        }
                     }
                 }
             }
@@ -742,4 +761,36 @@ test "injects docs sidebar from docs index into docs child page" {
     try std.testing.expect(std.mem.indexOf(u8, transformed, "<article class=\"docs-content\"><h1>Security Model</h1></article>") != null);
     try std.testing.expect(std.mem.indexOf(u8, transformed, "<main><nav class=\"docs-sidebar\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, transformed, "<article class=\"docs-content\"><h1>Docs</h1><p>Start here.</p></article>") != null);
+}
+
+test "moves aria-current to the page's link and leaves pages that already have a sidebar" {
+    var warc_buf: [8192]u8 = undefined;
+    var n: usize = 0;
+    try appendWARCRecord(
+        warc_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/docs",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<!doctype html><html><body><main><h1>Docs</h1><nav class=\"docs-sidebar\"><abbr>API</abbr><a href=\"/docs\" aria-current=\"page\">Docs</a> <a href=\"/docs/router\">Router</a></nav></main></body></html>",
+    );
+    try appendWARCRecord(
+        warc_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/docs/router",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<main><h1>Router</h1></main>",
+    );
+    try appendWARCRecord(
+        warc_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/docs/done",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<main>\n<nav class=\"docs-sidebar\"></nav><h1>Done</h1></main>",
+    );
+
+    var out: [16384]u8 = undefined;
+    const transformed = try runTransform(warc_buf[0..n], out[0..]);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "<main><nav class=\"docs-sidebar\"><abbr>API</abbr><a href=\"/docs\" aria-current=\"page\">Docs</a> <a href=\"/docs/router\">Router</a></nav><article class=\"docs-content\"><h1>Docs</h1></article></main>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "<main><nav class=\"docs-sidebar\"><abbr>API</abbr><a href=\"/docs\">Docs</a> <a href=\"/docs/router\" aria-current=\"page\">Router</a></nav><article class=\"docs-content\"><h1>Router</h1></article></main>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "<main>\n<nav class=\"docs-sidebar\"></nav><h1>Done</h1></main>") != null);
 }

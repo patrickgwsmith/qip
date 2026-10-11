@@ -75,7 +75,7 @@ export fn output_content_type_size() u32 {
 }
 
 fn findHeaderEnd(input: []const u8, start: usize) ?usize {
-    const at = std.mem.indexOfPos(u8, input, start, "\r\n\r\n") orelse return null;
+    const at = warc.indexOfPos(input, start, "\r\n\r\n") orelse return null;
     return at + 4;
 }
 

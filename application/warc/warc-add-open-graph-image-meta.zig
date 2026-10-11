@@ -136,8 +136,8 @@ fn trimASCIIWhitespace(s: []const u8) []const u8 {
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
     if (start >= buf.len) return null;
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 
@@ -359,6 +359,7 @@ const IMAGE_META_MARKERS = [_][]const u8{
 
 fn startsWithIgnoreCaseAt(input: []const u8, start: usize, needle: []const u8) bool {
     return start <= input.len and needle.len <= input.len - start and
+        asciiLower(input[start]) == asciiLower(needle[0]) and
         eqlIgnoreCase(input[start .. start + needle.len], needle);
 }
 
@@ -425,29 +426,76 @@ fn writeHTTPPayload(out: *Output, http: HTTPPayload, body_injection: BodyInjecti
     out.writeSlice(http.body[body_injection.insert_at..]);
 }
 
+// Start tags the HTML parser keeps in <head> ("in head" insertion mode).
+const HEAD_ELEMENTS = [_][]const u8{ "html", "head", "base", "link", "meta", "title" };
+
+// Head elements whose contents are text rather than tags, so the scan jumps
+// to their end tag. Inline <style> is most of a site page's head.
+const RAW_TEXT_HEAD_ELEMENTS = [_][]const u8{ "style", "script", "title", "noscript", "noframes", "template" };
+
+fn tagNameAt(body: []const u8, start: usize) []const u8 {
+    if (start >= body.len or !std.ascii.isAlphabetic(body[start])) return "";
+    for (body[start..], 0..) |c, k| {
+        if (!std.ascii.isAlphanumeric(c) and c != '-') return body[start..][0..k];
+    }
+    return body[start..];
+}
+
+fn hasImageMetaMarker(tag: []const u8) bool {
+    inline for (IMAGE_META_MARKERS) |marker| {
+        if (warc.indexOfIgnoreCase(tag, marker, 0) != null) return true;
+    }
+    return false;
+}
+
+// Only scans the head: it stops at </head> or at the first start tag that
+// isn't a head element (e.g. <header>, <main>, <body>), which is where the
+// parser closes an omitted </head>. Raw text and comments are jumped over.
 fn computeBodyInjection(body: []const u8) BodyInjection {
     var head_open_end: ?usize = null;
-    var i: usize = 0;
-    while (i < body.len) : (i += 1) {
-        if (body[i] == '<') {
-            if (startsWithIgnoreCaseAt(body, i + 1, "/head")) {
-                const boundary = i + 1 + "/head".len;
-                if (boundary >= body.len or isTagBoundary(body[boundary])) {
-                    return .{ .should_inject = true, .insert_at = i };
-                }
-            } else if (head_open_end == null and startsWithIgnoreCaseAt(body, i + 1, "head")) {
-                const boundary = i + 1 + "head".len;
-                if (boundary >= body.len or isTagBoundary(body[boundary])) {
-                    head_open_end = findTagEndAfter(body, boundary);
-                }
-            }
-        } else if (body[i] == 'p' or body[i] == 'P' or body[i] == 'n' or body[i] == 'N') {
-            for (IMAGE_META_MARKERS) |marker| {
-                if (startsWithIgnoreCaseAt(body, i, marker)) {
-                    return .{ .should_inject = false, .insert_at = 0 };
-                }
+    var cursor: usize = 0;
+    // Each pass moves cursor forward by at least one; the budget makes that
+    // bound provable to wasm-bounded-loops.
+    var steps = body.len;
+    scan: while (steps > 0) : (steps -= 1) {
+        const lt = warc.indexOfAnyPos(body, cursor, "<") orelse break;
+        cursor = lt + 1;
+        if (startsWithIgnoreCaseAt(body, cursor, "!--")) {
+            const close = warc.indexOfPos(body, cursor + "!--".len, "-->") orelse break;
+            cursor = close + "-->".len;
+            continue;
+        }
+        if (startsWithIgnoreCaseAt(body, cursor, "/head")) {
+            const boundary = cursor + "/head".len;
+            if (boundary >= body.len or isTagBoundary(body[boundary])) {
+                return .{ .should_inject = true, .insert_at = lt };
             }
         }
+        const name = tagNameAt(body, cursor);
+        // End tags, <!doctype>, and a stray '<' in text.
+        if (name.len == 0) continue;
+        const tag_end = findTagEndAfter(body, cursor + name.len) orelse break;
+        cursor = tag_end;
+        if (eqlIgnoreCase(name, "meta")) {
+            if (hasImageMetaMarker(body[lt..tag_end])) {
+                return .{ .should_inject = false, .insert_at = 0 };
+            }
+            continue;
+        }
+        if (eqlIgnoreCase(name, "head")) {
+            if (head_open_end == null) head_open_end = tag_end;
+            continue;
+        }
+        inline for (RAW_TEXT_HEAD_ELEMENTS) |raw| {
+            if (eqlIgnoreCase(name, raw)) {
+                cursor = warc.indexOfIgnoreCase(body, "</" ++ raw, tag_end) orelse break :scan;
+                continue :scan;
+            }
+        }
+        inline for (HEAD_ELEMENTS) |head_element| {
+            if (eqlIgnoreCase(name, head_element)) continue :scan;
+        }
+        break;
     }
     if (head_open_end) |insert_at| {
         return .{ .should_inject = true, .insert_at = insert_at };
@@ -604,4 +652,36 @@ test "injects when head is not explicitly closed" {
     var out: [16384]u8 = undefined;
     const transformed = try runTransform(warc_buf[0..n], out[0..]);
     try std.testing.expect(std.mem.indexOf(u8, transformed, "property=\"og:image\" content=\"/_og/forms.png\"") != null);
+}
+
+test "ignores image markers after the head ends" {
+    var warc_buf: [8192]u8 = undefined;
+    var n: usize = 0;
+    try appendWARCRecord(
+        warc_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/docs/og",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><head><title>x</title><header>Use <code>&lt;meta property=\"og:image\"&gt;</code></header>",
+    );
+
+    var out: [16384]u8 = undefined;
+    const transformed = try runTransform(warc_buf[0..n], out[0..]);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "property=\"og:image\" content=\"/_og/docs/og.png\"") != null);
+}
+
+test "skips tags inside head raw text" {
+    var warc_buf: [8192]u8 = undefined;
+    var n: usize = 0;
+    try appendWARCRecord(
+        warc_buf[0..],
+        &n,
+        "response",
+        "http://qip.local/",
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\n\r\n<html><head><style>p:after{content:\"<main>\"}</style><script>if (a<b) x('<div>')</script><!-- <body> --><meta name='twitter:image' content=\"/existing.png\"><main>x</main>",
+    );
+
+    var out: [16384]u8 = undefined;
+    const transformed = try runTransform(warc_buf[0..n], out[0..]);
+    try std.testing.expect(std.mem.indexOf(u8, transformed, "og:image") == null);
 }

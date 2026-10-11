@@ -103,8 +103,8 @@ export fn output_content_type_size() u32 {
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
     if (start >= buf.len) return null;
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 

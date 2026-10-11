@@ -166,15 +166,7 @@ fn startsWithIgnoreCase(a: []const u8, prefix: []const u8) bool {
     return eqlIgnoreCase(a[0..prefix.len], prefix);
 }
 
-fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8, start: usize) ?usize {
-    if (needle.len == 0) return start;
-    if (start >= haystack.len or haystack.len - start < needle.len) return null;
-    var i = start;
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
-}
+const indexOfIgnoreCase = warc.indexOfIgnoreCase;
 
 fn trimASCIIWhitespace(s: []const u8) []const u8 {
     var start: usize = 0;
@@ -198,8 +190,8 @@ fn skipASCIIWhitespaceIn(s: []const u8, start: usize) usize {
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
     if (start >= buf.len) return null;
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 

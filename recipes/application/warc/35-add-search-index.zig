@@ -166,15 +166,7 @@ fn startsWithIgnoreCase(value: []const u8, prefix: []const u8) bool {
     return value.len >= prefix.len and eqlIgnoreCase(value[0..prefix.len], prefix);
 }
 
-fn indexOfIgnoreCase(haystack: []const u8, needle: []const u8, start: usize) ?usize {
-    if (needle.len == 0) return start;
-    if (start >= haystack.len or haystack.len - start < needle.len) return null;
-    var i = start;
-    while (i + needle.len <= haystack.len) : (i += 1) {
-        if (eqlIgnoreCase(haystack[i .. i + needle.len], needle)) return i;
-    }
-    return null;
-}
+const indexOfIgnoreCase = warc.indexOfIgnoreCase;
 
 fn isWhitespace(c: u8) bool {
     return c == ' ' or c == '\t' or c == '\r' or c == '\n';
@@ -200,8 +192,8 @@ fn parseUnsigned10(value: []const u8) ?usize {
 }
 
 fn findHeaderEnd(buf: []const u8, start: usize) ?usize {
-    if (std.mem.indexOfPos(u8, buf, start, "\r\n\r\n")) |pos| return pos + 4;
-    if (std.mem.indexOfPos(u8, buf, start, "\n\n")) |pos| return pos + 2;
+    if (warc.indexOfPos(buf, start, "\r\n\r\n")) |pos| return pos + 4;
+    if (warc.indexOfPos(buf, start, "\n\n")) |pos| return pos + 2;
     return null;
 }
 
@@ -540,7 +532,7 @@ fn addHTMLTerms(html: []const u8, page: u16, section: u16, field: Field) IndexEr
             continue;
         }
         const start = i;
-        while (i < html.len and html[i] != '<' and html[i] != '&') : (i += 1) {}
+        i = warc.indexOfAnyPos(html, i, "<&") orelse html.len;
         try addTerms(html[start..i], page, section, field);
     }
 }
@@ -662,7 +654,7 @@ fn indexPage(body: []const u8, url: []const u8, page: u16, targets: *Writer) Ind
     var current_field: Field = .body;
     while (cursor < content.len) {
         if (content[cursor] != '<') {
-            cursor += 1;
+            cursor = std.mem.indexOfScalarPos(u8, content, cursor, '<') orelse content.len;
             continue;
         }
         if (cursor > text_start) try addHTMLTerms(content[text_start..cursor], page, section, current_field);
