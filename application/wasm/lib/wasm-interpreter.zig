@@ -97,6 +97,8 @@ pub const Counters = struct {
     loop_iterations: u64 = 0,
     memory_reads: u64 = 0,
     memory_writes: u64 = 0,
+    /// Instructions executed before the first store, memory.copy, or memory.fill.
+    first_memory_write_instruction: ?u64 = null,
 };
 
 pub const MemoryEvent = struct {
@@ -110,6 +112,11 @@ pub const MemoryAccessKind = enum { none, read, write };
 pub const MemoryByteProvenance = enum { untouched, data, input, written };
 
 pub const MemoryPageActivity = enum { untouched, read, written, read_written };
+
+pub const MemoryRange = struct {
+    start: u32,
+    end: u32,
+};
 
 pub const ValType = enum(u8) {
     i32 = 0x7f,
@@ -323,6 +330,17 @@ pub const Machine = struct {
     memory_written: [MAX_TARGET_MEMORY_BYTES / 8]u8 = undefined,
     memory_pages_read: [MEMORY_PAGE_WORDS]u64 = undefined,
     memory_pages_written: [MEMORY_PAGE_WORDS]u64 = undefined,
+    /// Store, memory.copy, and memory.fill operations that touched each page.
+    memory_page_writes: [MAX_TARGET_MEMORY_PAGES]u64 = undefined,
+    /// Bytes written to each page, counting rewrites of the same byte again.
+    memory_page_bytes_written: [MAX_TARGET_MEMORY_PAGES]u64 = undefined,
+    /// Load and memory.copy source operations that touched each page.
+    memory_page_reads: [MAX_TARGET_MEMORY_PAGES]u64 = undefined,
+    /// Bytes read from each page, counting rereads of the same byte again.
+    memory_page_bytes_read: [MAX_TARGET_MEMORY_PAGES]u64 = undefined,
+    /// Lowest value that global 0 held since restart. LLVM toolchains use
+    /// global 0 as `__stack_pointer`.
+    stack_pointer_minimum: Value = 0,
     memory_initialized: bool = false,
     memory_size: usize = 0,
     memory_pages: u32 = 0,
@@ -398,6 +416,7 @@ pub const Machine = struct {
     pub fn restart(self: *Machine) Error!void {
         self.resetMemory();
         for (self.globals[0..self.global_count]) |*global| global.value = global.initial;
+        if (self.global_count > 0) self.stack_pointer_minimum = self.globals[0].initial;
         for (self.data_segments[0..self.data_segment_count]) |segment| {
             const start: usize = segment.offset;
             const end = start + segment.bytes_length;
@@ -478,6 +497,10 @@ pub const Machine = struct {
             @memset(self.memory_written[0 .. std.math.divCeil(usize, self.memory_size, 8) catch unreachable], 0);
             @memset(self.memory_pages_read[0..page_words], 0);
             @memset(self.memory_pages_written[0..page_words], 0);
+            @memset(self.memory_page_writes[0..self.memory_pages], 0);
+            @memset(self.memory_page_bytes_written[0..self.memory_pages], 0);
+            @memset(self.memory_page_reads[0..self.memory_pages], 0);
+            @memset(self.memory_page_bytes_read[0..self.memory_pages], 0);
             self.memory_initialized = true;
             return;
         }
@@ -493,6 +516,30 @@ pub const Machine = struct {
         }
         @memset(self.memory_pages_read[0..page_words], 0);
         @memset(self.memory_pages_written[0..page_words], 0);
+        @memset(self.memory_page_writes[0..self.memory_pages], 0);
+        @memset(self.memory_page_bytes_written[0..self.memory_pages], 0);
+        @memset(self.memory_page_reads[0..self.memory_pages], 0);
+        @memset(self.memory_page_bytes_read[0..self.memory_pages], 0);
+    }
+
+    /// Counts distinct bytes in one page that the target wrote since restart.
+    pub fn memoryPageDistinctBytesWritten(self: *const Machine, page: usize) usize {
+        if (page >= @as(usize, self.memory_pages)) return 0;
+        const start = page * WASM_PAGE_BYTES / 8;
+        const end = @min(start + WASM_PAGE_BYTES / 8, std.math.divCeil(usize, self.memory_size, 8) catch unreachable);
+        var count: usize = 0;
+        for (self.memory_written[start..end]) |bits| count += @popCount(bits);
+        return count;
+    }
+
+    /// Returns the shadow stack range that the target used since restart, when
+    /// global 0 is a mutable i32 that has moved down from its initial value.
+    pub fn stackRange(self: *const Machine) ?MemoryRange {
+        if (self.global_count == 0) return null;
+        const global = self.globals[0];
+        if (!global.mutable or global.value_type != .i32) return null;
+        if (self.stack_pointer_minimum >= global.initial or global.initial > self.memory_size) return null;
+        return .{ .start = @intCast(self.stack_pointer_minimum), .end = @intCast(global.initial) };
     }
 
     pub fn memoryByteProvenance(self: *const Machine, address: usize) MemoryByteProvenance {
@@ -1440,7 +1487,7 @@ pub const Machine = struct {
         self.last_access = .{ .valid = true, .address = @intCast(effective), .width = width };
         self.last_read_access = self.last_access;
         self.last_access_kind = .read;
-        markMemoryPages(&self.memory_pages_read, @intCast(effective), width);
+        self.markMemoryRead(@intCast(effective), width);
         var value: u64 = 0;
         var i: u8 = 0;
         while (i < width) : (i += 1) value |= @as(u64, self.memory[@as(usize, @intCast(effective)) + i]) << @intCast(i * 8);
@@ -1454,7 +1501,7 @@ pub const Machine = struct {
         self.last_access = .{ .valid = true, .address = @intCast(effective), .width = 16 };
         self.last_read_access = self.last_access;
         self.last_access_kind = .read;
-        markMemoryPages(&self.memory_pages_read, @intCast(effective), 16);
+        self.markMemoryRead(@intCast(effective), 16);
         const start: usize = @intCast(effective);
         return std.mem.readInt(u128, self.memory[start..][0..16], .little);
     }
@@ -1497,9 +1544,37 @@ pub const Machine = struct {
         }
     }
 
+    /// Adds one operation and its bytes to each page the range touches.
+    fn countMemoryPageAccess(
+        operations: *[MAX_TARGET_MEMORY_PAGES]u64,
+        bytes: *[MAX_TARGET_MEMORY_PAGES]u64,
+        start: usize,
+        length: usize,
+    ) void {
+        const end = start + length;
+        var page = start / WASM_PAGE_BYTES;
+        var page_start = start;
+        while (page_start < end) : (page += 1) {
+            const page_end = @min(end, (page + 1) * WASM_PAGE_BYTES);
+            operations[page] += 1;
+            bytes[page] += page_end - page_start;
+            page_start = page_end;
+        }
+    }
+
+    fn markMemoryRead(self: *Machine, start: usize, length: usize) void {
+        if (length == 0) return;
+        markMemoryPages(&self.memory_pages_read, start, length);
+        countMemoryPageAccess(&self.memory_page_reads, &self.memory_page_bytes_read, start, length);
+    }
+
     fn markMemoryWritten(self: *Machine, start: usize, length: usize) void {
         if (length == 0) return;
+        // The writing instruction was already counted in stepImpl.
+        if (self.counters.first_memory_write_instruction == null)
+            self.counters.first_memory_write_instruction = self.counters.instructions -| 1;
         markMemoryPages(&self.memory_pages_written, start, length);
+        countMemoryPageAccess(&self.memory_page_writes, &self.memory_page_bytes_written, start, length);
         const end = start + length;
         var address = start;
         while (address < end and address % 8 != 0) : (address += 1)
@@ -1545,7 +1620,7 @@ pub const Machine = struct {
         self.last_write_access = .{ .valid = true, .address = destination, .width = length };
         self.last_access = self.last_write_access;
         self.last_access_kind = .write;
-        markMemoryPages(&self.memory_pages_read, source_start, byte_count);
+        self.markMemoryRead(source_start, byte_count);
         self.markMemoryWritten(destination_start, byte_count);
     }
 
@@ -1686,7 +1761,9 @@ pub const Machine = struct {
             },
             0x24 => {
                 if (instruction.immediate >= self.global_count or !self.globals[@intCast(instruction.immediate)].mutable) return Error.InvalidIndex;
-                self.globals[@intCast(instruction.immediate)].value = try self.pop();
+                const value = try self.pop();
+                self.globals[@intCast(instruction.immediate)].value = value;
+                if (instruction.immediate == 0) self.stack_pointer_minimum = @min(self.stack_pointer_minimum, value);
             },
             0x28...0x35 => try self.executeLoad(instruction),
             0x36...0x3e => try self.executeStore(instruction),
@@ -2472,6 +2549,7 @@ test "memory restart clears written pages and resets page activity" {
     machine.data_segment_count = 0;
     machine.target_input = &.{};
     machine.target_input_ptr = 0;
+    machine.counters = .{};
     machine.memory[7] = 0xaa;
     machine.memory[WASM_PAGE_BYTES + 7] = 0xbb;
 
@@ -2505,6 +2583,7 @@ test "memory page activity records ranges that cross page boundaries" {
     machine.data_segment_count = 0;
     machine.target_input = &.{};
     machine.target_input_ptr = 0;
+    machine.counters = .{};
     machine.resetMemory();
 
     const start = WASM_PAGE_BYTES - 1;
@@ -2514,4 +2593,70 @@ test "memory page activity records ranges that cross page boundaries" {
     try std.testing.expectEqual(MemoryPageActivity.read_written, machine.memoryPageActivity(0));
     try std.testing.expectEqual(MemoryPageActivity.read_written, machine.memoryPageActivity(1));
     try std.testing.expectEqual(MemoryPageActivity.untouched, machine.memoryPageActivity(2));
+}
+
+test "first memory write records instructions executed before it" {
+    const machine = try std.testing.allocator.create(Machine);
+    defer std.testing.allocator.destroy(machine);
+    machine.* = undefined;
+    machine.memory_size = WASM_PAGE_BYTES;
+    machine.memory_pages = 1;
+    machine.memory_initialized = false;
+    machine.data_segment_count = 0;
+    machine.target_input = &.{};
+    machine.target_input_ptr = 0;
+    machine.counters = .{};
+    machine.resetMemory();
+
+    machine.counters.instructions = 5;
+    machine.markMemoryWritten(0, 0);
+    try std.testing.expectEqual(@as(?u64, null), machine.counters.first_memory_write_instruction);
+
+    machine.markMemoryWritten(0, 4);
+    try std.testing.expectEqual(@as(?u64, 4), machine.counters.first_memory_write_instruction);
+
+    machine.counters.instructions = 9;
+    machine.markMemoryWritten(8, 4);
+    try std.testing.expectEqual(@as(?u64, 4), machine.counters.first_memory_write_instruction);
+}
+
+test "memory page read and write counters split ranges at page boundaries" {
+    const machine = try std.testing.allocator.create(Machine);
+    defer std.testing.allocator.destroy(machine);
+    machine.* = undefined;
+    machine.memory_size = 3 * WASM_PAGE_BYTES;
+    machine.memory_pages = 3;
+    machine.memory_initialized = false;
+    machine.data_segment_count = 0;
+    machine.target_input = &.{};
+    machine.target_input_ptr = 0;
+    machine.counters = .{};
+    machine.resetMemory();
+
+    machine.markMemoryWritten(WASM_PAGE_BYTES - 4, 12);
+    machine.markMemoryWritten(WASM_PAGE_BYTES, 4);
+
+    try std.testing.expectEqual(@as(u64, 1), machine.memory_page_writes[0]);
+    try std.testing.expectEqual(@as(u64, 4), machine.memory_page_bytes_written[0]);
+    try std.testing.expectEqual(@as(usize, 4), machine.memoryPageDistinctBytesWritten(0));
+    try std.testing.expectEqual(@as(u64, 2), machine.memory_page_writes[1]);
+    try std.testing.expectEqual(@as(u64, 12), machine.memory_page_bytes_written[1]);
+    try std.testing.expectEqual(@as(usize, 8), machine.memoryPageDistinctBytesWritten(1));
+    try std.testing.expectEqual(@as(u64, 0), machine.memory_page_writes[2]);
+    try std.testing.expectEqual(@as(usize, 0), machine.memoryPageDistinctBytesWritten(2));
+
+    machine.markMemoryRead(2 * WASM_PAGE_BYTES - 2, 8);
+    machine.markMemoryRead(2 * WASM_PAGE_BYTES, 0);
+    try std.testing.expectEqual(@as(u64, 0), machine.memory_page_reads[0]);
+    try std.testing.expectEqual(@as(u64, 1), machine.memory_page_reads[1]);
+    try std.testing.expectEqual(@as(u64, 2), machine.memory_page_bytes_read[1]);
+    try std.testing.expectEqual(@as(u64, 1), machine.memory_page_reads[2]);
+    try std.testing.expectEqual(@as(u64, 6), machine.memory_page_bytes_read[2]);
+    try std.testing.expectEqual(MemoryPageActivity.read, machine.memoryPageActivity(2));
+
+    machine.memory_initialized = true;
+    machine.resetMemory();
+    try std.testing.expectEqual(@as(u64, 0), machine.memory_page_bytes_read[2]);
+    try std.testing.expectEqual(@as(u64, 0), machine.memory_page_bytes_written[1]);
+    try std.testing.expectEqual(@as(usize, 0), machine.memoryPageDistinctBytesWritten(1));
 }

@@ -391,9 +391,14 @@ gui/klondike.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/aces-up.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm: gui/assets/inter_display_chart_ascii.zig
 
-application/wasm/qip-content-interpreter.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-application/wasm/qip-content-interpreter.wasm: application/wasm/qip-content-interpreter.zig application/wasm/lib/wasm-interpreter.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
+application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: application/wasm/%.wasm: application/wasm/%.zig application/wasm/lib/content-interpreter-request.zig application/wasm/lib/wasm-interpreter.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep content_interpreter_request -Mroot=$< --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
+
+# Interpreter memory, plus 32 tiles of per-byte counters and the KTX2 output.
+application/wasm/qip-interpret-memory-thermal-ktx2.wasm: ZIG_WASM_MAX_MEMORY = 536870912
+application/wasm/qip-interpret-memory-thermal-ktx2.wasm: application/wasm/qip-interpret-memory-thermal-ktx2.zig application/wasm/lib/content-interpreter-request.zig application/wasm/lib/wasm-interpreter.zig image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep content_interpreter_request --dep ktx2_rgba8_srgb -Mroot=$< --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
 test/fixtures/wasm-debugger-bulk-memory.wasm: test/fixtures/wasm-debugger-bulk-memory.wat
 	wat2wasm $< -o $@
@@ -1148,6 +1153,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
 	node --test test/qip-content-interpreter.mjs
+	node --test test/qip-interpret-memory-page-writes-csv.mjs
+	node --test test/qip-interpret-memory-thermal-ktx2.mjs
 	node --test test/gzip-bgzf.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
@@ -1416,8 +1423,11 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
 		elif [ "$$f" = "tui/epub-reader.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep zip -Mroot="$$f" --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
+		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ] || [ "$$f" = "application/wasm/qip-interpret-memory-page-writes-csv.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep content_interpreter_request -Mroot="$$f" --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
+		elif [ "$$f" = "application/wasm/qip-interpret-memory-thermal-ktx2.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep content_interpreter_request --dep ktx2_rgba8_srgb -Mroot="$$f" --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "text/html/html-to-svg-inter-paths.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inter_regular --dep inter_bold -Mroot="$$f" -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig || status=1; \
 		elif [ "$$f" = "text/javascript/js-syntax-highlight-html.zig" ]; then \

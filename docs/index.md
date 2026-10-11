@@ -144,6 +144,8 @@ Server Component and Client Component example.
 <li><a href="/docs/optimizing-html-escape-with-qipdb">Optimizing HTML Escaping With qipdb</a></li>
 <li><a href="/docs/tracing">Tracing</a></li>
 <li><a href="/docs/qip-content-interpreter">Running A Content Component In The QIP Interpreter</a></li>
+<li><a href="/docs/qip-interpret-memory-page-writes-csv">Counting Memory Page Reads And Writes In The QIP Interpreter</a></li>
+<li><a href="/docs/qip-interpret-memory-thermal-ktx2">Drawing A Memory Heat Map In The QIP Interpreter</a></li>
 <li><a href="/docs/wasm-counts">Counting A WebAssembly Module</a></li>
 <li><a href="/docs/render-cyclomatic-complexity">Render-Reachable WebAssembly Cyclomatic Complexity</a></li>
 <li><a href="/docs/nontrapping-divides">Proving Non-Trapping Divides</a></li>

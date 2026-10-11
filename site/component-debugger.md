@@ -70,6 +70,23 @@ qip-tui pre:focus {
 .debugger-text-input code {
   color: #d670d6;
 }
+.debugger-thermal {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  align-items: center;
+}
+.debugger-thermal output {
+  font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+#debugger-thermal-canvas {
+  display: block;
+  width: 768px;
+  max-width: 100%;
+  background: #fff;
+  image-rendering: pixelated;
+  cursor: crosshair;
+}
 </style>
 
 <div class="debugger-shell">
@@ -115,6 +132,13 @@ qip-tui pre:focus {
     <button type="button" data-debug-key="118">Variable format <kbd>V</kbd></button>
     <button type="button" data-debug-key="63">Help <kbd>?</kbd></button>
   </div>
+  <div class="debugger-thermal">
+    <label><input id="debugger-thermal" type="checkbox"> Memory thermal</label>
+    <label><input id="debugger-thermal-absolute" type="checkbox"> Absolute scale</label>
+    <span id="debugger-thermal-status" role="status" aria-live="polite"></span>
+    <output id="debugger-thermal-readout"></output>
+  </div>
+  <canvas id="debugger-thermal-canvas" width="256" height="256" hidden aria-label="Memory thermal image"></canvas>
 </div>
 
 Choose a published component or a local `.wasm` file. For text components,
@@ -129,6 +153,18 @@ and the wait for the next animation frame. To
 measure paint and compositing, record the keypress in the browser's Performance
 panel. The page adds timestamp markers to that recording. Developer Tools and
 console logging add some overhead, so compare several keypresses.
+
+Turn on **Memory thermal** to run
+[the memory heat map tool](/docs/qip-interpret-memory-thermal-ktx2) on the same
+component and input. It draws one pixel per byte of each 64 KiB page that
+`render` touched, 256 bytes per row, with tiles stacked top to bottom. Red is
+the instructions spent producing a byte, green is loop iterations, blue is
+calls, and alpha is how often it was accessed. Faint grey bytes were loaded
+from a data segment or the input but never used. The image covers the whole
+run, not the steps so far, and runs again each time the target or input
+changes. Hover a pixel to read its tile, offset, and levels. **Absolute scale**
+uses a fixed log scale so you can compare runs, and the readout then shows
+approximate counts.
 
 <script type="module">
 import "/elements/qip-tui.js";
@@ -149,6 +185,19 @@ const instructionBudget = document.getElementById("debugger-instruction-budget")
 const textInputPanel = document.getElementById("debugger-text-input");
 const textInputPointer = document.getElementById("debugger-text-input-pointer");
 const textInput = document.getElementById("debugger-text");
+const thermalToggle = document.getElementById("debugger-thermal");
+const thermalAbsolute = document.getElementById("debugger-thermal-absolute");
+const thermalStatus = document.getElementById("debugger-thermal-status");
+const thermalReadout = document.getElementById("debugger-thermal-readout");
+const thermalCanvas = document.getElementById("debugger-thermal-canvas");
+// The thermal run covers the whole of render, so give it the tool's maximum.
+const thermalInstructionBudget = 10_000_000;
+const thermalTileSide = 256;
+let thermalWorker = null;
+let thermalBusy = false;
+let thermalRequestID = 0;
+let thermalPixels = null;
+let thermalNormalized = true;
 let instance = null;
 let currentComponent = null;
 let currentInput = null;
@@ -336,7 +385,115 @@ async function loadTarget(component, input = null, focusScreen = true) {
   const inputStatus = input ? " with " + input.name + " (" + input.bytes.byteLength + " B)" : "";
   status.textContent = "Debugging " + displayName + inputStatus + " locally. Focus the screen to use keyboard shortcuts or paste text input.";
   if (focusScreen) screen.focus();
+  updateThermal();
 }
+
+function thermalLevelCount(level) {
+  return Math.round(2 ** (level / 8) - 1);
+}
+
+function thermalAccessCount(alpha) {
+  return Math.round(2 ** ((alpha - 64) / 8));
+}
+
+function showThermal({ pixels, width, height, normalize, elapsedMs }) {
+  thermalPixels = new Uint8ClampedArray(pixels);
+  thermalNormalized = normalize;
+  thermalCanvas.width = width;
+  thermalCanvas.height = height;
+  thermalCanvas.getContext("2d").putImageData(new ImageData(thermalPixels, width, height), 0, 0);
+  thermalCanvas.hidden = false;
+  const tiles = height / thermalTileSide;
+  thermalStatus.textContent = tiles + (tiles === 1 ? " page" : " pages") + " in " + elapsedMs.toFixed(0) + " ms.";
+}
+
+async function updateThermal() {
+  if (!thermalToggle.checked || !currentComponent) return;
+  const id = ++thermalRequestID;
+  // A run cannot be interrupted, so replace a busy worker instead of queueing.
+  if (thermalBusy) {
+    thermalWorker.terminate();
+    thermalWorker = null;
+  }
+  if (!thermalWorker) {
+    thermalWorker = new Worker("/memory-thermal-worker.js", { type: "module" });
+    thermalWorker.onmessage = (event) => {
+      if (event.data.id !== thermalRequestID) return;
+      thermalBusy = false;
+      if (event.data.type === "done") {
+        showThermal(event.data);
+      } else {
+        thermalStatus.textContent = event.data.message;
+      }
+    };
+    thermalWorker.onerror = (event) => {
+      thermalBusy = false;
+      thermalStatus.textContent = event.message || "The memory thermal worker failed.";
+    };
+  }
+  thermalStatus.textContent = "Running memory thermal…";
+  thermalReadout.textContent = "";
+  try {
+    const form = await debuggerForm(currentComponent, currentInput);
+    if (id !== thermalRequestID) return;
+    thermalBusy = true;
+    thermalWorker.postMessage({
+      id,
+      form: form.buffer,
+      instructionBudget: thermalInstructionBudget,
+      normalize: !thermalAbsolute.checked,
+    }, [form.buffer]);
+  } catch (error) {
+    thermalStatus.textContent = error instanceof Error ? error.message : String(error);
+  }
+}
+
+thermalToggle.addEventListener("change", () => {
+  if (thermalToggle.checked) {
+    updateThermal();
+    return;
+  }
+  thermalRequestID++;
+  thermalWorker?.terminate();
+  thermalWorker = null;
+  thermalBusy = false;
+  thermalPixels = null;
+  thermalCanvas.hidden = true;
+  thermalStatus.textContent = "";
+  thermalReadout.textContent = "";
+});
+
+thermalAbsolute.addEventListener("change", updateThermal);
+
+thermalCanvas.addEventListener("pointermove", (event) => {
+  if (!thermalPixels) return;
+  const rect = thermalCanvas.getBoundingClientRect();
+  const x = Math.floor((event.clientX - rect.left) * thermalCanvas.width / rect.width);
+  const y = Math.floor((event.clientY - rect.top) * thermalCanvas.height / rect.height);
+  if (x < 0 || y < 0 || x >= thermalCanvas.width || y >= thermalCanvas.height) return;
+  const index = (y * thermalCanvas.width + x) * 4;
+  const [red, green, blue, alpha] = thermalPixels.subarray(index, index + 4);
+  const tile = Math.floor(y / thermalTileSide);
+  const offset = (y % thermalTileSide) * thermalTileSide + x;
+  let text = "tile " + tile + " +0x" + offset.toString(16).padStart(4, "0") + "  ";
+  if (alpha === 0) {
+    text += "untouched";
+  } else if (alpha === 24) {
+    text += "data segment, never used";
+  } else if (alpha === 40) {
+    text += "input, never used";
+  } else if (thermalNormalized) {
+    text += "instructions " + red + "  loops " + green + "  calls " + blue + "  accesses " + alpha + " (levels)";
+  } else {
+    text += "≈" + thermalLevelCount(red) + " instructions  ≈" + thermalLevelCount(green) +
+      " loops  ≈" + thermalLevelCount(blue) + " calls  ≈" + thermalAccessCount(alpha) + " accesses";
+  }
+  thermalReadout.textContent = text;
+});
+
+thermalCanvas.addEventListener("pointerleave", () => {
+  thermalReadout.textContent = "";
+});
 
 function dispatch(keysym, shift = false, alt = false, measurement = null) {
   if (!instance) return;
