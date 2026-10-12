@@ -1,6 +1,7 @@
 path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,output_capacity_bytes
 /application/pdf/pdf-extract-images.wasm,bytes,application/pdf,67108864,bytes,application/x-tar,134217728
 /application/pdf/pdf-extract-text.wasm,bytes,application/pdf,67108864,utf8,text/plain,33554432
+/application/tzif/tzif-transitions-csv.wasm,bytes,application/tzif,262144,utf8,text/csv,7653511
 /application/vnd.sqlite3/sqlite-table-csv.wasm,bytes,application/vnd.sqlite3,8388608,utf8,text/csv,8388608
 /application/warc/warc-counts.wasm,bytes,application/warc,134217728,utf8,text/csv,16384
 /application/warc/warc-to-sitemap.wasm,bytes,application/warc,33554432,utf8,application/xml,8388608
