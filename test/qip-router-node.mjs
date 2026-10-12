@@ -166,7 +166,20 @@ test("Node and Go routers produce identical page and full-site WARC bytes", asyn
   const goWarc = await execFileAsync(
     join(root, "qip"),
     ["router", "warc", "site", "--recipes", "recipes", "-o", "-"],
-    { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 },
+    { encoding: "buffer", maxBuffer: 128 * 1024 * 1024 },
   );
-  assert.deepEqual(Buffer.from(nodeWarc), goWarc.stdout);
+  assertSameArchive(Buffer.from(nodeWarc), goWarc.stdout);
 });
+
+// assert.deepEqual on two large Buffers renders a full diff and exhausts the heap.
+function assertSameArchive(actual, expected) {
+  if (actual.equals(expected)) return;
+  let offset = 0;
+  while (offset < actual.length && actual[offset] === expected[offset]) offset++;
+  const recordStart = Math.max(0, actual.lastIndexOf("WARC/1.1\r\n", offset));
+  const excerpt = (bytes) => bytes.subarray(recordStart, Math.min(offset + 64, bytes.length)).toString("latin1");
+  assert.fail(
+    `WARC bytes differ at offset ${offset} (Node ${actual.length} bytes, Go ${expected.length} bytes)\n` +
+    `--- Node\n${excerpt(actual)}\n--- Go\n${excerpt(expected)}`,
+  );
+}

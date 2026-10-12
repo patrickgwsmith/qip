@@ -11,33 +11,59 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 const reservedDirectories = new Set(["_recipes", "_components", "_elements"]);
 
+// Keep in sync with sourceMIMETypes in internal/routing.go.
 const mimeTypes = new Map([
+  [".apng", "image/apng"],
   [".avif", "image/avif"],
   [".bmp", "image/bmp"],
+  [".c", "text/x-c"],
   [".css", "text/css"],
   [".csv", "text/csv"],
   [".gif", "image/gif"],
+  [".gz", "application/gzip"],
+  [".h", "text/x-c"],
   [".htm", "text/html"],
   [".html", "text/html"],
   [".ico", "image/x-icon"],
+  [".jp2", "image/jp2"],
   [".jpeg", "image/jpeg"],
   [".jpg", "image/jpeg"],
+  [".jxl", "image/jxl"],
   [".js", "text/javascript"],
   [".json", "application/json"],
+  [".ktx2", "image/ktx2"],
   [".md", "text/markdown"],
   [".markdown", "text/markdown"],
+  [".mermaid", "text/vnd.mermaid"],
   [".mjs", "text/javascript"],
+  [".mmd", "text/vnd.mermaid"],
+  [".mp3", "audio/mpeg"],
+  [".mp4", "video/mp4"],
+  [".ogg", "audio/ogg"],
+  [".otf", "font/otf"],
   [".pdf", "application/pdf"],
   [".png", "image/png"],
   [".sqlite", "application/vnd.sqlite3"],
   [".sqlite3", "application/vnd.sqlite3"],
   [".svg", "image/svg+xml"],
+  [".swift", "text/x-swift"],
+  [".tar", "application/x-tar"],
+  [".tif", "image/tiff"],
+  [".tiff", "image/tiff"],
+  [".ttf", "font/ttf"],
   [".txt", "text/plain"],
   [".uri", "text/uri-list"],
   [".uris", "text/uri-list"],
+  [".warc", "application/warc"],
   [".wasm", "application/wasm"],
+  [".wav", "audio/wav"],
+  [".webm", "video/webm"],
   [".webp", "image/webp"],
+  [".woff", "font/woff"],
+  [".woff2", "font/woff2"],
   [".xml", "application/xml"],
+  [".zig", "text/x-zig"],
+  [".zip", "application/zip"],
 ]);
 
 function sourceMime(filePath) {
@@ -299,11 +325,22 @@ async function createRecipeRuntime(recipesRoot) {
       const result = previous.then(() => {
         let output = bytes(input);
         let type = sourceType;
+        // Hash payloads natively so recipes can read WARC-Payload-Digest instead
+        // of hashing in wasm, and so a recipe that leaves a stale digest is named.
+        const digester = sourceType === "application/warc" ? createPayloadDigester() : null;
+        if (digester) output = digester.apply(output);
         for (const stage of chain.stages) {
           if (stage.inputType && stage.inputType !== type) {
             throw new Error(`${stage.label} expects ${stage.inputType}, got ${type}`);
           }
           output = runStage(stage, output);
+          if (digester) {
+            try {
+              output = digester.apply(output);
+            } catch (error) {
+              throw new Error(`${stage.label}: ${error.message}`);
+            }
+          }
           if (stage.outputType) type = stage.outputType;
           else if (stage.clearsContentType) type = "";
         }
@@ -559,6 +596,112 @@ function recordID(targetURI, payload) {
   return `<urn:uuid:${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}>`;
 }
 
+// Keep in sync with PayloadDigest in internal/warc/warc.go.
+function payloadDigest(payload) {
+  return `sha256:${createHash("sha256").update(payload).digest("hex")}`;
+}
+
+function digestValueMatches(value, sum) {
+  if (/^[0-9a-fA-F]{64}$/.test(value)) return value.toLowerCase() === sum.toString("hex");
+  const trimmed = value.replace(/=+$/, "");
+  if (/^[A-Za-z2-7]{52}$/.test(trimmed)) return trimmed.toUpperCase() === base32(sum);
+  return trimmed === sum.toString("base64").replace(/=+$/, "") || trimmed === sum.toString("base64url");
+}
+
+function base32(data) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let output = "";
+  let bits = 0;
+  let value = 0;
+  for (const byte of data) {
+    value = (value << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      output += alphabet[(value >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+  }
+  if (bits > 0) output += alphabet[(value << (5 - bits)) & 31];
+  return output;
+}
+
+// Keep in sync with PayloadDigester in internal/warc/warc.go: adds a sha256
+// WARC-Payload-Digest to response and resource records that lack one, rejects
+// stale sha256 digests, and skips rehashing payloads unchanged since the
+// previous apply.
+function createPayloadDigester() {
+  let verified = new Map();
+  return {
+    apply(archive) {
+      const data = Buffer.from(archive.buffer, archive.byteOffset, archive.byteLength);
+      const next = new Map();
+      const chunks = [];
+      let copied = 0;
+      let cursor = 0;
+      let recordNumber = 0;
+      while (cursor < data.byteLength) {
+        recordNumber += 1;
+        const headerEnd = data.indexOf("\r\n\r\n", cursor);
+        if (headerEnd < 0) throw new Error(`WARC record ${recordNumber} is missing its header terminator`);
+        let length = -1;
+        let warcType = "";
+        let targetURI = "";
+        let digest = null;
+        for (const line of data.toString("latin1", cursor, headerEnd).split("\r\n").slice(1)) {
+          const colon = line.indexOf(":");
+          if (colon <= 0 || line[0] === " " || line[0] === "\t") continue;
+          const name = line.slice(0, colon).trim().toLowerCase();
+          const value = line.slice(colon + 1).trim();
+          if (name === "content-length") {
+            length = /^\d+$/.test(value) ? Number(value) : NaN;
+            if (!Number.isSafeInteger(length)) throw new Error(`WARC record ${recordNumber} has invalid Content-Length ${value}`);
+          } else if (name === "warc-type") warcType = value.toLowerCase();
+          else if (name === "warc-target-uri") targetURI = value;
+          else if (name === "warc-payload-digest") digest = value;
+        }
+        if (length < 0) throw new Error(`WARC record ${recordNumber} is missing content-length`);
+        const blockStart = headerEnd + 4;
+        const blockEnd = blockStart + length;
+        if (blockEnd > data.byteLength) throw new Error(`WARC record ${recordNumber} block exceeds the archive`);
+        const following = Math.min(blockEnd + 4, data.byteLength);
+
+        let payload = null;
+        if (warcType === "response") {
+          const httpEnd = data.indexOf("\r\n\r\n", blockStart);
+          if (httpEnd >= 0 && httpEnd + 4 <= blockEnd) payload = data.subarray(httpEnd + 4, blockEnd);
+        } else if (warcType === "resource") {
+          payload = data.subarray(blockStart, blockEnd);
+        }
+        if (payload) {
+          const colon = digest?.indexOf(":") ?? -1;
+          const algorithm = colon >= 0 ? digest.slice(0, colon).toLowerCase() : digest;
+          if (digest !== null && algorithm === "sha256") {
+            const value = digest.slice(colon + 1).trim();
+            const previous = verified.get(value);
+            if (!previous || !previous.equals(payload)) {
+              const sum = createHash("sha256").update(payload).digest();
+              if (!digestValueMatches(value, sum)) {
+                throw new Error(`WARC record ${recordNumber} ${targetURI} has a WARC-Payload-Digest that does not match its payload`);
+              }
+            }
+            next.set(value, payload);
+          } else if (digest === null) {
+            const labelled = payloadDigest(payload);
+            next.set(labelled.slice("sha256:".length), payload);
+            chunks.push(data.subarray(copied, headerEnd), encoder.encode(`\r\nWARC-Payload-Digest: ${labelled}`));
+            copied = headerEnd;
+          }
+        }
+        cursor = following;
+      }
+      verified = next;
+      if (chunks.length === 0) return archive;
+      chunks.push(data.subarray(copied));
+      return concat(chunks);
+    },
+  };
+}
+
 function concat(chunks) {
   const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
   const output = new Uint8Array(length);
@@ -585,6 +728,7 @@ function buildWarcRecord(targetURI, response) {
     `WARC-Target-URI: ${targetURI}\r\n` +
     `WARC-Date: 2000-01-01T00:00:00Z\r\n` +
     `WARC-Record-ID: ${recordID(targetURI, payload)}\r\n` +
+    `WARC-Payload-Digest: ${payloadDigest(response.body)}\r\n` +
     `Content-Type: application/http; msgtype=response\r\n` +
     `Content-Length: ${payload.byteLength}\r\n\r\n`;
   return concat([encoder.encode(warcHead), payload, encoder.encode("\r\n\r\n")]);
