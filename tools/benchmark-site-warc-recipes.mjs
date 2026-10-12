@@ -17,6 +17,7 @@ const recipeNames = new Map([
   ["25-add-content-size", "Add content sizes"],
   ["30-add-sitemap-xml", "Add sitemap"],
   ["35-add-search-index", "Add search index"],
+  ["45-add-components-atom", "Add components feed"],
   ["99-add-custom-element-scripts", "Add custom-element scripts"],
 ]);
 
