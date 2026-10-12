@@ -557,7 +557,15 @@ func pipelineTraceFromContext(ctx context.Context) PipelineTraceFunc {
 	return trace
 }
 
+// StageCheck inspects each stage's output and may replace it before the next
+// stage runs.
+type StageCheck func(output Content) (Content, error)
+
 func (p *Pipeline) Process(ctx context.Context, input Content, requestID uint64) (Content, error) {
+	return p.ProcessWithCheck(ctx, input, requestID, nil)
+}
+
+func (p *Pipeline) ProcessWithCheck(ctx context.Context, input Content, requestID uint64, check StageCheck) (Content, error) {
 	var cur = input
 	trace := pipelineTraceFromContext(ctx)
 	for i, stage := range p.Stages {
@@ -582,6 +590,12 @@ func (p *Pipeline) Process(ctx context.Context, input Content, requestID uint64)
 				OutputBytes:       ContentByteSize(next),
 				Duration:          duration,
 			})
+		}
+		if check != nil {
+			next, err = check(next)
+			if err != nil {
+				return nil, fmt.Errorf("step %d %s %w", i+1, stageLabel(stage), err)
+			}
 		}
 		cur = next
 	}

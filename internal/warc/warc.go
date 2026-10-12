@@ -3,6 +3,9 @@ package warc
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/base32"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -13,9 +16,146 @@ import (
 )
 
 const (
-	Version     = "WARC/1.1"
-	CaptureTime = "2000-01-01T00:00:00Z"
+	Version            = "WARC/1.1"
+	CaptureTime        = "2000-01-01T00:00:00Z"
+	PayloadDigestField = "WARC-Payload-Digest"
 )
+
+// PayloadDigest returns the labelled SHA-256 digest of an HTTP body or
+// resource block, as lowercase hex.
+func PayloadDigest(payload []byte) string {
+	sum := sha256.Sum256(payload)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// PayloadDigester adds a sha256 WARC-Payload-Digest to every response and
+// resource record that lacks one, and rejects records whose sha256 digest no
+// longer matches their payload. Payloads unchanged since the previous Apply
+// are compared byte-for-byte instead of being hashed again.
+type PayloadDigester struct {
+	verified map[string][]byte
+}
+
+func NewPayloadDigester() *PayloadDigester {
+	return &PayloadDigester{}
+}
+
+func (d *PayloadDigester) Apply(archive []byte) ([]byte, error) {
+	verified := make(map[string][]byte, len(d.verified))
+	var out []byte
+	copied := 0
+	cursor := 0
+	recordNumber := 0
+	for cursor < len(archive) {
+		recordNumber++
+		headerEnd := bytes.Index(archive[cursor:], []byte("\r\n\r\n"))
+		if headerEnd < 0 {
+			return nil, fmt.Errorf("WARC record %d is missing its header terminator", recordNumber)
+		}
+		headerEnd += cursor
+		contentLength := -1
+		warcType := ""
+		targetURI := ""
+		digest := ""
+		haveDigest := false
+		for _, line := range bytes.Split(archive[cursor:headerEnd], []byte("\r\n"))[1:] {
+			colon := bytes.IndexByte(line, ':')
+			if colon <= 0 || line[0] == ' ' || line[0] == '\t' {
+				continue
+			}
+			name := strings.TrimSpace(string(line[:colon]))
+			value := strings.TrimSpace(string(line[colon+1:]))
+			switch {
+			case strings.EqualFold(name, "Content-Length"):
+				n, err := strconv.Atoi(value)
+				if err != nil || n < 0 {
+					return nil, fmt.Errorf("WARC record %d has invalid Content-Length %q", recordNumber, value)
+				}
+				contentLength = n
+			case strings.EqualFold(name, "WARC-Type"):
+				warcType = value
+			case strings.EqualFold(name, "WARC-Target-URI"):
+				targetURI = value
+			case strings.EqualFold(name, PayloadDigestField):
+				haveDigest = true
+				digest = value
+			}
+		}
+		if contentLength < 0 {
+			return nil, fmt.Errorf("WARC record %d is missing content-length", recordNumber)
+		}
+		blockStart := headerEnd + 4
+		blockEnd := blockStart + contentLength
+		if blockEnd > len(archive) {
+			return nil, fmt.Errorf("WARC record %d block exceeds the archive", recordNumber)
+		}
+		next := min(blockEnd+4, len(archive))
+
+		var payload []byte
+		switch strings.ToLower(warcType) {
+		case "response":
+			block := archive[blockStart:blockEnd]
+			if _, after, ok := bytes.Cut(block, []byte("\r\n\r\n")); ok {
+				payload = after
+			}
+		case "resource":
+			payload = archive[blockStart:blockEnd]
+		}
+		if payload == nil {
+			cursor = next
+			continue
+		}
+
+		algorithm, value, _ := strings.Cut(digest, ":")
+		switch {
+		case haveDigest && strings.EqualFold(algorithm, "sha256"):
+			key := value
+			if previous, ok := d.verified[key]; !ok || !bytes.Equal(previous, payload) {
+				sum := sha256.Sum256(payload)
+				if !digestValueMatches(value, sum[:]) {
+					return nil, fmt.Errorf("WARC record %d %s has a %s that does not match its payload", recordNumber, targetURI, PayloadDigestField)
+				}
+			}
+			verified[key] = payload
+		case haveDigest:
+			// Leave other algorithms alone; a record carries one payload digest.
+		default:
+			labelled := PayloadDigest(payload)
+			verified[strings.TrimPrefix(labelled, "sha256:")] = payload
+			if out == nil {
+				out = make([]byte, 0, len(archive)+(len(archive)/1024))
+			}
+			out = append(out, archive[copied:headerEnd]...)
+			out = append(out, "\r\n"+PayloadDigestField+": "+labelled...)
+			copied = headerEnd
+		}
+		cursor = next
+	}
+	d.verified = verified
+	if out == nil {
+		return archive, nil
+	}
+	return append(out, archive[copied:]...), nil
+}
+
+// digestValueMatches accepts hex, base32 or base64 digest values, since WARC
+// does not fix an encoding for sha256.
+func digestValueMatches(value string, sum []byte) bool {
+	if decoded, err := hex.DecodeString(value); err == nil {
+		return bytes.Equal(decoded, sum)
+	}
+	trimmed := strings.TrimRight(value, "=")
+	if decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(trimmed)); err == nil {
+		return bytes.Equal(decoded, sum)
+	}
+	if decoded, err := base64.RawStdEncoding.DecodeString(trimmed); err == nil {
+		return bytes.Equal(decoded, sum)
+	}
+	if decoded, err := base64.RawURLEncoding.DecodeString(trimmed); err == nil {
+		return bytes.Equal(decoded, sum)
+	}
+	return false
+}
 
 func BuildHTTPResponseRecord(targetURI string, statusCode int, headers http.Header, body []byte) ([]byte, error) {
 	targetURI = strings.TrimSpace(targetURI)
@@ -31,6 +171,7 @@ func BuildHTTPResponseRecord(targetURI string, statusCode int, headers http.Head
 	buf.WriteString("WARC-Target-URI: " + targetURI + "\r\n")
 	buf.WriteString("WARC-Date: " + CaptureTime + "\r\n")
 	buf.WriteString("WARC-Record-ID: " + recordID + "\r\n")
+	buf.WriteString(PayloadDigestField + ": " + PayloadDigest(body) + "\r\n")
 	buf.WriteString("Content-Type: application/http; msgtype=response\r\n")
 	buf.WriteString("Content-Length: " + strconv.Itoa(len(payload)) + "\r\n\r\n")
 	buf.Write(payload)

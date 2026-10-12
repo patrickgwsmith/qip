@@ -34,8 +34,28 @@ func processApplicationWARCArchive(ctx context.Context, pipeline *qinternal.Pipe
 		}
 		return warc, nil
 	}
+	// Hash payloads natively so recipes can read WARC-Payload-Digest instead of
+	// hashing in wasm, and so a recipe that leaves a stale digest is named.
+	digester := qwarc.NewPayloadDigester()
+	warc, err := digester.Apply(warc)
+	if err != nil {
+		return nil, fmt.Errorf("invalid WARC archive: %w", err)
+	}
 	input := qinternal.NewRawBytesContentWithType(warc, applicationWARCRecipeMIME)
-	result, err := pipeline.Process(ctx, input, requestID)
+	result, err := pipeline.ProcessWithCheck(ctx, input, requestID, func(output qinternal.Content) (qinternal.Content, error) {
+		_, raw, err := ensureRawContent(output)
+		if err != nil {
+			return nil, err
+		}
+		digested, err := digester.Apply(raw)
+		if err != nil {
+			return nil, err
+		}
+		if len(digested) == len(raw) {
+			return output, nil
+		}
+		return qinternal.NewRawBytesContentWithType(digested, applicationWARCRecipeMIME), nil
+	})
 	if err != nil {
 		return nil, err
 	}
