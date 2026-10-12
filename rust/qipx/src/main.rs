@@ -12,6 +12,42 @@ use wasmtime::{Caller, Engine, Instance, Linker, Module, Store, Val, ValType};
 
 mod tui;
 
+// display_text matches displayText in npm/qipx/qipx.mjs: it keeps untrusted paths and labels
+// from changing terminal display by escaping control, format, and line/paragraph separators.
+fn display_text(value: &str) -> String {
+    let mut text = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_control()
+            || matches!(character, '\u{2028}' | '\u{2029}')
+            || is_format(character)
+        {
+            text.push_str(&format!("\\u{{{:x}}}", character as u32));
+        } else {
+            text.push(character);
+        }
+    }
+    text
+}
+
+// is_format reports Unicode general category Cf.
+fn is_format(character: char) -> bool {
+    matches!(character as u32,
+        0xad | 0x600..=0x605 | 0x61c | 0x6dd | 0x70f | 0x890..=0x891 | 0x8e2 | 0x180e
+        | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0x2066..=0x206f | 0xfeff
+        | 0xfff9..=0xfffb | 0x110bd | 0x110cd | 0x13430..=0x1343f | 0x1bca0..=0x1bca3
+        | 0x1d173..=0x1d17a | 0xe0001 | 0xe0020..=0xe007f)
+}
+
+trait DisplayText {
+    fn display_text(&self) -> String;
+}
+
+impl DisplayText for str {
+    fn display_text(&self) -> String {
+        display_text(self)
+    }
+}
+
 struct StageSpec {
     path: String,
     uniforms: Vec<(String, String)>,
@@ -19,7 +55,7 @@ struct StageSpec {
 
 fn main() {
     if let Err(message) = run() {
-        eprintln!("qipx: {}", message.escape_debug());
+        eprintln!("qipx: {}", display_text(&message));
         std::process::exit(1);
     }
 }
@@ -38,7 +74,7 @@ fn run() -> Result<(), String> {
                 "run" | "dry" | "dry-run" | "tui" | "bench" | "comply"
             )
         })
-        .ok_or("qipx requires a subcommand: run, dry run, tui, bench, or comply")?;
+        .ok_or("requires a subcommand: run, dry run, tui, bench, or comply")?;
     let hosts: Vec<String> = args
         .drain(..command_index)
         .map(|host| parse_host(&host))
@@ -127,18 +163,9 @@ fn run() -> Result<(), String> {
                 index += 1;
                 output_path = args.get(index).ok_or("--output requires a path")?;
             }
-            "-u" | "--uniform" => {
+            flag @ ("-u" | "--uniform") => {
                 index += 1;
-                let assignment = args.get(index).ok_or("-u requires <name=value>")?;
-                let (name, value) = assignment
-                    .split_once('=')
-                    .filter(|(name, _)| !name.is_empty())
-                    .ok_or_else(|| format!("-u requires <name=value>, got {assignment:?}"))?;
-                stages
-                    .last_mut()
-                    .ok_or("-u must follow a component path")?
-                    .uniforms
-                    .push((name.to_owned(), value.to_owned()));
+                push_uniform(flag, args.get(index), &mut stages)?;
             }
             arg if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
             path => stages.push(StageSpec {
@@ -151,24 +178,26 @@ fn run() -> Result<(), String> {
     if stages.is_empty() {
         return Err("at least one component is required".into());
     }
-    if input_from_cli && !form_fields.is_empty() {
-        return Err("-F and -i are mutually exclusive".into());
-    }
 
+    validate_form_fields(input_from_cli.then_some(input_path), &form_fields)?;
     if tui_mode {
         if output_path != "-" {
-            return Err("qipx tui writes only to terminal stdout; remove -o/--output".into());
+            return Err("tui writes only to terminal stdout; remove -o/--output".into());
         }
         if input_from_cli && input_path == "-" {
-            return Err("qipx tui cannot read -i - because stdin carries terminal events".into());
+            return Err("tui cannot read -i - because stdin carries terminal events".into());
         }
-        if form_fields
-            .iter()
-            .any(|field| matches!(field.split_once('='), Some((_, "@-" | "<-"))))
-        {
+        if form_fields.iter().any(|field| {
+            if input_from_cli {
+                parse_typed_form_file(field)
+                    .map(|(path, _)| path == "-")
+                    .unwrap_or(false)
+            } else {
+                matches!(field.split_once('='), Some((_, "@-" | "<-")))
+            }
+        }) {
             return Err(
-                "qipx tui cannot use -F name=@- or name=<- because stdin carries terminal events"
-                    .into(),
+                "tui cannot use -F name=@- or name=<- because stdin carries terminal events".into(),
             );
         }
     }
@@ -177,8 +206,12 @@ fn run() -> Result<(), String> {
         .iter()
         .map(|stage| BenchCandidate::load(&engine, &stage.path, max_memory, &hosts))
         .collect::<Result<Vec<_>, _>>()?;
-    validate_pipeline(&loaded, capacities_must_fit, !form_fields.is_empty())?;
-    let mut input = if !form_fields.is_empty() {
+    validate_pipeline(
+        &loaded,
+        capacities_must_fit,
+        &initial_content_type(&form_fields, input_from_cli, loaded[0].input_mime.as_str()),
+    )?;
+    let mut input = if !form_fields.is_empty() && !input_from_cli {
         build_form(&form_fields, &hosts)?
     } else if input_path == "-" && (tui_mode || (!input_from_cli && io::stdin().is_terminal())) {
         Vec::new()
@@ -189,8 +222,11 @@ fn run() -> Result<(), String> {
             .map_err(|e| format!("cannot read stdin: {e}"))?;
         bytes
     } else {
-        fs::read(input_path).map_err(|e| format!("cannot read {input_path}: {e}"))?
+        fs::read(input_path).map_err(|e| format!("cannot read {input_path}: {}", io_reason(&e)))?
     };
+    if input_from_cli && !form_fields.is_empty() {
+        input = build_related(&input, &loaded[0].input_mime, &form_fields)?;
+    }
     if tui_mode {
         return tui::run_tui(loaded, &stages, input);
     }
@@ -232,81 +268,161 @@ fn run() -> Result<(), String> {
                 .map_err(|e| format!("cannot write stdout: {e}"))?;
         }
     } else {
-        fs::write(output_path, &input).map_err(|e| format!("cannot write {output_path}: {e}"))?;
+        fs::write(output_path, &input)
+            .map_err(|e| format!("cannot write {output_path}: {}", io_reason(&e)))?;
     }
     Ok(())
 }
 
-fn usage() -> &'static str {
-    "Usage: qipx [host ...] run [options] <component.wasm> [component2.wasm ...]\n\
-       qipx [host ...] dry run [options] <component.wasm> [component2.wasm ...]\n\
-       qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\
-       qipx [host ...] comply [options] <file-or-dir> [...]\n\
-       qipx [host ...] bench (-i <input> | -F <name=value>) [options] <component.wasm> [...]\n\n\
-Hosts: dotted DNS names with optional ports; missing safe relative .wasm files use HTTPS.\n\n\
-Options:\n\
-  -i, --input <path>              Read input from a file instead of stdin\n\
-  -F, --form <name=value>         Add multipart fields (repeatable)\n\
-  -o, --output <path>             Write output to a file instead of stdout\n\
-  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n\
-  --capacities-must-fit           Reject stages whose max output cannot fit next input\n\
-  -u, --uniform <name=value>      Set a uniform on the preceding component\n\
-  -h, --help                      Show this help\n\n\
-Multipart fields:\n\
-  -F name=value                  UTF-8 text field\n\
-  -F name=@path                  File bytes with basename as filename\n\
-  -F 'name=<path'                File bytes as a regular field, without filename\n\
-@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
-  -F name=@-                     Stdin bytes as a file field with filename \"-\"\n\
-  -F 'name=<-'                   Stdin bytes as a regular field without filename\n\
-Quote arguments containing < in a shell. Only one field may read stdin.\n\
-Dry run plans form files without reading file contents or stdin.\n\n\
-Examples:\n\
-  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n\
-  qipx run -F 'data=<input.txt' bytes/identity.wasm\n\
-  printf hello | qipx run -F 'data=<-' bytes/identity.wasm\n"
+// multipart_help matches multipartHelp in main.go and npm/qipx/qipx.mjs apart from the program
+// name; test/qipx-multipart-related.mjs compares them.
+fn multipart_help(command: &str) -> String {
+    let mut help = String::from(
+        "Multipart input:\n  \
+-F name=value                UTF-8 text field\n  \
+-F name=@path                File bytes with the basename as filename\n  \
+-F 'name=<path'              File bytes as a regular field, without filename\n  \
+-F 'name=@path;type=<type>'  File bytes with an explicit part Content-Type\n\
+Without ;type=, @path sends Content-Type: application/octet-stream and <path omits that part header.\n",
+    );
+    help.push_str(match command {
+        "tui" => {
+            "-i -, -F name=@-, and -F 'name=<-' are unavailable: stdin carries terminal keys.\n"
+        }
+        "dry" => "-F name=@- and -F 'name=<-' are accepted, but dry run does not read stdin.\n",
+        _ => {
+            "  -F name=@-                   Stdin bytes as a file field with filename \"-\"\n  \
+-F 'name=<-'                 Stdin bytes as a regular field without filename\n\
+Only one of -i - and the -F fields may read stdin.\n"
+        }
+    });
+    if command == "run" {
+        help.push_str("dry run plans these inputs without reading files or stdin.\n");
+    }
+    help.push_str(
+        "Quote arguments containing < or ; in a shell.\n\n\
+Related input:\n  \
+With -i, typed -F file parts build multipart/related instead of form data.\n  \
+The -i bytes are the root part; each -F must be [name=]@path;type=<type>, and the name is unused.\n  \
+The first component must declare multipart/related;type=\"<type>\", which labels the root part.\n\n\
+Examples:\n",
+    );
+    help.push_str(match command {
+        "tui" => {
+            "  qipx tui tui/calendar-gregorian.wasm\n  \
+qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n"
+        }
+        "bench" => {
+            "  qipx bench -F 'data=<input.txt' bytes/identity.wasm\n  \
+printf hello | qipx bench -F 'data=<-' bytes/identity.wasm\n  \
+qipx bench -i logo.svg -F '@Inter.ttf;type=font/ttf' renderer-a.wasm renderer-b.wasm\n"
+        }
+        _ => {
+            "  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n  \
+qipx run -F 'data=<input.txt' bytes/identity.wasm\n  \
+printf hello | qipx run -F 'data=<-' bytes/identity.wasm\n  \
+qipx run -i logo.svg -F '@Inter.ttf;type=font/ttf' svg-renderer.wasm\n"
+        }
+    });
+    help
 }
 
-fn tui_usage() -> &'static str {
-    "Usage: qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\n\
-  -i, --input <path>              Read initial input from a file\n\
-  -F, --form <name=value>         Construct multipart input (repeatable)\n\
-  -u, --uniform <name=value>      Set a uniform on the preceding component\n\
-  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n\
-  --capacities-must-fit           Check capacity between Content stages\n\n\
-Multipart fields: -F name=value, -F name=@path, or -F 'name=<path'.\n\
-@path adds a filename; <path sends exact file bytes without a filename.\n\
-@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
--F name=@- and -F 'name=<-' are unavailable because stdin carries keys.\n\
-Quote arguments containing < in a shell.\n\n\
-Examples:\n\
-  qipx tui tui/calendar-gregorian.wasm\n\
-  qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n"
+fn usage() -> String {
+    format!(
+        "Usage: qipx [host ...] run [options] <component.wasm> [component2.wasm ...]\n       \
+qipx [host ...] dry run [options] <component.wasm> [component2.wasm ...]\n       \
+qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n       \
+qipx [host ...] comply [options] <file-or-dir> [...]\n       \
+qipx [host ...] bench [-i <input>] [-F <name=value> ...] [options] <component.wasm> [...]\n\n\
+Hosts:\n  \
+Hosts are dotted DNS names with optional ports. Missing relative .wasm files,\n  \
+including @path and <path form fields, use HTTPS in host order and are saved.\n\n\
+Options:\n  \
+-i, --input <path>              Read input from a file instead of stdin\n  \
+-F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n  \
+-o, --output <path>             Write output to a file instead of stdout\n  \
+--max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n  \
+--capacities-must-fit           Reject stages whose max output cannot fit next input\n  \
+-u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n  \
+dry run                         Validate the pipeline without reading input or rendering\n  \
+-h, --help                      Show this help\n\n{}\n\
+Uniforms:\n  \
+qipx run component.wasm -u width=640 -u height=480\n  \
+i32 uniforms are treated as unsigned values; use i64 for signed integers.\n\n\
+Inputless generators:\n  \
+A first-stage generator omits input_ptr and its input-capacity getter. qipx calls render(0).\n  \
+With no -i or -F, qipx uses empty input when stdin is a terminal.\n\n\
+Documentation: https://qip.dev/docs/content-component\n",
+        multipart_help("run")
+    )
 }
 
-fn bench_usage() -> &'static str {
-    "Usage: qipx [host ...] bench (-i <input> | -F <name=value>) [options] <component.wasm> [...]\n\n\
-  -i, --input <path>              Read benchmark input from a file or stdin (-)\n\
-  -F, --form <name=value>         Construct multipart input (repeatable)\n\
-  -r, --runs <n>                  Number of measured runs\n\
-  --warmup <n>                    Warmup runs per component\n\
-  --benchtime <duration>          Target measured time per component (default: 3s)\n\
-  --max-memory <bytes>            Reject large declared memory\n\n\
-Multipart fields: -F name=value, -F name=@path, or -F 'name=<path'.\n\
-@path adds a filename; <path sends exact file bytes without a filename.\n\
-@path sends Content-Type: application/octet-stream; <path omits that part header.\n\
--F name=@- or -F 'name=<-' reads stdin; only one field may do so.\n\
-Quote arguments containing < in a shell.\n\n\
-Examples:\n\
-  qipx bench -F 'data=<input.txt' bytes/identity.wasm\n\
-  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm\n"
+fn tui_usage() -> String {
+    format!(
+        "Usage: qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\n\
+Input:\n  \
+-i, --input <path>              Read initial input from a file\n  \
+-F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n\n\
+Execution:\n  \
+-u, --uniform <name=value>      Set a uniform on the preceding component\n  \
+--max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n  \
+--capacities-must-fit           Check capacity between Content stages\n\n\
+The first component must be Interactive. Later components transform each\n\
+frame as ordinary Content stages; the final output must be UTF-8 text.\n\
+With hosts, missing safe relative .wasm files used by -F are downloaded.\n\n{}",
+        multipart_help("tui")
+    )
 }
 
-fn comply_usage() -> &'static str {
+fn bench_usage() -> String {
+    format!(
+        "Usage: qipx [host ...] bench [-i <input>] [-F <name=value> ...] [options] <component.wasm> [...]\n\n\
+Options:\n  \
+-i, --input <path>              Read benchmark input from a file ('-' for stdin)\n  \
+-F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n  \
+-r, --runs <n>                  Measure exactly n runs per component\n  \
+--benchtime <duration>          Target measured time per component (default: 3s)\n  \
+--warmup <n>                    Warmup runs per component (default: 10)\n  \
+--max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n  \
+-u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n  \
+-h, --help                      Show this help\n\n\
+Bench requires -i, -F, or both.\n\
+Components are measured one at a time on reused runtime instances.\n\
+With hosts, missing safe relative .wasm files used by -F are downloaded.\n\
+Every output must match the first component byte for byte.\n\n{}",
+        multipart_help("bench")
+    )
+}
+
+fn comply_usage() -> String {
     "Usage: qipx [host ...] comply [options] <file-or-dir> [...]\n\n\
-  --with <compliance.wasm>        Run a Compliance oracle (repeatable)\n\
-  --seed <n>                      Set oracle uniform_set_seed(u32)\n\
-  --max-memory <bytes>            Reject implementation memory above bytes\n"
+Options:\n  \
+--with <compliance.wasm>        Run a Compliance oracle (repeatable)\n  \
+--seed <n>                      Call uniform_set_seed(u32) on each oracle\n  \
+--max-memory <bytes>            Reject implementation memory above bytes\n  \
+-h, --help                      Show this help\n\n\
+Checks QIP Content ABI compliance and the Strict Wasm Profile subset.\n\
+Documentation: https://qip.dev/docs/comply\n"
+        .into()
+}
+
+// push_uniform applies -u <name=value> to the preceding component, checking in the same order
+// as parseStageArgs in npm/qipx/qipx.mjs.
+fn push_uniform(
+    flag: &str,
+    assignment: Option<&String>,
+    stages: &mut [StageSpec],
+) -> Result<(), String> {
+    let stage = stages
+        .last_mut()
+        .ok_or_else(|| format!("{flag} must follow a component path"))?;
+    let assignment = assignment.ok_or_else(|| format!("{flag} requires <name=value>"))?;
+    let (name, value) = assignment
+        .split_once('=')
+        .filter(|(name, _)| !name.is_empty())
+        .ok_or_else(|| format!("{flag} requires <name=value>, got {assignment:?}"))?;
+    stage.uniforms.push((name.to_owned(), value.to_owned()));
+    Ok(())
 }
 
 fn parse_host(host: &str) -> Result<String, String> {
@@ -352,6 +468,8 @@ fn parse_host(host: &str) -> Result<String, String> {
 fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     let mut stages: Vec<StageSpec> = Vec::new();
     let mut forms = Vec::new();
+    let mut input_from_cli = false;
+    let mut input_path = None;
     let mut max_memory = None;
     let mut capacities_must_fit = false;
     let mut index = 0;
@@ -372,9 +490,16 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
         }
         match args[index].as_str() {
             "-i" | "--input" | "-o" | "--output" => {
+                if matches!(args[index].as_str(), "-i" | "--input") {
+                    input_from_cli = true;
+                }
                 index += 1;
-                args.get(index)
+                let path = args
+                    .get(index)
                     .ok_or("input/output option requires a path")?;
+                if input_from_cli && input_path.is_none() {
+                    input_path = Some(path.as_str());
+                }
             }
             "-F" | "--form" => {
                 index += 1;
@@ -392,18 +517,9 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
                 max_memory = Some(cap);
             }
             "--capacities-must-fit" => capacities_must_fit = true,
-            "-u" | "--uniform" => {
+            flag @ ("-u" | "--uniform") => {
                 index += 1;
-                let assignment = args.get(index).ok_or("-u requires <name=value>")?;
-                let (name, value) = assignment
-                    .split_once('=')
-                    .filter(|(name, _)| !name.is_empty())
-                    .ok_or_else(|| format!("-u requires <name=value>, got {assignment:?}"))?;
-                stages
-                    .last_mut()
-                    .ok_or("-u must follow a component path")?
-                    .uniforms
-                    .push((name.to_owned(), value.to_owned()));
+                push_uniform(flag, args.get(index), &mut stages)?;
             }
             arg if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
             path => stages.push(StageSpec {
@@ -416,6 +532,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     if stages.is_empty() {
         return Err("at least one component is required".into());
     }
+    validate_form_fields(input_path, &forms)?;
     if forms
         .iter()
         .filter(|field| matches!(field.split_once('='), Some((_, "@-" | "<-"))))
@@ -430,11 +547,11 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
             println!(
                 "  Component {}: {}",
                 component_index + 1,
-                stage.path.escape_debug()
+                stage.path.display_text()
             );
         }
         let indent = if stages.len() > 1 { "    " } else { "  " };
-        println!("{indent}0  local  {}", stage.path.escape_debug());
+        println!("{indent}0  local  {}", stage.path.display_text());
         if remote_eligible(&stage.path) {
             for (host_index, host) in hosts.iter().enumerate() {
                 println!(
@@ -452,7 +569,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
             println!(
                 "  Component {}: {}",
                 component_index + 1,
-                stage.path.escape_debug()
+                stage.path.display_text()
             );
         }
         let indent = if stages.len() > 1 { "    " } else { "  " };
@@ -477,12 +594,18 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
     }
     let multipart_files: Vec<_> = forms
         .iter()
+        .filter(|_| !input_from_cli)
         .filter_map(|assignment| {
             assignment.split_once('=').and_then(|(name, value)| {
                 value
                     .strip_prefix('@')
                     .or_else(|| value.strip_prefix('<'))
-                    .map(|path| (name, path))
+                    .map(|path| {
+                        (
+                            name,
+                            path.split_once(";type=").map(|(p, _)| p).unwrap_or(path),
+                        )
+                    })
             })
         })
         .filter(|(_, path)| *path != "-")
@@ -495,8 +618,8 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
             } else {
                 "missing"
             };
-            println!("  Field {name:?}: {}", path.escape_debug());
-            println!("    0  local  {}  {status}", path.escape_debug());
+            println!("  Field {name:?}: {}", path.display_text());
+            println!("    0  local  {}  {status}", path.display_text());
             if remote_eligible(path) {
                 for (host_index, host) in hosts.iter().enumerate() {
                     println!(
@@ -515,7 +638,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
         if fs::metadata(&stage.path).is_err() {
             println!(
                 "  {}: deferred (local file missing)",
-                stage.path.escape_debug()
+                stage.path.display_text()
             );
             continue;
         }
@@ -529,7 +652,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
                 value,
             )?;
         }
-        println!("  {}: valid", stage.path.escape_debug());
+        println!("  {}: valid", stage.path.display_text());
         loaded.push(candidate);
     }
     if missing > 0 {
@@ -539,15 +662,25 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
         );
         return Ok(());
     }
-    validate_pipeline(&loaded, capacities_must_fit, !forms.is_empty())?;
+    if input_from_cli && !forms.is_empty() {
+        related_root_type(&loaded[0].input_mime)?;
+        for field in &forms {
+            parse_typed_form_file(field)?;
+        }
+    }
+    validate_pipeline(
+        &loaded,
+        capacities_must_fit,
+        &initial_content_type(&forms, input_from_cli, &loaded[0].input_mime),
+    )?;
     println!("Pipeline compatible: {} step(s)", stages.len());
     let mut total = 0usize;
     for (index, stage) in loaded.iter().enumerate() {
         let buffers = stage.input_cap + stage.output_cap;
         total += buffers;
-        println!("{}. {} — Content", index + 1, stage.label.escape_debug());
+        println!("{}. {} — Content", index + 1, stage.label.display_text());
         println!(
-            "   Input: encoding={}, type={}, capacity={} bytes",
+            "   Input:  encoding={}, type={}, capacity={}",
             if stage.input_ptr.is_none() {
                 "none"
             } else if stage.input_utf8 {
@@ -560,28 +693,28 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
             } else {
                 &stage.input_mime
             },
-            stage.input_cap
+            format_bytes(stage.input_cap)
         );
         println!(
-            "   Output: encoding={}, type={}, capacity={} bytes",
+            "   Output: encoding={}, type={}, capacity={}",
             if stage.is_utf8 { "UTF-8" } else { "bytes" },
             if stage.output_mime.is_empty() {
                 "unspecified"
             } else {
                 &stage.output_mime
             },
-            stage.output_cap
+            format_bytes(stage.output_cap)
         );
-        println!("   Buffers: {buffers} bytes");
+        println!("   Buffers: {}", format_bytes(buffers));
     }
-    println!("Total declared buffer capacity: {total} bytes");
+    println!("Total declared buffer capacity: {}", format_bytes(total));
     for (index, stage) in loaded.iter().enumerate().skip(1) {
         let previous = &loaded[index - 1];
         if stage.input_ptr.is_some() && previous.output_cap > stage.input_cap {
             println!(
                 "   Note: step {} {}: previous output capacity {} exceeds this input capacity {}; the run remains valid when the actual intermediate output fits",
                 index + 1,
-                stage.label.escape_debug(),
+                stage.label.display_text(),
                 format_bytes(previous.output_cap),
                 format_bytes(stage.input_cap)
             );
@@ -973,6 +1106,7 @@ fn read_content_type(
         .map_err(|_| format!("{path} has invalid UTF-8 {prefix} content type"))?
         .to_owned();
     if value != "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000"
+        && !is_canonical_multipart_related(&value)
         && !is_canonical_content_type(&value)
     {
         return Err(format!("invalid {path} {prefix} content type: {value}"));
@@ -987,7 +1121,7 @@ fn read_content_type(
 /// `multipart/form-data` is only valid in its canonical placeholder-boundary form, checked
 /// by the caller.
 fn is_canonical_content_type(value: &str) -> bool {
-    if value.starts_with("multipart/form-data") {
+    if value.starts_with("multipart/form-data") || value.starts_with("multipart/related") {
         return false;
     }
     let mut segments = value.split(';');
@@ -1021,8 +1155,36 @@ fn is_canonical_content_type(value: &str) -> bool {
     })
 }
 
+/// `multipart/related;type="<type>/<subtype>";boundary=uuid-<lowercase UUID>`, where the root
+/// type is a bare lowercase media type that is not itself multipart.
+fn is_canonical_multipart_related(value: &str) -> bool {
+    let Some(rest) = value.strip_prefix("multipart/related;type=\"") else {
+        return false;
+    };
+    let Some((root, uuid)) = rest.split_once("\";boundary=uuid-") else {
+        return false;
+    };
+    let token = |s: &str| {
+        !s.is_empty()
+            && s.bytes().all(|byte| {
+                byte.is_ascii_lowercase() || byte.is_ascii_digit() || b"!#$&^_.+-".contains(&byte)
+            })
+    };
+    let root_ok = matches!(root.split_once('/'), Some((main, sub)) if main != "multipart" && token(main) && token(sub));
+    root_ok
+        && uuid.len() == 36
+        && uuid.bytes().enumerate().all(|(index, byte)| {
+            if matches!(index, 8 | 13 | 18 | 23) {
+                byte == b'-'
+            } else {
+                byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)
+            }
+        })
+}
+
 /// The lowercase media type and the parameters of a content type as
-/// `(lowercase name, declared name, value)`, with values kept verbatim.
+/// `(lowercase name, declared name, value)`, with values kept verbatim except that a quoted
+/// value, such as multipart/related's type parameter, is compared without its quotes.
 fn parse_content_type(value: &str) -> (String, Vec<(String, String, String)>) {
     let mut segments = value.split(';');
     let media_type = segments.next().unwrap_or("").trim().to_ascii_lowercase();
@@ -1031,7 +1193,12 @@ fn parse_content_type(value: &str) -> (String, Vec<(String, String, String)>) {
             let (name, parameter_value) = segment.split_once('=')?;
             let declared_name = name.trim().to_owned();
             let name = declared_name.to_ascii_lowercase();
-            (!name.is_empty()).then(|| (name, declared_name, parameter_value.trim().to_owned()))
+            let parameter_value = parameter_value.trim();
+            let parameter_value = parameter_value
+                .strip_prefix('"')
+                .and_then(|unquoted| unquoted.strip_suffix('"'))
+                .unwrap_or(parameter_value);
+            (!name.is_empty()).then(|| (name, declared_name, parameter_value.to_owned()))
         })
         .collect();
     (media_type, parameters)
@@ -1074,16 +1241,12 @@ fn content_type_mismatch(expected: &str, incoming: &str) -> Option<String> {
 fn validate_pipeline(
     stages: &[BenchCandidate],
     capacities_must_fit: bool,
-    form_input: bool,
+    initial_content_type: &str,
 ) -> Result<(), String> {
     if stages.is_empty() {
         return Err("at least one component is required".into());
     }
-    let mut current = if form_input {
-        "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000"
-    } else {
-        ""
-    };
+    let mut current = initial_content_type;
     let mut previous_typed_step: Option<(usize, &str)> = None;
     for (index, stage) in stages.iter().enumerate() {
         if stage.input_ptr.is_none() && index != 0 {
@@ -1151,6 +1314,17 @@ fn validate_pipeline(
     Ok(())
 }
 
+// io_reason matches ioErrorReason in npm/qipx/qipx.mjs so file errors read the same in both hosts.
+fn io_reason(error: &io::Error) -> String {
+    match error.kind() {
+        io::ErrorKind::NotFound => "no such file or directory".into(),
+        io::ErrorKind::PermissionDenied => "permission denied".into(),
+        io::ErrorKind::IsADirectory => "is a directory".into(),
+        io::ErrorKind::NotADirectory => "not a directory".into(),
+        _ => error.to_string(),
+    }
+}
+
 /// Sizes as `qip` prints them: whole bytes below 1 KiB, else one decimal with the exact count.
 fn format_bytes(count: usize) -> String {
     if count < 1024 {
@@ -1201,15 +1375,16 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
                 index += 1;
                 form_fields.push(args.get(index).ok_or("-F requires <name=value>")?.as_str());
             }
-            "-r" | "--runs" => {
+            flag @ ("-r" | "--runs") => {
                 index += 1;
+                let invalid = format!("{flag} must be a positive integer");
                 let count: usize = args
                     .get(index)
-                    .ok_or("--runs must be a positive integer")?
+                    .ok_or(invalid.clone())?
                     .parse()
-                    .map_err(|_| "--runs must be a positive integer")?;
+                    .map_err(|_| invalid.clone())?;
                 if count == 0 {
-                    return Err("--runs must be a positive integer".into());
+                    return Err(invalid);
                 }
                 runs = Some(count);
             }
@@ -1241,18 +1416,9 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
                 );
             }
             arg if arg.starts_with("--benchtime=") => benchtime = Some(&arg[12..]),
-            "-u" | "--uniform" => {
+            flag @ ("-u" | "--uniform") => {
                 index += 1;
-                let assignment = args.get(index).ok_or("-u requires <name=value>")?;
-                let (name, value) = assignment
-                    .split_once('=')
-                    .filter(|(name, _)| !name.is_empty())
-                    .ok_or_else(|| format!("-u requires <name=value>, got {assignment:?}"))?;
-                paths
-                    .last_mut()
-                    .ok_or("-u must follow a component path")?
-                    .uniforms
-                    .push((name.to_owned(), value.to_owned()));
+                push_uniform(flag, args.get(index), &mut paths)?;
             }
             arg if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
             path => paths.push(StageSpec {
@@ -1265,16 +1431,14 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     if runs.is_some() && benchtime.is_some() {
         return Err("use either --runs or --benchtime, not both".into());
     }
-    if input_path.is_some() && !form_fields.is_empty() {
-        return Err("-F and -i are mutually exclusive".into());
-    }
     if input_path.is_none() && form_fields.is_empty() {
-        return Err("qipx bench requires -i <input> or -F <name=value>".into());
+        return Err("bench requires -i <input> or -F <name=value>".into());
     }
     if paths.is_empty() {
-        return Err("qipx bench requires at least one component".into());
+        return Err("bench requires at least one component".into());
     }
-    let input = if !form_fields.is_empty() {
+    validate_form_fields(input_path, &form_fields)?;
+    let mut input = if !form_fields.is_empty() && input_path.is_none() {
         build_form(&form_fields, hosts)?
     } else if input_path == Some("-") {
         let mut bytes = Vec::new();
@@ -1284,7 +1448,7 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
         bytes
     } else {
         let path = input_path.unwrap();
-        fs::read(path).map_err(|e| format!("cannot read {path}: {e}"))?
+        fs::read(path).map_err(|e| format!("cannot read {path}: {}", io_reason(&e)))?
     };
     let engine = Engine::default();
     let mut candidates = paths
@@ -1301,6 +1465,9 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
                 value,
             )?;
         }
+    }
+    if input_path.is_some() && !form_fields.is_empty() {
+        input = build_related(&input, &candidates[0].input_mime, &form_fields)?;
     }
     let expected = candidates[0].render(&input)?;
     let output_type = candidates[0].is_utf8;
@@ -1358,7 +1525,12 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     );
     println!(
         "Input: {} ({} bytes, sha256 {:x})",
-        input_path.unwrap_or("multipart form").escape_debug(),
+        if input_path.is_some() && !form_fields.is_empty() {
+            "multipart/related"
+        } else {
+            input_path.unwrap_or("multipart form")
+        }
+        .display_text(),
         input.len(),
         Sha256::digest(&input)
     );
@@ -1377,7 +1549,7 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     println!("Runtime: Wasmtime");
     println!("Boundary: input/output copies and render on one reused instance");
     for (candidate, mean) in candidates.iter().zip(means) {
-        println!("{}: {mean:.0} ns mean", candidate.label.escape_debug());
+        println!("{}: {mean:.0} ns mean", candidate.label.display_text());
     }
     Ok(())
 }
@@ -1433,16 +1605,11 @@ fn run_oracle(
     engine: &Engine,
     implementation: &str,
     oracle: &str,
+    module: &Module,
     seed: Option<u32>,
     max_memory: Option<u64>,
     hosts: &[String],
 ) -> Result<u64, String> {
-    let wasm = resolve_wasm(oracle, hosts, |bytes, label| {
-        Module::validate(engine, bytes)
-            .map_err(|e| format!("{label} is not valid WebAssembly: {e}"))
-    })?;
-    let module =
-        Module::new(engine, wasm).map_err(|e| format!("{oracle} is not valid WebAssembly: {e}"))?;
     let implementation = BenchCandidate::load(engine, implementation, max_memory, hosts)?;
     let state = OracleState {
         implementation,
@@ -1731,7 +1898,7 @@ fn run_oracle(
         1
     }).map_err(|e| format!("cannot bind Compliance bridge: {e}"))?;
     let instance = linker
-        .instantiate(&mut store, &module)
+        .instantiate(&mut store, module)
         .map_err(|e| format!("{oracle}: {e}"))?;
     instance
         .get_memory(&mut store, "memory")
@@ -1788,15 +1955,11 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
         match args[index].as_str() {
             "--with" => {
                 index += 1;
-                oracles.push(
-                    args.get(index)
-                        .ok_or("--with requires an oracle path")?
-                        .as_str(),
-                );
+                oracles.push(args.get(index).ok_or("--with requires a path")?.as_str());
             }
             "--seed" => {
                 index += 1;
-                let value = args.get(index).ok_or("invalid --seed")?;
+                let value = args.get(index).ok_or("--seed requires <n>")?;
                 seed = Some(
                     value
                         .parse::<u32>()
@@ -1805,7 +1968,7 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
             }
             "--max-memory" => {
                 index += 1;
-                let value = args.get(index).ok_or("invalid --max-memory")?;
+                let value = args.get(index).ok_or("--max-memory requires <bytes>")?;
                 let cap: u64 = value
                     .parse()
                     .map_err(|_| format!("invalid --max-memory {value}"))?;
@@ -1814,13 +1977,30 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
                 }
                 max_memory = Some(cap);
             }
+            "-h" | "--help" => {
+                println!("{}", comply_usage());
+                return Ok(());
+            }
             arg if arg.starts_with('-') => return Err(format!("unknown option {arg}")),
             path => files.push(path),
         }
         index += 1;
     }
+    if files.is_empty() {
+        return Err("comply requires at least one file or directory".into());
+    }
+    oracles.sort();
     let mut expanded = Vec::new();
     for file in files {
+        match fs::metadata(file) {
+            Ok(meta) if meta.is_file() && !file.ends_with(".wasm") => {
+                return Err(format!("{file} is not a .wasm file"));
+            }
+            Ok(meta) if !meta.is_file() && !meta.is_dir() => {
+                return Err(format!("{file} is not a file or directory"));
+            }
+            _ => {}
+        }
         collect_wasm_paths(Path::new(file), &mut expanded)?;
     }
     expanded.sort();
@@ -1829,36 +2009,53 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
         return Err("No .wasm files found".into());
     }
     let engine = Engine::default();
+    // Resolve every oracle before checking files, as Node qipx does, so a missing oracle is
+    // reported once instead of as a failure for each file.
+    let oracles = oracles
+        .into_iter()
+        .map(|oracle| {
+            let wasm = resolve_wasm(oracle, hosts, |bytes, label| {
+                if bytes.len() < 8 || !bytes.starts_with(b"\0asm") {
+                    return Err(format!("{label} is not a WebAssembly binary module"));
+                }
+                Module::validate(&engine, bytes)
+                    .map_err(|e| format!("{label} is not valid WebAssembly: {e}"))
+            })?;
+            let module = Module::new(&engine, wasm)
+                .map_err(|e| format!("{oracle} is not valid WebAssembly: {e}"))?;
+            Ok((oracle, module))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     let mut pass = 0;
     let mut fail = 0;
     for file in &expanded {
         match BenchCandidate::load(&engine, file, max_memory, hosts) {
             Ok(_) => {
-                println!("PASS {}", file.escape_debug());
+                println!("PASS {}", file.display_text());
                 pass += 1;
             }
             Err(error) => {
-                println!("FAIL {}: {}", file.escape_debug(), error.escape_debug());
+                println!("FAIL {}: {}", file.display_text(), error.display_text());
                 fail += 1;
                 continue;
             }
         }
-        for oracle in &oracles {
-            match run_oracle(&engine, file, oracle, seed, max_memory, hosts) {
+        for (oracle, module) in &oracles {
+            match run_oracle(&engine, file, oracle, module, seed, max_memory, hosts) {
                 Ok(cases) => {
                     println!(
                         "PASS {} --with {} ({cases} cases)",
-                        file.escape_debug(),
-                        oracle.escape_debug()
+                        file.display_text(),
+                        oracle.display_text()
                     );
                     pass += 1;
                 }
                 Err(error) => {
                     println!(
                         "FAIL {} --with {}: {}",
-                        file.escape_debug(),
-                        oracle.escape_debug(),
-                        error.escape_debug()
+                        file.display_text(),
+                        oracle.display_text(),
+                        error.display_text()
                     );
                     fail += 1;
                 }
@@ -1867,7 +2064,11 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
     }
     println!("\npass={pass} fail={fail} total={}", pass + fail);
     if fail != 0 {
-        return Err(format!("{fail} Compliance check(s) failed"));
+        // The summary above already reports failures, as Node qipx does.
+        io::stdout()
+            .flush()
+            .map_err(|e| format!("cannot write stdout: {}", io_reason(&e)))?;
+        std::process::exit(1);
     }
     Ok(())
 }
@@ -1903,9 +2104,145 @@ fn collect_wasm_paths(path: &Path, result: &mut Vec<String>) -> Result<(), Strin
         {
             result.push(path.to_string_lossy().into_owned());
         }
-        Err(error) => return Err(format!("cannot read {}: {error}", path.display())),
+        Err(error) => {
+            return Err(format!(
+                "cannot read {}: {}",
+                path.display(),
+                io_reason(&error)
+            ));
+        }
     }
     Ok(())
+}
+
+fn initial_content_type(forms: &[&str], has_input: bool, declared: &str) -> String {
+    if forms.is_empty() {
+        String::new()
+    } else if has_input {
+        declared.to_owned()
+    } else {
+        "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000".to_owned()
+    }
+}
+
+fn related_root_type(declared: &str) -> Result<&str, String> {
+    if !is_canonical_multipart_related(declared) {
+        return Err(
+            "-i with -F requires the first component to declare multipart/related with a root type"
+                .into(),
+        );
+    }
+    Ok(declared
+        .strip_prefix("multipart/related;type=\"")
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap())
+}
+
+/// With -i, each -F value is a related part (see parse_typed_form_file); otherwise it is a
+/// form field and must be name=value, which build_form checks fully.
+fn validate_form_fields(input_path: Option<&str>, fields: &[&str]) -> Result<(), String> {
+    if input_path.is_none() {
+        for field in fields {
+            if field.starts_with('@') {
+                return Err(format!(
+                    "-F {field:?} has no field name; only related parts with -i may omit it"
+                ));
+            }
+            if !matches!(field.split_once('='), Some((name, _)) if !name.is_empty()) {
+                return Err(format!("-F requires <name=value>, got {field:?}"));
+            }
+        }
+    }
+    if let Some(root) = input_path {
+        let mut stdin_parts = 0;
+        for field in fields {
+            let (path, _) = parse_typed_form_file(field)?;
+            if path == "-" {
+                stdin_parts += 1;
+                if stdin_parts > 1 {
+                    return Err("only one related -F part may read stdin".into());
+                }
+            }
+            if root == "-" && path == "-" {
+                return Err("-i - and related -F @- cannot both read stdin".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+fn parse_typed_form_file(field: &str) -> Result<(&str, &str), String> {
+    let value = if field.starts_with('@') {
+        field
+    } else {
+        field
+            .split_once('=')
+            .map(|(_, value)| value)
+            .ok_or_else(|| format!("-F requires <name=value>, got {field:?}"))?
+    };
+    let value = value
+        .strip_prefix('@')
+        .ok_or_else(|| format!("related -F {field:?} requires [name=]@path;type=<content-type>"))?;
+    let (path, content_type) = value
+        .split_once(";type=")
+        .ok_or_else(|| format!("related -F {field:?} requires [name=]@path;type=<content-type>"))?;
+    if path.is_empty()
+        || content_type.starts_with("multipart/")
+        || !is_canonical_content_type(content_type)
+    {
+        return Err(format!("invalid related -F part {field:?}"));
+    }
+    Ok((path, content_type))
+}
+
+fn build_related(root: &[u8], declared: &str, fields: &[&str]) -> Result<Vec<u8>, String> {
+    let root_type = related_root_type(declared)?;
+    let boundary = declared.split_once(";boundary=").unwrap().1;
+    let mut result = Vec::new();
+    let mut add_part = |body: &[u8], content_type: &str| -> Result<(), String> {
+        if body_contains_boundary(body, boundary) {
+            return Err("related part contains the multipart boundary as a delimiter line".into());
+        }
+        result.extend_from_slice(
+            format!("--{boundary}\r\nContent-Type: {content_type}\r\n\r\n").as_bytes(),
+        );
+        result.extend_from_slice(body);
+        result.extend_from_slice(b"\r\n");
+        Ok(())
+    };
+    add_part(root, root_type)?;
+    for field in fields {
+        let (path, content_type) = parse_typed_form_file(field)?;
+        let body = if path == "-" {
+            let mut bytes = Vec::new();
+            io::stdin()
+                .read_to_end(&mut bytes)
+                .map_err(|e| e.to_string())?;
+            bytes
+        } else {
+            fs::read(path).map_err(|e| format!("read related -F {path}: {e}"))?
+        };
+        add_part(&body, content_type)?;
+    }
+    result.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+    Ok(result)
+}
+
+/// Scans body framed by the CRLFs the builders write around every part, so a delimiter at the
+/// very start or end of body is found too. A delimiter line is CRLF, "--", the boundary, then
+/// CRLF or "--".
+fn body_contains_boundary(body: &[u8], boundary: &str) -> bool {
+    let mut framed = Vec::with_capacity(body.len() + 4);
+    framed.extend_from_slice(b"\r\n");
+    framed.extend_from_slice(body);
+    framed.extend_from_slice(b"\r\n");
+    let delimiter = format!("\r\n--{boundary}");
+    framed.windows(delimiter.len() + 2).any(|window| {
+        window.starts_with(delimiter.as_bytes())
+            && (&window[delimiter.len()..] == b"\r\n" || &window[delimiter.len()..] == b"--")
+    })
 }
 
 fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
@@ -1929,7 +2266,16 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
             .strip_prefix('@')
             .map(|path| ('@', path))
             .or_else(|| value.strip_prefix('<').map(|path| ('<', path)));
-        let (body, filename) = if let Some((mode, path)) = file {
+        let (body, filename, explicit_type) = if let Some((mode, path)) = file {
+            let (path, explicit_type) = path
+                .split_once(";type=")
+                .map(|(p, t)| (p, Some(t)))
+                .unwrap_or((path, None));
+            if let Some(t) = explicit_type {
+                if t.starts_with("multipart/") || !is_canonical_content_type(t) {
+                    return Err(format!("invalid -F part content type: {t}"));
+                }
+            }
             if path.is_empty() {
                 return Err(format!("-F {field:?} has an empty file path"));
             }
@@ -1941,7 +2287,7 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
                 let mut bytes = Vec::new();
                 io::stdin()
                     .read_to_end(&mut bytes)
-                    .map_err(|e| format!("read -F {name}={mode}-: {e}"))?;
+                    .map_err(|e| format!("read -F {name}={mode}-: {}", io_reason(&e)))?;
                 bytes
             } else {
                 if remote_eligible(path) && !hosts.is_empty() {
@@ -1953,7 +2299,8 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
                     })
                     .map_err(|e| format!("read -F {name}={mode}{path}: {e}"))?
                 } else {
-                    fs::read(path).map_err(|e| format!("read -F {name}={mode}{path}: {e}"))?
+                    fs::read(path)
+                        .map_err(|e| format!("read -F {name}={mode}{path}: {}", io_reason(&e)))?
                 }
             };
             let filename = if mode == '@' {
@@ -1971,24 +2318,21 @@ fn build_form(fields: &[&str], hosts: &[String]) -> Result<Vec<u8>, String> {
             } else {
                 None
             };
-            (bytes, filename)
+            (bytes, filename, explicit_type)
         } else {
-            (value.as_bytes().to_vec(), None)
+            (value.as_bytes().to_vec(), None, None)
         };
-        let delimiter = format!("\r\n--{BOUNDARY}");
-        if body.windows(delimiter.len() + 2).any(|window| {
-            window.starts_with(delimiter.as_bytes())
-                && (&window[delimiter.len()..] == b"\r\n" || &window[delimiter.len()..] == b"--")
-        }) {
+        if body_contains_boundary(&body, BOUNDARY) {
             return Err(format!(
                 "-F field {name:?} contains the multipart boundary as a delimiter line"
             ));
         }
         let mut header = format!("--{BOUNDARY}\r\nContent-Disposition: form-data; name=\"{name}\"");
         if let Some(filename) = filename {
-            header.push_str(&format!(
-                "; filename=\"{filename}\"\r\nContent-Type: application/octet-stream"
-            ));
+            header.push_str(&format!("; filename=\"{filename}\""));
+        }
+        if let Some(content_type) = explicit_type.or(filename.map(|_| "application/octet-stream")) {
+            header.push_str(&format!("\r\nContent-Type: {content_type}"));
         }
         header.push_str("\r\n\r\n");
         result.extend_from_slice(header.as_bytes());
@@ -2017,6 +2361,9 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
     let mut exports: HashMap<String, (ExternalKind, u32)> = HashMap::new();
     let mut static_functions = Vec::new();
     let mut memory_count = 0;
+    if wasm.len() < 8 || !wasm.starts_with(b"\0asm") {
+        return Err(format!("{path} is not a WebAssembly binary module"));
+    }
     for payload in Parser::new(0).parse_all(wasm) {
         match payload.map_err(|e| format!("{path} is not valid WebAssembly: {e}"))? {
             Payload::ImportSection(imports) if imports.count() != 0 => {
@@ -2088,8 +2435,15 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
                                 ));
                             }
                         }
-                        0x00..=0x05 | 0x0b..=0x11 | 0x1a..=0x1c | 0x20..=0x26 | 0x28..=0x3f
-                        | 0x41..=0xc4 | 0xd0 | 0xd2 | 0xfc => {}
+                        0x00..=0x05
+                        | 0x0b..=0x11
+                        | 0x1a..=0x1c
+                        | 0x20..=0x26
+                        | 0x28..=0x3f
+                        | 0x41..=0xc4
+                        | 0xd0
+                        | 0xd2
+                        | 0xfc => {}
                         _ => {
                             return Err(format!(
                                 "{path} uses unsupported Wasm opcode 0x{opcode:x} at byte offset {offset}"

@@ -216,6 +216,7 @@ features.
 | `application/zstd` | One Zstandard byte stream, such as a `.tar.zst` file or an HTTP body sent with `Content-Encoding: zstd`. | Frames compress on their own, so small frames compress poorly. |
 | `application/x-www-form-urlencoded` | Small named UTF-8 form fields. | The format is not suitable for file bodies. |
 | `multipart/form-data` | Forms with files or separate metadata for each part. | Boundary parsing is more complex than URL-encoded form parsing. |
+| `multipart/related` | One root document plus the resources it uses, such as an SVG and its fonts. | Only QIP's narrow profile is supported: the first part is the root and every part has a `Content-Type`. |
 
 QIP uses TAR as the sequential archive inside pipelines and ZIP at external
 boundaries. The ZIP-to-TAR component accepts bounded classic ZIP archives. It

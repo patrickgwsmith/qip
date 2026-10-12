@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { realpathSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { __cliInternals as qipx } from "./qipx.mjs";
@@ -17,26 +16,34 @@ function stageWithDimensions(stage, dimensions) {
   return { ...stage, uniforms };
 }
 
-async function tuiCommand(argv, hosts) {
-  const { options, pipeline } = await qipx.prepareRunPipeline(argv, hosts);
-  if (options.output !== "-") throw new Error("qipx tui writes only to terminal stdout; remove -o/--output");
-  if (options.inputFromCLI && options.input === "-") throw new Error("qipx tui cannot read -i - because stdin carries terminal events");
+function checkTUIOptions(options) {
+  if (options.output !== "-") throw new Error("tui writes only to terminal stdout; remove -o/--output");
+  if (options.inputFromCLI && options.input === "-") throw new Error("tui cannot read -i - because stdin carries terminal events");
   for (const value of options.formValues) {
-    if (qipx.parseFormAssignment(value).filePath === "-") {
-      throw new Error("qipx tui cannot use -F name=@- or name=<- because stdin carries terminal events");
+    if (qipx.parseCLIFormValue(value, options.inputFromCLI).filePath === "-") {
+      throw new Error("tui cannot use -F name=@- or name=<- because stdin carries terminal events");
     }
   }
+}
+
+async function tuiCommand(argv, hosts) {
+  const { options, pipeline } = await qipx.prepareRunPipeline(argv, hosts, checkTUIOptions);
 
   let input = new Uint8Array();
   let inputContentType = "";
-  if (options.formValues.length > 0) {
+  if (options.formValues.length > 0 && !options.inputFromCLI) {
     const form = await qipx.buildMultipartFormInput(options.formValues, { hosts });
     input = form.bytes;
     inputContentType = form.contentType;
   } else if (options.inputFromCLI) {
-    input = await readFile(options.input);
+    input = await qipx.readInputFile(options.input);
   }
 
+  if (options.inputFromCLI && options.formValues.length > 0) {
+    const related = await qipx.buildMultipartRelatedInput(input, pipeline.stages[0].inputType.mediaType, options.formValues);
+    input = related.bytes;
+    inputContentType = related.contentType;
+  }
   const first = pipeline.stages[0];
   const effectiveInputType = qipx.resolveStageInputType(first, inputContentType, true);
   const primaryOutputContentType = qipx.nextContentType(first, effectiveInputType);
@@ -91,21 +98,26 @@ export async function main(argv = process.argv.slice(2)) {
   const { options, pipeline } = await qipx.prepareRunPipeline(invocation.args, invocation.hosts);
   let input;
   let inputContentType = "";
-  if (options.formValues.length > 0) {
+  if (options.formValues.length > 0 && !options.inputFromCLI) {
     const form = await qipx.buildMultipartFormInput(options.formValues, { hosts: invocation.hosts });
     input = form.bytes;
     inputContentType = form.contentType;
   } else {
     input = options.input === "-" && !options.inputFromCLI && process.stdin.isTTY
       ? new Uint8Array()
-      : (options.input === "-" ? await qipx.readStdin() : await readFile(options.input));
+      : (options.input === "-" ? await qipx.readStdin() : await qipx.readInputFile(options.input));
+  }
+  if (options.inputFromCLI && options.formValues.length > 0) {
+    const related = await qipx.buildMultipartRelatedInput(input, pipeline.stages[0].inputType.mediaType, options.formValues);
+    input = related.bytes;
+    inputContentType = related.contentType;
   }
   const result = qipx.runPreparedPipeline(input, pipeline, inputContentType);
   if (options.output === "-") {
     process.stdout.write(result.outputBytes);
     if (result.outputType.encoding === "utf8") process.stdout.write("\n");
   } else {
-    await writeFile(options.output, result.outputBytes);
+    await qipx.writeOutputFile(options.output, result.outputBytes);
   }
 }
 
@@ -113,7 +125,7 @@ const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : "";
 const modulePath = realpathSync(fileURLToPath(import.meta.url));
 if (invokedPath === modulePath) {
   main().catch((error) => {
-    console.error(qipx.displayText(error.message ?? error));
+    console.error(`qipx: ${qipx.displayText(error.message ?? error)}`);
     process.exitCode = 1;
   });
 }

@@ -14,10 +14,11 @@ const canonicalFormBoundary = "uuid-00000000-0000-0000-0000-000000000000"
 const canonicalFormContentType = "multipart/form-data;boundary=" + canonicalFormBoundary
 
 type formAssignment struct {
-	name     string
-	value    string
-	filePath string
-	fileMode byte
+	name        string
+	value       string
+	filePath    string
+	fileMode    byte
+	contentType string
 }
 
 type formAssignmentList []string
@@ -52,6 +53,16 @@ func parseFormAssignment(value string) (formAssignment, error) {
 	if strings.HasPrefix(body, "@") || strings.HasPrefix(body, "<") {
 		part.fileMode = body[0]
 		part.filePath = body[1:]
+		if path, contentType, ok := strings.Cut(part.filePath, ";type="); ok {
+			part.filePath, part.contentType = path, contentType
+			if _, err := validateDeclaredContentType(contentType); err != nil {
+				return formAssignment{}, fmt.Errorf("-F part: %w", err)
+			}
+			if strings.HasPrefix(contentType, "multipart/") {
+				return formAssignment{}, fmt.Errorf("-F part type %q must not be multipart", contentType)
+			}
+		}
+
 		part.value = ""
 		if part.filePath == "" {
 			return formAssignment{}, fmt.Errorf("-F %q has an empty file path", value)
@@ -82,14 +93,25 @@ func canonicalFormFilename(filePath string) (string, error) {
 }
 
 func multipartBodyContainsBoundary(body []byte) bool {
-	marker := []byte("\r\n--" + canonicalFormBoundary)
+	return multipartBodyContainsBoundaryWith(body, canonicalFormBoundary)
+}
+
+// multipartBodyContainsBoundaryWith scans body framed by the CRLFs the builders write around
+// every part, so a delimiter at the very start or end of body is found too. A delimiter line
+// is CRLF, "--", the boundary, then CRLF or "--".
+func multipartBodyContainsBoundaryWith(body []byte, boundary string) bool {
+	framed := make([]byte, 0, len(body)+4)
+	framed = append(framed, "\r\n"...)
+	framed = append(framed, body...)
+	framed = append(framed, "\r\n"...)
+	marker := []byte("\r\n--" + boundary)
 	for offset := 0; ; {
-		index := bytes.Index(body[offset:], marker)
+		index := bytes.Index(framed[offset:], marker)
 		if index < 0 {
 			return false
 		}
 		after := offset + index + len(marker)
-		if after+2 <= len(body) && (bytes.Equal(body[after:after+2], []byte("\r\n")) || bytes.Equal(body[after:after+2], []byte("--"))) {
+		if after+2 <= len(framed) && (bytes.Equal(framed[after:after+2], []byte("\r\n")) || bytes.Equal(framed[after:after+2], []byte("--"))) {
 			return true
 		}
 		offset += index + 1
@@ -163,8 +185,14 @@ func buildMultipartFormInputFromPlan(plan multipartFormPlan, stdin io.Reader) ([
 		if filename != "" {
 			output.WriteString("; filename=\"")
 			output.WriteString(filename)
-			output.WriteString("\"\r\nContent-Type: application/octet-stream")
+			output.WriteByte('"')
 		}
+		if assignment.contentType != "" {
+			output.WriteString("\r\nContent-Type: " + assignment.contentType)
+		} else if filename != "" {
+			output.WriteString("\r\nContent-Type: application/octet-stream")
+		}
+
 		output.WriteString("\r\n\r\n")
 		output.Write(body)
 		output.WriteString("\r\n")

@@ -107,9 +107,9 @@ func applyModulePolicyFlags(opts *options, maxMemoryBytes uint64, allowMemoryGro
 }
 
 const usageMain = "Usage: qip [host ...] <command> [args]\n\nHosts are dotted DNS names with optional ports. Missing safe relative .wasm files\nare requested over HTTPS in host order and saved at their original paths.\n\nCommands:\n  run      Run a chain of QIP components on input\n  dry run  Validate a run pipeline without executing it\n  tui      Run an Interactive text component in the terminal\n  bench    Compare one or more QIP components for output parity and performance\n  image    Run wasm filters on an input image\n  comply   Validate Content components and run Compliance oracles\n  router   Serve sites, resolve routed paths, and export route artifacts\n  form     Run an interactive QIP form component in the terminal\n  help     Show command help"
-const usageRun = "Usage: qip [host ...] run [-v] [-i <input> | -F, --form <name=value>] [-o <output file or ->] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
-const usageDry = "Usage: qip [host ...] dry run [-v] [-F, --form <name=value>] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
-const usageBench = "Usage: qip [host ...] bench (-i <input> | -F, --form <name=value>) [-r <benchmark runs> | --benchtime=<duration>] [--node] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] <component1> [component2 ...]"
+const usageRun = "Usage: qip [host ...] run [-v] [-i <input>] [-F, --form <name=value> ...] [-o <output file or ->] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
+const usageDry = "Usage: qip [host ...] dry run [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
+const usageBench = "Usage: qip [host ...] bench [-i <input>] [-F, --form <name=value> ...] [-r <benchmark runs> | --benchtime=<duration>] [--node] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] <component1> [component2 ...]"
 const usageScore = "Deprecated: qip score reports heuristic metrics. Use Wasm checker components for policy decisions:\n  qip run -i component.wasm -- application/wasm/wasm-validate-core-1.0.wasm application/wasm/wasm-strict-profile.wasm application/wasm/wasm-bounded-loops.wasm\n\nCompatibility usage: qip score <component1.wasm> [component2.wasm ...]"
 const scoreDeprecatedNotice = "qip score is deprecated; use wasm-validate-core-1.0.wasm, wasm-strict-profile.wasm, and wasm-bounded-loops.wasm in a qip run pipeline."
 const usageImage = "Usage: qip image -i <input image path or -> -o <output image path> [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [-v] <QIP component URL or file> [-u <key=value> ...] ..."
@@ -123,12 +123,12 @@ const usageRouteKindred = "Usage: qip router kindred <content_dir> <path> [--rec
 const usageRouteList = "Usage: qip router list <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
 const usageRouteWarc = "Usage: qip router warc <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--host <host>] [--view-source] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
 const usageForm = "Usage: qip form [-v|--verbose] <QIP form component URL or file>"
-const usageTUI = "Usage: qip [host ...] tui [-v] [-i <input> | -F, --form <name=value>] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <Interactive component> [-u <key=value> ...] [Content component [-u <key=value> ...] ...]"
+const usageTUI = "Usage: qip [host ...] tui [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <Interactive component> [-u <key=value> ...] [Content component [-u <key=value> ...] ...]"
 const usageHelp = "Usage: qip help [command]"
 const legacyDevNotice = "qip: `qip dev` has moved to `qip router dev`; please update your command. `qip dev` will continue to work for now."
 
-const helpRun = "Usage: qip run [-v] [-i <input> | -F <name=value>] [-o <output file or ->] [--timeout-ms <ms>] [--trace-with <application/wasm component>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ...\n\nQIP component contracts:\n  Run mode:\n    - Exports render(input_size) -> i64, input_ptr, and input_utf8_cap or input_bytes_cap\n    - render returns the output pointer and size, or recoverable rejection\n    - Exports output_utf8_cap or output_bytes_cap\n    - Optional uniforms: uniform_set_<key>(value)\n  Image mode:\n    - Exports tile_rgba32float_64x64, input_ptr, input_bytes_cap\n    - Optional: uniform_set_width_and_height, calculate_halo_px\n\nInput:\n  - Use -i <path> for one raw input, or repeat -F to construct multipart/form-data.\n  - -F name=value adds a UTF-8 field. -F name=@path uploads file bytes with a filename.\n  - -F name=<path sends file bytes as a text field without a filename.\n  - -F name=@- or name=<- reads one field from stdin; TUI mode does not allow either.\n  - -F and -i are mutually exclusive. A run still requires at least one component.\n\nOutput:\n  - Default output is stdout.\n  - Use -o <path> to write to a file.\n  - If -o ends with .png/.jpg/.jpeg/.bmp and pipeline output is an image,\n    qip re-encodes to the requested output image format.\n\nModule policy:\n  - Modules containing memory.grow are rejected by default.\n  - --allow-memory-grow permits growth and requires --max-memory <bytes>.\n  - --max-memory rejects modules whose declared memory minimum or maximum exceeds the byte cap.\n    A module with memory but no declared maximum is rejected when this flag is set.\n\nTracing:\n  - --trace-with runs a Wasm-to-Wasm instrumentation component after a trap,\n    then retries the failing module with qip_trace.before_load, before_store,\n    and after_store imports to report recent memory events.\n\nUniform args:\n  Place -u <key=value> or --uniform <key=value> after the component it configures.\n  Repeat the option to set more than one uniform. Legacy '?key=value' arguments remain supported.\n  i32 uniforms are unsigned; use i64 for signed integers.\n  Example: text/text-to-bmp.wasm -u cols=120 -u leading=24\n  Example: text/text-to-path-svg-dejavu-sans-mono.wasm -u width=900 -u height=400 -u font_size=48\n\nCapacity compatibility:\n  --capacities-must-fit rejects a connection between Content components when the producer's maximum output capacity exceeds the consumer's input capacity.\n\nComposition:\n  If a component exports tile_rgba32float_64x64, qip run composes a contiguous image stage block.\n  Input to that block must be BMP bytes and the block outputs BMP bytes.\n  Run stages may follow and will receive BMP bytes.\n\nExample:\n  echo '<svg width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#d52b1e\" /><rect x=\"13\" y=\"6\" width=\"6\" height=\"20\" fill=\"#ffffff\" /><rect x=\"6\" y=\"13\" width=\"20\" height=\"6\" fill=\"#ffffff\" /></svg>' | ./qip run -o out.ico image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-double.wasm image/bmp/bmp-to-ico.wasm"
-const helpDryRun = `Usage: qip [host ...] dry run [-v] [-F <name=value>] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ...
+const helpRun = "Usage: qip run [-v] [-i <input>] [-F <name=value> ...] [-o <output file or ->] [--timeout-ms <ms>] [--trace-with <application/wasm component>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ...\n\nQIP component contracts:\n  Run mode:\n    - Exports render(input_size) -> i64, input_ptr, and input_utf8_cap or input_bytes_cap\n    - render returns the output pointer and size, or recoverable rejection\n    - Exports output_utf8_cap or output_bytes_cap\n    - Optional uniforms: uniform_set_<key>(value)\n  Image mode:\n    - Exports tile_rgba32float_64x64, input_ptr, input_bytes_cap\n    - Optional: uniform_set_width_and_height, calculate_halo_px\n\nInput:\n  - Use -i <path> for one raw input, or repeat -F to construct multipart/form-data.\n  - -F name=value adds a UTF-8 field. -F name=@path uploads file bytes with a filename.\n  - -F name=<path sends file bytes as a text field without a filename.\n  - -F name=@- or name=<- reads one field from stdin; TUI mode does not allow either.\n  - With -i, typed -F file parts build multipart/related instead; see Related input below.\n  - A run still requires at least one component.\n\nOutput:\n  - Default output is stdout.\n  - Use -o <path> to write to a file.\n  - If -o ends with .png/.jpg/.jpeg/.bmp and pipeline output is an image,\n    qip re-encodes to the requested output image format.\n\nModule policy:\n  - Modules containing memory.grow are rejected by default.\n  - --allow-memory-grow permits growth and requires --max-memory <bytes>.\n  - --max-memory rejects modules whose declared memory minimum or maximum exceeds the byte cap.\n    A module with memory but no declared maximum is rejected when this flag is set.\n\nTracing:\n  - --trace-with runs a Wasm-to-Wasm instrumentation component after a trap,\n    then retries the failing module with qip_trace.before_load, before_store,\n    and after_store imports to report recent memory events.\n\nUniform args:\n  Place -u <key=value> or --uniform <key=value> after the component it configures.\n  Repeat the option to set more than one uniform. Legacy '?key=value' arguments remain supported.\n  i32 uniforms are unsigned; use i64 for signed integers.\n  Example: text/text-to-bmp.wasm -u cols=120 -u leading=24\n  Example: text/text-to-path-svg-dejavu-sans-mono.wasm -u width=900 -u height=400 -u font_size=48\n\nCapacity compatibility:\n  --capacities-must-fit rejects a connection between Content components when the producer's maximum output capacity exceeds the consumer's input capacity.\n\nComposition:\n  If a component exports tile_rgba32float_64x64, qip run composes a contiguous image stage block.\n  Input to that block must be BMP bytes and the block outputs BMP bytes.\n  Run stages may follow and will receive BMP bytes.\n\nExample:\n  echo '<svg width=\"32\" height=\"32\"><rect width=\"32\" height=\"32\" fill=\"#d52b1e\" /><rect x=\"13\" y=\"6\" width=\"6\" height=\"20\" fill=\"#ffffff\" /><rect x=\"6\" y=\"13\" width=\"20\" height=\"6\" fill=\"#ffffff\" /></svg>' | ./qip run -o out.ico image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-double.wasm image/bmp/bmp-to-ico.wasm"
+const helpDryRun = `Usage: qip [host ...] dry run [-v] [-i <input>] [-F <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ...
 
 Validates and describes the same prepared pipeline as qip run without reading
 raw or multipart input, calling render, or writing output. A compatible plan exits 0. Invalid
@@ -351,10 +351,9 @@ func helpCmd(args []string) {
 
 func runHelp() string {
 	text := strings.NewReplacer(
-		"Usage: qip run [-v] [-i <input> | -F <name=value>]", "Usage: qip run [-v] [-i <input> | -F, --form <name=value>]",
+		"Usage: qip run [-v] [-i <input>] [-F <name=value> ...]", "Usage: qip run [-v] [-i <input>] [-F, --form <name=value> ...]",
 		"repeat -F to construct", "repeat -F/--form to construct",
 		"  - -F name=<path sends file bytes as a text field without a filename.\n", "  - -F name=<path sends file bytes as a text field without a filename.\n  - With hosts, a missing safe relative .wasm file used by -F is downloaded and cached.\n",
-		"-F and -i are mutually exclusive", "-F/--form and -i/--input are mutually exclusive",
 	).Replace(helpRun)
 	text = strings.Replace(
 		text,
@@ -365,35 +364,50 @@ func runHelp() string {
 	return strings.Replace(text, "Usage: qip run", "Usage: qip [host ...] run", 1) + "\n\n" + multipartHelp("run")
 }
 
+// multipartHelp matches multipartHelp in npm/qipx/qipx.mjs and multipart_help in
+// rust/qipx/src/main.rs apart from the program name; test/qipx-multipart-related.mjs compares them.
 func multipartHelp(command string) string {
-	text := "Multipart fields:\n" +
-		"  -F name=value       UTF-8 text field\n" +
-		"  -F name=@path       Exact file bytes with the basename as filename\n" +
-		"  -F 'name=<path'     Exact file bytes as a regular field, without filename\n" +
-		"@path sends Content-Type: application/octet-stream; <path omits that part header.\n"
-	if command == "tui" {
-		text += "  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.\n"
-	} else if command == "dry" {
-		text += "  -F name=@- and -F 'name=<-' are accepted, but dry run does not read stdin.\n"
-	} else {
-		text += "  -F name=@-          Stdin bytes as a file field with filename \"-\"\n" +
-			"  -F 'name=<-'        Stdin bytes as a regular field without filename\n" +
-			"Only one field may read stdin.\n"
+	text := "Multipart input:\n" +
+		"  -F name=value                UTF-8 text field\n" +
+		"  -F name=@path                File bytes with the basename as filename\n" +
+		"  -F 'name=<path'              File bytes as a regular field, without filename\n" +
+		"  -F 'name=@path;type=<type>'  File bytes with an explicit part Content-Type\n" +
+		"Without ;type=, @path sends Content-Type: application/octet-stream and <path omits that part header.\n"
+	switch command {
+	case "tui":
+		text += "-i -, -F name=@-, and -F 'name=<-' are unavailable: stdin carries terminal keys.\n"
+	case "dry":
+		text += "-F name=@- and -F 'name=<-' are accepted, but dry run does not read stdin.\n"
+	default:
+		text += "  -F name=@-                   Stdin bytes as a file field with filename \"-\"\n" +
+			"  -F 'name=<-'                 Stdin bytes as a regular field without filename\n" +
+			"Only one of -i - and the -F fields may read stdin.\n"
 	}
-	text += "Quote arguments containing < in a shell.\n\nExamples:\n"
+	if command == "run" {
+		text += "dry run plans these inputs without reading files or stdin.\n"
+	}
+	text += "Quote arguments containing < or ; in a shell.\n\n" +
+		"Related input:\n" +
+		"  With -i, typed -F file parts build multipart/related instead of form data.\n" +
+		"  The -i bytes are the root part; each -F must be [name=]@path;type=<type>, and the name is unused.\n" +
+		"  The first component must declare multipart/related;type=\"<type>\", which labels the root part.\n\n" +
+		"Examples:\n"
 	switch command {
 	case "tui":
 		return text + "  qip tui tui/calendar-gregorian.wasm\n" +
-			"  qip tui -F 'component=<text/wc.wasm' tui/qipdb.wasm"
+			"  qip tui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n"
 	case "bench":
 		return text + "  qip bench -F 'data=<input.txt' bytes/identity.wasm\n" +
-			"  printf hello | qip bench -F 'data=<-' bytes/identity.wasm"
+			"  printf hello | qip bench -F 'data=<-' bytes/identity.wasm\n" +
+			"  qip bench -i logo.svg -F '@Inter.ttf;type=font/ttf' renderer-a.wasm renderer-b.wasm\n"
 	case "dry":
-		return text + "  qip dry run -F 'data=<input.txt' bytes/identity.wasm"
+		return text + "  qip dry run -F 'data=<input.txt' bytes/identity.wasm\n" +
+			"  qip dry run -i logo.svg -F '@Inter.ttf;type=font/ttf' svg-renderer.wasm\n"
 	default:
 		return text + "  qip run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n" +
 			"  qip run -F 'data=<input.txt' bytes/identity.wasm\n" +
-			"  printf hello | qip run -F 'data=<-' bytes/identity.wasm"
+			"  printf hello | qip run -F 'data=<-' bytes/identity.wasm\n" +
+			"  qip run -i logo.svg -F '@Inter.ttf;type=font/ttf' svg-renderer.wasm\n"
 	}
 }
 
@@ -436,7 +450,7 @@ func runCmd(args []string) {
 
 	var input []byte
 	inputContentType := ""
-	if len(config.formValues) > 0 {
+	if len(config.formValues) > 0 && inputPath == "" {
 		formPlan, planErr := planMultipartFormInput(config.formValues, opts.hosts)
 		if planErr != nil {
 			gameOver("Error constructing multipart input: %v", planErr)
@@ -472,11 +486,6 @@ func runCmd(args []string) {
 		}
 	}
 
-	if opts.verbose {
-		inputDigest := sha256.Sum256(input)
-		vlogf(opts, "input sha256: %x", inputDigest)
-	}
-
 	start := time.Now()
 	defer func() {
 		if opts.verbose {
@@ -487,6 +496,21 @@ func runCmd(args []string) {
 	execCtx := context.Background()
 	execCtx, cancel := wasmruntime.WithExecutionTimeout(execCtx, time.Duration(timeoutMS)*time.Millisecond)
 	defer cancel()
+
+	if inputPath != "" && len(config.formValues) > 0 {
+		declared, typeErr := declaredRelatedTypeForInvocations(execCtx, componentInvocations, opts)
+		if typeErr != nil {
+			gameOver("%v", typeErr)
+		}
+		input, inputContentType, err = buildMultipartRelatedInput(input, declared, config.formValues, os.Stdin)
+		if err != nil {
+			gameOver("Error constructing multipart/related input: %v", err)
+		}
+	}
+	if opts.verbose {
+		inputDigest := sha256.Sum256(input)
+		vlogf(opts, "input sha256: %x", inputDigest)
+	}
 
 	prepared, err := prepareRunPipelineFromInvocations(execCtx, componentInvocations, opts, inputContentType)
 	if err != nil {
@@ -557,13 +581,14 @@ func parseRunCommandArgs(args []string, commandName string) (runCommandConfig, e
 		return runCommandConfig{}, fmt.Errorf("%s %v", usage, err)
 	}
 	config.opts.verbose = verbose
-	if config.inputPath != "" && len(config.formValues) > 0 {
-		return runCommandConfig{}, errors.New("-F and -i are mutually exclusive")
-	}
+
 	for _, value := range config.formValues {
-		if _, err := parseFormAssignment(value); err != nil {
+		if _, err := parseCLIFormValue(value, config.inputPath != ""); err != nil {
 			return runCommandConfig{}, err
 		}
+	}
+	if err := validateRelatedFields(config.inputPath, config.formValues); err != nil {
+		return runCommandConfig{}, err
 	}
 	if err := applyModulePolicyFlags(&config.opts, maxMemoryBytes, allowMemoryGrow); err != nil {
 		return runCommandConfig{}, fmt.Errorf("Invalid module policy: %w", err)
@@ -667,13 +692,14 @@ func benchCmd(args []string) {
 		gameOver("%s %v", usageBench, err)
 	}
 	opts.verbose = benchVerbose
-	if inputPath != "" && len(formValues) > 0 {
-		gameOver("-F and -i are mutually exclusive")
-	}
+
 	for _, value := range formValues {
-		if _, err := parseFormAssignment(value); err != nil {
+		if _, err := parseCLIFormValue(value, inputPath != ""); err != nil {
 			gameOver("%v", err)
 		}
+	}
+	if err := validateRelatedFields(inputPath, formValues); err != nil {
+		gameOver("%v", err)
 	}
 	if err := applyModulePolicyFlags(&opts, maxMemoryBytes, allowMemoryGrow); err != nil {
 		gameOver("Invalid module policy: %v", err)
@@ -703,7 +729,7 @@ func benchCmd(args []string) {
 
 	var inputBytes []byte
 	var err error
-	if len(formValues) > 0 {
+	if len(formValues) > 0 && inputPath == "" {
 		formPlan, planErr := planMultipartFormInput(formValues, opts.hosts)
 		if planErr != nil {
 			gameOver("Error constructing multipart input: %v", planErr)
@@ -724,6 +750,18 @@ func benchCmd(args []string) {
 		}
 	}
 
+	if inputPath != "" && len(formValues) > 0 {
+		// Bench candidates are alternatives, not a chain, so only the first one declares the type.
+		first := []ComponentInvocation{{Source: modules[0]}}
+		declared, typeErr := declaredRelatedTypeForInvocations(context.Background(), first, opts)
+		if typeErr != nil {
+			gameOver("%v", typeErr)
+		}
+		inputBytes, _, err = buildMultipartRelatedInput(inputBytes, declared, formValues, os.Stdin)
+		if err != nil {
+			gameOver("Error constructing multipart/related input: %v", err)
+		}
+	}
 	if opts.verbose {
 		inputDigest := sha256.Sum256(inputBytes)
 		vlogf(opts, "bench input sha256: %x", inputDigest)

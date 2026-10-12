@@ -99,7 +99,7 @@ func tuiCmd(args []string) {
 		gameOver("qip tui cannot read -i - because stdin carries terminal events")
 	}
 	for _, value := range config.formValues {
-		assignment, parseErr := parseFormAssignment(value)
+		assignment, parseErr := parseCLIFormValue(value, config.inputPath != "")
 		if parseErr != nil {
 			gameOver("%v", parseErr)
 		}
@@ -110,7 +110,7 @@ func tuiCmd(args []string) {
 
 	var input []byte
 	inputType := ""
-	if len(config.formValues) > 0 {
+	if len(config.formValues) > 0 && config.inputPath == "" {
 		formPlan, planErr := planMultipartFormInput(config.formValues, config.opts.hosts)
 		if planErr != nil {
 			gameOver("Error reading TUI input: %v", planErr)
@@ -121,6 +121,16 @@ func tuiCmd(args []string) {
 	}
 	if err != nil {
 		gameOver("Error reading TUI input: %v", err)
+	}
+	if config.inputPath != "" && len(config.formValues) > 0 {
+		declared, typeErr := declaredRelatedTypeForInvocations(context.Background(), config.componentInvocations, config.opts)
+		if typeErr != nil {
+			gameOver("%v", typeErr)
+		}
+		input, inputType, err = buildMultipartRelatedInput(input, declared, config.formValues, nil)
+		if err != nil {
+			gameOver("Error reading TUI input: %v", err)
+		}
 	}
 	if err := runTUI(context.Background(), config, input, inputType, os.Stdin, os.Stdout); err != nil {
 		gameOver("%v", err)

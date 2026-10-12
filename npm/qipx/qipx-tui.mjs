@@ -269,7 +269,7 @@ function logicalNow(startedAt, previous) {
 
 export async function runTUI({ pipeline, input, applyUniforms, transformOutput, stdin = process.stdin, stdout = process.stdout }) {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
-    throw new Error("qipx tui requires terminal stdin and stdout");
+    throw new Error("tui requires terminal stdin and stdout");
   }
   const stage = pipeline.stages[0];
   const exports = stage.component.exports;

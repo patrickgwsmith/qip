@@ -45,7 +45,7 @@ func normalizeIncomingContentType(value string) string {
 	if value == "" {
 		return ""
 	}
-	if isCanonicalMultipartFormDataContentType(value) {
+	if isCanonicalMultipartFormDataContentType(value) || isCanonicalMultipartRelatedContentType(value) {
 		return value
 	}
 	mediaType, _, err := mime.ParseMediaType(value)
@@ -61,10 +61,15 @@ func normalizeIncomingContentType(value string) string {
 const multipartFormDataContentTypePrefix = "multipart/form-data;boundary=uuid-"
 
 func isCanonicalMultipartFormDataContentType(value string) bool {
-	if len(value) != len(multipartFormDataContentTypePrefix)+36 || !strings.HasPrefix(value, multipartFormDataContentTypePrefix) {
+	uuid, ok := strings.CutPrefix(value, multipartFormDataContentTypePrefix)
+	return ok && isCanonicalBoundaryUUID(uuid)
+}
+
+// isCanonicalBoundaryUUID reports whether uuid is a canonical lowercase 8-4-4-4-12 UUID.
+func isCanonicalBoundaryUUID(uuid string) bool {
+	if len(uuid) != 36 {
 		return false
 	}
-	uuid := value[len(multipartFormDataContentTypePrefix):]
 	for i := range uuid {
 		if i == 8 || i == 13 || i == 18 || i == 23 {
 			if uuid[i] != '-' {
@@ -89,7 +94,7 @@ func validateDeclaredContentType(value string) (string, error) {
 	if strings.Contains(value, ",") {
 		return "", errors.New("content type must contain exactly one MIME type")
 	}
-	if isCanonicalMultipartFormDataContentType(value) {
+	if isCanonicalMultipartFormDataContentType(value) || isCanonicalMultipartRelatedContentType(value) {
 		return value, nil
 	}
 	mediaType, _, err := mime.ParseMediaType(value)
@@ -104,6 +109,9 @@ func validateDeclaredContentType(value string) (string, error) {
 	}
 	if mediaType == "multipart/form-data" {
 		return "", fmt.Errorf("content type %q must use the canonical multipart/form-data boundary form", value)
+	}
+	if mediaType == "multipart/related" {
+		return "", fmt.Errorf("content type %q must use the canonical multipart/related form multipart/related;type=\"<type>/<subtype>\";boundary=uuid-<uuid>", value)
 	}
 	// Canonical form: the lowercase media type, then each parameter as ";name=value" with no
 	// whitespace anywhere. Parameter names are case-insensitive but declared once in their
@@ -136,9 +144,9 @@ func declaredContentTypeAccepts(declared, incoming string) error {
 // share the media type only the incoming parameters are shown, since repeating the media type
 // adds nothing; otherwise the whole incoming type is shown.
 func incomingForMessage(declared, incoming string) string {
-	declaredType := normalizeIncomingContentType(declared)
-	incomingType := normalizeIncomingContentType(incoming)
-	if declaredType != incomingType {
+	declaredType, _, _ := strings.Cut(declared, ";")
+	incomingType, _, _ := strings.Cut(incoming, ";")
+	if !strings.EqualFold(strings.TrimSpace(declaredType), strings.TrimSpace(incomingType)) {
 		return incoming
 	}
 	if cut := strings.IndexByte(incoming, ';'); cut != -1 {

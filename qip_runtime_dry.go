@@ -163,7 +163,11 @@ func dryRunCmd(args []string) {
 }
 
 func executeDryRun(baseCtx context.Context, config runCommandConfig, out io.Writer) error {
-	formPlan, err := planMultipartFormInput(config.formValues, config.opts.hosts)
+	formValues := config.formValues
+	if config.inputPath != "" {
+		formValues = nil
+	}
+	formPlan, err := planMultipartFormInput(formValues, config.opts.hosts)
 	if err != nil {
 		return err
 	}
@@ -182,6 +186,14 @@ func executeDryRun(baseCtx context.Context, config runCommandConfig, out io.Writ
 		return err
 	}
 	defer prepared.pipeline.Close(context.Background())
+	if config.inputPath != "" && len(config.formValues) > 0 {
+		if len(prepared.plan.steps) == 0 {
+			return fmt.Errorf("-i with -F requires a Content component")
+		}
+		if _, err := relatedRootType(prepared.plan.steps[0].inputType); err != nil {
+			return err
+		}
+	}
 	writeMultipartFileSourceReport(out, multipartFiles)
 	writeDryRunReport(out, prepared.plan)
 	return nil
@@ -273,6 +285,14 @@ func executeHostedDryRun(baseCtx context.Context, config runCommandConfig, out i
 	descriptions, err := describeRunPipeline(execCtx, pipeline)
 	if err != nil {
 		return err
+	}
+	if config.inputPath != "" && len(config.formValues) > 0 {
+		if len(descriptions) == 0 || descriptions[0].kind != pipelineComponentContent {
+			return fmt.Errorf("-i with -F requires a Content component")
+		}
+		if _, err := relatedRootType(descriptions[0].content.declaredInputContentType); err != nil {
+			return err
+		}
 	}
 	plan, err := planRunPipelineWithOptions(descriptions, runPipelinePlanningOptions{capacitiesMustFit: config.opts.capacitiesMustFit})
 	if err != nil {

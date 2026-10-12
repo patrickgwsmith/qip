@@ -129,7 +129,8 @@ You can read more about the [Content component contract in our docs](./docs/cont
 ## CLI Usage
 
 You can pipe the results of other CLI tools to stdin, pass one raw file with
-`-i`, or construct multipart input with repeatable `-F` options. You can also
+`-i`, or construct form data with repeatable `-F` options. Combine `-i` with typed
+`-F` file parts for `multipart/related`. You can also
 chain multiple QIP components together like unix tools.
 
 Put one or more HTTPS hosts before `run`, `dry run`, `bench`, or `comply` to

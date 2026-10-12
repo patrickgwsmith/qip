@@ -19,36 +19,44 @@ const { gzipSync } = nodeZlib;
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const encoder = new TextEncoder();
 
+// multipartHelp matches multipartHelp in main.go and multipart_help in rust/qipx/src/main.rs
+// apart from the program name; test/qipx-multipart-related.mjs compares them.
 function multipartHelp(command) {
-  const lines = [
-    "Multipart fields:",
-    "  -F name=value       UTF-8 text field",
-    "  -F name=@path       Exact file bytes with the basename as filename",
-    "  -F 'name=<path'     Exact file bytes as a regular field, without filename",
-    "@path sends Content-Type: application/octet-stream; <path omits that part header.",
-  ];
+  let help = "Multipart input:\n" +
+    "  -F name=value                UTF-8 text field\n" +
+    "  -F name=@path                File bytes with the basename as filename\n" +
+    "  -F 'name=<path'              File bytes as a regular field, without filename\n" +
+    "  -F 'name=@path;type=<type>'  File bytes with an explicit part Content-Type\n" +
+    "Without ;type=, @path sends Content-Type: application/octet-stream and <path omits that part header.\n";
   if (command === "tui") {
-    lines.push("  -F name=@- and -F 'name=<-' are unavailable: stdin carries terminal keys.");
+    help += "-i -, -F name=@-, and -F 'name=<-' are unavailable: stdin carries terminal keys.\n";
+  } else if (command === "dry") {
+    help += "-F name=@- and -F 'name=<-' are accepted, but dry run does not read stdin.\n";
   } else {
-    lines.push("  -F name=@-          Stdin bytes as a file field with filename \"-\"");
-    lines.push("  -F 'name=<-'        Stdin bytes as a regular field without filename");
-    lines.push("Only one field may read stdin.");
+    help += "  -F name=@-                   Stdin bytes as a file field with filename \"-\"\n" +
+      "  -F 'name=<-'                 Stdin bytes as a regular field without filename\n" +
+      "Only one of -i - and the -F fields may read stdin.\n";
   }
-  lines.push("Quote arguments containing < in a shell.");
-  if (command === "run") lines.push("Dry run plans form files without reading file contents or stdin.");
-  lines.push("", "Examples:");
+  if (command === "run") help += "dry run plans these inputs without reading files or stdin.\n";
+  help += "Quote arguments containing < or ; in a shell.\n\n" +
+    "Related input:\n" +
+    "  With -i, typed -F file parts build multipart/related instead of form data.\n" +
+    "  The -i bytes are the root part; each -F must be [name=]@path;type=<type>, and the name is unused.\n" +
+    "  The first component must declare multipart/related;type=\"<type>\", which labels the root part.\n\n" +
+    "Examples:\n";
   if (command === "tui") {
-    lines.push("  qipx tui tui/calendar-gregorian.wasm");
-    lines.push("  qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm");
-  } else if (command === "bench") {
-    lines.push("  qipx bench -F 'data=<input.txt' bytes/identity.wasm");
-    lines.push("  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm");
-  } else {
-    lines.push("  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm");
-    lines.push("  qipx run -F 'data=<input.txt' bytes/identity.wasm");
-    lines.push("  printf hello | qipx run -F 'data=<-' bytes/identity.wasm");
+    return help + "  qipx tui tui/calendar-gregorian.wasm\n" +
+      "  qipx tui -F 'component=<text/wc.wasm' tui/qipdb.wasm\n";
   }
-  return `${lines.join("\n")}\n\n`;
+  if (command === "bench") {
+    return help + "  qipx bench -F 'data=<input.txt' bytes/identity.wasm\n" +
+      "  printf hello | qipx bench -F 'data=<-' bytes/identity.wasm\n" +
+      "  qipx bench -i logo.svg -F '@Inter.ttf;type=font/ttf' renderer-a.wasm renderer-b.wasm\n";
+  }
+  return help + "  qipx run -F mode=step -F component=@text/wc.wasm bytes/identity.wasm\n" +
+    "  qipx run -F 'data=<input.txt' bytes/identity.wasm\n" +
+    "  printf hello | qipx run -F 'data=<-' bytes/identity.wasm\n" +
+    "  qipx run -i logo.svg -F '@Inter.ttf;type=font/ttf' svg-renderer.wasm\n";
 }
 
 function usage() {
@@ -56,26 +64,26 @@ function usage() {
     `       qipx [host ...] dry run [options] <component.wasm> [component2.wasm ...]\n` +
     `       qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n` +
     `       qipx [host ...] comply [options] <file-or-dir> [...]\n` +
-    `       qipx [host ...] bench (-i <input> | -F <name=value>) [options] <component.wasm> [...]\n\n` +
+    `       qipx [host ...] bench [-i <input>] [-F <name=value> ...] [options] <component.wasm> [...]\n\n` +
     `Hosts:\n` +
     `  Hosts are dotted DNS names with optional ports. Missing relative .wasm files,\n` +
     `  including @path and <path form fields, use HTTPS in host order and are saved.\n\n` +
     `Options:\n` +
     `  -i, --input <path>              Read input from a file instead of stdin\n` +
-    `  -F, --form <name=value>         Add multipart input (repeatable; @path, <path, @-, or <-)\n` +
+    `  -F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n` +
     `  -o, --output <path>             Write output to a file instead of stdout\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  --capacities-must-fit           Reject stages whose max output cannot fit next input\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n` +
     `  dry run                         Validate the pipeline without reading input or rendering\n` +
     `  -h, --help                      Show this help\n\n` +
-    multipartHelp("run") +
+    multipartHelp("run") + `\n` +
     `Uniforms:\n` +
     `  qipx run component.wasm -u width=640 -u height=480\n` +
     `  i32 uniforms are treated as unsigned values; use i64 for signed integers.\n\n` +
     `Inputless generators:\n` +
     `  A first-stage generator omits input_ptr and its input-capacity getter. qipx calls render(0).\n` +
-    `  With neither -i nor -F, qipx uses empty input when stdin is a terminal.\n\n` +
+    `  With no -i or -F, qipx uses empty input when stdin is a terminal.\n\n` +
     `Documentation: https://qip.dev/docs/content-component\n`;
 }
 
@@ -83,16 +91,15 @@ function tuiUsage() {
   return `Usage: qipx [host ...] tui [options] <interactive.wasm> [content.wasm ...]\n\n` +
     `Input:\n` +
     `  -i, --input <path>              Read initial input from a file\n` +
-    `  -F, --form <name=value>         Construct multipart input (repeatable; @path or <path)\n\n` +
-    multipartHelp("tui") +
+    `  -F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n\n` +
     `Execution:\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  --capacities-must-fit           Check capacity between Content stages\n\n` +
     `The first component must be Interactive. Later components transform each\n` +
     `frame as ordinary Content stages; the final output must be UTF-8 text.\n` +
-    `With hosts, missing safe relative .wasm files used by -F are downloaded.\n` +
-    `Terminal stdin carries key events, so -i -, -F name=@-, and -F name=<- are unavailable.\n`;
+    `With hosts, missing safe relative .wasm files used by -F are downloaded.\n\n` +
+    multipartHelp("tui");
 }
 
 const downloadByteLimit = 16 * 1024 * 1024;
@@ -126,11 +133,13 @@ function parseHost(value) {
 
 function parseInvocation(argv) {
   const commandIndex = argv.findIndex((arg) => knownCommands.has(arg));
-  if (commandIndex < 0) throw new Error("qipx requires a subcommand: run, dry run, tui, bench, or comply");
+  if (commandIndex < 0) throw new Error("requires a subcommand: run, dry run, tui, bench, or comply");
   const hosts = argv.slice(0, commandIndex).map(parseHost);
   const command = argv[commandIndex];
   if (command === "dry") {
-    if (argv[commandIndex + 1] !== "run") throw new Error("qipx dry must be followed by run");
+    const next = argv[commandIndex + 1];
+    if (next === "--help" || next === "-h") return { command: "dry-run", hosts, args: [next] };
+    if (next !== "run") throw new Error("dry must be followed by run");
     return { command: "dry-run", hosts, args: argv.slice(commandIndex + 2) };
   }
   return { command, hosts, args: argv.slice(commandIndex + 1) };
@@ -156,6 +165,34 @@ function sourcePlan(filePath, hosts) {
 
 function missingFileError(error) {
   return error?.code === "ENOENT" || error?.code === "ENOTDIR";
+}
+
+// ioErrorReason matches io_reason in rust/qipx/src/main.rs so file errors read the same in both hosts.
+function ioErrorReason(error) {
+  const reasons = {
+    ENOENT: "no such file or directory",
+    EACCES: "permission denied",
+    EPERM: "permission denied",
+    EISDIR: "is a directory",
+    ENOTDIR: "not a directory",
+  };
+  return reasons[error?.code] ?? error?.message ?? String(error);
+}
+
+async function readInputFile(filePath) {
+  try {
+    return await readFile(filePath);
+  } catch (error) {
+    throw new Error(`cannot read ${filePath}: ${ioErrorReason(error)}`);
+  }
+}
+
+async function writeOutputFile(filePath, data) {
+  try {
+    await writeFile(filePath, data);
+  } catch (error) {
+    throw new Error(`cannot write ${filePath}: ${ioErrorReason(error)}`);
+  }
 }
 
 async function observeLocalSource(plan) {
@@ -318,21 +355,21 @@ async function loadMultipartFile(filePath, plan) {
 }
 
 function benchUsage() {
-  return `Usage: qipx [host ...] bench (-i <input> | -F, --form <name=value>) [options] <component.wasm> [...]\n\n` +
+  return `Usage: qipx [host ...] bench [-i <input>] [-F <name=value> ...] [options] <component.wasm> [...]\n\n` +
     `Options:\n` +
     `  -i, --input <path>              Read benchmark input from a file ('-' for stdin)\n` +
-    `  -F, --form <name=value>         Add multipart text or file input (repeatable; @path or @-)\n` +
+    `  -F, --form <name=value>         Add a form field, or a typed related part with -i (repeatable)\n` +
     `  -r, --runs <n>                  Measure exactly n runs per component\n` +
     `  --benchtime <duration>          Target measured time per component (default: 3s)\n` +
     `  --warmup <n>                    Warmup runs per component (default: 10)\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n` +
     `  -h, --help                      Show this help\n\n` +
-    multipartHelp("bench") +
+    `Bench requires -i, -F, or both.\n` +
     `Components are measured one at a time on reused runtime instances.\n` +
     `With hosts, missing safe relative .wasm files used by -F are downloaded.\n` +
-    `With --expose-gc, qipx collects after each component's warmup.\n` +
-    `Every output must match the first component byte for byte.\n`;
+    `Every output must match the first component byte for byte.\n\n` +
+    multipartHelp("bench");
 }
 
 function complyUsage() {
@@ -379,17 +416,28 @@ function declaredType(exports, prefix, label) {
 // A lowercase media type, optionally followed by ";name=value" parameters with no whitespace
 // anywhere. Parameter names are case-insensitive; values are case-sensitive and kept
 // verbatim, as in "image/ktx2;vkFormat=R32G32B32A32_SFLOAT;colorPrimaries=BT709;transferFunction=LINEAR".
-// multipart/form-data is valid only in its canonical placeholder-boundary form.
+// multipart/form-data is valid only in its canonical placeholder-boundary form, and
+// multipart/related only as multipart/related;type="<type>/<subtype>";boundary=uuid-<uuid>.
 function validateContentType(type, label = "content type") {
   if (type === "multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000") return;
+  if (isCanonicalMultipartRelatedContentType(type)) return;
   if (
     !String(type).startsWith("multipart/form-data") &&
+    !String(type).startsWith("multipart/related") &&
     /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+(?:;[A-Za-z0-9!#$&^_.+-]+=[^\s;"=]+)*$/.test(type)
   ) return;
   throw new Error(`invalid ${label}: ${type}`);
 }
 
+const multipartRelatedPattern = /^multipart\/related;type="([a-z0-9!#$&^_.+-]+)\/[a-z0-9!#$&^_.+-]+";boundary=uuid-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function isCanonicalMultipartRelatedContentType(type) {
+  const match = multipartRelatedPattern.exec(String(type));
+  return match !== null && match[1] !== "multipart";
+}
+
 // Parameters are keyed by lowercase name; `names` keeps each name's declared spelling.
+// A quoted value, such as multipart/related's type parameter, is compared without its quotes.
 function parseContentType(value) {
   const segments = String(value ?? "").split(";");
   const mediaType = segments[0].trim().toLowerCase();
@@ -401,7 +449,8 @@ function parseContentType(value) {
     const declaredName = segment.slice(0, eq).trim();
     const name = declaredName.toLowerCase();
     if (name === "") continue;
-    params.set(name, segment.slice(eq + 1).trim());
+    const parameterValue = segment.slice(eq + 1).trim();
+    params.set(name, /^".*"$/.test(parameterValue) ? parameterValue.slice(1, -1) : parameterValue);
     names.set(name, declaredName);
   }
   return { mediaType, params, names };
@@ -1104,6 +1153,7 @@ function nextContentType(stage, effectiveInputType) {
 }
 
 function parseMaxMemory(value) {
+  if (value === undefined) throw new Error("--max-memory requires <bytes>");
   if (!/^\d+$/.test(String(value))) throw new Error(`invalid --max-memory ${value}`);
   const parsed = BigInt(value);
   if (parsed <= 0n || parsed > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error(`invalid --max-memory ${value}`);
@@ -1111,6 +1161,7 @@ function parseMaxMemory(value) {
 }
 
 function parseU32Flag(name, value) {
+  if (value === undefined) throw new Error(`${name} requires <n>`);
   if (!/^\d+$/.test(String(value))) throw new Error(`invalid ${name} ${value}`);
   const parsed = BigInt(value);
   if (parsed < 0n || parsed > 0xffffffffn) throw new Error(`invalid ${name} ${value}`);
@@ -1262,6 +1313,11 @@ export function render(target, input) {
   throw new Error("render target must be a component or recipe");
 }
 
+// Sort like Rust's byte order so comply reports list files the same way in every host.
+function compareCodeUnits(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 async function walkWasmFiles(path) {
   const info = await stat(path);
   if (info.isFile()) {
@@ -1272,7 +1328,7 @@ async function walkWasmFiles(path) {
   const files = [];
   async function walk(directory) {
     const entries = await readdir(directory, { withFileTypes: true });
-    entries.sort((a, b) => a.name.localeCompare(b.name));
+    entries.sort((a, b) => compareCodeUnits(a.name, b.name));
     for (const entry of entries) {
       const child = join(directory, entry.name);
       if (entry.isDirectory()) await walk(child);
@@ -1290,10 +1346,11 @@ async function discoverWasmFiles(paths) {
       files.push(...await walkWasmFiles(path));
     } catch (error) {
       if (missingFileError(error) && remotelyEligiblePath(path)) files.push(path);
+      else if (error?.code) throw new Error(`cannot read ${path}: ${ioErrorReason(error)}`);
       else throw error;
     }
   }
-  return [...new Set(files)].sort((a, b) => a.localeCompare(b));
+  return [...new Set(files)].sort(compareCodeUnits);
 }
 
 function parseComplyCLI(argv) {
@@ -1315,13 +1372,13 @@ function parseComplyCLI(argv) {
     } else if (arg === "--seed") {
       options.seed = parseU32Flag("--seed", argv[++index]);
     } else if (arg.startsWith("-")) {
-      throw new Error(`unknown comply option ${arg}`);
+      throw new Error(`unknown option ${arg}`);
     } else {
       paths.push(arg);
     }
   }
   if (paths.length === 0) throw new Error("comply requires at least one file or directory");
-  options.with.sort((a, b) => a.localeCompare(b));
+  options.with.sort(compareCodeUnits);
   return { options, paths };
 }
 
@@ -1592,6 +1649,9 @@ async function complyCommand(argv, hosts) {
   const oracles = [];
   for (const oraclePath of options.with) {
     const oracleWasm = await resolveSource(sourcePlan(oraclePath, hosts), (wasm, label) => {
+      if (wasm.length < 8 || wasm[0] !== 0x00 || wasm[1] !== 0x61 || wasm[2] !== 0x73 || wasm[3] !== 0x6d) {
+        throw new Error(`${label} is not a WebAssembly binary module`);
+      }
       try {
         new WebAssembly.Module(wasm);
       } catch (error) {
@@ -1651,6 +1711,33 @@ function parseStageArgs(args) {
   return stages;
 }
 
+// parseCLIFormValue parses one -F value. With -i the value is a related part, which may omit
+// its unused name, as in -F '@Inter.ttf;type=font/ttf'; otherwise it is a form field.
+function parseCLIFormValue(value, related) {
+  if (related) return parseRelatedAssignment(value);
+  if (value.startsWith("@")) throw new Error(`-F ${JSON.stringify(value)} has no field name; only related parts with -i may omit it`);
+  return parseFormAssignment(value);
+}
+
+function parseRelatedAssignment(value) {
+  const part = parseFormAssignment(value.startsWith("@") ? `part=${value}` : value);
+  if (part.fileMode !== "@" || !part.contentType) {
+    throw new Error(`related -F ${JSON.stringify(value)} requires [name=]@path;type=<content-type>`);
+  }
+  return part;
+}
+
+function validateFormValues(options) {
+  const related = options.inputFromCLI;
+  let stdinParts = 0;
+  for (const value of options.formValues) {
+    const part = parseCLIFormValue(value, related);
+    if (!related) continue;
+    if (part.filePath === "-" && ++stdinParts > 1) throw new Error("only one related -F part may read stdin");
+    if (options.input === "-" && part.filePath === "-") throw new Error("-i - and related -F @- cannot both read stdin");
+  }
+}
+
 function parseCLI(argv) {
   const options = { input: "-", inputFromCLI: false, formValues: [], output: "-", maxMemory: undefined, capacitiesMustFit: false };
   const components = [];
@@ -1665,7 +1752,6 @@ function parseCLI(argv) {
     } else if (arg === "-F" || arg === "--form") {
       const value = argv[++index];
       if (value === undefined) throw new Error(`${arg} requires <name=value>`);
-      parseFormAssignment(value);
       options.formValues.push(value);
     } else if (arg === "-o" || arg === "--output") {
       options.output = argv[++index];
@@ -1685,7 +1771,7 @@ function parseCLI(argv) {
   }
   if (!options.input) throw new Error("--input requires a path");
   if (!options.output) throw new Error("--output requires a path");
-  if (options.inputFromCLI && options.formValues.length > 0) throw new Error("-F and -i are mutually exclusive");
+  validateFormValues(options);
   return { options, components: parseStageArgs(components) };
 }
 
@@ -1704,8 +1790,9 @@ async function loadStages(componentSpecs, options, hosts) {
   return stages;
 }
 
-async function prepareRunPipeline(argv, hosts) {
+async function prepareRunPipeline(argv, hosts, checkOptions = () => {}) {
   const { options, components } = parseCLI(argv);
+  checkOptions(options);
   const stages = await loadStages(components, options, hosts);
   const pipeline = createRecipe(stages, {
     capacitiesMustFit: options.capacitiesMustFit,
@@ -1764,13 +1851,14 @@ function printMultipartFileObservations(observations) {
 async function dryRunCommand(argv, hosts) {
   const { options, components } = parseCLI(argv);
   if (components.length === 0) throw new Error("at least one component is required");
+  // Plan form fields before printing so field errors leave no partial report, as in Rust qipx.
+  const formPlan = planMultipartFormInput(options.inputFromCLI ? [] : options.formValues, hosts);
   const observations = [];
   for (const spec of components) {
     const plan = sourcePlan(spec.filePath, hosts);
     observations.push({ spec, plan, local: await observeLocalSource(plan) });
   }
   printSourceObservations(observations);
-  const formPlan = planMultipartFormInput(options.formValues, hosts);
   printMultipartFileObservations(await observeMultipartFileSources(formPlan));
   console.log("\nValidation:");
   const stages = [];
@@ -1796,6 +1884,9 @@ async function dryRunCommand(argv, hosts) {
     return;
   }
   const pipeline = createRecipe(stages, { capacitiesMustFit: options.capacitiesMustFit });
+  if (options.inputFromCLI && options.formValues.length > 0 && !isCanonicalMultipartRelatedContentType(pipeline.stages[0]?.inputType.mediaType)) {
+    throw new Error("-i with -F requires the first component to declare multipart/related with a root type");
+  }
   printDryRunPlan(pipeline);
 }
 
@@ -1809,7 +1900,13 @@ function formatBytes(count) {
     value /= 1024;
     unit = next;
   }
-  return `${value.toFixed(1)} ${unit} (${count} bytes)`;
+  // Round half to even like Go qip and Rust qipx. value is count over a power of two, so
+  // value * 10 is exact and the tie test below is reliable.
+  const tenths = value * 10;
+  const floor = Math.floor(tenths);
+  const remainder = tenths - floor;
+  const rounded = remainder > 0.5 || (remainder === 0.5 && floor % 2 === 1) ? floor + 1 : floor;
+  return `${(rounded / 10).toFixed(1)} ${unit} (${count} bytes)`;
 }
 
 function printDryRunPlan(plan) {
@@ -1866,9 +1963,15 @@ function parseFormAssignment(value) {
   validateFormQuotedValue(name, "field name");
   const fileMode = rawValue[0] === "@" || rawValue[0] === "<" ? rawValue[0] : "";
   if (!fileMode) return { name, value: rawValue, filePath: "", fileMode };
-  const filePath = rawValue.slice(1);
+  let filePath = rawValue.slice(1);
+  let contentType = "";
+  if (filePath.includes(";type=")) {
+    [filePath, contentType] = filePath.split(";type=", 2);
+    validateContentType(contentType, "-F part content type");
+    if (contentType.startsWith("multipart/")) throw new Error(`-F part type ${JSON.stringify(contentType)} must not be multipart`);
+  }
   if (!filePath) throw new Error(`-F ${JSON.stringify(value)} has an empty file path`);
-  return { name, value: "", filePath, fileMode };
+  return { name, value: "", filePath, fileMode, contentType };
 }
 
 function planMultipartFormInput(values, hosts = []) {
@@ -1892,9 +1995,12 @@ function canonicalFormFilename(filePath) {
   return filename;
 }
 
-function multipartBodyContainsBoundary(body) {
-  const marker = Buffer.from(`\r\n--${canonicalFormBoundary}`);
-  const source = Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+// Scans body framed by the CRLFs the builders write around every part, so a delimiter at the
+// very start or end of body is found too. A delimiter line is CRLF, "--", the boundary, then
+// CRLF or "--".
+function multipartBodyContainsBoundary(body, boundary = canonicalFormBoundary) {
+  const marker = Buffer.from(`\r\n--${boundary}`);
+  const source = Buffer.concat([Buffer.from("\r\n"), Buffer.from(body.buffer, body.byteOffset, body.byteLength), Buffer.from("\r\n")]);
   for (let offset = 0; ;) {
     const index = source.indexOf(marker, offset);
     if (index < 0) return false;
@@ -1929,7 +2035,7 @@ async function buildMultipartFormInputFromPlan(formPlan, { stdin, loadFile } = {
           : loadMultipartFile(assignment.filePath, fileSourcePlan)));
         if (assignment.fileMode === "@") filename = canonicalFormFilename(assignment.filePath);
       } catch (error) {
-        throw new Error(`read -F ${assignment.name}=${assignment.fileMode}${assignment.filePath}: ${error.message ?? error}`);
+        throw new Error(`read -F ${assignment.name}=${assignment.fileMode}${assignment.filePath}: ${ioErrorReason(error)}`);
       }
     }
     if (multipartBodyContainsBoundary(body)) {
@@ -1937,7 +2043,8 @@ async function buildMultipartFormInputFromPlan(formPlan, { stdin, loadFile } = {
     }
 
     let header = `--${canonicalFormBoundary}\r\nContent-Disposition: form-data; name="${assignment.name}"`;
-    if (filename) header += `; filename="${filename}"\r\nContent-Type: application/octet-stream`;
+    if (filename) header += `; filename="${filename}"`;
+    if (assignment.contentType || filename) header += `\r\nContent-Type: ${assignment.contentType || "application/octet-stream"}`;
     chunks.push(encoder.encode(`${header}\r\n\r\n`), body, encoder.encode("\r\n"));
   }
   chunks.push(encoder.encode(`--${canonicalFormBoundary}--\r\n`));
@@ -1949,6 +2056,40 @@ async function buildMultipartFormInputFromPlan(formPlan, { stdin, loadFile } = {
     offset += chunk.byteLength;
   }
   return Object.freeze({ bytes: output, contentType: canonicalFormContentType });
+}
+
+// multipart/related input follows a narrow profile: the first part is the root, every part
+// carries an explicit Content-Type, and the root's bare media type is the type parameter.
+export function canonicalRelatedContentType(rootType) {
+  return `multipart/related;type="${rootType}";boundary=${canonicalFormBoundary}`;
+}
+
+export async function buildMultipartRelatedInput(root, declared, values, { stdin } = {}) {
+  if (!isCanonicalMultipartRelatedContentType(declared)) throw new Error("-i with -F requires the first component to declare multipart/related with a root type");
+  const rootType = declared.slice('multipart/related;type="'.length, declared.indexOf('";boundary='));
+  const boundary = declared.split(";boundary=")[1];
+  const chunks = [];
+  const addPart = (body, type, label) => {
+    if (multipartBodyContainsBoundary(body, boundary)) throw new Error(`${label} contains the multipart boundary as a delimiter line`);
+    chunks.push(encoder.encode(`--${boundary}\r\nContent-Type: ${type}\r\n\r\n`), body, encoder.encode("\r\n"));
+  };
+  addPart(bytes(root), rootType, "-i root");
+  let stdinParts = 0;
+  for (const value of values) {
+    const part = parseRelatedAssignment(value);
+    if (part.filePath === "-" && ++stdinParts > 1) throw new Error("only one related -F part may read stdin");
+    const body = part.filePath === "-" ? (stdin === undefined ? await readStdin() : bytes(stdin)) : bytes(await readFile(part.filePath));
+    addPart(body, part.contentType, "-F part");
+  }
+  chunks.push(encoder.encode(`--${boundary}--\r\n`));
+  const length = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const output = new Uint8Array(length);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return Object.freeze({ bytes: output, contentType: declared });
 }
 
 function parsePositiveInteger(value, label) {
@@ -2003,7 +2144,6 @@ function parseBenchCLI(argv) {
     } else if (arg === "-F" || arg === "--form") {
       const value = argv[++index];
       if (value === undefined) throw new Error(`${arg} requires <name=value>`);
-      parseFormAssignment(value);
       options.formValues.push(value);
     } else if (arg === "-r" || arg === "--runs") {
       options.runs = parsePositiveInteger(argv[++index], arg);
@@ -2031,11 +2171,11 @@ function parseBenchCLI(argv) {
     }
   }
   if (runsSet && benchtimeSet) throw new Error("use either --runs or --benchtime, not both");
-  if (options.inputFromCLI && options.formValues.length > 0) throw new Error("-F and -i are mutually exclusive");
-  if (!options.inputFromCLI && options.formValues.length === 0) throw new Error("qipx bench requires -i <input> or -F <name=value>");
+  validateFormValues(options);
+  if (!options.inputFromCLI && options.formValues.length === 0) throw new Error("bench requires -i <input> or -F <name=value>");
   if (options.inputFromCLI && !options.input) throw new Error("--input requires a path");
   const specs = parseStageArgs(components);
-  if (specs.length === 0) throw new Error("qipx bench requires at least one component");
+  if (specs.length === 0) throw new Error("bench requires at least one component");
   return { help: false, options, specs };
 }
 
@@ -2241,16 +2381,21 @@ async function benchCommand(argv, hosts) {
   const collectAfterWarmup = typeof globalThis.gc === "function";
   let input;
   let inputLabel;
-  if (options.formValues.length > 0) {
+  if (options.formValues.length > 0 && !options.inputFromCLI) {
     const form = await buildMultipartFormInput(options.formValues, { hosts });
     input = form.bytes;
     inputLabel = `multipart form (${options.formValues.length} field${options.formValues.length === 1 ? "" : "s"})`;
   } else {
-    input = options.input === "-" ? await readStdin() : await readFile(options.input);
+    input = options.input === "-" ? await readStdin() : await readInputFile(options.input);
     inputLabel = options.input === "-" ? "stdin" : options.input;
   }
   const candidates = [];
   for (const spec of specs) candidates.push(await loadBenchmarkCandidate(spec, options, hosts));
+  if (options.inputFromCLI && options.formValues.length > 0) {
+    const related = await buildMultipartRelatedInput(input, candidates[0].recipe.stages[0].inputType.mediaType, options.formValues);
+    input = related.bytes;
+    inputLabel = `multipart/related (${options.formValues.length + 1} parts)`;
+  }
 
   const expected = render(candidates[0].recipe, input);
   for (let index = 1; index < candidates.length; index += 1) {
@@ -2292,14 +2437,18 @@ export const __cliInternals = Object.freeze({
   dryRunCommand,
   prepareRunPipeline,
   parseFormAssignment,
+  parseCLIFormValue,
   planMultipartFormInput,
   buildMultipartFormInput,
   buildMultipartFormInputFromPlan,
+  buildMultipartRelatedInput,
   loadMultipartFile,
   resolveStageInputType,
   nextContentType,
   applyUniforms,
   runStage,
   readStdin,
+  readInputFile,
+  writeOutputFile,
   runPreparedPipeline,
 });

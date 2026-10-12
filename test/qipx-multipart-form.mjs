@@ -152,14 +152,14 @@ test("multipart execution consumes its precomputed source plan", async () => {
   }
 });
 
-test("both CLIs reject raw input with -F and still require a component", () => {
+test("both CLIs require typed file parts with -i and still require a component", () => {
   for (const [command, prefix] of [
     ["./qip", ["run"]],
     [process.execPath, ["npm/qipx/cli.mjs", "run"]],
   ]) {
     const mixed = run(command, [...prefix, "-i", "README.md", "-F", "component=@README.md", identity]);
     assert.notEqual(mixed.status, 0);
-    assert.match(mixed.stderr.toString(), /-F and -i are mutually exclusive/);
+    assert.match(mixed.stderr.toString(), /requires \[name=\]@path;type=/);
 
     const missingComponent = run(command, [...prefix, "-F", "mode=step"]);
     assert.notEqual(missingComponent.status, 0);
@@ -196,7 +196,7 @@ test("qipx bench accepts the same multipart input as Go qip bench", () => {
   assert.match(node.stdout.toString(), new RegExp(`Output SHA-256: ${goHash}`));
 });
 
-test("qipx bench rejects raw and multipart input together", () => {
+test("qipx bench rejects untyped related parts", () => {
   const result = run(process.execPath, [
     "npm/qipx/cli.mjs",
     "bench",
@@ -206,5 +206,5 @@ test("qipx bench rejects raw and multipart input together", () => {
     "multipart/form-data/form-data-to-tar.wasm",
   ]);
   assert.notEqual(result.status, 0);
-  assert.match(result.stderr.toString(), /-F and -i are mutually exclusive/);
+  assert.match(result.stderr.toString(), /requires \[name=\]@path;type=/);
 });

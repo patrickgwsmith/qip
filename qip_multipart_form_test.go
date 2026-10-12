@@ -179,10 +179,10 @@ func TestCanonicalFormFilenameUsesOnlyFinalSegment(t *testing.T) {
 	}
 }
 
-func TestParseRunCommandArgsRejectsRawAndMultipartInput(t *testing.T) {
+func TestParseRunCommandArgsRejectsUntypedRelatedPart(t *testing.T) {
 	_, err := parseRunCommandArgs([]string{"-i", "input.bin", "-F", "component=@component.wasm", "bytes/identity.wasm"}, "run")
-	if err == nil || !strings.Contains(err.Error(), "-F and -i are mutually exclusive") {
-		t.Fatalf("error=%v, want mutual-exclusion error", err)
+	if err == nil || !strings.Contains(err.Error(), "requires [name=]@path;type=<content-type>") {
+		t.Fatalf("error=%v, want typed related part error", err)
 	}
 }
 

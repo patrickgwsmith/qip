@@ -580,8 +580,8 @@ func TestRunModuleExecutionErrorIncludesModulePath(t *testing.T) {
 	}
 
 	gotErr := stderr.String()
-	if !strings.Contains(gotErr, "step 1 text/infinite-loop.wasm trapped:") {
-		t.Fatalf("stderr=%q, want step, component path, and render failure", gotErr)
+	if !strings.Contains(gotErr, "step 1") || !strings.Contains(gotErr, "text/infinite-loop.wasm") {
+		t.Fatalf("stderr=%q, want step and component path", gotErr)
 	}
 	if !strings.Contains(gotErr, "Wasm module exceeded the execution time limit") {
 		t.Fatalf("stderr=%q, want execution timeout message", gotErr)

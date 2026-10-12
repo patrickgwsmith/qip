@@ -28,7 +28,9 @@ read terminal input until EOF. UTF-8 output gets one final line feed on stdout.
 `-F name=@path` reads exact file bytes and supplies a filename;
 `-F 'name=<path'` reads exact bytes into a regular field without a filename.
 Quote arguments containing `<` in a shell. One field may use `@-` or `<-` to
-read stdin in the corresponding mode. `-F` and `-i` cannot be combined. Add
+read stdin in the corresponding mode. Combine `-i root.svg` with
+`-F 'font=@Inter.ttf;type=font/ttf'` for `multipart/related`; the first
+component declares the root type. `-F` alone builds form data. Add
 `-u name=value` after the component that
 receives the uniform. `--max-memory` checks the module's declared memory, and
 `--capacities-must-fit` checks each stage's maximum output against the next

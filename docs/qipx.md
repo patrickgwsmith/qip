@@ -100,7 +100,7 @@ reads the same bytes into a regular field without a filename. Quote arguments
 that contain `<` in a shell. `@-` and `<-` read one field from stdin; `@-`
 sends `filename="-"`, while `<-` does not. Only one field may read stdin.
 TUI mode allows neither form because stdin carries keys. `--form` is an exact
-alias for `-F`. Multipart form input and `-i` are mutually exclusive.
+alias for `-F`. Combine `-i` and `-F` for related input.
 
 Go `qip` and Node.js `qipx` produce byte-identical bodies. They preserve flag
 order, use `Content-Type: application/octet-stream` for `@` fields, use CRLF
@@ -110,7 +110,32 @@ framing, and use the component contract's default boundary:
 multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000
 ```
 
+Combine `-i` with `-F` to build `multipart/related`. The `-i` bytes are the
+root part. The first component must declare a canonical `multipart/related`
+input type; its `type` parameter sets the root part's `Content-Type`. Each
+`-F` part uses `name=@path;type=<content-type>` or
+`@path;type=<content-type>`:
+
+```sh
+qipx run -i logo.svg -F 'font=@Inter-Regular.ttf;type=font/ttf' component.wasm
+```
+
+An optional field name identifies the option in errors; it is not written to the
+related body. Each part contains a `Content-Type` header, and the body uses
+CRLF framing with the first component's declared UUID boundary. For an SVG root
+with the placeholder UUID, the input
+type is:
+
+```text
+multipart/related;type="image/svg+xml";boundary=uuid-00000000-0000-0000-0000-000000000000
+```
+
+Use `-F` without `-i` for form data. In either mode, `;type=` sets a file
+part's `Content-Type`. Go `qip`, Node.js `qipx`, and Rust `qipx` produce
+byte-identical related bodies. See
+[Multipart related](/docs/content-component#multipart-related).
+
 Field names and emitted filenames must be printable ASCII without quotes or
-backslashes. Both CLIs reject a part body that contains the fixed boundary as
+backslashes. All three hosts reject a part body that contains the fixed boundary as
 a delimiter line. A `run` command still requires at least one component. Use
 `bytes/identity.wasm` when you need to inspect the complete body.

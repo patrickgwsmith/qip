@@ -94,9 +94,20 @@ qipx qip.dev run \
 Use `-F 'name=<path'` to read file bytes into a regular field without a
 filename. Quote `<` in a shell. `@-` reads one file field from stdin and `<-`
 reads one regular field; TUI mode reserves stdin for keys. `--form` is an exact
-alias for `-F`. Multipart form input and `-i` are mutually exclusive. Go `qip`
+alias for `-F`. `-i` with `-F` builds related input. Go `qip`
 and Node.js `qipx` use the same fixed QIP boundary and produce byte-identical
 multipart bodies for the same fields.
+
+Combine `-i` and typed `-F` file parts to construct `multipart/related`.
+The first component must declare the root type, such as
+`multipart/related;type="image/svg+xml";boundary=uuid-00000000-0000-0000-0000-000000000000`:
+
+```sh
+qipx run -i logo.svg -F 'font=@Inter-Regular.ttf;type=font/ttf' component.wasm
+```
+
+`-i` supplies the root bytes. `-F` alone still builds form data. In either
+mode, `;type=` sets a file part's `Content-Type`.
 
 When hosts are present, a missing safe relative `.wasm` file referenced by
 `-F name=@path.wasm` follows the same local-first download and caching rules as
@@ -263,8 +274,8 @@ qipx bench \
 ```
 
 Benchmark forms use the same canonical bytes as `qipx run` and Go `qip bench`.
-`-F name=@-` reads one file field from standard input. `-F` and `-i` are
-mutually exclusive.
+`-F name=@-` reads one file field from standard input. Combine `-i` with
+typed `-F` file parts to benchmark `multipart/related` input.
 
 The `NODE_OPTIONS` and `BUN_OPTIONS` prefixes opt into one collection after
 each component's warmup and before its measured runs. `bunx --bun` overrides

@@ -1,4 +1,4 @@
-.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-rust test-qipx-parity test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
+.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-parity test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
 
 default: qip compliance components recipes
 
@@ -1143,7 +1143,7 @@ recipes: recipes/text/html/65-add-wasm-anchor-type.wasm
 
 components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
-test: qip components test-go test-node test-qipx-rust test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help test-base64-decode-variants
+test: qip components test-go test-node test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help test-base64-decode-variants
 
 .PHONY: test-base64-decode-variants
 test-base64-decode-variants: text/base64-decode.wasm text/base64-decode-simd.wasm text/base64-decode-c.wasm text/base64-decode-c-simd.wasm text/base64-decode-zig.wasm text/base64-decode-zig-simd.wasm text/base64-decode-odin.wasm text/base64-decode-odin-simd.wasm
@@ -1152,14 +1152,11 @@ test-base64-decode-variants: text/base64-decode.wasm text/base64-decode-simd.was
 qipx-rust:
 	cargo build --manifest-path rust/qipx/Cargo.toml --locked
 
-test-qipx-rust: qipx-rust
-	node --test test/qipx-rust.mjs
-
 .PHONY: test-tui-text-input
 test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/country-finder-old.wasm tui/tld-finder-old.wasm tui/iana-media-type-finder-old.wasm tui/iana-service-port-finder-old.wasm tui/browser-compat-finder-old.wasm tui/caniuse-finder-old.wasm tui/emoji-finder.wasm tui/emoji-finder-old.wasm tui/calendar-gregorian.wasm
 	node --test test/finder-content-tui.mjs test/*finder-old-tui.mjs test/emoji-finder-tui.mjs test/qiptui.mjs test/qip-tui.mjs
 
-test-qipx-parity: qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm
+test-qipx-parity: qip qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm
 	node --test test/qipx-parity.mjs
 
 test-wasm-core-1-spec: application/wasm/wasm-validate-core-1.0.wasm
@@ -1170,6 +1167,7 @@ test-wasm-core-2-spec: application/wasm/wasm-validate-core-2.0.wasm
 	@test -n "$(WASM_CORE_2_0_SPEC_DIR)" || (echo "set WASM_CORE_2_0_SPEC_DIR to the WebAssembly spec wg-2.0 checkout" && exit 1)
 	node test/wasm-validate-core-2.0-spec.mjs $(WASM_CORE_2_0_SPEC_DIR)
 
+	node --test test/qipx-multipart-related.mjs
 test-markdown-pathological: qip text/markdown/gfm-commonmark.0.31.2.wasm
 	QIP_BIN=$(QIP_BIN) tools/test-markdown-pathological.sh
 

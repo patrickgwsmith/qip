@@ -248,7 +248,7 @@ pub(super) fn run_tui(
     input: Vec<u8>,
 ) -> Result<(), String> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        return Err("qipx tui requires terminal stdin and stdout".into());
+        return Err("tui requires terminal stdin and stdout".into());
     }
     if stages.is_empty() {
         return Err("at least one component is required".into());

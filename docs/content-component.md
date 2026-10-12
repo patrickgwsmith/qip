@@ -133,7 +133,7 @@ and generic bytes need no `application/octet-stream`; those declarations would
 needlessly narrow pipeline matching. Use metadata for specific formats such as
 `text/markdown` or `image/ktx2`. See [Formats and Encodings](/docs/formats).
 
-Except for the two forms below, the value is one lowercase media type with no
+Except for the forms below, the value is one lowercase media type with no
 whitespace, media ranges, lists, or parameters. Hosts compare ordinary types
 byte for byte; they do not trim or normalize them. Pointer, size, and bytes are
 module constants.
@@ -149,7 +149,8 @@ The multipart parameterized type has exactly this form:
 The `uuid-` prefix is fixed; the following 36 bytes are a canonical lowercase
 UUID (`8-4-4-4-12`, hexadecimal digits and hyphens). The declaration is
 unquoted, has no extra whitespace or parameters, and its initial UUID is in
-the active data segment. Other multipart types and parameters are invalid.
+the active data segment. Other multipart types and parameters are invalid,
+except for [multipart related](#multipart-related) below.
 
 Before `render`, the host may replace exactly those 36 bytes in exported memory.
 It leaves the pointer, size, prefix, and other bytes unchanged. A producer
@@ -168,6 +169,43 @@ and the delimiters. The slot is the sole exception to static MIME bytes, not a
 general string uniform. The repository's
 `application/wasm/wasm-read-input-content-type.wasm` reads this metadata; it
 traps on an invalid static declaration.
+
+<h3 id="multipart-related">Multipart related</h3>
+
+`multipart/related` (RFC 2387) carries one root document and the resources it
+depends on, such as an SVG and its fonts. QIP permits exactly this form:
+
+```text
+multipart/related;type="<type>/<subtype>";boundary=uuid-00000000-0000-0000-0000-000000000000
+```
+
+The `type` value is the root part's bare lowercase media type, in double
+quotes, with no parameters; it must not itself be `multipart/*`. It is the
+only quoted parameter value QIP allows. `boundary` is always last, so the final
+36 bytes are the UUID slot, and it follows every rule of the form-data slot
+above: the host may patch it, and producers and consumers read it on every
+call. One boundary covers the whole body because the parts do not nest. There
+are no `start` or `start-info` parameters.
+
+The body follows a narrow profile:
+
+- The first part is the root. Its `Content-Type` must match the `type`
+  parameter's media type.
+- Every part has a `Content-Type` header in QIP's canonical form, which may
+  carry parameters. Other part headers, including `Content-ID`, are optional
+  and carry no meaning for the host.
+- Parts are not themselves multipart.
+- For CLI input, `-i` supplies the root and each typed `-F` file supplies a later part.
+  `-F` alone still builds `multipart/form-data`.
+- A producer rejects a part body that contains a delimiter line for the
+  current boundary, and a consumer bounds the part count and each part's size
+  by its input capacity.
+
+Hosts compare `multipart/related` declarations like any other parameterized
+type: the media type must match, and so must the `type` value (compared
+without its quotes) when both sides carry it. A
+`multipart/related;type="image/svg+xml"` consumer therefore rejects input whose
+root is `text/html`.
 
 <h3 id="ktx2-profile-metadata">KTX2 profile metadata</h3>
 
