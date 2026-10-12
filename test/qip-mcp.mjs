@@ -52,7 +52,6 @@ test("MCP discovery and tool listing use qip.dev names", async () => {
 
   const listing = await server.dispatch(request(2, "tools/list"));
   assert.deepEqual(listing.tools.map((tool) => tool.name), [
-    "qip.dev.content_types.list",
     "qip.dev.mime_types.list",
     "qip.dev.modules.find",
     "qip.dev.modules.get_browser_javascript",
@@ -64,17 +63,15 @@ test("MCP discovery and tool listing use qip.dev names", async () => {
 
 test("MIME type listings use en for English names and include catalog usage counts", async () => {
   const server = await createQIPDevServer();
-  for (const key of ["mime_types", "content_types"]) {
-    const result = await call(server, `qip.dev.${key}.list`);
-    const rows = result.structuredContent[key];
-    const svg = rows.find((row) => row.mime === "image/svg+xml");
-    assert.equal(svg.en, "SVG image");
-    assert.equal(rows.find((row) => row.mime === "text/markdown").en, "Markdown");
-    assert.ok(rows.every((row) => !Object.hasOwn(row, "label")));
-    assert.equal(svg.role, "deliverable");
-    assert.equal(svg.input_modules > 0, true);
-    assert.equal(svg.output_modules > 0, true);
-  }
+  const result = await call(server, "qip.dev.mime_types.list");
+  const rows = result.structuredContent.mime_types;
+  const svg = rows.find((row) => row.mime === "image/svg+xml");
+  assert.equal(svg.en, "SVG image");
+  assert.equal(rows.find((row) => row.mime === "text/markdown").en, "Markdown");
+  assert.ok(rows.every((row) => !Object.hasOwn(row, "label")));
+  assert.equal(svg.role, "deliverable");
+  assert.equal(svg.input_modules > 0, true);
+  assert.equal(svg.output_modules > 0, true);
 });
 
 test("module finder returns direct qip.dev Wasm modules by MIME type", async () => {

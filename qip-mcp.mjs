@@ -482,13 +482,6 @@ function toolDefinitions() {
   };
   return [
     {
-      name: "qip.dev.content_types.list",
-      title: "List qip.dev content types",
-      description: "List content types in qip.dev's public component recipe catalog. KTX2 is marked as a QIP working format.",
-      inputSchema: { type: "object", additionalProperties: false },
-      annotations: { readOnlyHint: true, openWorldHint: false },
-    },
-    {
       name: "qip.dev.mime_types.list",
       title: "List qip.dev MIME types",
       description: "List input and output MIME types in qip.dev's public component catalog, including how many catalog modules accept or produce each type.",
@@ -640,9 +633,6 @@ export async function createQIPDevServer({ catalogPath = DEFAULT_CATALOG, genera
     const { name, arguments: args = {} } = request.params ?? {};
     if (typeof name !== "string") throw new ProtocolError(-32602, "tools/call requires a tool name.");
     try {
-      if (name === "qip.dev.content_types.list") {
-        return complete({ content_types: mimeTypeRows() });
-      }
       if (name === "qip.dev.mime_types.list") {
         return complete({ mime_types: mimeTypeRows() });
       }
