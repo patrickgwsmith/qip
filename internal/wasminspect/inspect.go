@@ -1984,6 +1984,25 @@ func parseFunctionBody(
 	// then leaves the function before any other control flow, the branches
 	// that targeted that block exited every enclosing loop.
 	var armed []boundCandidate
+	// pendingTaint defers a local.set's taint by one instruction. If the next
+	// instruction is an unconditional br or a return, the write is on an exit
+	// path, as in the `i = n` copy LLVM emits before leaving a scan loop, and
+	// it can't reach another iteration of the loops that branch leaves. Only
+	// the frames the branch stays inside are tainted.
+	pendingTaint, hasPendingTaint := uint32(0), false
+	resolvePendingTaint := func(keep int) {
+		if hasPendingTaint {
+			markLoopCounterTaint(loops, controlStack[:keep], pendingTaint)
+			hasPendingTaint = false
+		}
+	}
+	taintWrite := func(op byte, local uint32) {
+		if op == 0x21 {
+			pendingTaint, hasPendingTaint = local, true
+			return
+		}
+		markLoopCounterTaint(loops, controlStack, local)
+	}
 	exitInfo, err := computeBodyExit(body)
 	if err != nil {
 		return functionMetrics{}, nil, err
@@ -2037,6 +2056,14 @@ func parseFunctionBody(
 		addInstr()
 		instructionCounts[InstructionOpcode(op)]++
 		trace := instrTrace{op: op}
+		switch op {
+		case 0x0c:
+			// resolved below once the depth is read
+		case 0x00, 0x0f:
+			resolvePendingTaint(0)
+		default:
+			resolvePendingTaint(len(controlStack))
+		}
 
 		switch op {
 		case 0x00, 0x01, opElse, 0x0f, 0x1a, 0x1b:
@@ -2108,6 +2135,9 @@ func parseFunctionBody(
 			}
 			trace.imm = int64(depth)
 			trace.hasImm = true
+			// Frames above the target are left; the target and everything
+			// below it (a loop target continues) stay live.
+			resolvePendingTaint(max(len(controlStack)-int(depth), 0))
 			fm.ControlFlowOps++
 			if isLoopTarget(controlStack, depth) {
 				addLoopBack()
@@ -2237,7 +2267,7 @@ func parseFunctionBody(
 					if src == idx {
 						markLoopCounterUpdate(loops, controlStack, idx, dir)
 					} else {
-						markLoopCounterTaint(loops, controlStack, idx)
+						taintWrite(op, idx)
 						newDerived, hasNewDerived = derivedUpdate{src: src, dir: dir}, true
 					}
 				} else if dir, weakStep, ok := detectFusedUpdate(recent, idx); ok {
@@ -2252,10 +2282,10 @@ func parseFunctionBody(
 					if d, exists := derived[from]; exists && d.src == idx {
 						markLoopCounterUpdate(loops, controlStack, idx, d.dir)
 					} else if from != idx {
-						markLoopCounterTaint(loops, controlStack, idx)
+						taintWrite(op, idx)
 					}
 				} else {
-					markLoopCounterTaint(loops, controlStack, idx)
+					taintWrite(op, idx)
 				}
 				delete(derived, idx)
 				if hasNewDerived {
