@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"mime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -476,26 +475,65 @@ func contentRequestPaths(relPath string, options RouteOptions) []string {
 	return out
 }
 
-func detectSourceMIME(relPath string) string {
-	ext := strings.ToLower(path.Ext(relPath))
-	switch ext {
-	case ".md", ".markdown":
-		return "text/markdown"
-	case ".uri", ".uris":
-		return "text/uri-list"
-	case ".sqlite", ".sqlite3":
-		return "application/vnd.sqlite3"
-	}
+// sourceMIMETypes is explicit so routes don't depend on the host's mime.types
+// files. Keep in sync with mimeTypes in npm/qip-router/qip-router.mjs.
+var sourceMIMETypes = map[string]string{
+	".apng":     "image/apng",
+	".avif":     "image/avif",
+	".bmp":      "image/bmp",
+	".c":        "text/x-c",
+	".css":      "text/css",
+	".csv":      "text/csv",
+	".gif":      "image/gif",
+	".gz":       "application/gzip",
+	".h":        "text/x-c",
+	".htm":      "text/html",
+	".html":     "text/html",
+	".ico":      "image/x-icon",
+	".jp2":      "image/jp2",
+	".jpeg":     "image/jpeg",
+	".jpg":      "image/jpeg",
+	".jxl":      "image/jxl",
+	".js":       "text/javascript",
+	".json":     "application/json",
+	".ktx2":     "image/ktx2",
+	".md":       "text/markdown",
+	".markdown": "text/markdown",
+	".mermaid":  "text/vnd.mermaid",
+	".mjs":      "text/javascript",
+	".mmd":      "text/vnd.mermaid",
+	".mp3":      "audio/mpeg",
+	".mp4":      "video/mp4",
+	".ogg":      "audio/ogg",
+	".otf":      "font/otf",
+	".pdf":      "application/pdf",
+	".png":      "image/png",
+	".sqlite":   "application/vnd.sqlite3",
+	".sqlite3":  "application/vnd.sqlite3",
+	".svg":      "image/svg+xml",
+	".swift":    "text/x-swift",
+	".tar":      "application/x-tar",
+	".tif":      "image/tiff",
+	".tiff":     "image/tiff",
+	".ttf":      "font/ttf",
+	".txt":      "text/plain",
+	".uri":      "text/uri-list",
+	".uris":     "text/uri-list",
+	".warc":     "application/warc",
+	".wasm":     "application/wasm",
+	".wav":      "audio/wav",
+	".webm":     "video/webm",
+	".webp":     "image/webp",
+	".woff":     "font/woff",
+	".woff2":    "font/woff2",
+	".xml":      "application/xml",
+	".zig":      "text/x-zig",
+	".zip":      "application/zip",
+}
 
-	mimeType := mime.TypeByExtension(ext)
-	if mimeType == "" {
-		return "application/octet-stream"
+func detectSourceMIME(relPath string) string {
+	if mimeType, ok := sourceMIMETypes[strings.ToLower(path.Ext(relPath))]; ok {
+		return mimeType
 	}
-	if cut := strings.IndexByte(mimeType, ';'); cut != -1 {
-		mimeType = strings.TrimSpace(mimeType[:cut])
-	}
-	if mimeType == "" {
-		return "application/octet-stream"
-	}
-	return mimeType
+	return "application/octet-stream"
 }
