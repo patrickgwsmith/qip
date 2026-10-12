@@ -92,6 +92,7 @@ See [Adopting QIP In React](/docs/adopting-qip-in-react) for a complete Next.js
 Server Component and Client Component example.
 
 
+<qip-main-layout>
 <nav class="docs-sidebar" aria-label="Docs">
 <ol>
 <li><span class="docs-section">Getting Started</span>
@@ -164,3 +165,5 @@ Server Component and Client Component example.
 </li>
 </ol>
 </nav>
+<article class="docs-content"><slot></slot></article>
+</qip-main-layout>

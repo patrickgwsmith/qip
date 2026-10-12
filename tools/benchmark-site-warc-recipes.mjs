@@ -13,7 +13,7 @@ const recipeNames = new Map([
   ["05-text-uri-list-to-redirect", "Add redirects"],
   ["10-add-open-graph-image-meta", "Add Open Graph metadata"],
   ["15-add-html-data-path", "Add HTML data paths"],
-  ["20-add-docs-sidebar", "Add docs sidebar"],
+  ["20-apply-main-layout", "Apply main layouts"],
   ["25-add-content-size", "Add content sizes"],
   ["30-add-sitemap-xml", "Add sitemap"],
   ["35-add-search-index", "Add search index"],

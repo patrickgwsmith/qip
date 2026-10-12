@@ -582,17 +582,17 @@ application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-extract-broken-links.wasm application/warc/warc-text-uri-list-to-redirect.wasm: application/warc/lib/warc.zig
 recipes/application/warc/15-add-html-data-path.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-recipes/application/warc/20-add-docs-sidebar.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+recipes/application/warc/20-apply-main-layout.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/25-add-content-size.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/30-add-sitemap-xml.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/35-add-search-index.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/40-add-wasm-anchor-type.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_MAX_MEMORY = 671088640
-recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-add-docs-sidebar.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/45-add-components-atom.wasm: recipes/application/warc/lib/warc.zig
+recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/45-add-components-atom.wasm: recipes/application/warc/lib/warc.zig
 # Site WARC recipes scan whole archives. SIMD lets indexOfScalarPos test 16 bytes
 # per loop iteration, and wazero's timeout check (WithCloseOnContextDone) costs a
 # call on every iteration, so this makes `qip router warc` several times faster.
-application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-add-docs-sidebar.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
+application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
 image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
 image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
 multipart/form-data/form-data-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 142606336

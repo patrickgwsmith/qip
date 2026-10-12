@@ -180,10 +180,12 @@ footer nav {
 }
 main {
     > *,
-    > article > * {
+    > article > *,
+    > qip-main-layout > article > * {
         margin-bottom: var(--paragraph-leading);
     }
-    > nav {
+    > nav,
+    > qip-main-layout > nav {
         margin-bottom: 0;
     }
     h1 {
@@ -244,17 +246,22 @@ main {
         }
     }
 }
-main:has(> nav:first-child + article) {
+qip-main-layout {
+    display: block;
+}
+main:has(> qip-main-layout > nav:first-child + article) {
     max-width: 78em;
+}
+qip-main-layout:has(> nav:first-child + article) {
     display: grid;
     grid-template-columns: minmax(12em, 16em) minmax(0, 1fr);
     gap: 2em;
     align-items: start;
 }
-main:has(> nav:first-child + article) > article {
+qip-main-layout:has(> nav:first-child + article) > article {
     min-width: 0;
 }
-main:has(> nav:first-child + article) > nav:first-child {
+qip-main-layout:has(> nav:first-child + article) > nav:first-child {
     position: sticky;
     top: 1lh;
     max-height: calc(100dvh - 2lh);
@@ -282,8 +289,18 @@ main:has(> nav:first-child + article) > nav:first-child {
         font-weight: 700;
     }
 
-    > ol > li:first-child .docs-section {
+    > ol > li:first-child .docs-section,
+    > details > ol > li:first-child .docs-section {
         margin-top: 0;
+    }
+
+    summary {
+        cursor: pointer;
+        font-weight: 700;
+    }
+
+    details[open] > summary {
+        margin-bottom: 1rlh;
     }
 
     a {
@@ -296,11 +313,23 @@ main:has(> nav:first-child + article) > nav:first-child {
         text-decoration: underline;
     }
 }
+/* Beside the content, a collapsed sidebar saves no space, so show it and hide
+   its toggle. Browsers without ::details-content keep the toggle. */
+@media (width > 48em) {
+    @supports selector(::details-content) {
+        .docs-sidebar > details > summary {
+            display: none;
+        }
+        .docs-sidebar > details::details-content {
+            content-visibility: visible;
+        }
+    }
+}
 @media (max-width: 48em) {
-    main:has(> nav:first-child + article) {
+    qip-main-layout:has(> nav:first-child + article) {
         grid-template-columns: minmax(0, 1fr);
     }
-    main:has(> nav:first-child + article) > nav:first-child {
+    qip-main-layout:has(> nav:first-child + article) > nav:first-child {
         position: static;
         max-height: none;
         overflow-y: visible;

@@ -26,10 +26,10 @@ test("site WARC report parses archive recipes and formats mean and range", () =>
   assert.equal(first.size, 2);
 
   const remainingFirst = new Map([
-    ["10-add-open-graph-image-meta", 268], ["15-add-html-data-path", 136], ["20-add-docs-sidebar", 389], ["25-add-content-size", 309], ["30-add-sitemap-xml", 152], ["99-add-custom-element-scripts", 449],
+    ["10-add-open-graph-image-meta", 268], ["15-add-html-data-path", 136], ["20-apply-main-layout", 389], ["25-add-content-size", 309], ["30-add-sitemap-xml", 152], ["99-add-custom-element-scripts", 449],
   ]);
   const remainingSecond = new Map([
-    ["10-add-open-graph-image-meta", 339], ["15-add-html-data-path", 277], ["20-add-docs-sidebar", 496], ["25-add-content-size", 389], ["30-add-sitemap-xml", 218], ["99-add-custom-element-scripts", 553],
+    ["10-add-open-graph-image-meta", 339], ["15-add-html-data-path", 277], ["20-apply-main-layout", 496], ["25-add-content-size", 389], ["30-add-sitemap-xml", 218], ["99-add-custom-element-scripts", 553],
   ]);
   const summary = summarizeWarcRecipeRuns([
     new Map([...first, ...remainingFirst]),

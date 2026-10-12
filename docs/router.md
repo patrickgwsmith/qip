@@ -209,7 +209,54 @@ For other MIME types, if a recipe chain exists for the source MIME, the chain sh
 
 When a recipe chain runs for `text/markdown`, the router treats the response as `text/html; charset=utf-8`. Recipe modules should still declare their output content type when a different result is intended.
 
-Nested recipe roots are not active in this version. A file at `site/docs/_recipes/text/markdown/40-docs-sidebar.wasm` must not affect `/docs/router`. If path-scoped recipes are added later, they should merge by numeric prefix and should keep duplicate-prefix failures.
+Nested recipe roots are not active in this version. A file at `site/docs/_recipes/text/markdown/40-docs-sidebar.wasm` must not affect `/docs/router`. If path-scoped recipes are added later, they should merge by numeric prefix and should keep duplicate-prefix failures. To share markup across a section of the site, declare a [main layout](#main-layouts) in the section's page instead.
+
+## Main layouts
+
+A main layout is markup that a page shares with every page below it. The `20-apply-main-layout.wasm` recipe in `application/warc` applies it to the whole archive. The `/docs` page declares the docs sidebar this way:
+
+```html
+<qip-main-layout>
+<nav class="docs-sidebar" aria-label="Docs">…</nav>
+<article class="docs-content"><slot></slot></article>
+</qip-main-layout>
+```
+
+A `<qip-main-layout>` that is a direct child of `<main>` and contains at least one `<slot>` declares a layout. Its scope is the declaring page's path and every path below it: a layout on `/docs` applies to `/docs` and `/docs/router`, but not to `/docsearch`. A trailing slash does not change the scope.
+
+For each 200 HTML page in scope, the recipe replaces the content of `<main>` with a copy of the layout:
+
+- A direct child of `<main>` with a `slot="name"` attribute goes in place of `<slot name="name">`. Several children with the same name go there in document order.
+- All other content of `<main>` goes in place of the unnamed `<slot>`. The declaring page's own `<qip-main-layout>` is not part of its content.
+- A slot that the page does not fill shows the content between `<slot>` and `</slot>`.
+- A link in the layout whose `href` equals the page path gets `aria-current="page"`. The recipe removes `aria-current` from all other links in the layout.
+
+When layouts nest, such as on `/docs` and `/docs/spec`, the outer layout is applied first, and the inner layout goes in its unnamed slot. A page fills a named slot in the innermost layout that defines that name. Outer layouts must have an unnamed slot.
+
+The output keeps the `<qip-main-layout>` element, with its slots replaced, so CSS can select it. The recipe skips a page whose `<main>` already has a `<qip-main-layout>` without slots, so running it twice gives the same archive.
+
+Write the layout without blank lines inside it, because a blank line ends a raw HTML block in Markdown. Use root-relative URLs in the layout, because each copy appears at a different path. `make -j site-static` reports links that break.
+
+To find the direct children of `<main>`, the recipe tracks open elements with these HTML rules:
+
+- A block start tag, such as `<div>`, `<h2>`, or another `<p>`, closes an open `<p>`.
+- An `<li>` closes the previous `<li>` in the same list.
+- An end tag closes the elements still open inside its element. An end tag with no open element of that name is ignored.
+- Inside `<svg>` or `<math>`, `/>` closes the element, as in `<path d="…"/>`.
+
+When the recipe moves a `<p>` or `<li>` that had no end tag, it adds the end tag, so the element closes in the same place. The recipe does not follow HTML error recovery that moves elements to another parent, such as misnested formatting tags or text inside `<table>`.
+
+The recipe rejects the archive at the input offset of the element that caused the error, with one of these modes:
+
+| Mode | Cause |
+| --- | --- |
+| 0 | Two pages declare a layout for the same path. |
+| 1 | A layout repeats a slot name or has two unnamed slots. |
+| 2 | A `<qip-main-layout>` or `<slot>` is not closed, is nested in another one, or is not a direct child of `<main>`. |
+| 3 | An outer layout has no unnamed slot for the inner layout. |
+| 4 | A page fills a slot name that no layout in its scope defines. |
+| 5 | A page has content outside `slot` elements, and the innermost layout has no unnamed slot. |
+| 6 | The archive has more than 256 layouts, more than 8 nested layouts for one path, or more slots, links, or slot-filling elements than the recipe's fixed buffers hold. |
 
 ## Form Elements
 
