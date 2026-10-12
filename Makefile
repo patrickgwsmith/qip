@@ -752,6 +752,13 @@ LIBWEBP_KTX_DEC_CLANG_RAW_WASM := $(EMCC_CACHE)/webp-to-ktx2-r8g8b8a8-srgb.raw.w
 OPENJPEG_DEC_CLANG_RAW_WASM := $(EMCC_CACHE)/jp2-to-bmp-b8g8r8a8-srgb.raw.wasm
 THORVG_SVG_CLANG_RAW_WASM := $(EMCC_CACHE)/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.raw.wasm
 FJXL_KTX_CLANG_RAW_WASM := $(EMCC_CACHE)/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.raw.wasm
+SKIA_ROOT := third_party/skia-m124
+SKIA_SOURCE_FILES := $(filter %.c %.cpp %.cc %.h %.hpp %.inc %.inl %.json,$(shell find $(SKIA_ROOT) -type f))
+SKIA_BUILD_DIR := $(EMCC_CACHE)/skia-m124
+SKIA_LIBRARY := $(SKIA_BUILD_DIR)/libskia-svg.a
+SKIA_BUILD_JOBS ?= 4
+SKIA_SVG_CLANG_RAW_WASM := $(EMCC_CACHE)/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.raw.wasm
+
 AVIF_AOM_BUILD := $(EMCC_CACHE)/libaom-3.13.0-qip-encode-decode
 AVIF_LIBAVIF_BUILD := $(EMCC_CACHE)/libavif-1.4.1-qip-encode-decode
 AVIF_AOM_STAMP := $(EMCC_CACHE)/qip-libaom-3.13.0-encode-decode.stamp
@@ -869,6 +876,46 @@ $(OPENJPEG_DEC_CLANG_RAW_WASM): image/jp2/jp2-to-bmp-b8g8r8a8-srgb.c $(OPENJPEG_
 
 image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm: $(OPENJPEG_DEC_CLANG_RAW_WASM)
 	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+$(SKIA_LIBRARY): $(SKIA_SOURCE_FILES) tools/build-skia.py $(EMSDK_LTO_STAMP)
+	mkdir -p $(SKIA_BUILD_DIR)
+	python3 tools/build-skia.py --clang $(EMSDK_CLANG) --sysroot $(EMSDK_SYSROOT) --root $(SKIA_ROOT) --build-dir $(SKIA_BUILD_DIR) --library $@ --jobs $(SKIA_BUILD_JOBS)
+
+SKIA_SVG_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size failure_modes_per_input_offset uniform_set_width uniform_set_height uniform_set_background_color_rgba arena_peak_bytes arena_live_bytes arena_failed_allocation arena_free_unmatched_count __wasm_call_ctors
+SKIA_SVG_CLANG_EXPORT_FLAGS := $(foreach name,$(SKIA_SVG_CLANG_EXPORTS),-Xlinker --export=$(name))
+
+# Fonts arrive as multipart/related parts after the SVG root; none are embedded.
+# The 32 MiB input buffer needs 544 MiB of memory rather than 512 MiB.
+$(SKIA_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.cpp image/lib/ktx2-rgba8-srgb.h $(SKIA_LIBRARY) $(EMSDK_LTO_STAMP)
+	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(SKIA_ROOT) -I$(SKIA_ROOT)/qip -Iimage/lib -std=c++17 -O2 -flto -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DSK_BUILD_FOR_UNIX -DSK_TRIVIAL_ABI='[[clang::trivial_abi]]' -DNDEBUG -nostdlib -Wl,--gc-sections $< $(SKIA_LIBRARY) -L$(EMSDK_LTO_LIBDIR) -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=570425344 -Wl,--max-memory=570425344 $(WASM_STACK_FLAG) $(SKIA_SVG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
+
+image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm: $(SKIA_SVG_CLANG_RAW_WASM)
+	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+.PHONY: test-svg-skia
+test-svg-skia: image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm
+	node --test test/svg-rasterizer-skia.mjs
+
+components: image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm
+
+SKIA_TEXT_PATH_RAW_WASM := $(EMCC_CACHE)/svg-text-to-path-skia-with-fonts.raw.wasm
+SKIA_TEXT_PATH_EXPORTS := render input_ptr input_bytes_cap output_utf8_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size failure_modes_per_input_offset arena_peak_bytes arena_live_bytes arena_failed_allocation arena_free_unmatched_count __wasm_call_ctors
+SKIA_TEXT_PATH_EXPORT_FLAGS := $(foreach name,$(SKIA_TEXT_PATH_EXPORTS),-Xlinker --export=$(name))
+
+# Fonts arrive as multipart/related parts after the SVG root; none are embedded.
+# 192 MiB holds the 32 MiB input buffer and a 128 MiB arena. FreeType unpacks
+# WOFF and WOFF2 fonts into the arena; two large WOFF2 fonts peak near 90 MiB.
+$(SKIA_TEXT_PATH_RAW_WASM): image/svg+xml/svg-text-to-path-skia-with-fonts.cpp $(SKIA_LIBRARY) $(EMSDK_LTO_STAMP)
+	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) -isystem $(EMSDK_SYSROOT)/include/compat -I$(SKIA_ROOT) -I$(SKIA_ROOT)/qip -std=c++17 -O2 -flto -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DSK_BUILD_FOR_UNIX -DSK_TRIVIAL_ABI='[[clang::trivial_abi]]' -DNDEBUG -nostdlib -Wl,--gc-sections $< $(SKIA_LIBRARY) -L$(EMSDK_LTO_LIBDIR) -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=201326592 -Wl,--max-memory=201326592 $(WASM_STACK_FLAG) $(SKIA_TEXT_PATH_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
+
+image/svg+xml/svg-text-to-path-skia-with-fonts.wasm: $(SKIA_TEXT_PATH_RAW_WASM)
+	$(EMSDK_WASM_OPT) -O3 --enable-simd --enable-bulk-memory --strip-debug --strip-producers $< -o $@
+
+.PHONY: test-svg-text-to-path-skia
+test-svg-text-to-path-skia: image/svg+xml/svg-text-to-path-skia-with-fonts.wasm image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm
+	node --test test/svg-text-to-path-skia-with-fonts.mjs
+
+components: image/svg+xml/svg-text-to-path-skia-with-fonts.wasm
 
 $(THORVG_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.cpp image/lib/ktx2-rgba8-srgb.h $(THORVG_CPP_SOURCES) $(THORVG_ROOT)/qip/config.h $(THORVG_ROOT)/src/common/tvgLock.h $(THORVG_ROOT)/src/renderer/tvgLoader.h $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) $(THORVG_INCLUDE_FLAGS) $(THORVG_CLANG_FLAGS) -nostdlib -Wl,--gc-sections $< $(THORVG_CPP_SOURCES) -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=536870912 -Wl,--max-memory=536870912 $(WASM_STACK_FLAG) $(THORVG_SVG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
@@ -1193,6 +1240,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-to-pdf-inter-font.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
 	node --test test/svg-rasterizer-thorvg.mjs
+	node --test test/svg-rasterizer-skia.mjs
+	node --test test/svg-text-to-path-skia-with-fonts.mjs
 	node --test test/qip-play-debug-stats.mjs
 	node --test test/qip-play-steps.mjs
 	node --test test/qip-play-svg.mjs
@@ -1310,12 +1359,13 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/aws-sigv4-sign.mjs
 	node --test test/wasm-trap-instance-continues.mjs
 
-test-svg-rasterizers: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm application/wasm/wasm-bounded-output.wasm
+test-svg-rasterizers: image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm application/wasm/wasm-bounded-output.wasm
 	$(ZIG_ENV) zig test image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig $(ZIG_TEST_FLAGS)
 	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot=image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
 	node --test test/svg-rasterizer-thorvg.mjs
+	node --test test/svg-rasterizer-skia.mjs
 
 test-wasm-bounded-output: application/wasm/wasm-bounded-output.wasm
 	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot=application/wasm/wasm-bounded-output.zig -Mwasm_reader=application/wasm/lib/wasm-reader.zig

@@ -29,12 +29,15 @@ Related tools: [WebP to PNG or BMP](/webp-to-png) and [convert to WebP](/webp).
 
 ## SVG (`image/svg+xml`)
 
+- [`svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm`](/image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm) uses Skia’s CPU renderer for antialiased SVG paths, gradients, masks, filters, and text. It reads `multipart/related` input with the SVG as the root and the fonts to use as later parts, such as Inter passed with `-F`. It returns RGBA8 sRGB KTX2.
+
 - [`svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm`](/image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm) uses ThorVG's CPU renderer for broader SVG paint support and antialiased RGBA8 sRGB KTX2 output. This build does not include fonts or embedded raster-image decoders.
 - [`svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm`](/image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm) uses SIMD scanline path coverage with a 4 by 4 sample grid and linear-light compositing, then writes linear BT.709 RGBA32F KTX2.
 - [`svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm`](/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm) uses the same antialiasing path, then quantizes the completed image to canonical RGBA8 sRGB KTX2.
 - [`svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm`](/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm) provides the faster center-sampled baseline in canonical RGBA8 sRGB KTX2.
 - [`svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm`](/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm) provides BMP output for stages that still require it.
 - [`svg-recolor-current-color.wasm`](/image/svg+xml/svg-recolor-current-color.wasm) replaces supported `currentColor` uses with a supplied color.
+- [`svg-text-to-path-skia-with-fonts.wasm`](/image/svg+xml/svg-text-to-path-skia-with-fonts.wasm) replaces each `<text>` with a `<path>` of glyph outlines laid out by Skia, using only the TrueType, OpenType, WOFF, or WOFF2 fonts sent with the SVG as `multipart/related` parts. It keeps the rest of the SVG source unchanged.
 - [`svg-to-pdf-inter-font.wasm`](/image/svg+xml/svg-to-pdf-inter-font.wasm) converts a strict SVG vector subset to single-page PDF/A-2b with complete embedded Inter Regular, Bold, Italic, and Bold Italic text. It preserves paths, groups, affine transforms, supported native gradients, and element/group opacity; unsupported SVG rejects rather than rasterizing.
 - [`svg-to-data-uri.wasm`](/image/svg+xml/svg-to-data-uri.wasm) percent-encodes SVG bytes as a data URI.
 

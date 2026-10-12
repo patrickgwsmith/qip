@@ -14,6 +14,23 @@ These files come from the official Inter 4.1 release archive:
 are from the archive's `extras/ttf` directory. Inter is licensed under the SIL
 Open Font License 1.1. See `LICENSE.txt` in this directory.
 
+The `woff` and `woff2` directories hold WOFF and WOFF2 versions of the four
+Display TrueType files. They were made with fontTools 4.66.1 and the Python
+`brotli` 1.2.0 package, keeping each font's tables and timestamps unchanged:
+
+```python
+from fontTools.ttLib import TTFont
+
+for face in ["Regular", "Bold", "Italic", "BoldItalic"]:
+    for flavor in ["woff", "woff2"]:
+        font = TTFont(f"ttf/InterDisplay-{face}.ttf", recalcTimestamp=False)
+        font.flavor = flavor
+        font.save(f"{flavor}/InterDisplay-{face}.{flavor}", reorderTables=False)
+```
+
+The WOFF2 files transform the `glyf` and `loca` tables. The Skia components'
+tests check that these files render the same output as the TrueType files.
+
 The OG renderer uses the Display faces because its title text is large. The
 font files are generation inputs; QIP components embed generated outlines and
 metrics instead of reading a font at runtime.

@@ -62,7 +62,9 @@ path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,
 /image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm,utf8,image/svg+xml,1048576,bytes,image/ktx2,100000224
 /image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm,utf8,image/svg+xml,1048576,bytes,image/ktx2,100000224
 /image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm,utf8,image/svg+xml,1048576,bytes,image/ktx2,400000224
+/image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm,bytes,multipart/related,33554432,bytes,image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB,100000224
 /image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm,utf8,image/svg+xml,1048576,bytes,image/ktx2,100000224
+/image/svg+xml/svg-text-to-path-skia-with-fonts.wasm,bytes,multipart/related,33554432,utf8,image/svg+xml,16777216
 /image/svg+xml/svg-to-data-uri.wasm,utf8,image/svg+xml,20473,utf8,text/uri-list,61440
 /image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm,bytes,image/webp,67108864,bytes,image/bmp,100000054
 /image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm,bytes,image/webp,67108864,bytes,image/ktx2,100000224
