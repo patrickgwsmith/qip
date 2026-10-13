@@ -74,6 +74,35 @@ If the module uses internal scratch buffers, allocate enough memory and place th
 - Alpha is always provided.
 - Unless the filter explicitly modifies alpha, it should preserve it.
 
+## Point Filters in WGSL
+
+A filter that maps each pixel without reading its neighbors can be a WGSL
+pixel kernel instead of hand-written Wasm. `text/wgsl/wgsl-compute-to-wasm.wasm`
+compiles it to a module with the exports above, and each `override` becomes a
+uniform:
+
+```wgsl
+fn pixel(c: vec4f) -> vec4f {
+  return vec4f(1.0 - c.rgb, c.a);
+}
+```
+
+`make components-wgsl-wasm` builds `components/**/*.wgsl` this way, such as
+`components/rgba/invert.wgsl`. Kernels have no halo and cannot read tile
+coordinates.
+
+`text/wgsl/pixel-kernels.mjs` plans these kernels:
+
+- `fusePixelKernels(sources)` joins consecutive kernels into one source that
+  compiles to one module. Pixels stay f32 between the fused stages, and the
+  host makes one tile pass for all of them. The output is bit for bit the same
+  as running each stage on the same f32 tile. Each stage's names get an
+  `s<i>_` prefix, so `brightness` in stage 0 becomes the uniform
+  `s0_brightness`.
+- `pixelKernelsToComputeShader(source)` wraps a kernel source in a WebGPU
+  compute shader with one invocation per pixel. GPU output can differ from the
+  Wasm output by about one ulp, because the GPU can fuse multiply-adds.
+
 ## Reference Implementation Notes
 
 - `main.go` (Go) and `image.html` (browser) implement the host pipeline.

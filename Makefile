@@ -1,4 +1,4 @@
-.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-parity test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
+.PHONY: fuzz-zlib compliance components recipes components-wat-wasm components-wgsl-wasm components-c-wasm components-zig-wasm components-rust-wasm qipx-rust test-qipx-parity test test-go test-node test-deno test-comply test-wasm-core-1-spec test-wasm-core-2-spec test-svg-rasterizers test-wasm-bounded-output test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-component-to-swift-complex test-qip-router-help site-static site-checks install score wasm-safety-report strict-profile-report benchmark-site-warc-recipes
 
 default: qip compliance components recipes
 
@@ -207,6 +207,12 @@ COMPONENT_ZIG_FILES := $(shell find $(COMPONENT_DIRS) \( -path 'gui/assets' -o -
 COMPONENT_WAT_TARGETS := $(patsubst %.wat,%.wasm,$(COMPONENT_WAT_FILES))
 COMPONENT_C_TARGETS := $(patsubst %.c,%.wasm,$(COMPONENT_C_FILES))
 COMPONENT_ZIG_TARGETS := $(patsubst %.zig,%.wasm,$(COMPONENT_ZIG_FILES))
+# Pixel kernels: WGSL point kernels built with the WGSL compiler component.
+COMPONENT_WGSL_FILES := $(shell find components -type f -name '*.wgsl')
+COMPONENT_WGSL_TARGETS := $(patsubst %.wgsl,%.wasm,$(COMPONENT_WGSL_FILES))
+
+$(COMPONENT_WGSL_TARGETS): %.wasm: %.wgsl text/wgsl/wgsl-compute-to-wasm.wasm | qip
+	$(QIP_BIN) run -i $< -o $@ text/wgsl/wgsl-compute-to-wasm.wasm
 
 define COMPONENT_WAT_RULE
 $(1)/%.wasm: $(1)/%.wat
@@ -582,6 +588,7 @@ application/tzif/tzif-transitions-csv.wasm: ZIG_WASM_MAX_MEMORY = 9437184
 application/dns-message/dns-message-to-text.wasm: ZIG_WASM_MAX_MEMORY = 34734080
 application/dns-message/dns-query-to-dns-message.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 application/dns-message/dns-message-to-text.wasm application/dns-message/dns-query-to-dns-message.wasm: application/dns-message/lib/dns.zig
+text/wgsl/wgsl-compute-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -1124,6 +1131,7 @@ recipes/application/warc/99-add-custom-element-scripts.wasm: application/warc/wa
 	ln -sf ../../../application/warc/warc-add-custom-element-scripts.wasm $@
 
 components-wat-wasm: $(COMPONENT_WAT_TARGETS)
+components-wgsl-wasm: $(COMPONENT_WGSL_TARGETS)
 components-c-wasm: $(COMPONENT_C_TARGETS)
 components-zig-wasm: $(COMPONENT_ZIG_TARGETS)
 components-zig-wasm: text/markdown/markdown-basic.wasm
@@ -1146,7 +1154,7 @@ recipes: recipes/text/markdown/28-html-code-syntax-highlight-css.wasm
 recipes: recipes/text/markdown/29-add-highlight-stylesheet-night-owl.wasm
 recipes: recipes/text/html/65-add-wasm-anchor-type.wasm
 
-components: components-wat-wasm components-c-wasm components-zig-wasm components-rust-wasm
+components: components-wat-wasm components-wgsl-wasm components-c-wasm components-zig-wasm components-rust-wasm
 
 test: qip components test-go test-node test-qipx-parity test-zig test-snapshot test-comply test-markdown-pathological test-warc-libs test-qip-component-to-c test-qip-component-to-zig test-qip-component-to-swift test-qip-router-help test-base64-decode-variants
 
@@ -1341,6 +1349,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/zip-list-extract.mjs
 	node --test test/tzif-transitions-csv.mjs
 	node --test test/dns-message.mjs
+	node --test test/wgsl-compute-to-wasm.mjs
+	node --test test/wgsl-pixel-kernels.mjs
 	node --test test/bmp-png.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs
 	node --test test/bmp-b8g8r8a8-srgb-avif-lossy.mjs
