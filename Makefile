@@ -577,6 +577,11 @@ application/zip/zip-list-entries-csv.wasm application/zip/zip-list-files-csv.was
 application/zip/zip-list-entries-csv.wasm application/zip/zip-list-files-csv.wasm application/zip/zip-extract-file.wasm: application/zip/%.wasm: application/zip/%.zig application/zip/lib/zip.zig application/zip/lib/list-csv.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
 	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep inflate -Mroot=$< -Minflate=bytes/lib/inflate.zig -femit-bin=$@
 application/tzif/tzif-transitions-csv.wasm: ZIG_WASM_MAX_MEMORY = 9437184
+# The decoder's output buffer holds the proven worst case for a 65535-byte
+# message. Neither module has memory.grow, so the maximum is the initial size.
+application/dns-message/dns-message-to-text.wasm: ZIG_WASM_MAX_MEMORY = 34734080
+application/dns-message/dns-query-to-dns-message.wasm: ZIG_WASM_MAX_MEMORY = 1114112
+application/dns-message/dns-message-to-text.wasm application/dns-message/dns-query-to-dns-message.wasm: application/dns-message/lib/dns.zig
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -1335,6 +1340,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/zip-to-tar.mjs
 	node --test test/zip-list-extract.mjs
 	node --test test/tzif-transitions-csv.mjs
+	node --test test/dns-message.mjs
 	node --test test/bmp-png.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs
 	node --test test/bmp-b8g8r8a8-srgb-avif-lossy.mjs

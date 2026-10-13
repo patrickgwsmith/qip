@@ -15,7 +15,7 @@
 
 # QIP Tools
 
-Tools that run entirely in your browser. Nothing is uploaded. You can download the same `.wasm` files to run in JavaScript or in your terminal. Powered by [QIP content components](/docs/component-contract). For reusable behavior tests, see the [Compliance oracle downloads](/oracles).
+These tools process input in your browser. Nothing is uploaded unless a tool is marked as a network tool; its page explains what it sends. You can download the same `.wasm` files to run in JavaScript or in your terminal. Powered by [QIP content components](/docs/component-contract). For reusable behavior tests, see the [Compliance oracle downloads](/oracles).
 
 Browse the complete lists of [`text/*` components](/text), [`image/*` components](/image), and [`audio/*` components](/audio) when you need the reusable module rather than a browser interface.
 
@@ -28,6 +28,7 @@ Browse the complete lists of [`text/*` components](/text), [`image/*` components
 - [JSON prettifier](/json-prettify) validates and indents JSON.
 - [Base64 encoder and decoder](/base64) converts text or bytes to and from Base64.
 - [AWS SigV4 request signer](/sigv4) outputs the signed headers for an AWS request without sending it.
+- **Network tool:** [DNS over HTTPS lookup](/dns) sends a selected DNS question to Cloudflare or Google and decodes the reply like `dig`.
 - [PDF to text](/pdf) extracts positioned text from born-digital PDFs locally.
 - [Favicon generator](/favicon) converts a PNG or BMP into a `favicon.ico`.
 - [Convert to WebP](/webp) converts JPEG, PNG, AVIF, WebP, or BMP to lossy or exact lossless WebP locally.

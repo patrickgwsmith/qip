@@ -1,4 +1,6 @@
 path,input_encoding,input_mime,input_capacity_bytes,output_encoding,output_mime,output_capacity_bytes
+/application/dns-message/dns-message-to-text.wasm,bytes,application/dns-message,65535,utf8,text/plain,33554944
+/application/dns-message/dns-query-to-dns-message.wasm,utf8,text/plain,4096,bytes,application/dns-message,282
 /application/pdf/pdf-extract-images.wasm,bytes,application/pdf,67108864,bytes,application/x-tar,134217728
 /application/pdf/pdf-extract-text.wasm,bytes,application/pdf,67108864,utf8,text/plain,33554432
 /application/tzif/tzif-transitions-csv.wasm,bytes,application/tzif,262144,utf8,text/csv,7653511
