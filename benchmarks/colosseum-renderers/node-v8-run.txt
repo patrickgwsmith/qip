@@ -1,0 +1,31 @@
+gui/colosseum.wasm: 1114 sectors, 6570 edges
+polygon BSP: 7027 polygons, 3660 nodes, depth 25
+level build 76.0 ms (first render), BSP build 33.2 ms
+Node v26.3.0, Apple M5, load 9.3 8.2 7.7; 100 runs after 10 warmup renders
+
+| View | Renderer | Median ms | p95 ms | Min ms | Work | Same pixels |
+| --- | --- | ---: | ---: | ---: | --- | ---: |
+| street | sectors | 23.77 | 27.57 | 18.17 | 3809 sector visits | 100.00% |
+| street | bsp | 30.03 | 36.80 | 22.28 | 351 nodes, 448 polygons | 100.00% |
+| street | sectors-flat | 8.07 | 10.63 | 5.36 | 3809 sector visits | 100.00% |
+| street | bsp-flat | 11.52 | 14.03 | 8.19 | 351 nodes, 448 polygons | 100.00% |
+| deck | sectors | 25.06 | 27.95 | 18.97 | 9919 sector visits | 100.00% |
+| deck | bsp | 26.04 | 29.30 | 20.19 | 946 nodes, 1268 polygons | 100.00% |
+| deck | sectors-flat | 7.16 | 9.12 | 4.68 | 9919 sector visits | 100.00% |
+| deck | bsp-flat | 9.75 | 11.56 | 6.16 | 946 nodes, 1268 polygons | 100.00% |
+| hypogeum | sectors | 21.32 | 23.92 | 16.14 | 1550 sector visits | 100.00% |
+| hypogeum | bsp | 27.31 | 29.62 | 22.12 | 298 nodes, 131 polygons | 100.00% |
+| hypogeum | sectors-flat | 6.01 | 8.02 | 4.31 | 1550 sector visits | 100.00% |
+| hypogeum | bsp-flat | 8.87 | 11.54 | 6.08 | 298 nodes, 131 polygons | 100.00% |
+| ambulatory | sectors | 20.67 | 23.22 | 15.90 | 1893 sector visits | 100.00% |
+| ambulatory | bsp | 26.44 | 29.33 | 20.07 | 276 nodes, 276 polygons | 100.00% |
+| ambulatory | sectors-flat | 6.96 | 8.50 | 4.58 | 1893 sector visits | 100.00% |
+| ambulatory | bsp-flat | 9.43 | 11.40 | 7.09 | 276 nodes, 276 polygons | 100.00% |
+| terrace | sectors | 24.18 | 33.96 | 14.84 | 14821 sector visits | 100.00% |
+| terrace | bsp | 25.80 | 41.58 | 16.33 | 1173 nodes, 1911 polygons | 100.00% |
+| terrace | sectors-flat | 7.38 | 12.16 | 4.50 | 14821 sector visits | 100.00% |
+| terrace | bsp-flat | 9.57 | 12.87 | 5.91 | 1173 nodes, 1911 polygons | 100.00% |
+| seats | sectors | 23.68 | 25.88 | 16.91 | 8416 sector visits | 100.00% |
+| seats | bsp | 23.53 | 27.53 | 14.83 | 630 nodes, 862 polygons | 100.00% |
+| seats | sectors-flat | 6.65 | 8.59 | 4.03 | 8416 sector visits | 100.00% |
+| seats | bsp-flat | 8.27 | 10.56 | 5.10 | 630 nodes, 862 polygons | 100.00% |

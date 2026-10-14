@@ -23,8 +23,12 @@ events, and timing.
 ## Games
 
 - [`aces-up.wasm`](/gui/aces-up.wasm) plays Aces Up solitaire and returns SVG frames.
+- [`highway-chase.wasm`](/gui/highway-chase.wasm) runs a Spy Hunter style road chase on a generated highway.
 - [`klondike.wasm`](/gui/klondike.wasm) plays draw-one Klondike and returns SVG frames.
 - [`liars-dice.wasm`](/gui/liars-dice.wasm) plays Liar's Dice.
+- [`rotunda.wasm`](/gui/rotunda.wasm) is a first-person walk through the Pantheon, with ramps, raised floors, birds flying through the oculus, and rain falling through it onto the drains below, drawn front to back from a BSP.
+- [`colosseum.wasm`](/gui/colosseum.wasm) is a first-person walk through the Colosseum, with the hypogeum under the arena, ambulatories stacked on each other, and gulls landing on the seats that you can fly with, drawn as Build-style sectors or as a true 3D BSP.
+- [`hovercraftsman.wasm`](/gui/hovercraftsman.wasm) puts a 1998 startup's office in an orange hovercraft on San Francisco Bay: walk the cabin, write the demo on a 17 inch CRT, and drive the craft, with hovercraft handling and an autopilot, drawn from two true 3D BSPs.
 - [`peon-gold.wasm`](/gui/peon-gold.wasm) runs the Peon Gold game loop.
 - [`side-scroller-platformer.wasm`](/gui/side-scroller-platformer.wasm) runs a side-scrolling platform game.
 - [`snake.wasm`](/gui/snake.wasm) combines key input with scheduled movement.
@@ -38,6 +42,8 @@ events, and timing.
 
 - [`browser-security.wasm`](/gui/browser-security.wasm) presents a browser-security interface.
 - [`cover-flow.wasm`](/gui/cover-flow.wasm) and [`cover-flow-lofi.wasm`](/gui/cover-flow-lofi.wasm) browse a Cover Flow layout.
+- [`data-grid-svg.wasm`](/gui/data-grid-svg.wasm) draws a sortable, filterable grid of 1,000 orders as SVG, 17 rows at a time.
+- [`date-range-picker-svg.wasm`](/gui/date-range-picker-svg.wasm) draws a two-month check-in and check-out picker as SVG.
 - [`dock-magnification.wasm`](/gui/dock-magnification.wasm) magnifies icons around the pointer.
 - [`layout-systems.wasm`](/gui/layout-systems.wasm) compares layout behavior.
 - [`macintosh-1bit.wasm`](/gui/macintosh-1bit.wasm) renders a monochrome Macintosh interface.

@@ -128,9 +128,19 @@ const ROTUNDA_SPOT_R: f32 = 13.0;
 const ROTUNDA_WALK_R: f32 = 14.5;
 const OUTSIDE_CY: f32 = 20.0;
 
-const SUN_ELEVATION: f32 = 0.87; // About 50 degrees.
-const SUN_AZ0: f32 = -std.math.pi / 2.0 - 0.7;
-const SUN_DRIFT_PER_MS: f32 = 0.000012;
+// The sun follows its real path over Rome on 21 April, the city's birthday,
+// from 10:00 to 14:00 local solar time, one hour every 2.5 minutes of play.
+// Its elevation stays above 50 degrees, so the beam reaches the floor, and
+// noon's 60 degrees is still in reach of looking up. Each later stretch of
+// play is the same hours on the next day.
+const ROME_LATITUDE: f32 = 41.9 * std.math.pi / 180.0;
+const SUN_DECLINATION: f32 = 11.6 * std.math.pi / 180.0;
+const SUN_FIRST_HOUR: f32 = 10.0;
+const SUN_HOURS: f32 = 4.0;
+const SUN_DAY_MS: i32 = 600_000;
+// The disc is drawn about five times its real size so it reads at 640 by 480.
+const SUN_DISC: f32 = 0.022;
+const SUN_HALO: f32 = 0.2;
 
 // Showers come and go. Rain falls on the open piazza around the player and,
 // inside, only in the column under the oculus.
@@ -1733,10 +1743,21 @@ fn updateRain() void {
 
 // Lighting
 
+// Local solar time, in hours, for the moment being played.
+fn sunHour() f32 {
+    const f = @as(f32, @floatFromInt(@mod(time_ms, SUN_DAY_MS))) / @as(f32, @floatFromInt(SUN_DAY_MS));
+    return SUN_FIRST_HOUR + f * SUN_HOURS;
+}
+
+// The unit vector toward the sun, east, north, up, from its hour angle and
+// declination at Rome's latitude. It lights the beam, the sky, and the piazza.
 fn sunDir() [3]f32 {
-    const az = SUN_AZ0 + @as(f32, @floatFromInt(time_ms)) * SUN_DRIFT_PER_MS;
-    const ce = @cos(SUN_ELEVATION);
-    return .{ ce * @cos(az), ce * @sin(az), @sin(SUN_ELEVATION) };
+    const h = (sunHour() - 12.0) * (std.math.pi / 12.0);
+    const sl = @sin(ROME_LATITUDE);
+    const cl = @cos(ROME_LATITUDE);
+    const sd = @sin(SUN_DECLINATION);
+    const cd = @cos(SUN_DECLINATION);
+    return .{ -cd * @sin(h), cl * sd - sl * cd * @cos(h), sl * sd + cl * cd * @cos(h) };
 }
 
 var sun: [3]f32 = .{ 0, -1, 0 };
@@ -2178,7 +2199,6 @@ var ev_seg: [SCREEN_W][MAX_EVENTS]u16 = undefined;
 var cam_x: f32 = 0;
 var cam_y: f32 = 0;
 var cam_z: f32 = EYE_Z;
-var cam_sec: Sector = .ground;
 var cam_fx: f32 = 0;
 var cam_fy: f32 = 1;
 var cam_rx: f32 = 1;
@@ -2190,11 +2210,18 @@ fn setCamera(x: f32, y: f32, z: f32, angle: f32, look_px: f32) void {
     cam_x = x;
     cam_y = y;
     cam_z = z;
-    cam_sec = sectorAt(x, y);
     cam_fx = @cos(angle);
     cam_fy = @sin(angle);
     cam_rx = cam_fy;
     cam_ry = -cam_fx;
+}
+
+// The sector a column's floor starts in. Step lines nearer than NEAR are
+// clipped away with the rest of the view, so this is taken at that depth:
+// from the camera's own sector, a step line just in front of a walker
+// standing on it would be missed and leave the column on the wrong floor.
+fn columnSector(rx: f32, ry: f32) Sector {
+    return sectorAt(cam_x + rx * NEAR, cam_y + ry * NEAR);
 }
 
 const Visit = struct { node: i16, draw: bool };
@@ -2370,54 +2397,63 @@ fn birdShadow(b: Bird, x: f32, y: f32, z: f32) bool {
     return @abs(along - sweep) < chord;
 }
 
+// The sunbeam is every point whose line to the sun passes through the
+// oculus, so along a view ray its path toward the sun meets the oculus plane
+// at q0 + t * q1 in plan. That is linear in t, so where the ray is in the
+// beam is a quadratic. q0 is the camera's own point and is fixed per frame.
 const BeamRay = struct {
-    wx: f32,
-    wy: f32,
-    wz: f32,
-    e: f32,
-    bx: f32,
-    by: f32,
-    bz: f32,
-    len: f32,
+    q0x: f32,
+    q0y: f32,
+    // Plan offset toward the sun per metre of height.
+    sx: f32,
+    sy: f32,
 };
 
 var beam_ray: BeamRay = undefined;
 
 fn prepareBeam() void {
+    const sx = sun[0] / sun[2];
+    const sy = sun[1] / sun[2];
     beam_ray = .{
-        .wx = cam_x,
-        .wy = cam_y,
-        .wz = cam_z - ZTOP,
-        .e = 0,
-        .bx = -sun[0],
-        .by = -sun[1],
-        .bz = -sun[2],
-        .len = ZTOP / sun[2],
+        .q0x = cam_x + sx * (ZTOP - cam_z),
+        .q0y = cam_y + sy * (ZTOP - cam_z),
+        .sx = sx,
+        .sy = sy,
     };
-    beam_ray.e = beam_ray.bx * beam_ray.wx + beam_ray.by * beam_ray.wy + beam_ray.bz * beam_ray.wz;
 }
 
-// Dust glowing in the sunbeam: the view ray's closest approach to the beam
-// axis, counted only in front of whatever the pixel hit.
+// Dust glowing in the sunbeam: the more of the beam a view ray crosses in
+// front of whatever the pixel hit, the brighter. Looking up the beam from
+// inside it crosses the most, and the glow levels off there.
 fn beamGlow(rx: f32, ry: f32, vz: f32, t_hit: f32) f32 {
     const b = beam_ray;
-    const a = rx * rx + ry * ry + vz * vz;
-    const bb = rx * b.bx + ry * b.by + vz * b.bz;
-    const d = rx * b.wx + ry * b.wy + vz * b.wz;
-    const denom = a - bb * bb;
-    if (denom < 1e-6) return 0;
-    // The closest approach to the beam's axis, clamped to the stretch from
-    // the oculus to the floor so the glow fades rather than stopping dead.
-    const tb = std.math.clamp((a * b.e - bb * d) / denom, 0.0, b.len);
-    const tv = (tb * bb - d) / a;
-    if (tv <= 0 or tv >= t_hit) return 0;
-    const qx = b.wx + tv * rx - tb * b.bx;
-    const qy = b.wy + tv * ry - tb * b.by;
-    const qz = b.wz + tv * vz - tb * b.bz;
-    const d2 = qx * qx + qy * qy + qz * qz;
-    if (d2 >= OCULUS_R * OCULUS_R) return 0;
-    const f = 1.0 - @sqrt(d2) / OCULUS_R;
-    return f * f * 0.32;
+    const q1x = rx - b.sx * vz;
+    const q1y = ry - b.sy * vz;
+    const qa = q1x * q1x + q1y * q1y;
+    const qb = b.q0x * q1x + b.q0y * q1y;
+    const qc = b.q0x * b.q0x + b.q0y * b.q0y - OCULUS_R * OCULUS_R;
+    var t0: f32 = 0;
+    var t1: f32 = t_hit;
+    if (qa < 1e-9) {
+        // Parallel to the beam: all in it or all out.
+        if (qc >= 0) return 0;
+    } else {
+        const disc = qb * qb - qa * qc;
+        if (disc <= 0) return 0;
+        const root = @sqrt(disc);
+        t0 = @max(t0, (-qb - root) / qa);
+        t1 = @min(t1, (-qb + root) / qa);
+    }
+    // Only between the floor and the oculus.
+    if (vz > 1e-6) {
+        t1 = @min(t1, (ZTOP - cam_z) / vz);
+    } else if (vz < -1e-6) {
+        t1 = @min(t1, -cam_z / vz);
+    }
+    if (t1 <= t0) return 0;
+    const g = (t1 - t0) * @sqrt(rx * rx + ry * ry + vz * vz) / (2.0 * OCULUS_R);
+    const g2 = g * g;
+    return 0.2 * g2 / (0.12 + g2);
 }
 
 // Spray in the column of rain under the oculus: the more of the column a
@@ -2453,8 +2489,14 @@ fn skyColor(rx: f32, ry: f32, vz: f32) Rgb {
     const len = @sqrt(rx * rx + ry * ry + vz * vz);
     const el = std.math.clamp(vz / len, 0.0, 1.0);
     var c = mix(.{ 0.92, 0.84, 0.7 }, .{ 0.3, 0.52, 0.84 }, @sqrt(el));
+    // The sun: a glare that brightens toward it, then the disc itself.
     const sd = (rx * sun[0] + ry * sun[1] + vz * sun[2]) / len;
-    if (sd > 0.97) c = mix(c, .{ 1.0, 0.98, 0.9 }, std.math.clamp((sd - 0.97) / 0.025, 0.0, 1.0));
+    if (sd > @cos(SUN_HALO)) {
+        const ang = @sqrt(@max(0.0, 2.0 * (1.0 - sd)));
+        const g = 1.0 - ang / SUN_HALO;
+        c = mix(c, .{ 1.0, 0.96, 0.84 }, g * g * 0.3);
+        c = mix(c, .{ 1.0, 0.99, 0.94 }, std.math.clamp((SUN_DISC - ang) / 0.004 + 0.5, 0.0, 1.0));
+    }
     if (vz > 0.02) {
         const k = 1.0 / vz;
         const drift = @as(f32, @floatFromInt(anim_ms)) * 0.00005;
@@ -2579,7 +2621,7 @@ fn drawScene() void {
         var bands: [MAX_EVENTS * 2 + 2]Band = undefined;
         var nb: usize = 0;
         var clip: f32 = @floatFromInt(SCREEN_H);
-        var sec = cam_sec;
+        var sec = columnSector(rx, ry);
         var near: f32 = NEAR;
         var k: usize = 0;
         while (k < ev_n[c]) : (k += 1) {
@@ -2652,7 +2694,8 @@ fn drawScene() void {
                 t_hit = t;
                 if (hx * hx + hy * hy < R * R) {
                     color = domeColor(hx, hy, rx, ry, vz, t, &t_hit);
-                    color = fog(color, t_hit, false);
+                    // The sky through the oculus is not hazed like the dome.
+                    if (t_hit < 2000.0) color = fog(color, t_hit, false);
                 } else if (hy < PORTICO_FRONT) {
                     color = fog(ceilingFlat(hx, hy) * splat(ambientAt(hx, hy) * 0.85), t, false);
                 } else {
@@ -3612,8 +3655,7 @@ test "walls and columns stop the player" {
 
 test "all seven sigils win in the sunbeam" {
     var t = startForTest();
-    // The early sunbeam falls in the north-east niche (pickup 6), so take
-    // that sigil first and finish in the east niche (pickup 5).
+    // Take every sigil but the east niche's (pickup 5), then finish there.
     for ([_]usize{ 6, 0, 1, 2, 3, 4 }) |i| {
         const p = pickups[i];
         px = p.x;
@@ -3638,6 +3680,65 @@ test "all seven sigils win in the sunbeam" {
     try std.testing.expectEqual(Mode.won, mode);
     try std.testing.expect(hi_score > 7 * 500);
     try std.testing.expectEqual(t, runUpdate(t + 16) - 16);
+}
+
+test "the sun crosses Rome's southern sky and keeps the beam on the floor" {
+    resetForTest();
+    _ = renderImpl(0);
+    var t: i32 = 0;
+    while (t <= SUN_DAY_MS) : (t += 10_000) {
+        time_ms = t;
+        const s = sunDir();
+        try std.testing.expectApproxEqAbs(@as(f32, 1), s[0] * s[0] + s[1] * s[1] + s[2] * s[2], 1e-5);
+        // Between about 50 degrees at 10:00 and 14:00 and 60 at noon.
+        const el = std.math.asin(s[2]);
+        try std.testing.expect(el > 0.87 and el < 1.06);
+        try std.testing.expect(s[1] < 0);
+        if (t < SUN_DAY_MS / 2) try std.testing.expect(s[0] > 0);
+        if (t > SUN_DAY_MS / 2 and t < SUN_DAY_MS) try std.testing.expect(s[0] < 0);
+        // The beam's centre lands on the rotunda floor, north of the middle.
+        const k = ZTOP / s[2];
+        const fx = -s[0] * k;
+        const fy = -s[1] * k;
+        try std.testing.expect(fx * fx + fy * fy < R * R);
+        try std.testing.expect(fy > 0);
+        try std.testing.expect(beamAt(fx, fy, 0) > 0.9);
+    }
+    // Noon is due south at its highest, and each day repeats the last.
+    time_ms = SUN_DAY_MS / 2;
+    try std.testing.expectApproxEqAbs(@as(f32, 12), sunHour(), 1e-4);
+    try std.testing.expectApproxEqAbs(@as(f32, 0), sunDir()[0], 1e-5);
+    try std.testing.expectApproxEqAbs(std.math.pi / 2.0 - ROME_LATITUDE + SUN_DECLINATION, std.math.asin(sunDir()[2]), 1e-4);
+    time_ms = SUN_DAY_MS + 12_345;
+    const later = sunDir();
+    time_ms = 12_345;
+    try std.testing.expectEqual(sunDir(), later);
+}
+
+test "standing in the sunbeam and looking up shows the sun through the oculus" {
+    resetForTest();
+    _ = renderImpl(0);
+    rain = 0;
+    for ([_]i32{ 0, SUN_DAY_MS / 4, SUN_DAY_MS / 2, SUN_DAY_MS - 1000 }) |t| {
+        time_ms = t;
+        const s = sunDir();
+        // On the beam's axis at eye height, facing the sun.
+        const k = (ZTOP - EYE_Z) / s[2];
+        setCamera(-s[0] * k, -s[1] * k, EYE_Z, std.math.atan2(s[1], s[0]), LOOK_UP_MAX);
+        drawScene();
+        try std.testing.expect(sunlit(cam_x, cam_y, EYE_Z) > 0.9);
+        const tan_el = s[2] / @sqrt(s[0] * s[0] + s[1] * s[1]);
+        const row: usize = @intFromFloat(horizon - tan_el * FOCAL);
+        const col: usize = SCREEN_W / 2;
+        try std.testing.expectEqual(DEPTH_SKY, depth_buf[row * SCREEN_W + col]);
+        const disc = readPixel(col, row);
+        try std.testing.expect(@reduce(.Min, disc) > 0.9);
+        // Well off the disc, the sky or the dome is plainly darker. High up,
+        // the sheared view spreads angles across, so this is only a few
+        // degrees from the sun.
+        const off = readPixel(col - 100, row);
+        try std.testing.expect(@reduce(.Add, off) < @reduce(.Add, disc) - 0.3);
+    }
 }
 
 test "step lines separate the sectors they name" {
@@ -3723,7 +3824,7 @@ test "step-line crossings in every column match brute force" {
                 // Each stretch between crossings, up to the wall, lies in the
                 // sector the column tracked for it.
                 var from: f32 = 0;
-                var sec = cam_sec;
+                var sec = columnSector(rx, ry);
                 for (0..n + 1) |i| {
                     const to = if (i < n) depths[i] else col_depth[c];
                     const mid = (from + to) * 0.5;
@@ -3736,6 +3837,51 @@ test "step-line crossings in every column match brute force" {
     }
     try std.testing.expect(crossings > 1000);
     try std.testing.expect(grazing < spots.len * 8 * SCREEN_W / 100);
+}
+
+test "standing on a step line keeps every column on the right floor" {
+    resetForTest();
+    _ = renderImpl(0);
+    var checked: usize = 0;
+    for (base_segs[0..base_count]) |s| {
+        if (!s.portal) continue;
+        const dx = s.x2 - s.x1;
+        const dy = s.y2 - s.y1;
+        const len = @sqrt(dx * dx + dy * dy);
+        for ([_]f32{ 0.25, 0.5, 0.75 }) |f| {
+            // Just either side of the line, nearer than NEAR.
+            for ([_]f32{ -0.02, 0.02 }) |off| {
+                const x = s.x1 + dx * f - dy / len * off;
+                const y = s.y1 + dy * f + dx / len * off;
+                var k: usize = 0;
+                while (k < 8) : (k += 1) {
+                    setCamera(x, y, floorAt(x, y) + EYE_Z, @as(f32, @floatFromInt(k)) * std.math.pi / 4.0 + 0.1, 0);
+                    castWalls();
+                    var c: usize = 0;
+                    while (c < SCREEN_W) : (c += 1) {
+                        const sl = (@as(f32, @floatFromInt(c)) + 0.5 - HALF_W) / FOCAL;
+                        const rx = cam_fx + sl * cam_rx;
+                        const ry = cam_fy + sl * cam_ry;
+                        const n = ev_n[c];
+                        const end = @min(col_depth[c], 300);
+                        var from = NEAR;
+                        var sec = columnSector(rx, ry);
+                        for (0..n + 1) |i| {
+                            const to = if (i < n) ev_depth[c][i] else end;
+                            const mid = (from + to) * 0.5;
+                            if (to - from > 0.02) {
+                                try std.testing.expectEqual(sectorAt(cam_x + rx * mid, cam_y + ry * mid), sec);
+                                checked += 1;
+                            }
+                            if (i < n) sec = ev_sec[c][i];
+                            from = to;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    try std.testing.expect(checked > 100_000);
 }
 
 test "a step face rises where the far floor is higher" {
@@ -3839,7 +3985,6 @@ test "jumping climbs the terrace edge and the apse ledge" {
     runSteps(&t, 80);
     try std.testing.expectApproxEqAbs(APSE_Z, pz, 1e-4);
 }
-
 
 test "a click starts the game and does nothing while playing" {
     resetForTest();
@@ -4136,80 +4281,4 @@ test "rain shows under the oculus and the drains ring the wet floor" {
     try std.testing.expectEqual(@as(usize, 22), holes);
     try std.testing.expect(drainHole(0, 0) == null);
     try std.testing.expect(drainHole(DRAIN_R + 0.5, 0) == null);
-}
-
-test "DIAG sector chain" {
-    resetForTest();
-    _ = renderImpl(0);
-    var bad_frames: usize = 0;
-    var frames: usize = 0;
-    var bad_cols: usize = 0;
-    var overflow: usize = 0;
-    var printed: usize = 0;
-    var gx: f32 = -20;
-    while (gx <= 20) : (gx += 0.37) {
-        var gy: f32 = -24;
-        while (gy <= 66) : (gy += 0.41) {
-            if (gy < PORTICO_FRONT and gy > 30 and @abs(gx) > PORTICO_HALF - 0.4) continue;
-            if (gy <= 30 and gx * gx + gy * gy > (R - 0.4) * (R - 0.4)) continue;
-            if (gy >= PORTICO_FRONT - 0.4 and @abs(gx) > PORTICO_HALF - 0.4 and (gy < 48.5 or @abs(gx) > 30)) continue;
-            if (gy > 30 and gy < PORTICO_FRONT and gy < 33 and @abs(gx) > 7) continue;
-            var in_pillar = false;
-            for (PORTICO_COLUMN_XS) |qx| {
-                for ([_]f32{ 44, 39.5, 35 }) |qy| {
-                    if ((gx - qx) * (gx - qx) + (gy - qy) * (gy - qy) < 1.44) in_pillar = true;
-                }
-            }
-            if (in_pillar) continue;
-            if ((gx - OBELISK_X) * (gx - OBELISK_X) + (gy - OBELISK_Y) * (gy - OBELISK_Y) < 2.5) continue;
-            var k: usize = 0;
-            while (k < 24) : (k += 1) {
-                const ang = @as(f32, @floatFromInt(k)) * std.math.pi / 12.0 + 0.013;
-                var pd: f32 = 1e9;
-                for (base_segs[0..base_count]) |s| {
-                    if (!s.portal) continue;
-                    const dx = s.x2 - s.x1;
-                    const dy = s.y2 - s.y1;
-                    const tt = std.math.clamp(((gx - s.x1) * dx + (gy - s.y1) * dy) / (dx * dx + dy * dy), 0, 1);
-                    const ex = s.x1 + tt * dx - gx;
-                    const ey = s.y1 + tt * dy - gy;
-                    pd = @min(pd, @sqrt(ex * ex + ey * ey));
-                }
-                if (pd < 0.08) continue;
-                setCamera(gx, gy, floorAt(gx, gy) + EYE_Z, ang, 0);
-                castWalls();
-                frames += 1;
-                var frame_bad = false;
-                var c: usize = 0;
-                while (c < SCREEN_W) : (c += 1) {
-                    if (ev_n[c] >= MAX_EVENTS) overflow += 1;
-                    const sl = (@as(f32, @floatFromInt(c)) + 0.5 - HALF_W) / FOCAL;
-                    const rx = cam_fx + sl * cam_rx;
-                    const ry = cam_fy + sl * cam_ry;
-                    var from: f32 = 0;
-                    var sec = cam_sec;
-                    const n = ev_n[c];
-                    const end = if (col_depth[c] < 1000) col_depth[c] else 300;
-                    var i: usize = 0;
-                    while (i <= n) : (i += 1) {
-                        const to = if (i < n) ev_depth[c][i] else end;
-                        const mid = (from + to) * 0.5;
-                        if (to - from > 0.05 and sectorAt(cam_x + rx * mid, cam_y + ry * mid) != sec) {
-                            bad_cols += 1;
-                            frame_bad = true;
-                            if (printed < 40) {
-                                printed += 1;
-                                std.debug.print("cam ({d:.2},{d:.2}) ang {d:.2} col {d} span {d}/{d} [{d:.3},{d:.3}] chain {s} real {s}\n", .{ gx, gy, ang, c, i, n, from, to, @tagName(sec), @tagName(sectorAt(cam_x + rx * mid, cam_y + ry * mid)) });
-                            }
-                            break;
-                        }
-                        if (i < n) sec = ev_sec[c][i];
-                        from = to;
-                    }
-                }
-                if (frame_bad) bad_frames += 1;
-            }
-        }
-    }
-    std.debug.print("frames {d} bad_frames {d} bad_cols {d} overflow {d}\n", .{ frames, bad_frames, bad_cols, overflow });
 }

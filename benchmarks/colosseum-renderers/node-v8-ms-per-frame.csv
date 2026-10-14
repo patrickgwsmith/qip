@@ -1,0 +1,25 @@
+view,renderer,median_ms,p95_ms,min_ms,work,same_pixels_percent
+street,sectors,23.775,27.567,18.174,"3809 sector visits",100.00
+street,bsp,30.031,36.799,22.280,"351 nodes, 448 polygons",100.00
+street,sectors-flat,8.066,10.630,5.361,"3809 sector visits",100.00
+street,bsp-flat,11.522,14.034,8.194,"351 nodes, 448 polygons",100.00
+deck,sectors,25.055,27.949,18.974,"9919 sector visits",100.00
+deck,bsp,26.044,29.295,20.193,"946 nodes, 1268 polygons",100.00
+deck,sectors-flat,7.163,9.115,4.685,"9919 sector visits",100.00
+deck,bsp-flat,9.748,11.560,6.163,"946 nodes, 1268 polygons",100.00
+hypogeum,sectors,21.316,23.916,16.140,"1550 sector visits",100.00
+hypogeum,bsp,27.306,29.622,22.123,"298 nodes, 131 polygons",100.00
+hypogeum,sectors-flat,6.011,8.018,4.314,"1550 sector visits",100.00
+hypogeum,bsp-flat,8.874,11.536,6.080,"298 nodes, 131 polygons",100.00
+ambulatory,sectors,20.674,23.217,15.899,"1893 sector visits",100.00
+ambulatory,bsp,26.437,29.330,20.074,"276 nodes, 276 polygons",100.00
+ambulatory,sectors-flat,6.960,8.500,4.577,"1893 sector visits",100.00
+ambulatory,bsp-flat,9.430,11.400,7.086,"276 nodes, 276 polygons",100.00
+terrace,sectors,24.181,33.956,14.843,"14821 sector visits",100.00
+terrace,bsp,25.797,41.582,16.330,"1173 nodes, 1911 polygons",100.00
+terrace,sectors-flat,7.378,12.158,4.498,"14821 sector visits",100.00
+terrace,bsp-flat,9.570,12.873,5.911,"1173 nodes, 1911 polygons",100.00
+seats,sectors,23.684,25.882,16.910,"8416 sector visits",100.00
+seats,bsp,23.525,27.528,14.828,"630 nodes, 862 polygons",100.00
+seats,sectors-flat,6.652,8.586,4.033,"8416 sector visits",100.00
+seats,bsp-flat,8.266,10.563,5.096,"630 nodes, 862 polygons",100.00
