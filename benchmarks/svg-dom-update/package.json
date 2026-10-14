@@ -1,0 +1,11 @@
+{
+  "name": "qip-svg-dom-update",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "esbuild": "0.28.2",
+    "morphdom": "2.7.8",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  }
+}

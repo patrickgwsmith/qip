@@ -83,6 +83,11 @@ A reported annualized-revenue overlay for OpenAI and Anthropic, tracking public 
 
 Keyboard shortcuts work when the page, renderer choice, or chart has focus.
 
+The SVG renderer replaces the whole `<svg>` on each frame. The
+[SVG DOM update benchmark](/svg-dom-update-benchmark) compares that with
+`innerHTML`, morphdom and React, for this chart and for a data grid and a date
+picker.
+
 Controls:
 
 - Hover a point to see its amount and date in a tooltip; use the arrow keys to inspect other milestones
