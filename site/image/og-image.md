@@ -1,6 +1,6 @@
-<title>Open Graph image maker</title>
+<title>Open Graph image</title>
 
-# Open Graph image maker
+# Open Graph image
 
 Create social media images locally in your browser. Share the link. Nothing is
 uploaded.
@@ -97,7 +97,7 @@ uploaded.
   <fieldset class="og-fields">
     <label class="og-field">
       <strong>Title</strong>
-      <textarea name="title">Reusable components make Open Graph images easier</textarea>
+      <textarea name="title">Reusable components Open Graph images easier</textarea>
     </label>
     <label class="og-field">
       <strong>Subtitle</strong>

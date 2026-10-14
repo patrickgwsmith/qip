@@ -90,7 +90,7 @@ Related tool: [Unicode converter](/unicode).
 - [`text-to-path-svg-dejavu-sans-mono.wasm`](/text/text-to-path-svg-dejavu-sans-mono.wasm) renders text as SVG glyph paths.
 - [`text-to-path-svg-dejavu-sans-mono-bold.wasm`](/text/text-to-path-svg-dejavu-sans-mono-bold.wasm) renders text as bold SVG glyph paths.
 
-Related tool: [Open Graph image maker](/og-image).
+Related tool: [Open Graph image](/image/og-image).
 
 ## Programming languages
 
@@ -134,7 +134,7 @@ Related tool: [currency formatter](/currency).
 - [`data-uri-to-css-url.wasm`](/text/uri-list/data-uri-to-css-url.wasm) wraps a data URI for use as a CSS `url()` value.
 - [`url-to-qr-svg.wasm`](/text/uri-list/url-to-qr-svg.wasm) renders one URL as an SVG QR code.
 
-Related tools: [QR code maker](/qr) and [SVG data URI](/svg-data-uri).
+Related tools: [QR code](/image/qr) and [encode SVG as data URI](/image/svg-data-uri).
 
 ## Mermaid (`text/vnd.mermaid`)
 

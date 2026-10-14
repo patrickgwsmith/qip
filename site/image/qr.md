@@ -1,6 +1,6 @@
-<title>URL to QR code SVG</title>
+<title>QR code</title>
 
-# QR code generator
+# QR code
 
 <form aria-labelledby="form-qr-url-heading">
     <h2 id="form-qr-url-heading">URL to QR Code SVG</h2>

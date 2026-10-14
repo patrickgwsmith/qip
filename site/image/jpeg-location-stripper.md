@@ -1,6 +1,6 @@
-<title>JPEG location stripper</title>
+<title>Strip JPEG location</title>
 
-# JPEG location stripper
+# Strip JPEG location
 
 Remove GPS EXIF metadata from a JPEG locally with a QIP component.
 

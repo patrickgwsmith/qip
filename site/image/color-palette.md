@@ -1,6 +1,6 @@
-<title>Image color palette extractor</title>
+<title>Extract color palette</title>
 
-# Image color palette extractor
+# Extract color palette
 
 Upload a BMP image and extract its dominant colors locally with a QIP component.
 

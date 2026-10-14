@@ -1,8 +1,8 @@
-<title>WebP to PNG, KTX2, or BMP</title>
+<title>Convert WebP to PNG, KTX2, or BMP</title>
 
-# WebP to PNG, KTX2, or BMP
+# Convert WebP to PNG, KTX2, or BMP
 
-Convert a WebP image to PNG, KTX2, or BMP locally in your browser, or [compress it lossily to JPEG, WebP, or AVIF](/image-compress). The image is not uploaded to a server.
+Convert a WebP image to PNG, KTX2, or BMP locally in your browser, or [compress it lossily to JPEG, WebP, or AVIF](/image/compress). The image is not uploaded to a server.
 
 <style>
 .webp-decode-tool {

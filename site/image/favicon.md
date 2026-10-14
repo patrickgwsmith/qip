@@ -1,6 +1,6 @@
-<title>Favicon generator</title>
+<title>Convert to favicon</title>
 
-# Favicon generator
+# Convert to favicon
 
 Convert a PNG or BMP up to 256×256 into a `favicon.ico` locally in your
 browser, in

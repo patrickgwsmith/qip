@@ -3,7 +3,7 @@
 # Convert to WebP
 
 Convert a JPEG, PNG, AVIF, WebP, or BMP image to lossy or lossless WebP locally
-in your browser, or [compress it to JPEG, WebP, or AVIF](/image-compress).
+in your browser, or [compress it to JPEG, WebP, or AVIF](/image/compress).
 Three statically linked QIP components cover opaque photos, lossy transparency,
 and exact lossless pixels; the image is not uploaded.
 

@@ -1,6 +1,6 @@
-<title>SVG data URI</title>
+<title>Encode SVG as data URI</title>
 
-# SVG data URI
+# Encode SVG as data URI
 
 Convert SVG bytes into a percent-encoded data URI that is safe inside either single- or double-quoted CSS. A second component wraps any lowercase `data:` URI as a CSS `url("…")` value.
 

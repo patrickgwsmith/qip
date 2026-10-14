@@ -1,6 +1,6 @@
-<title>Image vectorizer</title>
+<title>Vectorize image</title>
 
-# Image vectorizer
+# Vectorize image
 
 Convert flat PNG, JPEG, WebP, AVIF, or canonical KTX2 artwork into an SVG in
 your browser. Files are not uploaded. The tool first decodes the image to

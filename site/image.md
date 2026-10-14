@@ -10,7 +10,7 @@ These components accept an `image/*` MIME type. Common web and camera formats co
 - [`jpeg-to-bmp-b8g8r8a8-srgb.wasm`](/image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm) decodes JPEG to an 8-bit sRGB BMP image.
 - [`jpeg-to-ktx2-r8g8b8a8-srgb.wasm`](/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm) decodes JPEG to an 8-bit sRGB KTX2 image.
 
-Related tool: [JPEG location stripper](/jpeg-location-stripper).
+Related tool: [strip JPEG location](/image/jpeg-location-stripper).
 
 ## PNG (`image/png`)
 
@@ -18,14 +18,14 @@ Related tool: [JPEG location stripper](/jpeg-location-stripper).
 - [`png-to-bmp-b8g8r8a8-srgb-simd.wasm`](/image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm) provides the SIMD PNG-to-BMP decoder.
 - [`png-to-ktx2-r8g8b8a8-srgb.wasm`](/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm) decodes PNG to an 8-bit sRGB KTX2 image.
 
-Related tools: [favicon generator](/favicon) and [image compressor](/image-compress).
+Related tools: [convert to favicon](/image/favicon) and [compress image](/image/compress).
 
 ## WebP (`image/webp`)
 
 - [`webp-to-bmp-b8g8r8a8-srgb.wasm`](/image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm) decodes static WebP to an 8-bit sRGB BMP image.
 - [`webp-to-ktx2-r8g8b8a8-srgb.wasm`](/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm) decodes static WebP to an 8-bit sRGB KTX2 image.
 
-Related tools: [WebP to PNG or BMP](/webp-to-png) and [convert to WebP](/webp).
+Related tools: [convert WebP to PNG](/image/webp-to-png) and [convert to WebP](/image/convert-to-webp).
 
 ## SVG (`image/svg+xml`)
 
@@ -41,7 +41,7 @@ Related tools: [WebP to PNG or BMP](/webp-to-png) and [convert to WebP](/webp).
 - [`svg-to-pdf-inter-font.wasm`](/image/svg+xml/svg-to-pdf-inter-font.wasm) converts a strict SVG vector subset to single-page PDF/A-2b with complete embedded Inter Regular, Bold, Italic, and Bold Italic text. It preserves paths, groups, affine transforms, supported native gradients, and element/group opacity; unsupported SVG rejects rather than rasterizing.
 - [`svg-to-data-uri.wasm`](/image/svg+xml/svg-to-data-uri.wasm) percent-encodes SVG bytes as a data URI.
 
-Related tools: [SVG data URI](/svg-data-uri), [QR code maker](/qr), and [Open Graph image maker](/og-image).
+Related tools: [compare SVG rasterizers](/image/svg-rasterize), [encode SVG as data URI](/image/svg-data-uri), [QR code](/image/qr), and [Open Graph image](/image/og-image).
 
 ## GIF (`image/gif`)
 
@@ -51,11 +51,13 @@ Related tools: [SVG data URI](/svg-data-uri), [QR code maker](/qr), and [Open Gr
 
 - [`avif-to-ktx2-r8g8b8a8-srgb.wasm`](/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm) decodes AVIF to an 8-bit sRGB KTX2 image.
 
-Related tool: [image compressor](/image-compress).
+Related tool: [compress image](/image/compress).
 
 ## JPEG XL (`image/jxl`)
 
 - [`jxl-to-ktx2-r8g8b8a8-srgb.wasm`](/image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm) decodes still sRGB JPEG XL to an 8-bit sRGB KTX2 image with jxl-rs.
+
+Related tool: [compress image](/image/compress).
 
 ## BMP (`image/bmp`)
 
@@ -83,7 +85,7 @@ Related tool: [image compressor](/image-compress).
 - [`bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm`](/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.wasm) stores 8-bit RGBA sRGB pixels.
 - [`bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm`](/image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm) stores 32-bit floating-point RGBA pixels.
 
-Related tools: [image color palette](/image-color-palette), [favicon generator](/favicon), [convert to WebP](/webp), and [image compressor](/image-compress).
+Related tools: [extract color palette](/image/color-palette), [convert to favicon](/image/favicon), [convert to WebP](/image/convert-to-webp), and [compress image](/image/compress).
 
 ## KTX2 (`image/ktx2`)
 
@@ -113,7 +115,7 @@ omitted, and recoverably reject the opposite scaling direction.
 Both components accept `rotation_degrees=0|90|180|270`, `flip_horizontal=0|1`,
 and `flip_vertical=0|1`. Rotation is clockwise and happens before either flip.
 
-Related tool: [high-quality image resizer](/image-resize).
+Related tool: [resize image](/image/resize).
 
 ### Decode and encode
 
@@ -131,7 +133,7 @@ Related tool: [high-quality image resizer](/image-resize).
 - [`ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm`](/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm) encodes lossy WebP.
 - [`ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm`](/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm) encodes lossy WebP without alpha.
 
-Related tool: [image vectorizer](/image/vectorize).
+Related tool: [vectorize image](/image/vectorize).
 
 ### Floating-point pipeline
 
@@ -145,3 +147,45 @@ Related tool: [image vectorizer](/image/vectorize).
 - [`jp2-to-bmp-b8g8r8a8-srgb.wasm`](/image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm) decodes JPEG 2000 to an 8-bit sRGB BMP image.
 
 Looking for other components? See [text](/text), [audio](/audio), [TUI](/tui), and [GUI](/gui).
+
+<qip-main-layout>
+<nav class="docs-sidebar" aria-label="Image">
+<details>
+<summary>Image tools and components</summary>
+<ol>
+<li><span class="docs-section">Tools</span>
+<ol>
+<li><a href="/image/og-image">Open Graph image</a></li>
+<li><a href="/image/qr">QR code</a></li>
+<li><a href="/image/compress">Compress image</a></li>
+<li><a href="/image/resize">Resize image</a></li>
+<li><a href="/image/convert-to-webp">Convert to WebP</a></li>
+<li><a href="/image/favicon">Convert to favicon</a></li>
+<li><a href="/image/vectorize">Vectorize image</a></li>
+<li><a href="/image/color-palette">Extract color palette</a></li>
+<li><a href="/image/jpeg-location-stripper">Strip JPEG location</a></li>
+<li><a href="/image/webp-to-png">Convert WebP to PNG</a></li>
+<li><a href="/image/svg-rasterize">Compare SVG rasterizers</a></li>
+<li><a href="/image/svg-data-uri">Encode SVG as data URI</a></li>
+</ol>
+</li>
+<li><span class="docs-section">Components</span>
+<ol>
+<li><a href="/image">All image components</a></li>
+<li><a href="/image#jpeg-image-jpeg">JPEG</a></li>
+<li><a href="/image#png-image-png">PNG</a></li>
+<li><a href="/image#webp-image-webp">WebP</a></li>
+<li><a href="/image#svg-image-svg-xml">SVG</a></li>
+<li><a href="/image#gif-image-gif">GIF</a></li>
+<li><a href="/image#avif-image-avif">AVIF</a></li>
+<li><a href="/image#jpeg-xl-image-jxl">JPEG XL</a></li>
+<li><a href="/image#bmp-image-bmp">BMP</a></li>
+<li><a href="/image#ktx2-image-ktx2">KTX2</a></li>
+<li><a href="/image#jpeg-2000-image-jp2">JPEG 2000</a></li>
+</ol>
+</li>
+</ol>
+</details>
+</nav>
+<article class="docs-content"><slot></slot></article>
+</qip-main-layout>

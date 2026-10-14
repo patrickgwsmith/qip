@@ -346,7 +346,7 @@ See [`/play`](/play) for more interactive examples, or [`/charts`](/charts) for 
 Ever need to generate a favicon or decode base64 and find yourself on a site with more ad banners than inputs? [Here](/tools) are some open source utilities that you can download the `.wasm` to and run locally.
 
 - [Markdown to HTML](/markdown-to-html)
-- [QR code maker](/qr)
+- [QR code](/image/qr)
 - [Mermaid renderer](/mermaid)
 - [Base64 encoder and decoder](/base64)
 - [Currency formatter](/currency)

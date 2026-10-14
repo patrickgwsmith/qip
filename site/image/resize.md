@@ -1,6 +1,6 @@
-<title>High-quality image resizer</title>
+<title>Resize image</title>
 
-# High-quality image resizer
+# Resize image
 
 Resize JPEG, PNG, WebP, or AVIF images locally in your browser. Add several
 images, choose one set of output options, then resize each image when you
