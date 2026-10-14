@@ -1,6 +1,6 @@
-<title>Image compressor</title>
+<title>Compress image</title>
 
-# Image compressor
+# Compress image
 
 Compress images locally in your browser. Nothing is uploaded.
 
@@ -118,11 +118,12 @@ Compress images locally in your browser. Nothing is uploaded.
     <label><input type="checkbox" name="image-compress-codec" value="webp" checked> WebP</label>
     <label><input type="checkbox" name="image-compress-codec" value="avif" checked> AVIF</label>
     <label><input type="checkbox" name="image-compress-codec" value="jpeg"> JPEG</label>
+    <label><input type="checkbox" name="image-compress-codec" value="jxl"> JPEG XL</label>
   </fieldset>
   <label>
-    <strong>Select a JPEG, PNG, WebP or AVIF image.</strong><br>
+    <strong>Select a JPEG, PNG, WebP, AVIF or JPEG XL image.</strong><br>
     <input id="image-compress-input" type="file"
-      accept="image/jpeg,image/png,image/webp,image/avif,.jpg,.jpeg,.png,.webp,.avif" />
+      accept="image/jpeg,image/png,image/webp,image/avif,image/jxl,.jpg,.jpeg,.png,.webp,.avif,.jxl" />
   </label>
   <p id="image-compress-input-meta" class="image-compress-meta"></p>
 
@@ -156,6 +157,8 @@ const codecInputs = [...document.querySelectorAll('input[name="image-compress-co
 let selectedFile = null;
 let selectedFormat = null;
 let inputURL = "";
+let inputDisplays = Promise.resolve(true);
+let originalIsPNG = false;
 let decoderWorker = null;
 let decoded = null;
 let runToken = 0;
@@ -164,6 +167,8 @@ const workers = new Map();
 const scheduled = new Set();
 const results = new Map();
 const resultURLs = new Map();
+const previewURLs = new Map();
+const previewWorkers = new Set();
 
 function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} bytes`;
@@ -176,19 +181,55 @@ function fileFormat(file) {
   if (file.type === "image/png" || /\.png$/i.test(file.name)) return "png";
   if (file.type === "image/webp" || /\.webp$/i.test(file.name)) return "webp";
   if (file.type === "image/avif" || /\.avif$/i.test(file.name)) return "avif";
+  if (file.type === "image/jxl" || /\.jxl$/i.test(file.name)) return "jxl";
   return null;
 }
 
 function formatName(format) {
-  return { avif: "AVIF", jpeg: "JPEG", png: "PNG", webp: "WebP" }[format] ?? format;
+  return { avif: "AVIF", jpeg: "JPEG", jxl: "JPEG XL", png: "PNG", webp: "WebP" }[format] ?? format;
 }
 
 function codecName(codec) {
-  return { avif: "AVIF", jpeg: "JPEG", webp: "WebP" }[codec] ?? codec;
+  return { avif: "AVIF", jpeg: "JPEG", jxl: "JPEG XL", webp: "WebP" }[codec] ?? codec;
 }
 
 function codecMime(codec) {
-  return { avif: "image/avif", jpeg: "image/jpeg", webp: "image/webp" }[codec];
+  return { avif: "image/avif", jpeg: "image/jpeg", jxl: "image/jxl", webp: "image/webp" }[codec];
+}
+
+// Some browsers cannot show JPEG XL. Test the image itself, then fall back to
+// a PNG made from the jxl-rs decoder's pixels.
+async function displays(url) {
+  const image = new Image();
+  image.src = url;
+  try {
+    await image.decode();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function decodePNGPreview(format, input) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker("/image-compress-decode-worker.js", { type: "module" });
+    previewWorkers.add(worker);
+    worker.onmessage = (event) => {
+      previewWorkers.delete(worker);
+      if (event.data.type === "done") resolve(URL.createObjectURL(event.data.preview));
+      else reject(Error(event.data.message));
+    };
+    worker.onerror = (event) => {
+      previewWorkers.delete(worker);
+      reject(Error(event.message || "The preview decoder stopped."));
+    };
+    worker.postMessage({ type: "decode", format, input, preview: true }, [input]);
+  });
+}
+
+async function resultPreviewURL(codec, url, output) {
+  if (codec !== "jxl" || await displays(url)) return url;
+  return decodePNGPreview(codec, output.slice().buffer);
 }
 
 function selectedCodecs() {
@@ -207,7 +248,9 @@ function jobKey(codec, quality) {
 
 function clearResults() {
   for (const url of resultURLs.values()) URL.revokeObjectURL(url);
+  for (const url of previewURLs.values()) URL.revokeObjectURL(url);
   resultURLs.clear();
+  previewURLs.clear();
   results.clear();
   scheduled.clear();
   resultsElement.replaceChildren();
@@ -218,6 +261,8 @@ function clearResults() {
 function terminateWorkers() {
   decoderWorker?.terminate();
   decoderWorker = null;
+  for (const worker of previewWorkers) worker.terminate();
+  previewWorkers.clear();
   for (const state of workers.values()) state.worker.terminate();
   workers.clear();
   pendingJobs = 0;
@@ -288,7 +333,7 @@ function resultCard(result) {
   card.className = "image-compress-card";
   const key = jobKey(result.codec, result.quality);
   const image = document.createElement("img");
-  image.src = resultURLs.get(key);
+  image.src = previewURLs.get(key) ?? resultURLs.get(key);
   image.alt = `${codecName(result.codec)} preview. Quality ${result.quality}.`;
   image.draggable = false;
   const preview = document.createElement("div");
@@ -337,7 +382,7 @@ function resultCard(result) {
   function showResult() {
     if (!showingOriginal) return;
     showingOriginal = false;
-    image.src = resultURLs.get(key);
+    image.src = previewURLs.get(key) ?? resultURLs.get(key);
     image.alt = `${codecName(result.codec)} preview. Quality ${result.quality}.`;
   }
   image.addEventListener("load", updateZoomScale);
@@ -385,7 +430,7 @@ function resultCard(result) {
 
 function renderResults() {
   const sections = [];
-  for (const codec of ["webp", "avif", "jpeg"]) {
+  for (const codec of ["webp", "avif", "jpeg", "jxl"]) {
     const ordered = [...results.values()]
       .filter((result) => result.codec === codec)
       .sort((a, b) => a.quality - b.quality);
@@ -444,19 +489,33 @@ function handleCodecMessage(token, event) {
   }
   if (data.type === "result") {
     const id = data.id;
-    state.queued.delete(id);
-    pendingJobs -= 1;
     const output = new Uint8Array(data.output);
-    results.set(id, {
-      codec: data.codec,
-      quality: data.quality,
-      bytes: output.byteLength,
-    });
-    resultURLs.set(id, URL.createObjectURL(new Blob([output], {
+    const url = URL.createObjectURL(new Blob([output], {
       type: codecMime(data.codec),
-    })));
-    renderResults();
-    setIdleStatus();
+    }));
+    resultURLs.set(id, url);
+    resultPreviewURL(data.codec, url, output).then((previewURL) => {
+      if (token !== runToken) {
+        if (previewURL !== url) URL.revokeObjectURL(previewURL);
+        return;
+      }
+      if (previewURL !== url) previewURLs.set(id, previewURL);
+      state.queued.delete(id);
+      pendingJobs -= 1;
+      results.set(id, {
+        codec: data.codec,
+        quality: data.quality,
+        bytes: output.byteLength,
+      });
+      renderResults();
+      setIdleStatus();
+    }).catch((error) => {
+      if (token !== runToken) return;
+      state.queued.delete(id);
+      pendingJobs -= 1;
+      failCodec(data.codec, `The preview could not be decoded. ${error.message}`);
+      renderResults();
+    });
     return;
   }
   if (data.type === "job-error") {
@@ -527,6 +586,12 @@ function startDecode() {
       pixels: data.pixels,
       hasAlpha: data.hasAlpha,
     };
+    if (data.preview) {
+      URL.revokeObjectURL(inputURL);
+      inputURL = URL.createObjectURL(data.preview);
+      originalPreview.src = inputURL;
+      originalIsPNG = true;
+    }
     const alpha = decoded.hasAlpha ? " · transparency" : " · opaque";
     inputMeta.textContent = `${selectedFile.name} · ${decoded.width}×${decoded.height} · ${(decoded.pixels / 1000000).toFixed(2)} MP${alpha} · ${formatBytes(selectedFile.size)}`;
     startEncoders(token);
@@ -535,9 +600,10 @@ function startDecode() {
     if (token !== runToken) return;
     status.textContent = event.message || "The decoder stopped.";
   };
-  selectedFile.arrayBuffer().then((input) => {
+  Promise.all([selectedFile.arrayBuffer(), inputDisplays]).then(([input, shown]) => {
     if (token !== runToken) return;
-    decoderWorker.postMessage({ type: "decode", format: selectedFormat, input }, [input]);
+    const preview = !shown && !originalIsPNG;
+    decoderWorker.postMessage({ type: "decode", format: selectedFormat, input, preview }, [input]);
   }).catch((error) => {
     if (token !== runToken) return;
     status.textContent = error instanceof Error ? error.message : String(error);
@@ -554,11 +620,13 @@ fileInput.addEventListener("change", () => {
     inputMeta.textContent = "";
     originalPreview.removeAttribute("src");
     originalSection.hidden = true;
-    status.textContent = selectedFile ? "Choose a JPEG, PNG, WebP or AVIF image." : "";
+    status.textContent = selectedFile ? "Choose a JPEG, PNG, WebP, AVIF or JPEG XL image." : "";
     return;
   }
   inputURL = URL.createObjectURL(selectedFile);
   originalPreview.src = inputURL;
+  originalIsPNG = false;
+  inputDisplays = selectedFormat === "jxl" ? displays(inputURL) : Promise.resolve(true);
   originalSection.hidden = false;
   inputMeta.textContent = `${selectedFile.name} · ${formatBytes(selectedFile.size)}`;
   startDecode();
@@ -574,25 +642,32 @@ addEventListener("beforeunload", () => {
   terminateWorkers();
   if (inputURL !== "") URL.revokeObjectURL(inputURL);
   for (const url of resultURLs.values()) URL.revokeObjectURL(url);
+  for (const url of previewURLs.values()) URL.revokeObjectURL(url);
 });
 </script>
 
 The tool shows each selected format in quality order. Lower quality is above higher
 quality. The tool shows the file size on each result. A smaller file is not
 always a better image. Compare the previews. The same quality values are used
-for WebP, AVIF, and JPEG, but the codecs can produce different file sizes and visual
-results. Move the pointer over a preview to view source pixels at 1x scale.
+for WebP, AVIF, JPEG, and JPEG XL, but the codecs can produce different file sizes and visual
+results. JPEG XL quality is converted to a libjxl distance with the same formula
+as `cjxl`, and the encoder uses effort 3. Effort 3 encoded a 16 MP photo in
+1.6 s on an Apple Silicon Mac; the default effort 5 took 17 s and made a file
+about 18% smaller. Browsers that cannot show JPEG XL get a PNG preview made from the
+decoded pixels; the download is the JPEG XL file. Move the pointer over a preview to view source pixels at 1x scale.
 Hold the mouse button to view the original image. The decoders support
 images up to 25 MP. AVIF output supports up to 12 MP.
 
 The JPEG decoder supports baseline and progressive JPEG. The PNG decoder
 supports common non-interlaced 8-bit PNG files. The WebP decoder supports still
 lossy and lossless WebP. The AVIF decoder supports still sRGB AVIF images
-without an embedded ICC profile. The tool rejects other image features,
-including animated WebP and AVIF. It does not send your file to a server. Each
+without an embedded ICC profile. The JPEG XL decoder supports still sRGB
+images, lossy and lossless. The tool rejects other image features,
+including animated WebP, AVIF and JPEG XL. It does not send your file to a server. Each
 image is decoded to KTX2 (R8G8B8A8 sRGB) pixels, and each encoder reads those
 pixels. The AVIF components use libavif and libaom. The JPEG component uses
-MozJPEG and composites transparency onto white. Quality 100 is not lossless.
+MozJPEG and composites transparency onto white. The JPEG XL components use
+libjxl to encode and jxl-rs to decode. Quality 100 is not lossless.
 
 The tool supports sRGB images only. It does not convert wider color profiles.
 Images with wider profiles, such as some Mac screenshots, can have color
@@ -604,7 +679,9 @@ shifts. Convert them to sRGB before selecting them.
 - <a href="/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm" download>png-to-ktx2-r8g8b8a8-srgb.wasm</a>
 - <a href="/image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm" download>webp-to-ktx2-r8g8b8a8-srgb.wasm</a>
 - <a href="/image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm" download>avif-to-ktx2-r8g8b8a8-srgb.wasm</a>
+- <a href="/image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm" download>jxl-to-ktx2-r8g8b8a8-srgb.wasm</a>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm</a>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm" download>ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm</a>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm</a>
 - <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm</a>
+- <a href="/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm" download>ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm</a>

@@ -5,6 +5,9 @@ const DECODER_PATHS = {
   jpeg: [
     "/image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm",
   ],
+  jxl: [
+    "/image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm",
+  ],
   png: [
     "/image/png/png-to-ktx2-r8g8b8a8-srgb.wasm",
   ],
@@ -60,6 +63,13 @@ function readKTX2Metadata(bytes) {
   return { width, height, pixels: width * height, hasAlpha };
 }
 
+async function pngPreview(ktx2, width, height) {
+  const canvas = new OffscreenCanvas(width, height);
+  const pixels = new Uint8ClampedArray(ktx2.buffer, KTX2_HEADER_SIZE, width * height * 4);
+  canvas.getContext("2d").putImageData(new ImageData(pixels, width, height), 0, 0);
+  return canvas.convertToBlob({ type: "image/png" });
+}
+
 function run(exports, input) {
   const inputCap = exports.input_bytes_cap() >>> 0;
   if (input.length > inputCap) {
@@ -88,21 +98,26 @@ function run(exports, input) {
 
 self.onmessage = async (event) => {
   try {
-    const { format, input } = event.data;
-    if (!DECODER_PATHS[format]) throw Error("Choose a JPEG, PNG, WebP or AVIF image.");
+    const { format, input, preview } = event.data;
+    if (!DECODER_PATHS[format]) throw Error("Choose a JPEG, PNG, WebP, AVIF or JPEG XL image.");
     const inputBytes = new Uint8Array(input);
     const { module, path } = await compileDecoder(format);
     const { exports } = new WebAssembly.Instance(module, {});
     exports._initialize?.();
     const started = performance.now();
     const ktx2 = run(exports, inputBytes);
+    const elapsedMs = performance.now() - started;
     const metadata = readKTX2Metadata(ktx2);
+    const previewBlob = preview
+      ? await pngPreview(ktx2, metadata.width, metadata.height)
+      : null;
     self.postMessage({
       type: "done",
       output: ktx2.buffer,
+      preview: previewBlob,
       ...metadata,
       decoderPath: path,
-      elapsedMs: performance.now() - started,
+      elapsedMs,
     }, [ktx2.buffer]);
   } catch (error) {
     self.postMessage({ type: "error", message: decoderError(error) });

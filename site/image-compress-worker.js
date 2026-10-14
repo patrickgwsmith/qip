@@ -16,7 +16,20 @@ const CODEC_CONFIG = {
       return "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm";
     },
   },
+  jxl: {
+    modulePath() {
+      return "/image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm";
+    },
+  },
 };
+
+// cjxl's JxlEncoderDistanceFromQuality, clamped to the component's range.
+function jxlDistance(quality) {
+  const distance = quality >= 30
+    ? 0.1 + (100 - quality) * 0.09
+    : 53 / 3000 * quality * quality - 23 / 20 * quality + 25;
+  return Math.min(15, Math.max(0.1, distance));
+}
 
 let codec = null;
 let inputBytes = null;
@@ -39,6 +52,10 @@ function setUniforms(quality) {
     exports.uniform_set_quality_alpha(100);
     exports.uniform_set_speed(8);
     exports.uniform_set_subsample(0);
+  } else if (codec === "jxl") {
+    exports.uniform_set_distance(jxlDistance(quality));
+    // Effort 3 encoded a 16 MP photo in 1.6 s; effort 5 took 17 s.
+    exports.uniform_set_effort(3);
   } else {
     exports.uniform_set_quality(quality);
     exports.uniform_set_subsample(2);

@@ -16,7 +16,7 @@ async function makeKtx2() {
 }
 
 test("image compressor keeps JPEG opt-in", async () => {
-  const page = await readFile("site/image-compress.md", "utf8");
+  const page = await readFile("site/image/compress.md", "utf8");
   assert.match(page, /value="webp" checked/);
   assert.match(page, /value="avif" checked/);
   assert.match(page, /value="jpeg"> JPEG/);

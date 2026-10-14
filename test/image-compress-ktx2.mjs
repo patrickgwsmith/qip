@@ -29,7 +29,10 @@ async function runWorker(path, messages) {
 }
 
 async function decode(format, file) {
-  const input = await readFile(`${FIXTURES}/${file}`);
+  return decodeBytes(format, await readFile(`${FIXTURES}/${file}`));
+}
+
+async function decodeBytes(format, input) {
   const inputBuffer = input.buffer.slice(
     input.byteOffset,
     input.byteOffset + input.byteLength,
@@ -71,6 +74,7 @@ const OPAQUE_INPUTS = [
   ["jpeg", "red-zeppelin-320x240-progressive.jpg"],
   ["webp", "red-zeppelin-320x240.webp"],
   ["avif", "red-zeppelin-320x240.avif"],
+  ["jxl", "red-zeppelin-320x240.jxl"],
 ];
 
 for (const [format, file] of OPAQUE_INPUTS) {
@@ -95,6 +99,9 @@ for (const [format, file] of OPAQUE_INPUTS) {
     const jpeg = await encode("jpeg", decoded);
     assert.equal(jpeg.readUInt16BE(0), 0xffd8);
     assert.equal(jpeg.readUInt16BE(jpeg.length - 2), 0xffd9);
+
+    const jxl = await encode("jxl", decoded);
+    assert.equal(jxl.readUInt16BE(0), 0xff0a);
   });
 }
 
@@ -113,6 +120,16 @@ for (const [format, file] of [
   });
 }
 
+test("image compressor JPEG XL output decodes to the same size", async () => {
+  const decoded = await decode("png", "red-zeppelin-320x240.png");
+  for (const quality of [5, 40, 90]) {
+    const jxl = await encode("jxl", decoded, quality);
+    const roundTrip = await decodeBytes("jxl", jxl);
+    assert.equal(roundTrip.width, 320);
+    assert.equal(roundTrip.height, 240);
+  }
+});
+
 test("image compressor decode worker rejects mismatched input", async () => {
   const input = await readFile(`${FIXTURES}/red-zeppelin-320x240.png`);
   const [message] = await runWorker("image-compress-decode-worker.js", [
@@ -121,8 +138,10 @@ test("image compressor decode worker rejects mismatched input", async () => {
   assert.equal(message.type, "error");
 });
 
-test("image compressor page accepts WebP and AVIF", async () => {
-  const page = await readFile("site/image-compress.md", "utf8");
-  assert.match(page, /accept="[^"]*image\/webp[^"]*image\/avif/);
+test("image compressor page accepts WebP, AVIF and JPEG XL", async () => {
+  const page = await readFile("site/image/compress.md", "utf8");
+  assert.match(page, /accept="[^"]*image\/webp[^"]*image\/avif[^"]*image\/jxl/);
+  assert.match(page, /value="jxl">/);
+  assert.doesNotMatch(page, /value="jxl" checked/);
   assert.doesNotMatch(page, /-to-bmp-|\/image\/bmp\//);
 });

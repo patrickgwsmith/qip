@@ -11,6 +11,9 @@ image compressor accepts.
   `ktx2-r8g8b8a8-srgb-to-webp-lossy.wasm` at quality 80.
 - `red-zeppelin-320x240.avif` — the same pixels encoded by
   `ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm` at quality 70.
+- `red-zeppelin-320x240.jxl` — the same pixels encoded by
+  `ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm` at distance 1 and
+  effort 7, as a bare codestream.
 - `transparent-radial-160x120.png` — an ImageMagick radial gradient that fades
   from opaque blue to fully transparent, 8-bit RGBA.
 - `transparent-radial-160x120.webp` — the same pixels encoded by
