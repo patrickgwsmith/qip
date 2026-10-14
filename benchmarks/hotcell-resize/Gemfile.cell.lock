@@ -1,0 +1,62 @@
+PATH
+  remote: vendor/hotcell/activestorage-hotcell-server
+  specs:
+    activestorage-hotcell-server (0.6.0.dev)
+      hotcell-server (= 0.6.0.dev)
+      image_processing (>= 2.1.0)
+      mini_magick (>= 5.4.0)
+      ruby-vips (>= 2.2.1)
+
+PATH
+  remote: vendor/hotcell/hotcell-core
+  specs:
+    hotcell-core (0.6.0.dev)
+
+PATH
+  remote: vendor/hotcell/hotcell-server
+  specs:
+    hotcell-server (0.6.0.dev)
+      hotcell-core (= 0.6.0.dev)
+
+GEM
+  remote: https://rubygems.org/
+  specs:
+    ffi (1.17.4)
+    ffi (1.17.4-aarch64-linux-gnu)
+    ffi (1.17.4-aarch64-linux-musl)
+    ffi (1.17.4-arm-linux-gnu)
+    ffi (1.17.4-arm-linux-musl)
+    ffi (1.17.4-arm64-darwin)
+    ffi (1.17.4-x86-linux-gnu)
+    ffi (1.17.4-x86-linux-musl)
+    ffi (1.17.4-x86_64-darwin)
+    ffi (1.17.4-x86_64-linux-gnu)
+    ffi (1.17.4-x86_64-linux-musl)
+    image_processing (2.1.0)
+    logger (1.7.0)
+    mini_magick (5.4.0)
+      logger
+    ruby-vips (2.3.0)
+      ffi (~> 1.12)
+      logger
+
+PLATFORMS
+  aarch64-linux-gnu
+  aarch64-linux-musl
+  arm-linux-gnu
+  arm-linux-musl
+  arm64-darwin
+  ruby
+  x86-linux-gnu
+  x86-linux-musl
+  x86_64-darwin
+  x86_64-linux-gnu
+  x86_64-linux-musl
+
+DEPENDENCIES
+  activestorage-hotcell-server!
+  hotcell-core!
+  hotcell-server!
+
+BUNDLED WITH
+   2.6.9

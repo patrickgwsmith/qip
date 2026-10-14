@@ -1,0 +1,8 @@
+source "https://rubygems.org"
+
+hotcell = ENV.fetch("HOTCELL_REPO") { File.expand_path("vendor/hotcell", __dir__) }
+
+gem "hotcell-core", path: File.join(hotcell, "hotcell-core")
+gem "hotcell-server", path: File.join(hotcell, "hotcell-server")
+gem "activestorage-hotcell-server", path: File.join(hotcell, "activestorage-hotcell-server")
+
