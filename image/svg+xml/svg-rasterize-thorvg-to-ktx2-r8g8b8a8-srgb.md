@@ -30,5 +30,6 @@ The future design must say how a caller supplies font bytes and maps an SVG font
 family to those bytes; it must not read host font files implicitly.
 
 Do not use this component when 512 MiB of fixed Wasm memory is too costly, when
-text or embedded raster images are required, or when output must be composited
-in linear light. Use the RGBA32F SIMD rasterizer for linear-light pipelines.
+text or embedded raster images are required, or when floating-point
+linear-light output is required. Use the RGBA32F SIMD rasterizer for
+linear-light pipelines.

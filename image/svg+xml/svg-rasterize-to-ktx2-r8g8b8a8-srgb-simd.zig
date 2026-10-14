@@ -1,7 +1,7 @@
 //! SIMD supersampling SVG rasterizer with sRGB RGBA8 KTX2 output.
 //!
 //! This comparison component uses the same float working pixels, 4 by 4
-//! coverage grid, and linear-light compositing as the RGBA32F component. It
+//! coverage grid, and sRGB compositing as the RGBA32F component. It
 //! quantizes once, after rasterization, so benchmarks isolate output encoding
 //! and size from coverage quality.
 

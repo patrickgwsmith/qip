@@ -163,7 +163,7 @@ test("RGBA32F SVG rasterizer scan-converts path spans", async () => {
   closeTo(pixel(view, 2, 1, 1), [1, 0, 0, 1 / 16]);
 });
 
-test("RGBA32F SVG rasterizer composites coverage in linear light", async () => {
+test("RGBA32F SVG rasterizer composites coverage in sRGB, like browsers", async () => {
   const exports = await instantiate();
   assert.equal(exports.uniform_set_background_color_rgba(0x0000ffff), 0x0000ffff);
   const result = render(
@@ -172,7 +172,9 @@ test("RGBA32F SVG rasterizer composites coverage in linear light", async () => {
   );
   const view = inspectKtx2(exports, result, 1, 1);
 
-  closeTo(pixel(view, 1, 0, 0), [0.5, 0, 0.5, 1]);
+  // Half red over blue is #800080 in sRGB, then converted to linear output.
+  const half = ((0.5 + 0.055) / 1.055) ** 2.4;
+  closeTo(pixel(view, 1, 0, 0), [half, 0, half, 1]);
 });
 
 test("RGBA32F SVG rasterizer sizes a viewBox and applies matrix transforms", async () => {
@@ -197,7 +199,7 @@ test("RGBA32F SVG rasterizer renders the unchanged Ghostscript Tiger fixture", a
   const output = new Uint8Array(exports.memory.buffer, result.pointer, result.sizeOrFailure);
   assert.equal(
     createHash("sha256").update(output).digest("hex"),
-    "37b6a78b105c7c8534db583075e24c960200e6076e6313d4615f96ab9b2bda77",
+    "93c1ebac82c037b29cc26c8f25e330bb885da32d3e055d1dd5e764fec9eb1366",
   );
   let painted = 0;
   let fractionalAlpha = 0;

@@ -1,11 +1,14 @@
 const std = @import("std");
 const root = @import("root");
 
-const OUTPUT_KTX2 = true;
+const OUTPUT_KTX2 = !(@hasDecl(root, "SVG_RASTERIZE_BMP") and root.SVG_RASTERIZE_BMP);
 const ktx2 = @import("ktx2_rgba8_srgb");
 const OUTPUT_FLOAT = @hasDecl(root, "SVG_RASTERIZE_RGBA32FLOAT") and root.SVG_RASTERIZE_RGBA32FLOAT;
 const ANTIALIAS = OUTPUT_FLOAT or (@hasDecl(root, "SVG_RASTERIZE_ANTIALIAS") and root.SVG_RASTERIZE_ANTIALIAS);
 const ktx2_float = if (ANTIALIAS) @import("ktx2_rgba32float") else struct {};
+// <text> is drawn with Inter Display outlines, whatever font-family says.
+const font_regular = @import("inter_regular");
+const font_bold = @import("inter_bold");
 
 // TODO(svg): Required paint parsing to be practical for SVG icons/text:
 // - Add css color functions: rgb(), rgba(), hsl(), hsla()
@@ -125,10 +128,14 @@ const Rect = struct {
     y: f32 = 0,
     w: f32 = 0,
     h: f32 = 0,
+    rx: f32 = 0,
+    ry: f32 = 0,
     set_x: bool = false,
     set_y: bool = false,
     set_w: bool = false,
     set_h: bool = false,
+    set_rx: bool = false,
+    set_ry: bool = false,
 };
 
 const Circle = struct {
@@ -166,11 +173,73 @@ const PathIntersection = struct {
     winding_delta: i32,
 };
 
-// Rendering is single-threaded and non-reentrant. Keeping scanline scratch out
-// of the Wasm stack avoids combining it with the bounded 4096-segment path
-// array in drawPathFill.
+// Rendering is single-threaded and non-reentrant, so path and scanline scratch
+// live outside the Wasm stack.
+var path_segments: [MAX_PATH_SEGMENTS]PathSegment = undefined;
 var path_intersections: [MAX_PATH_SEGMENTS]PathIntersection = undefined;
 var path_scanline_coverage: [MAX_DIMENSION]u8 = undefined;
+
+// Gradients are collected in a pre-pass so paint can reference them before
+// or after their definition. Each one is baked into a 256-entry sRGB ramp.
+const MAX_GRADIENTS: usize = 64;
+const MAX_GRADIENT_STOPS: usize = 32;
+const GRADIENT_RAMP_SIZE: usize = 256;
+
+const GradientKind = enum { linear, radial };
+const GradientSpread = enum { pad, reflect, repeat };
+
+const GradientStop = struct {
+    offset: f32,
+    color: Color,
+};
+
+const Gradient = struct {
+    id: []const u8,
+    href: []const u8 = "",
+    kind: GradientKind,
+    user_space: bool = false,
+    spread: GradientSpread = .pad,
+    transform: Mat,
+    // Linear: x1 y1 x2 y2. Radial: cx cy r (fx/fy are not supported).
+    coords: [4]f32,
+    set_coords: [4]bool = .{ false, false, false, false },
+    set_units: bool = false,
+    set_spread: bool = false,
+    set_transform: bool = false,
+    stops: [MAX_GRADIENT_STOPS]GradientStop = undefined,
+    stop_count: usize = 0,
+};
+
+var gradients: [MAX_GRADIENTS]Gradient = undefined;
+var gradient_count: usize = 0;
+var gradient_ramps: [MAX_GRADIENTS][GRADIENT_RAMP_SIZE]Color = undefined;
+
+// Paint as written and inherited: a solid color or a gradient reference.
+const PaintSpec = struct {
+    color: Color,
+    gradient: ?u8 = null,
+};
+
+// Paint resolved for one element. It stays small because strokes pass it
+// through every flattened segment; a gradient's device-to-gradient matrix
+// lives in `paint_slots` (fill and stroke) instead.
+const PaintSlot = enum(u1) { fill, stroke };
+
+const Paint = struct {
+    color: Color,
+    gradient: ?u8 = null,
+    slot: PaintSlot = .fill,
+    opacity: f32 = 1,
+};
+
+var paint_slots: [2]Mat = undefined;
+
+const Bounds = struct {
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+};
 
 const ParserCtx = struct {
     input: []const u8,
@@ -453,43 +522,114 @@ fn floatPixelPtr(ctx: *ParserCtx, x: u32, y: u32) *align(1) Vec4f {
     return @ptrCast(&output_buf[idx]);
 }
 
-fn blendPixelCoverage(ctx: *ParserCtx, x: i32, y: i32, color: Color, coverage: f32) void {
+fn paintVisible(paint: Paint) bool {
+    return paint.opacity > 0 and (paint.gradient != null or paint.color.a != 0);
+}
+
+fn gradientRampIndex(spread: GradientSpread, t: f32) usize {
+    var u = t;
+    switch (spread) {
+        .pad => {},
+        .repeat => u = u - @floor(u),
+        .reflect => {
+            const period = u - 2.0 * @floor(u * 0.5);
+            u = if (period > 1.0) 2.0 - period else period;
+        },
+    }
+    if (!(u > 0)) return 0;
+    if (u >= 1) return GRADIENT_RAMP_SIZE - 1;
+    return @intFromFloat(u * @as(f32, @floatFromInt(GRADIENT_RAMP_SIZE - 1)) + 0.5);
+}
+
+// Paint color at a device pixel center, before the paint's opacity.
+fn paintColorAt(paint: Paint, x: i32, y: i32) Color {
+    const index = paint.gradient orelse return paint.color;
+    return gradientColorAt(index, paint.slot, x, y);
+}
+
+// Kept out of line so the solid-color path stays small enough to inline into
+// the per-pixel coverage loops.
+noinline fn gradientColorAt(index: u8, slot: PaintSlot, x: i32, y: i32) Color {
+    const gradient = &gradients[index];
+    const p = matApply(paint_slots[@intFromEnum(slot)], @as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5);
+    const c = gradient.coords;
+    var t: f32 = 0;
+    switch (gradient.kind) {
+        .linear => {
+            const dx = c[2] - c[0];
+            const dy = c[3] - c[1];
+            const length2 = dx * dx + dy * dy;
+            if (length2 > 0) t = ((p[0] - c[0]) * dx + (p[1] - c[1]) * dy) / length2;
+        },
+        .radial => {
+            const dx = p[0] - c[0];
+            const dy = p[1] - c[1];
+            t = if (c[2] > 0) std.math.sqrt(dx * dx + dy * dy) / c[2] else 1;
+        },
+    }
+    return gradient_ramps[index][gradientRampIndex(gradient.spread, t)];
+}
+
+fn blendPixelCoverage(ctx: *ParserCtx, x: i32, y: i32, paint: Paint, coverage: f32) void {
     if (!ANTIALIAS) @compileError("float coverage is only available in an antialiased renderer");
-    if (color.a == 0 or coverage <= 0) return;
+    if (coverage <= 0) return;
     if (x < 0 or y < 0) return;
     const ux: u32 = @intCast(x);
     const uy: u32 = @intCast(y);
     if (ux >= ctx.width or uy >= ctx.height) return;
 
-    const paint_alpha = @as(f32, @floatFromInt(color.a)) / 255.0;
+    const color = paintColorAt(paint, x, y);
+    if (color.a == 0) return;
+    const paint_alpha = @as(f32, @floatFromInt(color.a)) / 255.0 * paint.opacity;
     const source_alpha = @min(@as(f32, 1.0), coverage) * paint_alpha;
     const inverse_alpha: Vec4f = @splat(1.0 - source_alpha);
+    // Working pixels hold premultiplied sRGB-encoded values: SVG composites
+    // in sRGB (color-interpolation defaults to sRGB), as browsers and Skia do.
+    const channel_scale = source_alpha / 255.0;
     const source: Vec4f = .{
-        ktx2_float.SRGB8_TO_LINEAR[color.r] * source_alpha,
-        ktx2_float.SRGB8_TO_LINEAR[color.g] * source_alpha,
-        ktx2_float.SRGB8_TO_LINEAR[color.b] * source_alpha,
+        @as(f32, @floatFromInt(color.r)) * channel_scale,
+        @as(f32, @floatFromInt(color.g)) * channel_scale,
+        @as(f32, @floatFromInt(color.b)) * channel_scale,
         source_alpha,
     };
     const pixel = floatPixelPtr(ctx, ux, uy);
     pixel.* = source + pixel.* * inverse_alpha;
 }
 
-fn setPixel(ctx: *ParserCtx, x: i32, y: i32, color: Color) void {
+fn setPixel(ctx: *ParserCtx, x: i32, y: i32, paint: Paint) void {
     if (ANTIALIAS) {
-        blendPixelCoverage(ctx, x, y, color, 1.0);
+        blendPixelCoverage(ctx, x, y, paint, 1.0);
         return;
     }
-    if (color.a == 0) return;
     if (x < 0 or y < 0) return;
     const ux: u32 = @intCast(x);
     const uy: u32 = @intCast(y);
     if (ux >= ctx.width or uy >= ctx.height) return;
+    const color = paintColorAt(paint, x, y);
+    const source_alpha = @as(f32, @floatFromInt(color.a)) / 255.0 * paint.opacity;
+    if (source_alpha <= 0) return;
     const row = if (OUTPUT_KTX2) uy else ctx.height - 1 - uy;
     const idx: u32 = ctx.pixel_base + (row * ctx.width + ux) * 4;
-    output_buf[idx] = if (OUTPUT_KTX2) color.r else color.b;
-    output_buf[idx + 1] = color.g;
-    output_buf[idx + 2] = if (OUTPUT_KTX2) color.b else color.r;
-    output_buf[idx + 3] = color.a;
+    const ri = if (OUTPUT_KTX2) idx else idx + 2;
+    const bi = if (OUTPUT_KTX2) idx + 2 else idx;
+    if (source_alpha >= 1) {
+        output_buf[ri] = color.r;
+        output_buf[idx + 1] = color.g;
+        output_buf[bi] = color.b;
+        output_buf[idx + 3] = 255;
+        return;
+    }
+    // Straight-alpha source-over in sRGB, matching this renderer's 8-bit output.
+    const dest_alpha = @as(f32, @floatFromInt(output_buf[idx + 3])) / 255.0;
+    const dest_weight = dest_alpha * (1 - source_alpha);
+    const out_alpha = source_alpha + dest_weight;
+    const channels = [3]usize{ ri, idx + 1, bi };
+    const sources = [3]u8{ color.r, color.g, color.b };
+    for (channels, sources) |channel, source| {
+        const blended = (@as(f32, @floatFromInt(source)) * source_alpha + @as(f32, @floatFromInt(output_buf[channel])) * dest_weight) / out_alpha;
+        output_buf[channel] = @intFromFloat(@min(@as(f32, 255), blended + 0.5));
+    }
+    output_buf[idx + 3] = @intFromFloat(@min(@as(f32, 255), out_alpha * 255 + 0.5));
 }
 
 fn finishAntialiasedPixels(ctx: *ParserCtx) void {
@@ -503,16 +643,21 @@ fn finishAntialiasedPixels(ctx: *ParserCtx) void {
         if (OUTPUT_FLOAT and alpha > 0.0) {
             const inverse_alpha: Vec4f = @splat(1.0 / alpha);
             const straight = pixel.* * inverse_alpha;
-            pixel.* = .{ straight[0], straight[1], straight[2], alpha };
+            pixel.* = .{
+                ktx2_float.srgbToLinear(@min(@as(f32, 1.0), straight[0])),
+                ktx2_float.srgbToLinear(@min(@as(f32, 1.0), straight[1])),
+                ktx2_float.srgbToLinear(@min(@as(f32, 1.0), straight[2])),
+                alpha,
+            };
         } else if (OUTPUT_FLOAT) {
             pixel.* = @splat(0.0);
         } else {
             const destination = ctx.pixel_base + pixel_index * 4;
             if (alpha > 0.0) {
                 const inverse_alpha = 1.0 / alpha;
-                output_buf[destination] = ktx2_float.linearToSrgb8(pixel.*[0] * inverse_alpha);
-                output_buf[destination + 1] = ktx2_float.linearToSrgb8(pixel.*[1] * inverse_alpha);
-                output_buf[destination + 2] = ktx2_float.linearToSrgb8(pixel.*[2] * inverse_alpha);
+                output_buf[destination] = ktx2_float.linearToUnorm8(pixel.*[0] * inverse_alpha);
+                output_buf[destination + 1] = ktx2_float.linearToUnorm8(pixel.*[1] * inverse_alpha);
+                output_buf[destination + 2] = ktx2_float.linearToUnorm8(pixel.*[2] * inverse_alpha);
                 output_buf[destination + 3] = ktx2_float.linearToUnorm8(alpha);
             } else {
                 @memset(output_buf[destination .. destination + 4], 0);
@@ -538,34 +683,53 @@ fn maskCount(mask: @Vector(4, bool)) i32 {
     return @reduce(.Add, @select(i32, mask, @as(@Vector(4, i32), @splat(1)), @as(@Vector(4, i32), @splat(0))));
 }
 
-fn rectCoverage(inv: Mat, x: i32, y: i32, x0: f32, y0: f32, x1: f32, y1: f32) f32 {
+// A box with elliptical corners. Zero radii give a plain box.
+const RoundedBox = struct {
+    x0: f32,
+    y0: f32,
+    x1: f32,
+    y1: f32,
+    rx: f32 = 0,
+    ry: f32 = 0,
+};
+
+fn roundedBoxMask(box: RoundedBox, lx: Vec4f, ly: Vec4f) @Vector(4, bool) {
+    const inside = (lx >= @as(Vec4f, @splat(box.x0))) & (lx <= @as(Vec4f, @splat(box.x1))) &
+        (ly >= @as(Vec4f, @splat(box.y0))) & (ly <= @as(Vec4f, @splat(box.y1)));
+    if (box.rx <= 0 or box.ry <= 0) return inside;
+    const zero: Vec4f = @splat(0.0);
+    const ex = @max(zero, @abs(lx - @as(Vec4f, @splat((box.x0 + box.x1) * 0.5))) - @as(Vec4f, @splat((box.x1 - box.x0) * 0.5 - box.rx))) / @as(Vec4f, @splat(box.rx));
+    const ey = @max(zero, @abs(ly - @as(Vec4f, @splat((box.y0 + box.y1) * 0.5))) - @as(Vec4f, @splat((box.y1 - box.y0) * 0.5 - box.ry))) / @as(Vec4f, @splat(box.ry));
+    return inside & (ex * ex + ey * ey <= @as(Vec4f, @splat(1.0)));
+}
+
+fn roundedBoxContains(box: RoundedBox, lx: f32, ly: f32) bool {
+    if (lx < box.x0 or lx > box.x1 or ly < box.y0 or ly > box.y1) return false;
+    if (box.rx <= 0 or box.ry <= 0) return true;
+    const ex = @max(0, @abs(lx - (box.x0 + box.x1) * 0.5) - ((box.x1 - box.x0) * 0.5 - box.rx)) / box.rx;
+    const ey = @max(0, @abs(ly - (box.y0 + box.y1) * 0.5) - ((box.y1 - box.y0) * 0.5 - box.ry)) / box.ry;
+    return ex * ex + ey * ey <= 1;
+}
+
+fn rectCoverage(inv: Mat, x: i32, y: i32, box: RoundedBox) f32 {
     var covered: i32 = 0;
     var sample_row: i32 = 0;
     while (sample_row < AA_GRID) : (sample_row += 1) {
         const sy = @as(f32, @floatFromInt(y)) + (@as(f32, @floatFromInt(sample_row)) + 0.5) / @as(f32, @floatFromInt(AA_GRID));
-        const lx = sampleLocalX(inv, x, sy);
-        const ly = sampleLocalY(inv, x, sy);
-        covered += maskCount((lx >= @as(Vec4f, @splat(x0))) & (lx <= @as(Vec4f, @splat(x1))) &
-            (ly >= @as(Vec4f, @splat(y0))) & (ly <= @as(Vec4f, @splat(y1))));
+        covered += maskCount(roundedBoxMask(box, sampleLocalX(inv, x, sy), sampleLocalY(inv, x, sy)));
     }
     return @as(f32, @floatFromInt(covered)) / 16.0;
 }
 
-fn rectStrokeCoverage(inv: Mat, x: i32, y: i32, ox0: f32, oy0: f32, ox1: f32, oy1: f32, ix0: f32, iy0: f32, ix1: f32, iy1: f32, has_inner: bool) f32 {
+fn rectStrokeCoverage(inv: Mat, x: i32, y: i32, outer: RoundedBox, inner: RoundedBox, has_inner: bool) f32 {
     var covered: i32 = 0;
     var sample_row: i32 = 0;
     while (sample_row < AA_GRID) : (sample_row += 1) {
         const sy = @as(f32, @floatFromInt(y)) + (@as(f32, @floatFromInt(sample_row)) + 0.5) / 4.0;
         const lx = sampleLocalX(inv, x, sy);
         const ly = sampleLocalY(inv, x, sy);
-        const outer = (lx >= @as(Vec4f, @splat(ox0))) & (lx <= @as(Vec4f, @splat(ox1))) &
-            (ly >= @as(Vec4f, @splat(oy0))) & (ly <= @as(Vec4f, @splat(oy1)));
-        const inner = if (has_inner)
-            (lx >= @as(Vec4f, @splat(ix0))) & (lx <= @as(Vec4f, @splat(ix1))) &
-                (ly >= @as(Vec4f, @splat(iy0))) & (ly <= @as(Vec4f, @splat(iy1)))
-        else
-            @as(@Vector(4, bool), @splat(false));
-        covered += maskCount(outer & !inner);
+        const inner_mask = if (has_inner) roundedBoxMask(inner, lx, ly) else @as(@Vector(4, bool), @splat(false));
+        covered += maskCount(roundedBoxMask(outer, lx, ly) & !inner_mask);
     }
     return @as(f32, @floatFromInt(covered)) / 16.0;
 }
@@ -680,7 +844,7 @@ fn addScanlineSpanCoverage(width: u32, start_x: f32, end_x: f32) void {
     }
 }
 
-fn drawPathScanlines(ctx: *ParserCtx, color: Color, segments: *const [MAX_PATH_SEGMENTS]PathSegment, seg_count: usize, x0: i32, y0: i32, x1: i32, y1: i32) void {
+fn drawPathScanlines(ctx: *ParserCtx, color: Paint, segments: *const [MAX_PATH_SEGMENTS]PathSegment, seg_count: usize, x0: i32, y0: i32, x1: i32, y1: i32) void {
     var y = y0;
     while (y <= y1) : (y += 1) {
         @memset(path_scanline_coverage[@intCast(x0)..@intCast(x1 + 1)], 0);
@@ -729,9 +893,22 @@ fn drawPathScanlines(ctx: *ParserCtx, color: Color, segments: *const [MAX_PATH_S
     }
 }
 
-fn drawRect(ctx: *ParserCtx, transform: Mat, color: Color, rect: Rect) void {
+// SVG corner radii: a missing radius copies the other, and both are clamped
+// to half the side.
+fn rectRadii(rect: Rect) [2]f32 {
+    var rx = if (rect.set_rx) rect.rx else if (rect.set_ry) rect.ry else 0;
+    var ry = if (rect.set_ry) rect.ry else rx;
+    rx = @max(0, @min(rx, rect.w * 0.5));
+    ry = @max(0, @min(ry, rect.h * 0.5));
+    return .{ rx, ry };
+}
+
+fn drawRect(ctx: *ParserCtx, transform: Mat, color: Paint, rect: Rect) void {
     if (!(rect.set_w and rect.set_h)) return;
+    if (!paintVisible(color)) return;
     const inv = matInverse(transform) orelse return;
+    const radii = rectRadii(rect);
+    const box = RoundedBox{ .x0 = rect.x, .y0 = rect.y, .x1 = rect.x + rect.w, .y1 = rect.y + rect.h, .rx = radii[0], .ry = radii[1] };
     const corners = [_][2]f32{
         matApply(transform, rect.x, rect.y),
         matApply(transform, rect.x + rect.w, rect.y),
@@ -763,24 +940,27 @@ fn drawRect(ctx: *ParserCtx, transform: Mat, color: Color, rect: Rect) void {
         var x: i32 = x0;
         while (x <= x1) : (x += 1) {
             if (ANTIALIAS) {
-                blendPixelCoverage(ctx, x, y, color, rectCoverage(inv, x, y, rect.x, rect.y, rect.x + rect.w, rect.y + rect.h));
+                blendPixelCoverage(ctx, x, y, color, rectCoverage(inv, x, y, box));
                 continue;
             }
             const px = @as(f32, @floatFromInt(x)) + 0.5;
             const py = @as(f32, @floatFromInt(y)) + 0.5;
             const local = matApply(inv, px, py);
-            if (local[0] >= rect.x and local[0] <= rect.x + rect.w and local[1] >= rect.y and local[1] <= rect.y + rect.h) {
+            if (roundedBoxContains(box, local[0], local[1])) {
                 setPixel(ctx, x, y, color);
             }
         }
     }
 }
 
-fn drawRectStroke(ctx: *ParserCtx, transform: Mat, color: Color, rect: Rect, stroke_width: f32) void {
+fn drawRectStroke(ctx: *ParserCtx, transform: Mat, color: Paint, rect: Rect, stroke_width: f32) void {
     if (!(rect.set_w and rect.set_h)) return;
     if (stroke_width <= 0) return;
+    if (!paintVisible(color)) return;
     const inv = matInverse(transform) orelse return;
     const half_w = stroke_width * 0.5;
+    const radii = rectRadii(rect);
+    const rounded = radii[0] > 0 and radii[1] > 0;
     const ox0_local = rect.x - half_w;
     const oy0_local = rect.y - half_w;
     const ox1_local = rect.x + rect.w + half_w;
@@ -816,24 +996,42 @@ fn drawRectStroke(ctx: *ParserCtx, transform: Mat, color: Color, rect: Rect, str
     const ix1 = rect.x + rect.w - half_w;
     const iy1 = rect.y + rect.h - half_w;
     const has_inner = ix0 <= ix1 and iy0 <= iy1;
+    // Offsetting an elliptical corner is approximated by growing or shrinking
+    // its radii; this is exact for circular corners.
+    const outer = RoundedBox{
+        .x0 = ox0_local,
+        .y0 = oy0_local,
+        .x1 = ox1_local,
+        .y1 = oy1_local,
+        .rx = if (rounded) radii[0] + half_w else 0,
+        .ry = if (rounded) radii[1] + half_w else 0,
+    };
+    const inner = RoundedBox{
+        .x0 = ix0,
+        .y0 = iy0,
+        .x1 = ix1,
+        .y1 = iy1,
+        .rx = if (rounded) @max(0, radii[0] - half_w) else 0,
+        .ry = if (rounded) @max(0, radii[1] - half_w) else 0,
+    };
 
     var y: i32 = y0;
     while (y <= y1) : (y += 1) {
         var x: i32 = x0;
         while (x <= x1) : (x += 1) {
             if (ANTIALIAS) {
-                blendPixelCoverage(ctx, x, y, color, rectStrokeCoverage(inv, x, y, ox0_local, oy0_local, ox1_local, oy1_local, ix0, iy0, ix1, iy1, has_inner));
+                blendPixelCoverage(ctx, x, y, color, rectStrokeCoverage(inv, x, y, outer, inner, has_inner));
                 continue;
             }
             const px = @as(f32, @floatFromInt(x)) + 0.5;
             const py = @as(f32, @floatFromInt(y)) + 0.5;
             const local = matApply(inv, px, py);
 
-            if (local[0] < ox0_local or local[0] > ox1_local or local[1] < oy0_local or local[1] > oy1_local) continue;
+            if (!roundedBoxContains(outer, local[0], local[1])) continue;
 
             var in_inner = false;
             if (has_inner) {
-                in_inner = local[0] >= ix0 and local[0] <= ix1 and local[1] >= iy0 and local[1] <= iy1;
+                in_inner = roundedBoxContains(inner, local[0], local[1]);
             }
             if (!in_inner) {
                 setPixel(ctx, x, y, color);
@@ -842,7 +1040,7 @@ fn drawRectStroke(ctx: *ParserCtx, transform: Mat, color: Color, rect: Rect, str
     }
 }
 
-fn drawCircle(ctx: *ParserCtx, transform: Mat, color: Color, circle: Circle) void {
+fn drawCircle(ctx: *ParserCtx, transform: Mat, color: Paint, circle: Circle) void {
     if (!circle.set_r) return;
     const inv = matInverse(transform) orelse return;
     const center = matApply(transform, circle.cx, circle.cy);
@@ -879,7 +1077,7 @@ fn drawCircle(ctx: *ParserCtx, transform: Mat, color: Color, circle: Circle) voi
     }
 }
 
-fn drawCircleStroke(ctx: *ParserCtx, transform: Mat, color: Color, circle: Circle, stroke_width: f32) void {
+fn drawCircleStroke(ctx: *ParserCtx, transform: Mat, color: Paint, circle: Circle, stroke_width: f32) void {
     if (!circle.set_r) return;
     if (stroke_width <= 0) return;
     const inv = matInverse(transform) orelse return;
@@ -923,7 +1121,7 @@ fn drawCircleStroke(ctx: *ParserCtx, transform: Mat, color: Color, circle: Circl
     }
 }
 
-fn drawPolygon(ctx: *ParserCtx, transform: Mat, color: Color, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize) void {
+fn drawPolygon(ctx: *ParserCtx, transform: Mat, color: Paint, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize) void {
     if (count < 3) return;
     const inv = matInverse(transform) orelse return;
     var min_x = std.math.inf(f32);
@@ -1027,7 +1225,7 @@ fn pointSegmentDistSq(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32) f32 
     return dx * dx + dy * dy;
 }
 
-fn drawPolygonStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize) void {
+fn drawPolygonStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize) void {
     if (count < 2) return;
     if (stroke_width <= 0) return;
     const inv = matInverse(transform) orelse return;
@@ -1086,8 +1284,8 @@ fn drawPolygonStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width
     }
 }
 
-fn drawSegmentStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, ax: f32, ay: f32, bx: f32, by: f32) void {
-    if (color.a == 0) return;
+fn drawSegmentStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, ax: f32, ay: f32, bx: f32, by: f32) void {
+    if (!paintVisible(color)) return;
     if (stroke_width <= 0) return;
     const inv = matInverse(transform) orelse return;
     const half_w = stroke_width * 0.5;
@@ -1133,7 +1331,7 @@ fn drawSegmentStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width
     }
 }
 
-fn drawPolylineStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize, closed: bool) void {
+fn drawPolylineStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize, closed: bool) void {
     if (count < 2) return;
     var i: usize = 1;
     while (i < count) : (i += 1) {
@@ -1166,7 +1364,7 @@ fn quadPoint(t: f32, p0: [2]f32, p1: [2]f32, p2: [2]f32) [2]f32 {
     };
 }
 
-fn drawCubicStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, p0: [2]f32, p1: [2]f32, p2: [2]f32, p3: [2]f32) void {
+fn drawCubicStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, p0: [2]f32, p1: [2]f32, p2: [2]f32, p3: [2]f32) void {
     const steps: usize = 20;
     var prev = p0;
     var i: usize = 1;
@@ -1178,7 +1376,7 @@ fn drawCubicStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: 
     }
 }
 
-fn drawQuadStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, p0: [2]f32, p1: [2]f32, p2: [2]f32) void {
+fn drawQuadStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, p0: [2]f32, p1: [2]f32, p2: [2]f32) void {
     const steps: usize = 14;
     var prev = p0;
     var i: usize = 1;
@@ -1228,9 +1426,10 @@ fn pathPointsEqual(a: [2]f32, b: [2]f32) bool {
     return @abs(a[0] - b[0]) <= 0.0001 and @abs(a[1] - b[1]) <= 0.0001;
 }
 
-fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) void {
-    if (color.a == 0) return;
-    var segments: [MAX_PATH_SEGMENTS]PathSegment = undefined;
+// Flattens path data into `path_segments` in local coordinates, closing
+// every subpath, and returns the segment count.
+fn flattenPath(d: []const u8) usize {
+    const segments = &path_segments;
     var seg_count: usize = 0;
     var idx: usize = 0;
     var cmd: u8 = 0;
@@ -1260,7 +1459,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
         switch (cmd_upper) {
             'M' => {
                 if (sub_active and sub_has_edges and !pathPointsEqual(cur, sub_start)) {
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
                 }
                 const x = parsePathNumber(d, &idx) orelse break;
                 const y = parsePathNumber(d, &idx) orelse break;
@@ -1275,7 +1474,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const lx = parsePathNumber(d, &idx) orelse break;
                     const ly = parsePathNumber(d, &idx) orelse break;
                     const next = if (rel) .{ cur[0] + lx, cur[1] + ly } else .{ lx, ly };
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], next[0], next[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], next[0], next[1]);
                     cur = next;
                     sub_has_edges = true;
                 }
@@ -1285,7 +1484,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const x = parsePathNumber(d, &idx) orelse break;
                     const y = parsePathNumber(d, &idx) orelse break;
                     const next = if (rel) .{ cur[0] + x, cur[1] + y } else .{ x, y };
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], next[0], next[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], next[0], next[1]);
                     cur = next;
                     sub_has_edges = true;
                     has_prev_cubic = false;
@@ -1297,7 +1496,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const x = parsePathNumber(d, &idx) orelse break;
                     const nx = if (rel) cur[0] + x else x;
                     const next = [2]f32{ nx, cur[1] };
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], next[0], next[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], next[0], next[1]);
                     cur = next;
                     sub_has_edges = true;
                     has_prev_cubic = false;
@@ -1309,7 +1508,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const y = parsePathNumber(d, &idx) orelse break;
                     const ny = if (rel) cur[1] + y else y;
                     const next = [2]f32{ cur[0], ny };
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], next[0], next[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], next[0], next[1]);
                     cur = next;
                     sub_has_edges = true;
                     has_prev_cubic = false;
@@ -1327,7 +1526,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const c1 = if (rel) [2]f32{ cur[0] + x1, cur[1] + y1 } else [2]f32{ x1, y1 };
                     const c2 = if (rel) [2]f32{ cur[0] + x2, cur[1] + y2 } else [2]f32{ x2, y2 };
                     const next = if (rel) [2]f32{ cur[0] + x, cur[1] + y } else [2]f32{ x, y };
-                    drawCubicFillSegments(&segments, &seg_count, cur, c1, c2, next);
+                    drawCubicFillSegments(segments, &seg_count, cur, c1, c2, next);
                     cur = next;
                     sub_has_edges = true;
                     prev_cubic_ctrl = c2;
@@ -1344,7 +1543,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const c1 = if (has_prev_cubic) [2]f32{ 2.0 * cur[0] - prev_cubic_ctrl[0], 2.0 * cur[1] - prev_cubic_ctrl[1] } else cur;
                     const c2 = if (rel) [2]f32{ cur[0] + x2, cur[1] + y2 } else [2]f32{ x2, y2 };
                     const next = if (rel) [2]f32{ cur[0] + x, cur[1] + y } else [2]f32{ x, y };
-                    drawCubicFillSegments(&segments, &seg_count, cur, c1, c2, next);
+                    drawCubicFillSegments(segments, &seg_count, cur, c1, c2, next);
                     cur = next;
                     sub_has_edges = true;
                     prev_cubic_ctrl = c2;
@@ -1360,7 +1559,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const y = parsePathNumber(d, &idx) orelse break;
                     const c = if (rel) [2]f32{ cur[0] + x1, cur[1] + y1 } else [2]f32{ x1, y1 };
                     const next = if (rel) [2]f32{ cur[0] + x, cur[1] + y } else [2]f32{ x, y };
-                    drawQuadFillSegments(&segments, &seg_count, cur, c, next);
+                    drawQuadFillSegments(segments, &seg_count, cur, c, next);
                     cur = next;
                     sub_has_edges = true;
                     prev_quad_ctrl = c;
@@ -1374,7 +1573,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const y = parsePathNumber(d, &idx) orelse break;
                     const c = if (has_prev_quad) [2]f32{ 2.0 * cur[0] - prev_quad_ctrl[0], 2.0 * cur[1] - prev_quad_ctrl[1] } else cur;
                     const next = if (rel) [2]f32{ cur[0] + x, cur[1] + y } else [2]f32{ x, y };
-                    drawQuadFillSegments(&segments, &seg_count, cur, c, next);
+                    drawQuadFillSegments(segments, &seg_count, cur, c, next);
                     cur = next;
                     sub_has_edges = true;
                     prev_quad_ctrl = c;
@@ -1393,7 +1592,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
                     const x = parsePathNumber(d, &idx) orelse break;
                     const y = parsePathNumber(d, &idx) orelse break;
                     const next = if (rel) [2]f32{ cur[0] + x, cur[1] + y } else [2]f32{ x, y };
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], next[0], next[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], next[0], next[1]);
                     cur = next;
                     sub_has_edges = true;
                     has_prev_cubic = false;
@@ -1402,7 +1601,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
             },
             'Z' => {
                 if (sub_active and sub_has_edges and !pathPointsEqual(cur, sub_start)) {
-                    addPathSegment(&segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
+                    addPathSegment(segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
                 }
                 cur = sub_start;
                 sub_has_edges = false;
@@ -1414,9 +1613,31 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
     }
 
     if (sub_active and sub_has_edges and !pathPointsEqual(cur, sub_start)) {
-        addPathSegment(&segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
+        addPathSegment(segments, &seg_count, cur[0], cur[1], sub_start[0], sub_start[1]);
     }
+    return seg_count;
+}
+
+fn segmentBounds(seg_count: usize) ?Bounds {
+    if (seg_count == 0) return null;
+    var min_x = std.math.inf(f32);
+    var min_y = std.math.inf(f32);
+    var max_x = -std.math.inf(f32);
+    var max_y = -std.math.inf(f32);
+    for (path_segments[0..seg_count]) |segment| {
+        min_x = @min(min_x, @min(segment.ax, segment.bx));
+        max_x = @max(max_x, @max(segment.ax, segment.bx));
+        min_y = @min(min_y, @min(segment.ay, segment.by));
+        max_y = @max(max_y, @max(segment.ay, segment.by));
+    }
+    return .{ .x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y };
+}
+
+// Fills the first `seg_count` entries of `path_segments` with the nonzero rule.
+fn fillPath(ctx: *ParserCtx, transform: Mat, color: Paint, seg_count: usize) void {
+    if (!paintVisible(color)) return;
     if (seg_count == 0) return;
+    const segments = &path_segments;
 
     var min_x = std.math.inf(f32);
     var min_y = std.math.inf(f32);
@@ -1452,7 +1673,7 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
     if (x0 > x1 or y0 > y1) return;
 
     if (ANTIALIAS) {
-        drawPathScanlines(ctx, color, &segments, seg_count, x0, y0, x1, y1);
+        drawPathScanlines(ctx, color, segments, seg_count, x0, y0, x1, y1);
         return;
     }
 
@@ -1489,8 +1710,8 @@ fn drawPathFill(ctx: *ParserCtx, transform: Mat, color: Color, d: []const u8) vo
     }
 }
 
-fn drawPathStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f32, d: []const u8) void {
-    if (color.a == 0) return;
+fn drawPathStroke(ctx: *ParserCtx, transform: Mat, color: Paint, stroke_width: f32, d: []const u8) void {
+    if (!paintVisible(color)) return;
     if (stroke_width <= 0) return;
     var idx: usize = 0;
     var cmd: u8 = 0;
@@ -1658,47 +1879,177 @@ fn drawPathStroke(ctx: *ParserCtx, transform: Mat, color: Color, stroke_width: f
     }
 }
 
-fn parseAttributes(input: []const u8, idx: *usize, base_fill: Color, base_stroke: Color, base_stroke_width: f32, base_transform: Mat, rect: *Rect, circle: *Circle, line: *Line, xs: *[MAX_POINTS]f32, ys: *[MAX_POINTS]f32, poly_count: *usize, path_d: *?[]const u8, attr_fill: *Color, fill_set: *bool, attr_stroke: *Color, stroke_set: *bool, attr_stroke_width: *f32, stroke_width_set: *bool, attr_transform: *Mat, transform_set: *bool, self_closing: *bool) void {
+const Attr = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
+// Returns the next attribute of the open tag at `idx`, or null once its `>`
+// or `/>` has been consumed.
+fn nextAttribute(input: []const u8, idx: *usize, self_closing: *bool) ?Attr {
     while (idx.* < input.len) {
         skipWs(input, idx);
-        if (idx.* >= input.len) return;
-        if (input[idx.*] == '/') {
-            if (idx.* + 1 < input.len and input[idx.* + 1] == '>') {
-                idx.* += 2;
-                self_closing.* = true;
-                return;
-            }
+        if (idx.* >= input.len) return null;
+        if (input[idx.*] == '/' and idx.* + 1 < input.len and input[idx.* + 1] == '>') {
+            idx.* += 2;
+            self_closing.* = true;
+            return null;
         }
         if (input[idx.*] == '>') {
             idx.* += 1;
-            return;
+            return null;
         }
         const name = readName(input, idx);
         skipWs(input, idx);
-        if (idx.* >= input.len or input[idx.*] != '=') continue;
+        if (idx.* >= input.len or input[idx.*] != '=') {
+            if (name.len == 0) idx.* += 1;
+            continue;
+        }
         idx.* += 1;
         skipWs(input, idx);
-        const value = readQuoted(input, idx);
+        return .{ .name = name, .value = readQuoted(input, idx) };
+    }
+    return null;
+}
+
+fn trimWs(value: []const u8) []const u8 {
+    var start: usize = 0;
+    var end: usize = value.len;
+    while (start < end and (value[start] == ' ' or value[start] == '\t' or value[start] == '\n' or value[start] == '\r')) start += 1;
+    while (end > start and (value[end - 1] == ' ' or value[end - 1] == '\t' or value[end - 1] == '\n' or value[end - 1] == '\r')) end -= 1;
+    return value[start..end];
+}
+
+// A number, or a percentage as a fraction.
+fn parseNumberOrPercent(value: []const u8) ?f32 {
+    var idx: usize = 0;
+    const number = parseFloat(value, &idx) orelse return null;
+    if (idx < value.len and value[idx] == '%') return number / 100.0;
+    return number;
+}
+
+fn parseUnitInterval(value: []const u8) ?f32 {
+    const number = parseNumberOrPercent(value) orelse return null;
+    return @max(0, @min(1, number));
+}
+
+fn findGradient(id: []const u8) ?u8 {
+    var index: usize = 0;
+    while (index < gradient_count) : (index += 1) {
+        if (strEq(gradients[index].id, id)) return @intCast(index);
+    }
+    return null;
+}
+
+// Strips the leading `#` of an href value.
+fn hrefFragment(value: []const u8) []const u8 {
+    const trimmed = trimWs(value);
+    if (trimmed.len > 1 and trimmed[0] == '#') return trimmed[1..];
+    return "";
+}
+
+fn parsePaint(value: []const u8) ?PaintSpec {
+    const none = PaintSpec{ .color = .{ .r = 0, .g = 0, .b = 0, .a = 0 } };
+    const trimmed = trimWs(value);
+    if (trimmed.len > 4 and strEq(trimmed[0..4], "url(")) {
+        var close: usize = 4;
+        while (close < trimmed.len and trimmed[close] != ')') close += 1;
+        var reference = trimWs(trimmed[4..close]);
+        if (reference.len >= 2 and (reference[0] == '\'' or reference[0] == '"') and reference[reference.len - 1] == reference[0]) {
+            reference = reference[1 .. reference.len - 1];
+        }
+        if (findGradient(hrefFragment(reference))) |index| {
+            return .{ .color = none.color, .gradient = index };
+        }
+        // An unresolved reference uses its fallback color, or paints nothing.
+        if (close + 1 < trimmed.len) {
+            if (parseColor(trimWs(trimmed[close + 1 ..]))) |fallback| return .{ .color = fallback };
+        }
+        return none;
+    }
+    const color = parseColor(trimmed) orelse return null;
+    return .{ .color = color };
+}
+
+const TextAnchor = enum { start, middle, end };
+
+// Inherited presentation state.
+const Style = struct {
+    fill: PaintSpec,
+    stroke: PaintSpec,
+    stroke_width: f32,
+    fill_opacity: f32 = 1,
+    stroke_opacity: f32 = 1,
+    // Group opacity is approximated by multiplying it into each descendant's
+    // paint rather than compositing the group as one layer.
+    opacity: f32 = 1,
+    font_size: f32 = 16,
+    font_bold: bool = false,
+    text_anchor: TextAnchor = .start,
+};
+
+const ElementAttrs = struct {
+    rect: Rect = .{},
+    circle: Circle = .{},
+    line: Line = .{},
+    poly_count: usize = 0,
+    path_d: ?[]const u8 = null,
+    transform: ?Mat = null,
+    fill: ?PaintSpec = null,
+    stroke: ?PaintSpec = null,
+    stroke_width: ?f32 = null,
+    fill_opacity: ?f32 = null,
+    stroke_opacity: ?f32 = null,
+    opacity: ?f32 = null,
+    font_size: ?f32 = null,
+    font_bold: ?bool = null,
+    text_anchor: ?TextAnchor = null,
+    self_closing: bool = false,
+};
+
+fn parseAttributes(input: []const u8, idx: *usize, attrs: *ElementAttrs, xs: *[MAX_POINTS]f32, ys: *[MAX_POINTS]f32) void {
+    const rect = &attrs.rect;
+    const circle = &attrs.circle;
+    const line = &attrs.line;
+    while (nextAttribute(input, idx, &attrs.self_closing)) |attr| {
+        const name = attr.name;
+        const value = attr.value;
         if (value.len == 0) continue;
 
         if (strEq(name, "fill")) {
-            if (parseColor(value)) |c| {
-                attr_fill.* = c;
-                fill_set.* = true;
-            }
+            if (parsePaint(value)) |paint| attrs.fill = paint;
         } else if (strEq(name, "stroke")) {
-            if (parseColor(value)) |c| {
-                attr_stroke.* = c;
-                stroke_set.* = true;
-            }
+            if (parsePaint(value)) |paint| attrs.stroke = paint;
         } else if (strEq(name, "stroke-width")) {
-            if (parseNumber(value)) |v| {
-                attr_stroke_width.* = if (v > 0) v else 0;
-                stroke_width_set.* = true;
-            }
+            if (parseNumber(value)) |v| attrs.stroke_width = if (v > 0) v else 0;
+        } else if (strEq(name, "fill-opacity")) {
+            if (parseUnitInterval(value)) |v| attrs.fill_opacity = v;
+        } else if (strEq(name, "stroke-opacity")) {
+            if (parseUnitInterval(value)) |v| attrs.stroke_opacity = v;
+        } else if (strEq(name, "opacity")) {
+            if (parseUnitInterval(value)) |v| attrs.opacity = v;
         } else if (strEq(name, "transform")) {
-            attr_transform.* = parseTransform(value);
-            transform_set.* = true;
+            attrs.transform = parseTransform(value);
+        } else if (strEq(name, "font-size")) {
+            if (parseNumber(value)) |v| {
+                if (v > 0) attrs.font_size = v;
+            }
+        } else if (strEq(name, "font-weight")) {
+            if (strEq(value, "bold") or strEq(value, "bolder")) {
+                attrs.font_bold = true;
+            } else if (strEq(value, "normal") or strEq(value, "lighter")) {
+                attrs.font_bold = false;
+            } else if (parseNumber(value)) |v| {
+                attrs.font_bold = v >= 600;
+            }
+        } else if (strEq(name, "text-anchor")) {
+            if (strEq(value, "start")) {
+                attrs.text_anchor = .start;
+            } else if (strEq(value, "middle")) {
+                attrs.text_anchor = .middle;
+            } else if (strEq(value, "end")) {
+                attrs.text_anchor = .end;
+            }
         } else if (strEq(name, "x")) {
             if (parseNumber(value)) |v| {
                 rect.x = v;
@@ -1719,6 +2070,16 @@ fn parseAttributes(input: []const u8, idx: *usize, base_fill: Color, base_stroke
                 rect.h = v;
                 rect.set_h = true;
             }
+        } else if (strEq(name, "rx")) {
+            if (parseNumber(value)) |v| {
+                rect.rx = v;
+                rect.set_rx = true;
+            }
+        } else if (strEq(name, "ry")) {
+            if (parseNumber(value)) |v| {
+                rect.ry = v;
+                rect.set_ry = true;
+            }
         } else if (strEq(name, "cx")) {
             if (parseNumber(value)) |v| {
                 circle.cx = v;
@@ -1735,7 +2096,7 @@ fn parseAttributes(input: []const u8, idx: *usize, base_fill: Color, base_stroke
                 circle.set_r = true;
             }
         } else if (strEq(name, "points")) {
-            parsePoints(value, xs, ys, poly_count);
+            parsePoints(value, xs, ys, &attrs.poly_count);
         } else if (strEq(name, "x1")) {
             if (parseNumber(value)) |v| {
                 line.x1 = v;
@@ -1757,13 +2118,383 @@ fn parseAttributes(input: []const u8, idx: *usize, base_fill: Color, base_stroke
                 line.set_y2 = true;
             }
         } else if (strEq(name, "d")) {
-            path_d.* = value;
+            attrs.path_d = value;
         }
     }
-    _ = base_fill;
-    _ = base_stroke;
-    _ = base_stroke_width;
-    _ = base_transform;
+}
+
+fn applyAttrs(style: Style, attrs: ElementAttrs) Style {
+    var result = style;
+    if (attrs.fill) |v| result.fill = v;
+    if (attrs.stroke) |v| result.stroke = v;
+    if (attrs.stroke_width) |v| result.stroke_width = v;
+    if (attrs.fill_opacity) |v| result.fill_opacity = v;
+    if (attrs.stroke_opacity) |v| result.stroke_opacity = v;
+    if (attrs.opacity) |v| result.opacity *= v;
+    if (attrs.font_size) |v| result.font_size = v;
+    if (attrs.font_bold) |v| result.font_bold = v;
+    if (attrs.text_anchor) |v| result.text_anchor = v;
+    return result;
+}
+
+fn resolvePaint(spec: PaintSpec, opacity: f32, transform: Mat, bounds: ?Bounds, slot: PaintSlot) Paint {
+    const none = Paint{ .color = .{ .r = 0, .g = 0, .b = 0, .a = 0 } };
+    const index = spec.gradient orelse return .{ .color = spec.color, .opacity = opacity };
+    const gradient = &gradients[index];
+    if (gradient.stop_count == 0) return none;
+    var to_user = gradient.transform;
+    if (!gradient.user_space) {
+        // objectBoundingBox gradients are not drawn on a zero-area box.
+        const box = bounds orelse return none;
+        if (!(box.w > 0 and box.h > 0)) return none;
+        to_user = matMul(.{ .a = box.w, .b = 0, .c = 0, .d = box.h, .tx = box.x, .ty = box.y }, gradient.transform);
+    }
+    paint_slots[@intFromEnum(slot)] = matInverse(matMul(transform, to_user)) orelse return none;
+    return .{ .color = spec.color, .gradient = index, .slot = slot, .opacity = opacity };
+}
+
+fn pointBounds(xs: *const [MAX_POINTS]f32, ys: *const [MAX_POINTS]f32, count: usize) ?Bounds {
+    if (count == 0) return null;
+    var min_x = xs[0];
+    var max_x = xs[0];
+    var min_y = ys[0];
+    var max_y = ys[0];
+    for (xs[1..count], ys[1..count]) |x, y| {
+        min_x = @min(min_x, x);
+        max_x = @max(max_x, x);
+        min_y = @min(min_y, y);
+        max_y = @max(max_y, y);
+    }
+    return .{ .x = min_x, .y = min_y, .w = max_x - min_x, .h = max_y - min_y };
+}
+
+fn stopColorAt(stops: []const GradientStop, t: f32) [4]f32 {
+    var upper: usize = 0;
+    while (upper < stops.len and stops[upper].offset < t) upper += 1;
+    const lower = if (upper == 0) 0 else upper - 1;
+    if (upper >= stops.len) upper = stops.len - 1;
+    const a = stops[lower];
+    const b = stops[upper];
+    const span = b.offset - a.offset;
+    const weight: f32 = if (span > 0) @max(0, @min(1, (t - a.offset) / span)) else if (t >= b.offset) 1 else 0;
+    var result: [4]f32 = undefined;
+    const a_alpha = @as(f32, @floatFromInt(a.color.a)) / 255.0;
+    const b_alpha = @as(f32, @floatFromInt(b.color.a)) / 255.0;
+    result[3] = a_alpha + (b_alpha - a_alpha) * weight;
+    const a_rgb = [3]u8{ a.color.r, a.color.g, a.color.b };
+    const b_rgb = [3]u8{ b.color.r, b.color.g, b.color.b };
+    // Interpolate premultiplied so a transparent stop does not tint its neighbour.
+    for (0..3) |channel| {
+        const from = @as(f32, @floatFromInt(a_rgb[channel])) * a_alpha;
+        const to = @as(f32, @floatFromInt(b_rgb[channel])) * b_alpha;
+        result[channel] = from + (to - from) * weight;
+    }
+    return result;
+}
+
+fn bakeGradientRamp(index: usize) void {
+    const gradient = &gradients[index];
+    if (gradient.stop_count == 0) return;
+    const stops = gradient.stops[0..gradient.stop_count];
+    for (&gradient_ramps[index], 0..) |*entry, step| {
+        const t = @as(f32, @floatFromInt(step)) / @as(f32, @floatFromInt(GRADIENT_RAMP_SIZE - 1));
+        const rgba = stopColorAt(stops, t);
+        if (rgba[3] <= 0) {
+            entry.* = .{ .r = 0, .g = 0, .b = 0, .a = 0 };
+            continue;
+        }
+        entry.* = .{
+            .r = @intFromFloat(@min(@as(f32, 255), rgba[0] / rgba[3] + 0.5)),
+            .g = @intFromFloat(@min(@as(f32, 255), rgba[1] / rgba[3] + 0.5)),
+            .b = @intFromFloat(@min(@as(f32, 255), rgba[2] / rgba[3] + 0.5)),
+            .a = @intFromFloat(@min(@as(f32, 255), rgba[3] * 255 + 0.5)),
+        };
+    }
+}
+
+fn parseGradientAttributes(input: []const u8, idx: *usize, gradient: *Gradient, self_closing: *bool) void {
+    const coord_names = if (gradient.kind == .linear)
+        [4][]const u8{ "x1", "y1", "x2", "y2" }
+    else
+        [4][]const u8{ "cx", "cy", "r", "" };
+    while (nextAttribute(input, idx, self_closing)) |attr| {
+        if (strEq(attr.name, "id")) {
+            gradient.id = attr.value;
+        } else if (strEq(attr.name, "href") or strEq(attr.name, "xlink:href")) {
+            gradient.href = hrefFragment(attr.value);
+        } else if (strEq(attr.name, "gradientUnits")) {
+            gradient.user_space = strEq(attr.value, "userSpaceOnUse");
+            gradient.set_units = true;
+        } else if (strEq(attr.name, "spreadMethod")) {
+            gradient.spread = if (strEq(attr.value, "reflect")) .reflect else if (strEq(attr.value, "repeat")) .repeat else .pad;
+            gradient.set_spread = true;
+        } else if (strEq(attr.name, "gradientTransform")) {
+            gradient.transform = parseTransform(attr.value);
+            gradient.set_transform = true;
+        } else {
+            for (coord_names, 0..) |coord_name, coord| {
+                if (coord_name.len == 0 or !strEq(attr.name, coord_name)) continue;
+                if (parseNumberOrPercent(attr.value)) |v| {
+                    gradient.coords[coord] = v;
+                    gradient.set_coords[coord] = true;
+                }
+            }
+        }
+    }
+}
+
+fn parseStop(input: []const u8, idx: *usize, self_closing: *bool) GradientStop {
+    var stop = GradientStop{ .offset = 0, .color = .{ .r = 0, .g = 0, .b = 0, .a = 255 } };
+    var stop_opacity: f32 = 1;
+    while (nextAttribute(input, idx, self_closing)) |attr| {
+        if (strEq(attr.name, "offset")) {
+            if (parseUnitInterval(attr.value)) |v| stop.offset = v;
+        } else if (strEq(attr.name, "stop-color")) {
+            if (parseColor(trimWs(attr.value))) |c| stop.color = c;
+        } else if (strEq(attr.name, "stop-opacity")) {
+            if (parseUnitInterval(attr.value)) |v| stop_opacity = v;
+        }
+    }
+    stop.color.a = @intFromFloat(@as(f32, @floatFromInt(stop.color.a)) * stop_opacity + 0.5);
+    return stop;
+}
+
+// Inherits stops and unset attributes along each gradient's href chain.
+fn resolveGradientReferences() void {
+    const MAX_HREF_HOPS: usize = 8;
+    var index: usize = 0;
+    while (index < gradient_count) : (index += 1) {
+        const gradient = &gradients[index];
+        var href = gradient.href;
+        var hops: usize = 0;
+        while (href.len > 0 and hops < MAX_HREF_HOPS) : (hops += 1) {
+            const parent_index = findGradient(href) orelse break;
+            if (parent_index == index) break;
+            const parent = &gradients[parent_index];
+            if (gradient.stop_count == 0 and parent.stop_count > 0) {
+                gradient.stops = parent.stops;
+                gradient.stop_count = parent.stop_count;
+            }
+            if (!gradient.set_units and parent.set_units) {
+                gradient.user_space = parent.user_space;
+                gradient.set_units = true;
+            }
+            if (!gradient.set_spread and parent.set_spread) {
+                gradient.spread = parent.spread;
+                gradient.set_spread = true;
+            }
+            if (!gradient.set_transform and parent.set_transform) {
+                gradient.transform = parent.transform;
+                gradient.set_transform = true;
+            }
+            if (parent.kind == gradient.kind) {
+                for (0..4) |coord| {
+                    if (!gradient.set_coords[coord] and parent.set_coords[coord]) {
+                        gradient.coords[coord] = parent.coords[coord];
+                        gradient.set_coords[coord] = true;
+                    }
+                }
+            }
+            href = parent.href;
+        }
+    }
+}
+
+fn collectGradients(input: []const u8) void {
+    gradient_count = 0;
+    var idx: usize = 0;
+    var current: ?usize = null;
+    while (idx < input.len) {
+        while (idx < input.len and input[idx] != '<') idx += 1;
+        if (idx >= input.len) break;
+        idx += 1;
+        if (idx >= input.len) break;
+        if (input[idx] == '/') {
+            idx += 1;
+            const name = readName(input, &idx);
+            if (strEq(name, "linearGradient") or strEq(name, "radialGradient")) current = null;
+            continue;
+        }
+        if (input[idx] == '?' or input[idx] == '!') {
+            skipSpecial(input, &idx);
+            continue;
+        }
+        const name = readName(input, &idx);
+        var self_closing = false;
+        const linear = strEq(name, "linearGradient");
+        if (linear or strEq(name, "radialGradient")) {
+            current = null;
+            var gradient = Gradient{
+                .id = "",
+                .kind = if (linear) .linear else .radial,
+                .transform = matIdentity(),
+                .coords = if (linear) .{ 0, 0, 1, 0 } else .{ 0.5, 0.5, 0.5, 0 },
+            };
+            parseGradientAttributes(input, &idx, &gradient, &self_closing);
+            if (gradient.id.len == 0 or gradient_count >= MAX_GRADIENTS) continue;
+            gradients[gradient_count] = gradient;
+            if (!self_closing) current = gradient_count;
+            gradient_count += 1;
+        } else if (strEq(name, "stop")) {
+            const stop = parseStop(input, &idx, &self_closing);
+            const gradient = &gradients[current orelse continue];
+            if (gradient.stop_count >= MAX_GRADIENT_STOPS) continue;
+            var placed = stop;
+            // Offsets never decrease along the ramp.
+            if (gradient.stop_count > 0) placed.offset = @max(placed.offset, gradient.stops[gradient.stop_count - 1].offset);
+            gradient.stops[gradient.stop_count] = placed;
+            gradient.stop_count += 1;
+        }
+    }
+    resolveGradientReferences();
+    var index: usize = 0;
+    while (index < gradient_count) : (index += 1) bakeGradientRamp(index);
+}
+
+const MAX_TEXT_CODEPOINTS: usize = 1024;
+var text_codepoints: [MAX_TEXT_CODEPOINTS]u32 = undefined;
+
+const DecodedChar = struct {
+    codepoint: u32,
+    len: usize,
+};
+
+fn decodeEntity(input: []const u8, start: usize) DecodedChar {
+    const amp = DecodedChar{ .codepoint = '&', .len = 1 };
+    var end = start + 1;
+    while (end < input.len and end - start < 12 and input[end] != ';') end += 1;
+    if (end >= input.len or input[end] != ';') return amp;
+    const body = input[start + 1 .. end];
+    const len = end + 1 - start;
+    if (strEq(body, "amp")) return .{ .codepoint = '&', .len = len };
+    if (strEq(body, "lt")) return .{ .codepoint = '<', .len = len };
+    if (strEq(body, "gt")) return .{ .codepoint = '>', .len = len };
+    if (strEq(body, "quot")) return .{ .codepoint = '"', .len = len };
+    if (strEq(body, "apos")) return .{ .codepoint = '\'', .len = len };
+    if (body.len >= 2 and body[0] == '#') {
+        const hex = body[1] == 'x' or body[1] == 'X';
+        const digits = if (hex) body[2..] else body[1..];
+        if (digits.len == 0) return amp;
+        var value: u32 = 0;
+        for (digits) |digit| {
+            const is_decimal = digit >= '0' and digit <= '9';
+            const is_hex_letter = (digit >= 'a' and digit <= 'f') or (digit >= 'A' and digit <= 'F');
+            if (!(is_decimal or (hex and is_hex_letter))) return amp;
+            value = value * (if (hex) @as(u32, 16) else 10) + hexVal(digit);
+        }
+        if (value > 0x10FFFF) return amp;
+        return .{ .codepoint = value, .len = len };
+    }
+    return amp;
+}
+
+// Reads character data up to `</text>`, keeping the text of nested elements
+// such as <tspan> but not their positioning. Whitespace collapses as with the
+// default xml:space handling.
+fn readTextContent(input: []const u8, idx: *usize) usize {
+    var count: usize = 0;
+    var pending_space = false;
+    while (idx.* < input.len) {
+        const c = input[idx.*];
+        if (c == '<') {
+            if (idx.* + 1 < input.len and input[idx.* + 1] == '/') {
+                var probe = idx.* + 2;
+                if (strEq(readName(input, &probe), "text")) {
+                    while (probe < input.len and input[probe] != '>') probe += 1;
+                    idx.* = if (probe < input.len) probe + 1 else probe;
+                    return count;
+                }
+            } else if (idx.* + 1 < input.len and input[idx.* + 1] == '!') {
+                idx.* += 1;
+                skipSpecial(input, idx);
+                continue;
+            }
+            while (idx.* < input.len and input[idx.*] != '>') idx.* += 1;
+            if (idx.* < input.len) idx.* += 1;
+            continue;
+        }
+        var decoded = DecodedChar{ .codepoint = c, .len = 1 };
+        if (c == '&') {
+            decoded = decodeEntity(input, idx.*);
+        } else if (c >= 0x80) {
+            const len = std.unicode.utf8ByteSequenceLength(c) catch 1;
+            if (len > 1 and idx.* + len <= input.len) {
+                if (std.unicode.utf8Decode(input[idx.* .. idx.* + len])) |cp| {
+                    decoded = .{ .codepoint = cp, .len = len };
+                } else |_| {}
+            }
+        }
+        idx.* += decoded.len;
+        const cp = decoded.codepoint;
+        if (cp == ' ' or cp == '\n' or cp == '\t' or cp == '\r') {
+            if (count > 0) pending_space = true;
+            continue;
+        }
+        if (count + 2 > MAX_TEXT_CODEPOINTS) continue;
+        if (pending_space) {
+            text_codepoints[count] = ' ';
+            count += 1;
+            pending_space = false;
+        }
+        text_codepoints[count] = cp;
+        count += 1;
+    }
+    return count;
+}
+
+fn drawTextWithFont(comptime font: type, ctx: *ParserCtx, transform: Mat, style: Style, x: f32, y: f32, count: usize) void {
+    const scale = style.font_size / font.UNITS_PER_EM;
+    if (!(scale > 0)) return;
+    const codepoints = text_codepoints[0..count];
+
+    var width_units: f32 = 0;
+    var previous: ?usize = null;
+    for (codepoints) |cp| {
+        const glyph = font.glyphIndex(cp) orelse continue;
+        if (previous) |left| width_units += @floatFromInt(font.kerning(left, glyph));
+        width_units += @floatFromInt(font.advances[glyph]);
+        previous = glyph;
+    }
+    const width = width_units * scale;
+    const start_x = switch (style.text_anchor) {
+        .start => x,
+        .middle => x - width * 0.5,
+        .end => x - width,
+    };
+    const bounds = Bounds{
+        .x = start_x,
+        .y = y - font.ASCENDER * scale,
+        .w = width,
+        .h = (font.ASCENDER - font.DESCENDER) * scale,
+    };
+    const fill = resolvePaint(style.fill, style.fill_opacity * style.opacity, transform, bounds, .fill);
+    const stroke = resolvePaint(style.stroke, style.stroke_opacity * style.opacity, transform, bounds, .stroke);
+    const draw_fill = paintVisible(fill);
+    const draw_stroke = paintVisible(stroke) and style.stroke_width > 0;
+    if (!draw_fill and !draw_stroke) return;
+
+    var pen_units: f32 = 0;
+    previous = null;
+    for (codepoints) |cp| {
+        const glyph = font.glyphIndex(cp) orelse continue;
+        if (previous) |left| pen_units += @floatFromInt(font.kerning(left, glyph));
+        previous = glyph;
+        const d = font.glyph_paths[glyph];
+        const glyph_transform = matMul(transform, .{ .a = scale, .b = 0, .c = 0, .d = scale, .tx = start_x + pen_units * scale, .ty = y });
+        pen_units += @floatFromInt(font.advances[glyph]);
+        if (d.len == 0) continue;
+        if (draw_fill) fillPath(ctx, glyph_transform, fill, flattenPath(d));
+        if (draw_stroke) drawPathStroke(ctx, glyph_transform, stroke, style.stroke_width / scale, d);
+    }
+}
+
+fn drawText(ctx: *ParserCtx, transform: Mat, style: Style, x: f32, y: f32, count: usize) void {
+    if (count == 0) return;
+    if (style.font_bold) {
+        drawTextWithFont(font_bold, ctx, transform, style, x, y, count);
+    } else {
+        drawTextWithFont(font_regular, ctx, transform, style, x, y, count);
+    }
 }
 
 fn skipSpecial(input: []const u8, idx: *usize) void {
@@ -1801,19 +2532,54 @@ const MAX_GROUP_DEPTH: usize = 128;
 const GroupFrame = struct {
     end_tag: []const u8,
     transform: Mat,
-    fill: Color,
-    stroke: Color,
-    stroke_width: f32,
+    style: Style,
 };
 
-fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_fill: Color, root_stroke: Color, root_stroke_width: f32) void {
+// Containers whose children are referenced, not drawn in place.
+fn isNonRendered(name: []const u8) bool {
+    const names = [_][]const u8{ "defs", "symbol", "clipPath", "mask", "pattern", "marker", "filter", "linearGradient", "radialGradient", "title", "desc", "metadata", "style", "script" };
+    for (names) |candidate| {
+        if (strEq(name, candidate)) return true;
+    }
+    return false;
+}
+
+// Skips to the end tag matching an open `name`, counting nested `name` tags.
+fn skipElementContent(input: []const u8, idx: *usize, name: []const u8) void {
+    var depth: usize = 1;
+    while (idx.* < input.len) {
+        while (idx.* < input.len and input[idx.*] != '<') idx.* += 1;
+        if (idx.* >= input.len) return;
+        idx.* += 1;
+        if (idx.* >= input.len) return;
+        if (input[idx.*] == '/') {
+            idx.* += 1;
+            const close = readName(input, idx);
+            while (idx.* < input.len and input[idx.*] != '>') idx.* += 1;
+            if (idx.* < input.len) idx.* += 1;
+            if (strEq(close, name)) {
+                depth -= 1;
+                if (depth == 0) return;
+            }
+            continue;
+        }
+        if (input[idx.*] == '?' or input[idx.*] == '!') {
+            skipSpecial(input, idx);
+            continue;
+        }
+        const open = readName(input, idx);
+        var self_closing = false;
+        while (nextAttribute(input, idx, &self_closing)) |_| {}
+        if (strEq(open, name) and !self_closing) depth += 1;
+    }
+}
+
+fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_style: Style) void {
     const input = ctx.input;
     var group_stack: [MAX_GROUP_DEPTH]GroupFrame = undefined;
     var group_depth: usize = 0;
     var transform = root_transform;
-    var fill = root_fill;
-    var stroke = root_stroke;
-    var stroke_width = root_stroke_width;
+    var style = root_style;
 
     while (idx.* < input.len) {
         while (idx.* < input.len and input[idx.*] != '<') idx.* += 1;
@@ -1830,9 +2596,7 @@ fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_fill: C
             if (group_depth > 0 and strEq(name, group_stack[group_depth - 1].end_tag)) {
                 group_depth -= 1;
                 transform = group_stack[group_depth].transform;
-                fill = group_stack[group_depth].fill;
-                stroke = group_stack[group_depth].stroke;
-                stroke_width = group_stack[group_depth].stroke_width;
+                style = group_stack[group_depth].style;
             }
             continue;
         }
@@ -1842,66 +2606,73 @@ fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_fill: C
         }
 
         const name = readName(input, idx);
-        var rect = Rect{};
-        var circle = Circle{};
-        var line = Line{};
+        var attrs = ElementAttrs{};
         var xs: [MAX_POINTS]f32 = undefined;
         var ys: [MAX_POINTS]f32 = undefined;
-        var poly_count: usize = 0;
-        var path_d: ?[]const u8 = null;
-        var attr_fill = fill;
-        var fill_set = false;
-        var attr_stroke = stroke;
-        var stroke_set = false;
-        var attr_stroke_width = stroke_width;
-        var stroke_width_set = false;
-        var attr_transform = matIdentity();
-        var transform_set = false;
-        var self_closing = false;
+        parseAttributes(input, idx, &attrs, &xs, &ys);
 
-        parseAttributes(input, idx, fill, stroke, stroke_width, transform, &rect, &circle, &line, &xs, &ys, &poly_count, &path_d, &attr_fill, &fill_set, &attr_stroke, &stroke_set, &attr_stroke_width, &stroke_width_set, &attr_transform, &transform_set, &self_closing);
-
-        const final_transform = if (transform_set) matMul(transform, attr_transform) else transform;
-        const final_fill = if (fill_set) attr_fill else fill;
-        const final_stroke = if (stroke_set) attr_stroke else stroke;
-        const final_stroke_width = if (stroke_width_set) attr_stroke_width else stroke_width;
+        const final_transform = if (attrs.transform) |m| matMul(transform, m) else transform;
+        const final_style = applyAttrs(style, attrs);
+        const fill_opacity = final_style.fill_opacity * final_style.opacity;
+        const stroke_opacity = final_style.stroke_opacity * final_style.opacity;
+        const final_stroke_width = final_style.stroke_width;
+        const rect = attrs.rect;
+        const circle = attrs.circle;
+        const line = attrs.line;
+        const poly_count = attrs.poly_count;
 
         if (strEq(name, "g") or strEq(name, "svg")) {
-            if (!self_closing) {
+            if (!attrs.self_closing) {
                 if (group_depth >= MAX_GROUP_DEPTH) @trap();
                 group_stack[group_depth] = .{
                     .end_tag = name,
                     .transform = transform,
-                    .fill = fill,
-                    .stroke = stroke,
-                    .stroke_width = stroke_width,
+                    .style = style,
                 };
                 group_depth += 1;
                 transform = final_transform;
-                fill = final_fill;
-                stroke = final_stroke;
-                stroke_width = final_stroke_width;
+                style = final_style;
             }
+        } else if (isNonRendered(name)) {
+            if (!attrs.self_closing) skipElementContent(input, idx, name);
         } else if (strEq(name, "rect")) {
-            drawRect(ctx, final_transform, final_fill, rect);
-            drawRectStroke(ctx, final_transform, final_stroke, rect, final_stroke_width);
+            const bounds = Bounds{ .x = rect.x, .y = rect.y, .w = rect.w, .h = rect.h };
+            drawRect(ctx, final_transform, resolvePaint(final_style.fill, fill_opacity, final_transform, bounds, .fill), rect);
+            drawRectStroke(ctx, final_transform, resolvePaint(final_style.stroke, stroke_opacity, final_transform, bounds, .stroke), rect, final_stroke_width);
         } else if (strEq(name, "circle")) {
-            drawCircle(ctx, final_transform, final_fill, circle);
-            drawCircleStroke(ctx, final_transform, final_stroke, circle, final_stroke_width);
+            const bounds = Bounds{ .x = circle.cx - circle.r, .y = circle.cy - circle.r, .w = circle.r * 2, .h = circle.r * 2 };
+            const fill = resolvePaint(final_style.fill, fill_opacity, final_transform, bounds, .fill);
+            const stroke = resolvePaint(final_style.stroke, stroke_opacity, final_transform, bounds, .stroke);
+            if (paintVisible(fill)) drawCircle(ctx, final_transform, fill, circle);
+            if (paintVisible(stroke)) drawCircleStroke(ctx, final_transform, stroke, circle, final_stroke_width);
         } else if (strEq(name, "polygon")) {
-            drawPolygon(ctx, final_transform, final_fill, &xs, &ys, poly_count);
-            drawPolygonStroke(ctx, final_transform, final_stroke, final_stroke_width, &xs, &ys, poly_count);
+            const bounds = pointBounds(&xs, &ys, poly_count);
+            const fill = resolvePaint(final_style.fill, fill_opacity, final_transform, bounds, .fill);
+            const stroke = resolvePaint(final_style.stroke, stroke_opacity, final_transform, bounds, .stroke);
+            if (paintVisible(fill)) drawPolygon(ctx, final_transform, fill, &xs, &ys, poly_count);
+            if (paintVisible(stroke)) drawPolygonStroke(ctx, final_transform, stroke, final_stroke_width, &xs, &ys, poly_count);
         } else if (strEq(name, "polyline")) {
-            drawPolylineStroke(ctx, final_transform, final_stroke, final_stroke_width, &xs, &ys, poly_count, false);
+            const stroke = resolvePaint(final_style.stroke, stroke_opacity, final_transform, pointBounds(&xs, &ys, poly_count), .stroke);
+            drawPolylineStroke(ctx, final_transform, stroke, final_stroke_width, &xs, &ys, poly_count, false);
         } else if (strEq(name, "line")) {
             if (line.set_x1 and line.set_y1 and line.set_x2 and line.set_y2) {
-                drawSegmentStroke(ctx, final_transform, final_stroke, final_stroke_width, line.x1, line.y1, line.x2, line.y2);
+                const bounds = Bounds{ .x = @min(line.x1, line.x2), .y = @min(line.y1, line.y2), .w = @abs(line.x2 - line.x1), .h = @abs(line.y2 - line.y1) };
+                const stroke = resolvePaint(final_style.stroke, stroke_opacity, final_transform, bounds, .stroke);
+                drawSegmentStroke(ctx, final_transform, stroke, final_stroke_width, line.x1, line.y1, line.x2, line.y2);
             }
         } else if (strEq(name, "path")) {
-            if (path_d) |d| {
-                drawPathFill(ctx, final_transform, final_fill, d);
-                drawPathStroke(ctx, final_transform, final_stroke, final_stroke_width, d);
+            if (attrs.path_d) |d| {
+                // Flattening is skipped when nothing needs the fill geometry.
+                const fill_spec = final_style.fill;
+                const needs_bounds = fill_spec.gradient != null or final_style.stroke.gradient != null;
+                const seg_count = if (needs_bounds or fill_spec.color.a != 0) flattenPath(d) else 0;
+                const bounds = if (needs_bounds) segmentBounds(seg_count) else null;
+                fillPath(ctx, final_transform, resolvePaint(fill_spec, fill_opacity, final_transform, bounds, .fill), seg_count);
+                drawPathStroke(ctx, final_transform, resolvePaint(final_style.stroke, stroke_opacity, final_transform, bounds, .stroke), final_stroke_width, d);
             }
+        } else if (strEq(name, "text")) {
+            const count = if (attrs.self_closing) 0 else readTextContent(input, idx);
+            drawText(ctx, final_transform, final_style, rect.x, rect.y, count);
         }
     }
 }
@@ -2040,9 +2811,9 @@ fn renderImpl(input_size: u32) ?u32 {
             const alpha = @as(f32, @floatFromInt(bg.a)) / 255.0;
             const pixel: *align(1) Vec4f = @ptrCast(&output_buf[off]);
             pixel.* = .{
-                ktx2_float.SRGB8_TO_LINEAR[bg.r] * alpha,
-                ktx2_float.SRGB8_TO_LINEAR[bg.g] * alpha,
-                ktx2_float.SRGB8_TO_LINEAR[bg.b] * alpha,
+                @as(f32, @floatFromInt(bg.r)) / 255.0 * alpha,
+                @as(f32, @floatFromInt(bg.g)) / 255.0 * alpha,
+                @as(f32, @floatFromInt(bg.b)) / 255.0 * alpha,
                 alpha,
             };
         } else {
@@ -2085,9 +2856,13 @@ fn renderImpl(input_size: u32) ?u32 {
         .out_len = @intCast(needed),
     };
     var idx: usize = 0;
-    const default_fill = Color{ .r = 0, .g = 0, .b = 0, .a = 255 };
-    const default_stroke = Color{ .r = 0, .g = 0, .b = 0, .a = 0 };
-    parseElements(&ctx, &idx, viewport.transform, default_fill, default_stroke, 1.0);
+    collectGradients(input);
+    const default_style = Style{
+        .fill = .{ .color = .{ .r = 0, .g = 0, .b = 0, .a = 255 } },
+        .stroke = .{ .color = .{ .r = 0, .g = 0, .b = 0, .a = 0 } },
+        .stroke_width = 1.0,
+    };
+    parseElements(&ctx, &idx, viewport.transform, default_style);
     finishAntialiasedPixels(&ctx);
 
     return ctx.out_len;
@@ -2177,13 +2952,14 @@ test "currentColor defaults to black and accepts a uniform override" {
     try std.testing.expectEqual(colorFromRgba(0x11223344), parseColor("currentColor").?);
 }
 
-fn pixelAt(buf: []const u8, width: u32, height: u32, x: u32, y: u32) Color {
-    _ = height;
-    const idx: usize = @intCast(224 + (y * width + x) * 4);
+pub fn pixelAt(buf: []const u8, width: u32, height: u32, x: u32, y: u32) Color {
+    if (OUTPUT_FLOAT) @compileError("pixelAt reads 8-bit output");
+    const row = if (OUTPUT_KTX2) y else height - 1 - y;
+    const idx: usize = @intCast(OUTPUT_HEADER_SIZE + (row * width + x) * 4);
     return Color{
-        .r = buf[idx],
+        .r = if (OUTPUT_KTX2) buf[idx] else buf[idx + 2],
         .g = buf[idx + 1],
-        .b = buf[idx + 2],
+        .b = if (OUTPUT_KTX2) buf[idx + 2] else buf[idx],
         .a = buf[idx + 3],
     };
 }
@@ -2199,16 +2975,12 @@ test "svg-rasterize pixel pattern" {
         "</svg>";
 
     const output = renderForTest(input);
-    try std.testing.expect(output.len >= 224 + 12 * 8 * 4);
+    try std.testing.expect(output.len >= OUTPUT_HEADER_SIZE + 12 * 8 * 4);
 
-    try std.testing.expectEqual(@as(u8, 12), output[20]);
-    try std.testing.expectEqual(@as(u8, 0), output[21]);
-    try std.testing.expectEqual(@as(u8, 0), output[22]);
-    try std.testing.expectEqual(@as(u8, 0), output[23]);
-    try std.testing.expectEqual(@as(u8, 8), output[24]);
-    try std.testing.expectEqual(@as(u8, 0), output[25]);
-    try std.testing.expectEqual(@as(u8, 0), output[26]);
-    try std.testing.expectEqual(@as(u8, 0), output[27]);
+    // KTX2 pixelWidth/pixelHeight at 20/24; BMP biWidth/biHeight at 18/22.
+    const width_offset: usize = if (OUTPUT_KTX2) 20 else 18;
+    try std.testing.expectEqual(@as(u32, 12), std.mem.readInt(u32, output[width_offset..][0..4], .little));
+    try std.testing.expectEqual(@as(u32, 8), std.mem.readInt(u32, output[width_offset + 4 ..][0..4], .little));
 
     const width: u32 = 12;
     const height: u32 = 8;
@@ -2357,4 +3129,111 @@ test "svg-rasterize named stroke color support" {
 
 test "declares the standard 25 MP image output capacity" {
     try std.testing.expectEqual(@as(u32, MAX_PIXELS * 4 + OUTPUT_HEADER_SIZE), output_bytes_cap());
+}
+
+test "svg-rasterize linear and radial gradients" {
+    const input =
+        "<svg width=\"20\" height=\"20\">\n" ++
+        "  <defs>\n" ++
+        "    <linearGradient id=\"lr\"><stop offset=\"0\" stop-color=\"#ff0000\"/><stop offset=\"100%\" stop-color=\"#0000ff\"/></linearGradient>\n" ++
+        "    <radialGradient id=\"rad\" href=\"#lr\"/>\n" ++
+        "  </defs>\n" ++
+        "  <rect width=\"20\" height=\"10\" fill=\"url(#lr)\"/>\n" ++
+        "  <rect y=\"10\" width=\"20\" height=\"10\" fill=\"url('#rad')\"/>\n" ++
+        "</svg>";
+
+    const output = renderForTest(input);
+    const left = pixelAt(output, 20, 20, 0, 5);
+    const right = pixelAt(output, 20, 20, 19, 5);
+    try std.testing.expect(left.r > 240 and left.b < 15);
+    try std.testing.expect(right.b > 240 and right.r < 15);
+    const middle = pixelAt(output, 20, 20, 10, 5);
+    try std.testing.expect(middle.r > 100 and middle.r < 155 and middle.b > 100 and middle.b < 155);
+
+    // The radial gradient inherits its stops through href.
+    const center = pixelAt(output, 20, 20, 10, 15);
+    const corner = pixelAt(output, 20, 20, 0, 19);
+    try std.testing.expect(center.r > 200 and center.b < 55);
+    try std.testing.expect(corner.b > 240 and corner.r < 15);
+}
+
+test "svg-rasterize unresolved paint references use their fallback or paint nothing" {
+    const input =
+        "<svg width=\"4\" height=\"2\">\n" ++
+        "  <rect width=\"2\" height=\"2\" fill=\"url(#missing)\"/>\n" ++
+        "  <rect x=\"2\" width=\"2\" height=\"2\" fill=\"url(#missing) #00ff00\"/>\n" ++
+        "</svg>";
+
+    const output = renderForTest(input);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 4, 2, 0, 0).a);
+    const fallback = pixelAt(output, 4, 2, 3, 1);
+    try std.testing.expectEqual(@as(u8, 0xFF), fallback.g);
+    try std.testing.expectEqual(@as(u8, 0xFF), fallback.a);
+}
+
+test "svg-rasterize fill-opacity and opacity blend over the background" {
+    const input =
+        "<svg width=\"4\" height=\"2\">\n" ++
+        "  <rect width=\"2\" height=\"2\" fill=\"#ff0000\" fill-opacity=\"0.5\"/>\n" ++
+        "  <g opacity=\"0.5\"><rect x=\"2\" width=\"2\" height=\"2\" fill=\"#0000ff\"/></g>\n" ++
+        "</svg>";
+
+    const output = renderForTestWithBackground(input, 0xffffffff);
+    const red = pixelAt(output, 4, 2, 0, 0);
+    try std.testing.expectEqual(@as(u8, 0xFF), red.r);
+    try std.testing.expect(red.g > 100 and red.g < 200);
+    try std.testing.expectEqual(red.g, red.b);
+    try std.testing.expectEqual(@as(u8, 0xFF), red.a);
+    const blue = pixelAt(output, 4, 2, 3, 1);
+    try std.testing.expectEqual(@as(u8, 0xFF), blue.b);
+    try std.testing.expect(blue.r > 100 and blue.r < 200);
+}
+
+test "svg-rasterize rounded rect corners" {
+    const input =
+        "<svg width=\"20\" height=\"20\">\n" ++
+        "  <rect width=\"20\" height=\"20\" rx=\"8\" fill=\"#000000\"/>\n" ++
+        "</svg>";
+
+    const output = renderForTest(input);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 20, 20, 0, 0).a);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 20, 20, 19, 19).a);
+    try std.testing.expectEqual(@as(u8, 0xFF), pixelAt(output, 20, 20, 10, 0).a);
+    try std.testing.expectEqual(@as(u8, 0xFF), pixelAt(output, 20, 20, 10, 10).a);
+}
+
+test "svg-rasterize skips defs content" {
+    const input =
+        "<svg width=\"2\" height=\"2\">\n" ++
+        "  <defs><rect width=\"2\" height=\"2\" fill=\"#ff0000\"/><defs/></defs>\n" ++
+        "  <clipPath id=\"c\"><circle r=\"5\"/></clipPath>\n" ++
+        "</svg>";
+
+    const output = renderForTest(input);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 2, 2, 0, 0).a);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 2, 2, 1, 1).a);
+}
+
+test "svg-rasterize draws text with Inter outlines and text-anchor" {
+    const input =
+        "<svg width=\"40\" height=\"20\">\n" ++
+        "  <text x=\"20\" y=\"17\" font-size=\"20\" font-weight=\"bold\" text-anchor=\"middle\" fill=\"#ff0000\">&#73;<tspan>I</tspan></text>\n" ++
+        "</svg>";
+
+    const output = renderForTest(input);
+    var painted_left: u32 = 0;
+    var painted_right: u32 = 0;
+    var y: u32 = 0;
+    while (y < 20) : (y += 1) {
+        var x: u32 = 0;
+        while (x < 40) : (x += 1) {
+            if (pixelAt(output, 40, 20, x, y).a == 0) continue;
+            if (x < 20) painted_left += 1 else painted_right += 1;
+        }
+    }
+    // "II" centred on x=20 paints on both sides, and nothing far from it.
+    try std.testing.expect(painted_left > 10);
+    try std.testing.expect(painted_right > 10);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 40, 20, 2, 10).a);
+    try std.testing.expectEqual(@as(u8, 0), pixelAt(output, 40, 20, 37, 10).a);
 }

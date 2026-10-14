@@ -6,7 +6,8 @@ channel bytes and bottom-up rows. QIP treats the colour channels as sRGB. Use
 the KTX2 rasterizer for new pipelines; keep this variant where a later stage
 requires BMP.
 
-The SVG root must declare numeric `width` and `height` attributes.
+The SVG root must declare numeric `width` and `height` attributes or a
+`viewBox`. A viewBox-only document uses the viewBox dimensions.
 `background_color_rgba` accepts `0xRRGGBBAA` and defaults to transparent
 black. `current_color_rgba` resolves `currentColor` paint in `fill` and
 `stroke` attributes and defaults to opaque black. The uniforms reset to their
@@ -26,3 +27,8 @@ the input.
 This limited SVG subset does not implement the CSS `color` property or its
 inheritance. The `current_color_rgba` uniform supplies one document-wide
 current color instead.
+
+This component shares its rasterizer with
+[`svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm`](svg-rasterize-to-ktx2-r8g8b8a8-srgb.md),
+which documents the supported SVG subset. Only the container, row order, and
+channel order differ.

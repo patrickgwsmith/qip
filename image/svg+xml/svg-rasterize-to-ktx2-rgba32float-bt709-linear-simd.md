@@ -5,8 +5,10 @@ supported static SVG subset into the repository's straight-alpha, linear
 BT.709 RGBA32F KTX2 profile. It uses a 4 by 4 SIMD sample grid for fractional
 pixel coverage. Path fills sort edge intersections for each sample scanline and
 emit covered spans. Other primitives use bounded per-pixel sampling. Paint is
-composited in premultiplied linear light before returning straight-alpha
-pixels.
+composited in premultiplied sRGB, as SVG's default `color-interpolation`
+requires and browsers do, then converted to straight-alpha linear-light
+pixels. Translucent shapes and antialiased edges therefore match browser
+rendering.
 
 The root may provide numeric `width` and `height` attributes or a `viewBox`.
 The `width` and `height` uniforms override the output dimensions, which is
@@ -31,8 +33,13 @@ The 4 by 4 coverage grid is a bounded, deterministic quality baseline, not an
 analytic area-coverage rasterizer like Skia's CPU path. Scanline spans avoid
 retesting every edge at every pixel, but coverage still has 17 alpha levels.
 Curves use fixed subdivision, SVG arcs fall back to straight segments, and
-strokes do not yet implement SVG joins and caps. Use a mature SVG renderer when
-those geometry details or the full SVG paint model are required.
+strokes always have round caps and joins. Use a mature SVG renderer when those
+geometry details or the full SVG paint model are required.
+
+The element and paint subset, including gradients, opacity, rounded
+rectangles, and Inter text, is documented with
+[`svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm`](svg-rasterize-to-ktx2-r8g8b8a8-srgb.md).
+Gradient ramps have 256 steps in sRGB.
 
 Compare this component with the RGBA8 center-sampled renderer on the Tiger
 fixture:
