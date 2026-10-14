@@ -303,6 +303,16 @@ test("qipx hosts pass exact unsigned i32 uniforms", () => {
   }
 });
 
+test("qipx hosts match uniform setters by the key before any __ suffix", () => {
+  const { stdout } = expectSuccess(["run", "test/fixtures/uniform-setter-suffix.wasm", "-u", "quality=80"]);
+  assert.equal(stdout.readUInt32LE(0), 80);
+  expectFailure(["run", "test/fixtures/uniform-setter-suffix.wasm", "-u", "quality__0x64=80"], /invalid uniform key quality__0x64/);
+  for (const args of [[], ["-u", "quality=80"]]) {
+    expectFailure(["run", "test/fixtures/uniform-setter-duplicate.wasm", ...args],
+      /exports both uniform_set_quality and uniform_set_quality__0x64 for uniform quality/);
+  }
+});
+
 test("qipx hosts reject i32 uniforms instead of truncating or wrapping", () => {
   for (const value of ["4294967296", "0x100000000", "-1", "+1", "1.5", "1e3", "0x", "abc", ""]) {
     expectFailure(["run", "test/fixtures/qipx-rust-uniform-u32.wasm", "-u", `value=${value}`], /is not an unsigned i32 integer/);

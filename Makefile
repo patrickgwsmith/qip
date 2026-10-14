@@ -422,6 +422,9 @@ test/fixtures/wasm-debugger-call-indirect.wasm: test/fixtures/wasm-debugger-call
 test/fixtures/qip-content-interpreter-uniforms.wasm: test/fixtures/qip-content-interpreter-uniforms.wat
 	wat2wasm $< -o $@
 
+test/fixtures/uniform-setter-suffix.wasm test/fixtures/uniform-setter-duplicate.wasm: test/fixtures/%.wasm: test/fixtures/%.wat
+	wat2wasm $< -o $@
+
 gui/cover-flow.wasm: gui/cover-flow.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
@@ -1182,7 +1185,7 @@ qipx-rust:
 test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/country-finder-old.wasm tui/tld-finder-old.wasm tui/iana-media-type-finder-old.wasm tui/iana-service-port-finder-old.wasm tui/browser-compat-finder-old.wasm tui/caniuse-finder-old.wasm tui/emoji-finder.wasm tui/emoji-finder-old.wasm tui/calendar-gregorian.wasm
 	node --test test/finder-content-tui.mjs test/*finder-old-tui.mjs test/emoji-finder-tui.mjs test/qiptui.mjs test/qip-tui.mjs
 
-test-qipx-parity: qip qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm
+test-qipx-parity: qip qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm test/fixtures/uniform-setter-suffix.wasm test/fixtures/uniform-setter-duplicate.wasm
 	node --test test/qipx-parity.mjs
 	node --test test/qipx-multipart-related.mjs
 
@@ -1228,7 +1231,7 @@ test-warc-libs:
 test-qip-router-help: qip
 	QIP_BIN=$(QIP_BIN) sh test/qip-router-help.sh
 
-test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm test/fixtures/wasm-debugger-call-indirect.wasm test/fixtures/qip-content-interpreter-uniforms.wasm
+test-node: qip components recipes/application/warc/25-add-content-size.wasm compliance/warc-connect-search-params.comply.wasm test/fixtures/wasm-debugger-bulk-memory.wasm test/fixtures/wasm-debugger-call-indirect.wasm test/fixtures/qip-content-interpreter-uniforms.wasm test/fixtures/uniform-setter-suffix.wasm test/fixtures/uniform-setter-duplicate.wasm
 	node --check site/qip-runner.js
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs

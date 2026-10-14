@@ -282,6 +282,21 @@ test("qiptui parses uniforms exactly for each setter's parameter type", () => {
   }
 });
 
+test("qiptui matches uniform setters by the key before any __ suffix", async () => {
+  const suffixed = await readFile("test/fixtures/uniform-setter-suffix.wasm");
+  const exports = new WebAssembly.Instance(new WebAssembly.Module(suffixed)).exports;
+  const stage = { label: "fixture", component: { exports, uniformParamTypes: readUniformParamTypes(suffixed) }, uniforms: ["quality=80"] };
+  stage.uniformArguments = parseUniforms(stage);
+  applyUniforms(stage, { columns: 80, lines: 24 });
+  exports.render(0);
+  assert.equal(new DataView(exports.memory.buffer).getUint32(0, true), 80);
+
+  const duplicate = await readFile("test/fixtures/uniform-setter-duplicate.wasm");
+  assert.throws(() => readUniformParamTypes(duplicate, "fixture"), {
+    message: "fixture exports both uniform_set_quality and uniform_set_quality__0x64 for uniform quality",
+  });
+});
+
 const emoji = await readFile("tui/emoji-finder.wasm");
 
 test("text input mode requires an explicit UTF-8 text/plain transform and paired navigation exports", () => {

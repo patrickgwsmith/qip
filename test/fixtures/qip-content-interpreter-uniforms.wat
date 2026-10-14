@@ -15,7 +15,9 @@
   (func (export "input_bytes_cap") (result i32)
     i32.const 1)
 
-  (func (export "uniform_set_unsigned") (param $value i32) (result i32)
+  ;; The "__" suffix is not part of the uniform key, so uniforms[unsigned]
+  ;; reaches this setter.
+  (func (export "uniform_set_unsigned__0xffffffff") (param $value i32) (result i32)
     local.get $value
     global.set $unsigned
     local.get $value)
