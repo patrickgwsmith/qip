@@ -13,8 +13,14 @@ page before changing a contract or workflow; do not repeat protocols here.
   shared code, build or test wiring, or multiple components.
 - Run `make -j site-static` after changing docs navigation, routes, links, or
   referenced modules. It checks for broken links and missing module imports.
+- Run components with `npx -y @qip.dev/qipx run …` when `qip` is not on the
+  path; it takes the same `-i`, `-F` and `-u` options. The published qipx
+  0.4.1 cannot set `i64` uniforms, so for those use the repo's
+  `node npm/qipx/cli.mjs run …` until a newer release is out.
 - Use `agent-browser` for interactive browser checks, including page console
-  output. Prefer it to launching a headless browser directly.
+  output. Prefer it to launching a headless browser directly. Pass a named
+  session such as `--session mp3-check` on every command, because other agents
+  may be driving the default session at the same time.
 
 ## Project References
 

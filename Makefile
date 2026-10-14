@@ -191,8 +191,12 @@ RUST_WASM_CARGO_FLAGS ?=
 HOST_OS ?= $(shell uname -s)
 ifeq ($(HOST_OS),Darwin)
 ZIG_TEST_SYSROOT ?= $(firstword $(wildcard /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk /Library/Developer/CommandLineTools/SDKs/MacOSX15.sdk /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX15.4.sdk /Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk))
+# Zig 0.15 cannot link against the native macOS 27 libSystem, so pin an older deployment target.
+ZIG_TEST_MACOS_VERSION ?= 13.0
 ifneq ($(ZIG_TEST_SYSROOT),)
-ZIG_TEST_FLAGS ?= --sysroot $(ZIG_TEST_SYSROOT)
+ZIG_TEST_FLAGS ?= -target native-macos.$(ZIG_TEST_MACOS_VERSION) --sysroot $(ZIG_TEST_SYSROOT)
+else
+ZIG_TEST_FLAGS ?= -target native-macos.$(ZIG_TEST_MACOS_VERSION)
 endif
 endif
 ZIG_TEST_FLAGS ?=
@@ -340,17 +344,17 @@ image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm image/ktx2/ktx2-rgba32flo
 image/png/png-to-bmp-b8g8r8a8-srgb-simd.wasm: image/png/png-to-bmp-b8g8r8a8-srgb-simd.zig image/png/png-to-bmp-b8g8r8a8-srgb.zig
 	$(ZIG_ENV) zig build-exe $< -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) -mcpu=generic+simd128 -femit-bin=$@
 
-image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig
-	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
 
-image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
 
-image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float --dep inter_regular --dep inter_bold -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
 
-image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
-	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
+image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm: image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_SIMD_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float --dep inter_regular --dep inter_bold -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig -femit-bin=$@
 
 tui/calendar-gregorian.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 
@@ -392,10 +396,13 @@ tui/info-plist-viewer.wasm: tui/plist-viewer.zig tui/lib/info-plist-schema.tsv
 
 gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 gui/svg-gradient-editor.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-gui/openai-anthropic-arr-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/data-grid-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/date-range-picker-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/klondike.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/aces-up.wasm: ZIG_WASM_MAX_MEMORY = 2097152
-gui/openai-anthropic-arr-svg.wasm: gui/assets/inter_display_chart_ascii.zig
+gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: gui/assets/inter_display_chart_ascii.zig
+gui/data-grid-svg.wasm: gui/assets/inter_display_chart_ascii.zig
 
 application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: application/wasm/%.wasm: application/wasm/%.zig application/wasm/lib/content-interpreter-request.zig application/wasm/lib/wasm-interpreter.zig
@@ -424,7 +431,13 @@ gui/god-rays-optimized.wasm: gui/god-rays-optimized.zig image/lib/ktx2-rgba8-srg
 gui/tic-tac-toe-sun-moon.wasm: gui/tic-tac-toe-sun-moon.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-gui/side-scroller-platformer.wasm gui/spreadsheet.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
+gui/highway-chase.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/rotunda.wasm: ZIG_WASM_MAX_MEMORY = 4194304
+# Both renderers' level data, including the polygon BSP built on first use.
+gui/colosseum.wasm: ZIG_WASM_MAX_MEMORY = 16777216
+# The craft's and the bay's polygon BSPs.
+gui/hovercraftsman.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+gui/colosseum.wasm gui/highway-chase.wasm gui/hovercraftsman.wasm gui/rotunda.wasm gui/side-scroller-platformer.wasm gui/spreadsheet.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
 gui/gameboy-camera.wasm gui/liars-dice.wasm gui/macos9-desktop.wasm gui/macosx-leopard-desktop.wasm gui/org_planner.wasm gui/peon-gold.wasm gui/textedit.wasm gui/vertical-shooter.wasm gui/windows95-desktop.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
@@ -604,7 +617,7 @@ recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-
 # Site WARC recipes scan whole archives. SIMD lets indexOfScalarPos test 16 bytes
 # per loop iteration, and wazero's timeout check (WithCloseOnContextDone) costs a
 # call on every iteration, so this makes `qip router warc` several times faster.
-application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
+application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/40-add-wasm-anchor-type.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
 image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
 image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
 multipart/form-data/form-data-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 142606336
@@ -1171,6 +1184,7 @@ test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-
 
 test-qipx-parity: qip qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm
 	node --test test/qipx-parity.mjs
+	node --test test/qipx-multipart-related.mjs
 
 test-wasm-core-1-spec: application/wasm/wasm-validate-core-1.0.wasm
 	@test -n "$(WASM_CORE_1_0_SPEC_DIR)" || (echo "set WASM_CORE_1_0_SPEC_DIR to the WebAssembly spec wg-1.0 checkout" && exit 1)
@@ -1180,7 +1194,6 @@ test-wasm-core-2-spec: application/wasm/wasm-validate-core-2.0.wasm
 	@test -n "$(WASM_CORE_2_0_SPEC_DIR)" || (echo "set WASM_CORE_2_0_SPEC_DIR to the WebAssembly spec wg-2.0 checkout" && exit 1)
 	node test/wasm-validate-core-2.0-spec.mjs $(WASM_CORE_2_0_SPEC_DIR)
 
-	node --test test/qipx-multipart-related.mjs
 test-markdown-pathological: qip text/markdown/gfm-commonmark.0.31.2.wasm
 	QIP_BIN=$(QIP_BIN) tools/test-markdown-pathological.sh
 
@@ -1219,6 +1232,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --check site/qip-runner.js
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs
+	node --test test/gzip-bgzf.mjs
+	node --test test/zstd.mjs
 	node --test test/recipe-finder.mjs
 	node --test test/qip-mcp.mjs
 	node --test test/content-total-byte-components.mjs
@@ -1250,6 +1265,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/time-series-polylines.mjs
 	node --test test/svg-to-pdf-inter-font.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
+	node --test test/svg-rasterizer-features.mjs
 	node --test test/svg-rasterizer-thorvg.mjs
 	node --test test/svg-rasterizer-skia.mjs
 	node --test test/svg-text-to-path-skia-with-fonts.mjs
@@ -1262,13 +1278,14 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/svg-path-editor.mjs
 	node --test test/svg-gradient-editor.mjs
 	node --test test/openai-anthropic-arr-svg.mjs
+	node --test test/openai-anthropic-arr-keyed-svg.mjs
+	node --test test/data-grid-svg.mjs
+	node --test test/date-range-picker-svg.mjs
 	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
 	node --test test/qip-content-interpreter.mjs
 	node --test test/qip-interpret-memory-page-writes-csv.mjs
 	node --test test/qip-interpret-memory-thermal-ktx2.mjs
-	node --test test/gzip-bgzf.mjs
-	node --test test/zstd.mjs
 	node --test test/ktx2-resize.mjs
 	node --test test/ktx2-resize-float32.mjs
 	node --test test/ktx2-resize-simd.mjs
@@ -1282,6 +1299,10 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/calculator-snake-interactive.mjs
 	node --test test/fixed-timestep-simulator.mjs
 	node --test test/spreadsheet-platformer-update.mjs
+	node --test test/highway-chase.mjs
+	node --test test/rotunda.mjs
+	node --test test/colosseum.mjs
+	node --test test/hovercraftsman.mjs
 	node --test test/final-interactive-components.mjs
 	node --test test/cover-flow-shadow-interactive.mjs
 	node --test test/render-counts-mandelbrot-perlin.mjs
@@ -1357,6 +1378,8 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/bmp-b8g8r8a8-srgb-jpeg-lossy.mjs
 	node --test test/wav-to-mp3-lossy.mjs
 	node --test test/image-compress-jpeg.mjs
+	node --test test/image-compress-ktx2.mjs
+	node --test test/webp-convert.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy-opaque.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossless.mjs
 	node --test test/bmp-b8g8r8a8-icc-to-srgb.mjs
@@ -1374,10 +1397,11 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/wasm-trap-instance-continues.mjs
 
 test-svg-rasterizers: image/svg+xml/svg-rasterize-skia-with-fonts-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm application/wasm/wasm-bounded-output.wasm
-	$(ZIG_ENV) zig test image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig $(ZIG_TEST_FLAGS)
-	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot=image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig
+	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot=image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig
+	$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot=image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
+	node --test test/svg-rasterizer-features.mjs
 	node --test test/svg-rasterizer-thorvg.mjs
 	node --test test/svg-rasterizer-skia.mjs
 
@@ -1404,8 +1428,6 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-ruby.wasm --with compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-go.wasm --with compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-c.wasm --with compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
-	node --test test/image-compress-ktx2.mjs
-	node --test test/webp-convert.mjs
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --with compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --with compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-zig.wasm --with compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
@@ -1534,7 +1556,9 @@ test-zig: $(ZIG_TEST_FILES)
 	@status=0; \
 	for f in $^; do \
 		echo "zig test $$f"; \
-		if [ "$$f" = "recipes/text/markdown/65-add-wasm-anchor-type.zig" ] || [ "$$f" = "recipes/application/warc/40-add-wasm-anchor-type.zig" ]; then \
+		if grep -q 'lib/finder-content.zig' "$$f"; then \
+			echo "skipped: finder-content imports root, which is the test runner under zig test"; \
+		elif [ "$$f" = "recipes/text/markdown/65-add-wasm-anchor-type.zig" ] || [ "$$f" = "recipes/application/warc/40-add-wasm-anchor-type.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep html_anchor -Mroot="$$f" -Mhtml_anchor=recipes/lib/html-wasm-anchor-type.zig || status=1; \
 		elif [ "$$f" = "application/pdf/pdf-extract-images.zig" ] || [ "$$f" = "application/pdf/pdf-extract-text.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
@@ -1563,7 +1587,7 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "application/zip/zip-list-entries-csv.zig" ] || [ "$$f" = "application/zip/zip-list-files-csv.zig" ] || [ "$$f" = "application/zip/zip-extract-file.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "gui/liars-dice.zig" ] || [ "$$f" = "gui/macos9-desktop.zig" ] || [ "$$f" = "gui/macosx-leopard-desktop.zig" ] || [ "$$f" = "gui/org_planner.zig" ] || [ "$$f" = "gui/peon-gold.zig" ] || [ "$$f" = "gui/textedit.zig" ] || [ "$$f" = "gui/vertical-shooter.zig" ] || [ "$$f" = "gui/windows95-desktop.zig" ]; then \
+		elif [ "$$f" = "gui/colosseum.zig" ] || [ "$$f" = "gui/highway-chase.zig" ] || [ "$$f" = "gui/hovercraftsman.zig" ] || [ "$$f" = "gui/rotunda.zig" ] || [ "$$f" = "gui/liars-dice.zig" ] || [ "$$f" = "gui/macos9-desktop.zig" ] || [ "$$f" = "gui/macosx-leopard-desktop.zig" ] || [ "$$f" = "gui/org_planner.zig" ] || [ "$$f" = "gui/peon-gold.zig" ] || [ "$$f" = "gui/textedit.zig" ] || [ "$$f" = "gui/vertical-shooter.zig" ] || [ "$$f" = "gui/windows95-desktop.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-look-warm-fade.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
@@ -1592,8 +1616,12 @@ test-zig: $(ZIG_TEST_FILES)
 		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "gui/gameboy-camera.zig" ] || [ "$$f" = "gui/gif-player.zig" ] || [ "$$f" = "gui/god-rays-optimized.zig" ] || [ "$$f" = "gui/god-rays.zig" ] || [ "$$f" = "gui/tic-tac-toe-sun-moon.zig" ] || [ "$$f" = "gui/browser-security.zig" ] || [ "$$f" = "gui/calculator.zig" ] || [ "$$f" = "gui/chronograph.zig" ] || [ "$$f" = "gui/cover-flow-lofi.zig" ] || [ "$$f" = "gui/dock-magnification.zig" ] || [ "$$f" = "gui/formula-1-map.zig" ] || [ "$$f" = "gui/graph-calculator.zig" ] || [ "$$f" = "gui/ieee-754-floats.zig" ] || [ "$$f" = "gui/layout-systems.zig" ] || [ "$$f" = "gui/mandelbrot.zig" ] || [ "$$f" = "gui/moon-phases.zig" ] || [ "$$f" = "gui/openai-anthropic-arr.zig" ] || [ "$$f" = "gui/page-load-waterfall.zig" ] || [ "$$f" = "gui/paint.zig" ] || [ "$$f" = "gui/perlin-noise.zig" ] || [ "$$f" = "gui/photo-light-table.zig" ] || [ "$$f" = "gui/ps2-menu.zig" ] || [ "$$f" = "gui/render-counts.zig" ] || [ "$$f" = "gui/shadow-rendering.zig" ] || [ "$$f" = "gui/shutterstock-earnings.zig" ] || [ "$$f" = "gui/side-scroller-platformer.zig" ] || [ "$$f" = "gui/snake.zig" ] || [ "$$f" = "gui/spreadsheet.zig" ] || [ "$$f" = "gui/sudoku.zig" ] || [ "$$f" = "gui/tetris.zig" ] || [ "$$f" = "gui/tile-world-12x12.zig" ] || [ "$$f" = "gui/web-mechanics.zig" ] || [ "$$f" = "gui/webos-card-view.zig" ] || [ "$$f" = "gui/xbox-dashboard.zig" ] || [ "$$f" = "gui/cover-flow.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.zig" ] || [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.zig" ]; then \
-			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
-		elif [ "$$f" = "image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig" ] || [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float --dep inter_regular --dep inter_bold -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig || status=1; \
+		elif [ "$$f" = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig || status=1; \
+		elif [ "$$f" = "image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep inter_bold -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_paths.zig || status=1; \
+		elif [ "$$f" = "image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-ktx2-r8g8b8a8-srgb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
