@@ -29,6 +29,24 @@ export function renderedOutputPointer(exports) {
   return pointer;
 }
 
+// Maps each uniform key to the export that sets it. A setter export is uniform_set_<key>,
+// optionally followed by "__" and a suffix reserved for declaring the uniform's maxima, so
+// hosts match on <key> alone. A module that exports two setters for one key is rejected.
+export function uniformSetterNames(exportNames, label = "component") {
+  const names = new Map();
+  for (const name of exportNames) {
+    if (!name.startsWith("uniform_set_")) continue;
+    const end = name.indexOf("__", 12);
+    const key = name.slice(12, end < 0 ? undefined : end);
+    if (names.has(key)) {
+      const [first, second] = [names.get(key), name].sort();
+      throw new Error(`${label} exports both ${first} and ${second} for uniform ${key}`);
+    }
+    names.set(key, name);
+  }
+  return names;
+}
+
 export class ContentRenderTrap extends Error {
   constructor(label, cause) {
     super(`${label} render trapped: ${cause?.message ?? cause}`);
@@ -49,6 +67,7 @@ export class ContentComponentHost {
   constructor(wasmBytes, { label = "component" } = {}) {
     this.label = label;
     this.module = new WebAssembly.Module(wasmBytes);
+    this.uniformSetterNames = uniformSetterNames(WebAssembly.Module.exports(this.module).map((entry) => entry.name), label);
     this.instance = null;
     this.instanceCount = 0;
   }
@@ -82,7 +101,7 @@ export class ContentComponentHost {
     new Uint8Array(exports.memory.buffer, inputPointer, inputBytes.byteLength).set(inputBytes);
 
     for (const key of Object.keys(uniforms).sort()) {
-      const setter = exports[`uniform_set_${key}`];
+      const setter = exports[this.uniformSetterNames.get(key)];
       if (typeof setter !== "function") throw new TypeError(`${this.label} does not export uniform_set_${key}`);
       try {
         setter(uniforms[key]);

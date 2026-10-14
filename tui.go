@@ -336,8 +336,10 @@ func tuiUniformValues(module api.Module, explicit map[string]string, dimensions 
 	if values == nil {
 		values = make(map[string]string)
 	}
+	// A module with conflicting setters is reported by applyModuleUniforms.
+	setters, _ := qinternal.UniformSetterExports(module.ExportedFunctionDefinitions())
 	for key, value := range map[string]int{"columns": dimensions.columns, "lines": dimensions.lines} {
-		if _, set := values[key]; !set && module.ExportedFunction("uniform_set_"+key) != nil {
+		if _, set := values[key]; !set && setters[key] != "" {
 			values[key] = strconv.Itoa(value)
 		}
 	}
@@ -420,12 +422,12 @@ func (session *tuiSession) applyPostDimensions(dimensions tuiDimensions) {
 		if values == nil {
 			values = make(map[string]string)
 		}
-		exports := driver.compiled.ExportedFunctions()
+		setters, _ := qinternal.UniformSetterExports(driver.compiled.ExportedFunctions())
 		for key, value := range map[string]int{"columns": dimensions.columns, "lines": dimensions.lines} {
 			if _, explicit := values[key]; explicit {
 				continue
 			}
-			if _, present := exports["uniform_set_"+key]; present {
+			if _, present := setters[key]; present {
 				values[key] = strconv.Itoa(value)
 			}
 		}

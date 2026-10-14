@@ -19,6 +19,12 @@ start with `[a-z]`, continue with `[a-z0-9_]*`, must not end with `_`, and must
 not contain `__`. These limits keep keys portable in URLs, shells, archives,
 DNS-like names, and case-insensitive filesystems.
 
+A setter name may continue past the key with `__` and a suffix, such as
+`uniform_set_quality__0x64`. The suffix is reserved for declaring the
+uniform's maxima. Hosts match setters by the text before the first `__`, so
+callers still set this uniform as `quality`. A module must not export two
+setters for one key.
+
 Each setter:
 
 - Accepts exactly one parameter.
@@ -50,7 +56,8 @@ Packed values such as colors and flags fit naturally in `i32`. Fractional image 
 
 The host applies setters after instantiation and before `render`, or before tile execution in image mode. A host reusing an instance may call setters again before a later execution.
 
-- A uniform without a matching `uniform_set_<key>` export is an error.
+- A uniform without a matching `uniform_set_<key>` export, with or without a `__` suffix, is an error.
+- A module that exports two setters for one key is an error.
 - A value that cannot be parsed as the setter's parameter type is an error.
 - Hexadecimal integers require a `0x` or `0X` prefix and are parsed as unsigned bit patterns.
 - Keys are applied in sorted key order.

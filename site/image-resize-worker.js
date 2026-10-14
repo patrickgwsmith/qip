@@ -98,6 +98,14 @@ async function compileFirst(paths) {
   }
 }
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function uniformSetter(exports, key) {
+  const names = Object.keys(exports).filter((name) => name === `uniform_set_${key}` || name.startsWith(`uniform_set_${key}__`));
+  if (names.length > 1) throw Error(`Component exports both ${names[0]} and ${names[1]} for uniform ${key}.`);
+  return exports[names[0]];
+}
+
 function run(module, input, uniforms = {}) {
   const exports = new WebAssembly.Instance(module, {}).exports;
   exports._initialize?.();
@@ -107,7 +115,7 @@ function run(module, input, uniforms = {}) {
   }
   new Uint8Array(exports.memory.buffer, exports.input_ptr() >>> 0, input.byteLength).set(input);
   for (const [key, value] of Object.entries(uniforms).sort(([a], [b]) => a.localeCompare(b))) {
-    const setter = exports[`uniform_set_${key}`];
+    const setter = uniformSetter(exports, key);
     if (typeof setter !== "function") throw Error(`Component does not accept the ${key} uniform.`);
     setter(value);
   }

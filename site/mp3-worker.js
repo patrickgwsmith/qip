@@ -24,6 +24,14 @@ function run(exports, input) {
   ).slice();
 }
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function uniformSetter(exports, key) {
+  const names = Object.keys(exports).filter((name) => name === `uniform_set_${key}` || name.startsWith(`uniform_set_${key}__`));
+  if (names.length > 1) throw Error(`Component exports both ${names[0]} and ${names[1]} for uniform ${key}.`);
+  return exports[names[0]];
+}
+
 self.onmessage = async (event) => {
   try {
     const { input, bitrateKbps } = event.data;
@@ -32,7 +40,7 @@ self.onmessage = async (event) => {
     );
     const encoder = new WebAssembly.Instance(encoderModule, {}).exports;
     encoder._initialize?.();
-    encoder.uniform_set_bitrate_kbps(bitrateKbps);
+    uniformSetter(encoder, "bitrate_kbps")(bitrateKbps);
     const started = performance.now();
     const mp3 = run(encoder, new Uint8Array(input));
     if (mp3 === null) {

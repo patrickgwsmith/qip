@@ -568,11 +568,18 @@ function qipEditParseUniformAttempts(rawValue) {
   return [floatValue];
 }
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function qipEditUniformSetter(exportsObj, key) {
+  const names = Object.keys(exportsObj).filter((name) => name === "uniform_set_" + key || name.startsWith("uniform_set_" + key + "__"));
+  if (names.length > 1) throw new Error("edit module exports both " + names[0] + " and " + names[1] + " for uniform " + key);
+  return exportsObj[names[0]];
+}
+
 function qipEditApplyUniform(exportsObj, key, rawValue) {
-  const setterName = "uniform_set_" + key;
-  const setter = exportsObj[setterName];
+  const setter = qipEditUniformSetter(exportsObj, key);
   if (typeof setter !== "function") {
-    throw new Error("edit module missing export " + setterName);
+    throw new Error("edit module missing export uniform_set_" + key);
   }
   let attempts;
   try {

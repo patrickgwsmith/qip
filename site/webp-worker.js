@@ -13,6 +13,14 @@ const MODULE_PATHS = {
   },
 };
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function uniformSetter(exports, key) {
+  const names = Object.keys(exports).filter((name) => name === `uniform_set_${key}` || name.startsWith(`uniform_set_${key}__`));
+  if (names.length > 1) throw Error(`Component exports both ${names[0]} and ${names[1]} for uniform ${key}.`);
+  return exports[names[0]];
+}
+
 self.onmessage = async (event) => {
   try {
     const { input, inputFormat, mode, options } = event.data;
@@ -27,14 +35,14 @@ self.onmessage = async (event) => {
     }
 
     if (mode === "lossless") {
-      exports.uniform_set_level(options.level);
+      uniformSetter(exports, "level")(options.level);
     } else {
-      exports.uniform_set_quality(options.quality);
-      exports.uniform_set_method(options.method);
-      exports.uniform_set_sharp_yuv(options.sharpYuv ? 1 : 0);
-      exports.uniform_set_low_memory(options.lowMemory ? 1 : 0);
+      uniformSetter(exports, "quality")(options.quality);
+      uniformSetter(exports, "method")(options.method);
+      uniformSetter(exports, "sharp_yuv")(options.sharpYuv ? 1 : 0);
+      uniformSetter(exports, "low_memory")(options.lowMemory ? 1 : 0);
       if (mode === "opaque") {
-        exports.uniform_set_background_color_rgb(options.backgroundColor);
+        uniformSetter(exports, "background_color_rgb")(options.backgroundColor);
       }
     }
 

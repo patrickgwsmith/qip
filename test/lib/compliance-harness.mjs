@@ -11,6 +11,8 @@
 // way static contract checks already work for render components.
 import assert from "node:assert/strict";
 
+import { uniformSetterNames } from "./content-component-host.mjs";
+
 // Drives the component with a given impl function (bytes -> bytes, or null
 // to echo input as a null impl). Records equality cases (the extractable
 // corpus) and must_render_into verdicts separately.
@@ -99,7 +101,7 @@ export async function runComplianceComponent(wasmBytes, { seed, impl, setUniform
   });
   memory = instance.exports.memory;
   if (seed !== undefined) {
-    instance.exports.uniform_set_seed(seed);
+    instance.exports[uniformSetterNames(Object.keys(instance.exports)).get("seed")](seed);
   }
   const declared = instance.exports.comply();
   assert.equal(openRenderInto, null, "comply() returned with an unclosed must_render_into case");

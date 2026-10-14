@@ -3,7 +3,7 @@ import {
   readModulePolicy, validateWasmModulePolicy, readI32Export, readSlice,
 } from "./qip-wasm-policy.js";
 import {
-  readDeclaredContentType, extractUniforms, applyUniform, sourceSteps,
+  readDeclaredContentType, extractUniforms, uniformSetter, applyUniform, sourceSteps,
   stepLabel, sourceLabel, validatePostStage,
 } from "./_qip-pipeline.js";
 import {
@@ -201,16 +201,18 @@ class QIPTUIElement extends HTMLElement {
           typeof exportsObj.input_utf8_cap !== "function" || exportsObj.input_bytes_cap !== undefined) {
         throw new Error("TUI text input requires UTF-8 text/plain input");
       }
-      if (exportsObj.uniform_set_active_index !== undefined || exportsObj.active_count !== undefined) {
-        if (typeof exportsObj.uniform_set_active_index !== "function" || exportsObj.uniform_set_active_index.length !== 1 ||
+      const setActiveIndex = uniformSetter(exportsObj, "active_index");
+      if (setActiveIndex !== undefined || exportsObj.active_count !== undefined) {
+        if (setActiveIndex === undefined || setActiveIndex.length !== 1 ||
             typeof exportsObj.active_count !== "function" || exportsObj.active_count.length !== 0) {
           throw new Error("TUI navigation requires uniform_set_active_index and active_count");
         }
       }
     }
-    if (!eventful && ["uniform_set_detail_offset", "detail_count", "detail_page_size"].some((name) => exportsObj[name] !== undefined)) {
-      for (const [name, arity] of [["uniform_set_detail_offset", 1], ["detail_count", 0], ["detail_page_size", 0]]) {
-        if (typeof exportsObj[name] !== "function" || exportsObj[name].length !== arity) throw new Error("TUI detail scrolling requires offset, count, and page size exports");
+    const setDetailOffset = uniformSetter(exportsObj, "detail_offset");
+    if (!eventful && (setDetailOffset !== undefined || ["detail_count", "detail_page_size"].some((name) => exportsObj[name] !== undefined))) {
+      for (const [fn, arity] of [[setDetailOffset, 1], [exportsObj.detail_count, 0], [exportsObj.detail_page_size, 0]]) {
+        if (typeof fn !== "function" || fn.length !== arity) throw new Error("TUI detail scrolling requires offset, count, and page size exports");
       }
     }
     const contentType = readDeclaredContentType(
@@ -368,8 +370,8 @@ class QIPTUIElement extends HTMLElement {
   _applyGrid() {
     if (!this._session) return;
     const exportsObj = this._session.exports;
-    if (typeof exportsObj.uniform_set_columns === "function") exportsObj.uniform_set_columns(this._grid.columns);
-    if (typeof exportsObj.uniform_set_lines === "function") exportsObj.uniform_set_lines(this._grid.lines);
+    uniformSetter(exportsObj, "columns")?.(this._grid.columns);
+    uniformSetter(exportsObj, "lines")?.(this._grid.lines);
   }
 
   _applyUniforms() {
@@ -389,8 +391,8 @@ class QIPTUIElement extends HTMLElement {
     }
     this._applyUniforms();
     const { exports: exportsObj, memory } = this._session;
-    if (this._textMode && typeof exportsObj.uniform_set_active_index === "function") exportsObj.uniform_set_active_index(this._activeIndex);
-    if (this._textMode && typeof exportsObj.uniform_set_detail_offset === "function") exportsObj.uniform_set_detail_offset(this._detailOffset);
+    if (this._textMode) uniformSetter(exportsObj, "active_index")?.(this._activeIndex);
+    if (this._textMode) uniformSetter(exportsObj, "detail_offset")?.(this._detailOffset);
     const capacity = readI32Export(exportsObj, "output_utf8_cap");
     const result = decodeRenderResult(exportsObj.render(inputSize), capacity, memory, "TUI");
     if (result.failed) throw new Error("rejected input at " + result.detail);
@@ -489,7 +491,7 @@ class QIPTUIElement extends HTMLElement {
     if (keysym === null) return;
     if (this._textMode && ![0xff52, 0xff54, 0xff55, 0xff56].includes(keysym)) return;
     if (this._textMode && (keysym === 0xff55 || keysym === 0xff56) &&
-        typeof this.exports?.uniform_set_detail_offset !== "function") return;
+        (!this.exports || uniformSetter(this.exports, "detail_offset") === undefined)) return;
     event.preventDefault();
     try { this.sendKey(keysym, keyFlags(event, down)); }
     catch (error) { this._showError(error); }

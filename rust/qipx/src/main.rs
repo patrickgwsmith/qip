@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use sha2::{Digest, Sha256};
 use url::Url;
 use wasmparser::{ExternalKind, Operator, Parser, Payload};
-use wasmtime::{Caller, Engine, Instance, Linker, Module, Store, Val, ValType};
+use wasmtime::{AsContextMut, Caller, Engine, Func, Instance, Linker, Module, Store, Val, ValType};
 
 mod tui;
 
@@ -1670,14 +1670,22 @@ fn run_oracle(
                     return 0;
                 }
                 let implementation = &mut caller.data_mut().implementation;
-                let export = format!("uniform_set_{name}");
-                let Some(function) = implementation
-                    .instance
-                    .get_func(&mut implementation.store, &export)
-                else {
-                    caller.data_mut().protocol_error =
-                        Some(format!("implementation does not export {export}"));
-                    return 0;
+                let (export, function) = match uniform_setter(
+                    &implementation.instance,
+                    &mut implementation.store,
+                    "implementation",
+                    &name,
+                ) {
+                    Ok(Some(setter)) => setter,
+                    Ok(None) => {
+                        caller.data_mut().protocol_error =
+                            Some(format!("implementation does not export uniform_set_{name}"));
+                        return 0;
+                    }
+                    Err(error) => {
+                        caller.data_mut().protocol_error = Some(error);
+                        return 0;
+                    }
                 };
                 let ty = function.ty(&implementation.store);
                 let params: Vec<_> = ty.params().collect();
@@ -1904,16 +1912,17 @@ fn run_oracle(
         .get_memory(&mut store, "memory")
         .ok_or_else(|| format!("{oracle} Compliance oracle must export memory"))?;
     if let Some(seed) = seed {
-        let function = instance
-            .get_typed_func::<i32, ()>(&mut store, "uniform_set_seed")
-            .map_err(|_| {
+        let (export, function) = uniform_setter(&instance, &mut store, oracle, "seed")?
+            .ok_or_else(|| {
                 format!(
                     "{oracle}: --seed given but Compliance oracle does not export uniform_set_seed"
                 )
             })?;
         function
+            .typed::<i32, ()>(&store)
+            .map_err(|_| format!("{oracle}: {export} must take one i32 and return nothing"))?
             .call(&mut store, seed as i32)
-            .map_err(|e| format!("{oracle}: uniform_set_seed failed: {e}"))?;
+            .map_err(|e| format!("{oracle}: {export} failed: {e}"))?;
     }
     let function = instance
         .get_typed_func::<(), i32>(&mut store, "comply")
@@ -2481,6 +2490,19 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
         Ok(())
     };
     require_function("render")?;
+    let mut uniform_setters: HashMap<&str, &str> = HashMap::new();
+    for name in exports.keys() {
+        let Some(rest) = name.strip_prefix("uniform_set_") else {
+            continue;
+        };
+        let key = rest.split("__").next().unwrap_or(rest);
+        if let Some(other) = uniform_setters.insert(key, name) {
+            let (first, second) = (other.min(name.as_str()), other.max(name.as_str()));
+            return Err(format!(
+                "{path} exports both {first} and {second} for uniform {key}"
+            ));
+        }
+    }
     let input_ptr = exports.contains_key("input_ptr");
     let input_utf8 = exports.contains_key("input_utf8_cap");
     let input_bytes = exports.contains_key("input_bytes_cap");
@@ -2535,6 +2557,38 @@ fn validate_policy(wasm: &[u8], path: &str, max_memory: Option<u64>) -> Result<(
     Ok(())
 }
 
+/// Finds the export that sets uniform `key`: `uniform_set_<key>`, optionally followed by `__`
+/// and a suffix reserved for declaring the uniform's maxima, so only `<key>` is matched. A
+/// module that exports two setters for one key is rejected.
+pub(crate) fn uniform_setter(
+    instance: &Instance,
+    mut store: impl AsContextMut,
+    path: &str,
+    key: &str,
+) -> Result<Option<(String, Func)>, String> {
+    let mut found: Option<(String, Func)> = None;
+    for export in instance.exports(&mut store) {
+        let name = export.name().to_owned();
+        let Some(rest) = name.strip_prefix("uniform_set_") else {
+            continue;
+        };
+        if rest.split("__").next() != Some(key) {
+            continue;
+        }
+        let Some(function) = export.into_func() else {
+            continue;
+        };
+        if let Some((other, _)) = &found {
+            let (first, second) = (other.min(&name), other.max(&name));
+            return Err(format!(
+                "{path} exports both {first} and {second} for uniform {key}"
+            ));
+        }
+        found = Some((name, function));
+    }
+    Ok(found)
+}
+
 fn apply_uniform(
     instance: &Instance,
     store: &mut Store<()>,
@@ -2553,10 +2607,8 @@ fn apply_uniform(
     {
         return Err(format!("{path} has invalid uniform key {name}"));
     }
-    let export = format!("uniform_set_{name}");
-    let function = instance
-        .get_func(&mut *store, &export)
-        .ok_or_else(|| format!("{path} does not export {export}"))?;
+    let (export, function) = uniform_setter(instance, &mut *store, path, name)?
+        .ok_or_else(|| format!("{path} does not export uniform_set_{name}"))?;
     let ty = function.ty(&mut *store);
     let params: Vec<_> = ty.params().collect();
     let results: Vec<_> = ty.results().collect();

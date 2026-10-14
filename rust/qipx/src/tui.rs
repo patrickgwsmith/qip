@@ -10,7 +10,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use crossterm::execute;
 use crossterm::terminal;
 
-use super::{BenchCandidate, StageSpec, apply_uniform};
+use super::{BenchCandidate, StageSpec, apply_uniform, uniform_setter};
 
 struct TerminalGuard;
 
@@ -30,10 +30,13 @@ fn apply_dimensions(candidate: &mut BenchCandidate, spec: &StageSpec) -> Result<
     let (columns, lines) = terminal::size().unwrap_or((80, 24));
     for (name, value) in [("columns", columns), ("lines", lines)] {
         if !spec.uniforms.iter().any(|(key, _)| key == name)
-            && candidate
-                .instance
-                .get_func(&mut candidate.store, &format!("uniform_set_{name}"))
-                .is_some()
+            && uniform_setter(
+                &candidate.instance,
+                &mut candidate.store,
+                &candidate.label,
+                name,
+            )?
+            .is_some()
         {
             apply_uniform(
                 &candidate.instance,

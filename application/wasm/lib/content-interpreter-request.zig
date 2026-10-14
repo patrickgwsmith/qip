@@ -119,11 +119,25 @@ fn uniformValue(raw: []const u8, value_type: interpreter.ValType) MultipartError
     };
 }
 
+/// Returns the export that sets uniform `key`: `uniform_set_<key>`, optionally
+/// followed by `__` and a suffix that declares the uniform's maxima. Returns
+/// null when no export matches or when two do.
+fn uniformSetterName(machine: *const interpreter.Machine, key: []const u8) ?[]const u8 {
+    const prefix = "uniform_set_";
+    var result: ?[]const u8 = null;
+    for (machine.exports[0..machine.export_count]) |exp| {
+        const name = machine.module[exp.name_offset .. exp.name_offset + exp.name_length];
+        if (!std.mem.startsWith(u8, name, prefix) or !std.mem.startsWith(u8, name[prefix.len..], key)) continue;
+        const suffix = name[prefix.len + key.len ..];
+        if (suffix.len != 0 and !std.mem.startsWith(u8, suffix, "__")) continue;
+        if (result != null) return null;
+        result = name;
+    }
+    return result;
+}
+
 fn applyTargetUniform(machine: *interpreter.Machine, uniform: FormUniform, budget: usize) (MultipartError || interpreter.Error)!void {
-    var export_name: ["uniform_set_".len + 63]u8 = undefined;
-    @memcpy(export_name[0.."uniform_set_".len], "uniform_set_");
-    @memcpy(export_name["uniform_set_".len .. "uniform_set_".len + uniform.key.len], uniform.key);
-    const name = export_name[0 .. "uniform_set_".len + uniform.key.len];
+    const name = uniformSetterName(machine, uniform.key) orelse return error.InvalidUniformKey;
     const function_index = machine.functionExportIndex(name) orelse return error.InvalidUniformKey;
     const signature = machine.functionSignature(function_index) orelse return error.InvalidUniformKey;
     if (signature.parameters.len != 1 or signature.result == null or signature.result.? != signature.parameters[0] or

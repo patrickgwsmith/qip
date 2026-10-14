@@ -21,6 +21,7 @@ import {
 } from "./_qip-ktx2.js";
 import {
   extractUniforms as qipPlayExtractUniforms,
+  uniformSetter as qipPlayUniformSetter,
   applyUniform as qipPlayApplyUniform,
   elementName as qipPlayElementName,
   directChildren as qipPlayDirectChildren,
@@ -857,13 +858,13 @@ class QIPPlayElement extends HTMLElement {
     }
     // Host-driven and optional. Totals rather than deltas, so reapplying them
     // before another update or render cannot count the same motion twice.
-    if (typeof this._exports.uniform_set_pointer_total_movement_x === "function") {
+    if (qipPlayUniformSetter(this._exports, "pointer_total_movement_x")) {
       qipPlayApplyUniform(this._exports, {
         key: "pointer_total_movement_x",
         value: String(Math.round(this._pointerTotalMovementX)),
       });
     }
-    if (typeof this._exports.uniform_set_pointer_total_movement_y === "function") {
+    if (qipPlayUniformSetter(this._exports, "pointer_total_movement_y")) {
       qipPlayApplyUniform(this._exports, {
         key: "pointer_total_movement_y",
         value: String(Math.round(this._pointerTotalMovementY)),
@@ -872,9 +873,10 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _hasPointerMovementUniforms() {
-    return (
-      typeof this._exports?.uniform_set_pointer_total_movement_x === "function" ||
-      typeof this._exports?.uniform_set_pointer_total_movement_y === "function"
+    return Boolean(
+      this._exports &&
+      (qipPlayUniformSetter(this._exports, "pointer_total_movement_x") ||
+        qipPlayUniformSetter(this._exports, "pointer_total_movement_y"))
     );
   }
 

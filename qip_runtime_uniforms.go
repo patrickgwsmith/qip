@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	qinternal "github.com/royalicing/qip/internal"
 	"github.com/royalicing/qip/internal/wasmruntime"
 	"github.com/tetratelabs/wazero/api"
 )
@@ -50,10 +51,11 @@ func parseUniformUint(value string, bitSize int) (uint64, error) {
 }
 
 func applyModuleUniforms(ctx context.Context, mod api.Module, uniforms map[string]string) error {
-	if len(uniforms) == 0 {
-		return nil
-	}
 	defs := mod.ExportedFunctionDefinitions()
+	setters, err := qinternal.UniformSetterExports(defs)
+	if err != nil {
+		return err
+	}
 	keys := make([]string, 0, len(uniforms))
 	for key := range uniforms {
 		keys = append(keys, key)
@@ -64,11 +66,11 @@ func applyModuleUniforms(ctx context.Context, mod api.Module, uniforms map[strin
 		if !validUniformKey(key) {
 			return fmt.Errorf("invalid uniform key %q (must be 1..63 chars, start with [a-z], continue with [a-z0-9_], must not end with _, and must not contain __)", key)
 		}
-		fnName := "uniform_set_" + key
-		fn := mod.ExportedFunction(fnName)
-		if fn == nil {
-			return fmt.Errorf("Wasm module does not export %s for uniform %q", fnName, key)
+		fnName, ok := setters[key]
+		if !ok {
+			return fmt.Errorf("Wasm module does not export uniform_set_%s for uniform %q", key, key)
 		}
+		fn := mod.ExportedFunction(fnName)
 		def, ok := defs[fnName]
 		if !ok {
 			return fmt.Errorf("Wasm module is missing function definition for %s", fnName)

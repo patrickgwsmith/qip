@@ -277,6 +277,7 @@ function unpackRender(stage, packed) {
 // A plain-text Content transform opts into host editing by omitting events and
 // declaring UTF-8 text/plain input. Navigation is an optional pair of exports.
 export function textInputMode(exports, label = "TUI component") {
+  const setters = uniformSetterNames(Object.keys(exports), label);
   const eventNames = ["begin_update_at", "finish_update", "key_event", "pointer_event"];
   if (eventNames.some((name) => exports[name] !== undefined)) {
     requireFunction(exports, "begin_update_at", 1);
@@ -289,12 +290,12 @@ export function textInputMode(exports, label = "TUI component") {
   if (exports.input_bytes_cap !== undefined || declaredInputType(exports, label) !== "text/plain") {
     throw new Error(`${label} text input requires UTF-8 text/plain input`);
   }
-  if (exports.uniform_set_active_index !== undefined || exports.active_count !== undefined) {
-    requireFunction(exports, "uniform_set_active_index", 1);
+  if (setters.has("active_index") || exports.active_count !== undefined) {
+    requireFunction(exports, setters.get("active_index") ?? "uniform_set_active_index", 1);
     requireFunction(exports, "active_count", 0);
   }
-  if (["uniform_set_detail_offset", "detail_count", "detail_page_size"].some((name) => exports[name] !== undefined)) {
-    requireFunction(exports, "uniform_set_detail_offset", 1);
+  if (setters.has("detail_offset") || ["detail_count", "detail_page_size"].some((name) => exports[name] !== undefined)) {
+    requireFunction(exports, setters.get("detail_offset") ?? "uniform_set_detail_offset", 1);
     requireFunction(exports, "detail_count", 0);
     requireFunction(exports, "detail_page_size", 0);
   }
@@ -462,6 +463,7 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
   }
   const exports = stage.component.exports;
   const textMode = textInputMode(exports, stage.label);
+  const setters = uniformSetterNames(Object.keys(exports), stage.label);
   const beginUpdate = textMode ? null : requireFunction(exports, "begin_update_at", 1);
   const finishUpdate = textMode ? null : requireFunction(exports, "finish_update", 0);
   const keyEvent = textMode ? null : requireFunction(exports, "key_event", 2);
@@ -509,8 +511,8 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
       const currentInput = editor ? textEncoder.encode(editor.value) : source;
       if (editor) writeInitialInput(stage, currentInput);
       applyUniforms(stage, dimensions);
-      if (editor && typeof exports.uniform_set_active_index === "function") exports.uniform_set_active_index(editor.activeIndex);
-      if (editor && typeof exports.uniform_set_detail_offset === "function") exports.uniform_set_detail_offset(editor.detailOffset);
+      if (editor && setters.has("active_index")) exports[setters.get("active_index")](editor.activeIndex);
+      if (editor && setters.has("detail_offset")) exports[setters.get("detail_offset")](editor.detailOffset);
       const packed = exports.render(editor ? currentInput.byteLength : initial ? (stage.inputless ? 0 : source.byteLength) : 0);
       const safe = validateTerminalFrame(unpackRender(stage, packed));
       if (editor && typeof exports.active_count === "function") {
@@ -902,7 +904,7 @@ function uniformArgument(stage, key, rawValue) {
 // and export sections. The JS API does not expose a function's signature, and the setter's
 // parameter type decides whether it takes a Number or a BigInt. Components must not import,
 // so function indices are function-section indices.
-export function readUniformParamTypes(wasm) {
+export function readUniformParamTypes(wasm, label = "TUI component") {
   const types = [];
   let functionTypes = [];
   const setters = [];
@@ -935,27 +937,47 @@ export function readUniformParamTypes(wasm) {
         const name = decoder.decode(wasm.subarray(cursor, nameEnd));
         const kind = wasm[nameEnd];
         cursor = readULEB(wasm, nameEnd + 1);
-        if (kind === 0x00 && name.startsWith("uniform_set_")) setters.push([name.slice(12), lebValue]);
+        if (kind === 0x00 && name.startsWith("uniform_set_")) setters.push([name, lebValue]);
       }
     }
     offset = sectionEnd;
   }
+  const funcIndices = new Map(setters);
   const paramTypes = new Map();
-  for (const [key, funcIndex] of setters) {
-    const params = types[functionTypes[funcIndex]];
+  for (const [key, name] of uniformSetterNames(funcIndices.keys(), label)) {
+    const params = types[functionTypes[funcIndices.get(name)]];
     if (params !== undefined) paramTypes.set(key, params);
   }
   return paramTypes;
 }
 
+// Maps each uniform key to the export that sets it. A setter export is uniform_set_<key>,
+// optionally followed by "__" and a suffix reserved for declaring the uniform's maxima, so
+// hosts match on <key> alone. A module that exports two setters for one key is rejected.
+export function uniformSetterNames(exportNames, label = "TUI component") {
+  const names = new Map();
+  for (const name of exportNames) {
+    if (!name.startsWith("uniform_set_")) continue;
+    const end = name.indexOf("__", 12);
+    const key = name.slice(12, end < 0 ? undefined : end);
+    if (names.has(key)) {
+      const [first, second] = [names.get(key), name].sort();
+      throw new Error(`${label} exports both ${first} and ${second} for uniform ${key}`);
+    }
+    names.set(key, name);
+  }
+  return names;
+}
+
 // Parses -u values once, before the terminal is taken over, so a bad value fails up front.
 export function parseUniforms(stage) {
   const parsed = new Map();
+  const setters = uniformSetterNames(Object.keys(stage.component.exports), stage.label);
   for (const value of stage.uniforms) {
     const at = value.indexOf("=");
     const key = at < 0 ? value : value.slice(0, at);
     if (at < 1 || !validUniformKey(key)) throw new Error(`invalid uniform ${value}`);
-    if (typeof stage.component.exports[`uniform_set_${key}`] !== "function") throw new Error(`${stage.label} does not export uniform_set_${key}`);
+    if (typeof stage.component.exports[setters.get(key)] !== "function") throw new Error(`${stage.label} does not export uniform_set_${key}`);
     parsed.set(key, uniformArgument(stage, key, value.slice(at + 1)));
   }
   return parsed;
@@ -963,11 +985,12 @@ export function parseUniforms(stage) {
 
 export function applyUniforms(stage, dimensions) {
   const settings = new Map();
+  const setters = uniformSetterNames(Object.keys(stage.component.exports), stage.label);
   for (const [key, value] of [["columns", dimensions.columns], ["lines", dimensions.lines]]) {
-    if (typeof stage.component.exports[`uniform_set_${key}`] === "function") settings.set(key, uniformArgument(stage, key, String(value)));
+    if (typeof stage.component.exports[setters.get(key)] === "function") settings.set(key, uniformArgument(stage, key, String(value)));
   }
   for (const [key, value] of stage.uniformArguments) settings.set(key, value);
-  for (const [key, value] of settings) stage.component.exports[`uniform_set_${key}`](value);
+  for (const [key, value] of settings) stage.component.exports[setters.get(key)](value);
 }
 
 function declaredInputType(exports, label, direction = "input") {
@@ -1209,8 +1232,9 @@ export function validateTUIBinary(data, label = "TUI component") {
   const eventful = ["begin_update_at", "finish_update", "key_event", "pointer_event"].some((name) => exports.has(name));
   const required = eventful ? ["begin_update_at", "finish_update", "key_event"] :
     ["input_ptr", "input_utf8_cap", "input_content_type_ptr", "input_content_type_size"];
-  if (!eventful && (exports.has("active_count") || exports.has("uniform_set_active_index"))) {
-    required.push("active_count", "uniform_set_active_index");
+  const setters = uniformSetterNames(exports.keys(), label);
+  if (!eventful && (exports.has("active_count") || setters.has("active_index"))) {
+    required.push("active_count", setters.get("active_index") ?? "uniform_set_active_index");
   }
   for (const name of ["render", "output_utf8_cap", ...required]) {
     if (exports.get(name) !== "function") throw new Error(`TUI component must export ${name}`);
@@ -1241,7 +1265,7 @@ export async function main(args = process.argv.slice(2)) {
   }
   const stage = {
     label: options.component,
-    component: { exports, uniformParamTypes: readUniformParamTypes(data) },
+    component: { exports, uniformParamTypes: readUniformParamTypes(data, options.component) },
     inputless,
     inputCapacity: inputless ? 0 : exports[inputCapName](),
     outputCapacity: exports.output_utf8_cap(),

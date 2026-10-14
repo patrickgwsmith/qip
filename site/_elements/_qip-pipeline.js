@@ -35,10 +35,17 @@ function qipPlayUniformAttempts(rawValue) {
   return [number];
 }
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima. Returns undefined when absent.
+function qipPlayUniformSetter(exportsObj, key) {
+  const names = Object.keys(exportsObj).filter((name) => name === "uniform_set_" + key || name.startsWith("uniform_set_" + key + "__"));
+  if (names.length > 1) throw new Error("module exports both " + names[0] + " and " + names[1] + " for uniform " + key);
+  return typeof exportsObj[names[0]] === "function" ? exportsObj[names[0]] : undefined;
+}
+
 function qipPlayApplyUniform(exportsObj, uniform) {
-  const name = "uniform_set_" + uniform.key;
-  const setter = exportsObj[name];
-  if (typeof setter !== "function") throw new Error("qip-play module missing export " + name);
+  const setter = qipPlayUniformSetter(exportsObj, uniform.key);
+  if (setter === undefined) throw new Error("qip-play module missing export uniform_set_" + uniform.key);
   let lastError = null;
   for (const value of qipPlayUniformAttempts(uniform.value)) {
     try {
@@ -252,6 +259,7 @@ function qipPlayValidatePostStage(stage, precedingOutputType, precedingOutputUTF
 export {
   qipPlayExtractUniforms as extractUniforms,
   qipPlayUniformAttempts as uniformAttempts,
+  qipPlayUniformSetter as uniformSetter,
   qipPlayApplyUniform as applyUniform,
   qipPlayElementName as elementName,
   qipPlayDirectChildren as directChildren,

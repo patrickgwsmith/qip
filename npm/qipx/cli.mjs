@@ -9,7 +9,7 @@ function stageWithDimensions(stage, dimensions) {
   const uniforms = [...(stage.uniforms ?? [])];
   const explicit = new Set(uniforms.map(([key]) => key));
   for (const [key, value] of [["columns", dimensions.columns], ["lines", dimensions.lines]]) {
-    if (!explicit.has(key) && typeof stage.component.exports[`uniform_set_${key}`] === "function") {
+    if (!explicit.has(key) && stage.component.uniformSetterNames.has(key)) {
       uniforms.push([key, value]);
     }
   }

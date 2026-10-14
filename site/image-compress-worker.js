@@ -41,25 +41,33 @@ function message(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function uniformSetter(exports, key) {
+  const names = Object.keys(exports).filter((name) => name === `uniform_set_${key}` || name.startsWith(`uniform_set_${key}__`));
+  if (names.length > 1) throw Error(`Component exports both ${names[0]} and ${names[1]} for uniform ${key}.`);
+  return exports[names[0]];
+}
+
 function setUniforms(quality) {
   if (codec === "webp") {
-    exports.uniform_set_quality(quality);
-    exports.uniform_set_method(4);
-    exports.uniform_set_sharp_yuv(1);
-    exports.uniform_set_low_memory(1);
+    uniformSetter(exports, "quality")(quality);
+    uniformSetter(exports, "method")(4);
+    uniformSetter(exports, "sharp_yuv")(1);
+    uniformSetter(exports, "low_memory")(1);
   } else if (codec === "avif") {
-    exports.uniform_set_quality(quality);
-    exports.uniform_set_quality_alpha(100);
-    exports.uniform_set_speed(8);
-    exports.uniform_set_subsample(0);
+    uniformSetter(exports, "quality")(quality);
+    uniformSetter(exports, "quality_alpha")(100);
+    uniformSetter(exports, "speed")(8);
+    uniformSetter(exports, "subsample")(0);
   } else if (codec === "jxl") {
-    exports.uniform_set_distance(jxlDistance(quality));
+    uniformSetter(exports, "distance")(jxlDistance(quality));
     // Effort 3 encoded a 16 MP photo in 1.6 s; effort 5 took 17 s.
-    exports.uniform_set_effort(3);
+    uniformSetter(exports, "effort")(3);
   } else {
-    exports.uniform_set_quality(quality);
-    exports.uniform_set_subsample(2);
-    exports.uniform_set_background_color_rgb(0xffffff);
+    uniformSetter(exports, "quality")(quality);
+    uniformSetter(exports, "subsample")(2);
+    uniformSetter(exports, "background_color_rgb")(0xffffff);
   }
 }
 

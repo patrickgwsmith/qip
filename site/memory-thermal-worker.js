@@ -4,6 +4,14 @@ const modulePromise = WebAssembly.compileStreaming(
   fetch("/application/wasm/qip-interpret-memory-thermal-ktx2.wasm"),
 );
 
+// A uniform's setter is uniform_set_<key>, optionally followed by "__" and a
+// suffix that declares the uniform's maxima.
+function uniformSetter(exports, key) {
+  const names = Object.keys(exports).filter((name) => name === `uniform_set_${key}` || name.startsWith(`uniform_set_${key}__`));
+  if (names.length > 1) throw Error(`Component exports both ${names[0]} and ${names[1]} for uniform ${key}.`);
+  return exports[names[0]];
+}
+
 self.onmessage = async (event) => {
   const { id, form, instructionBudget, normalize } = event.data;
   try {
@@ -15,8 +23,8 @@ self.onmessage = async (event) => {
       throw Error(`Request exceeds the thermal tool's capacity: ${input.length} > ${inputCap} bytes.`);
     }
     new Uint8Array(exports.memory.buffer, exports.input_ptr() >>> 0, input.length).set(input);
-    exports.uniform_set_instruction_budget(instructionBudget);
-    exports.uniform_set_normalize(normalize ? 1 : 0);
+    uniformSetter(exports, "instruction_budget")(instructionBudget);
+    uniformSetter(exports, "normalize")(normalize ? 1 : 0);
     const started = performance.now();
     const renderBits = BigInt.asUintN(64, exports.render(input.length));
     const elapsedMs = performance.now() - started;

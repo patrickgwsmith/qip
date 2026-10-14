@@ -611,9 +611,7 @@ function uniformArgument(stage, key, rawValue) {
 function validateUniforms(stage) {
   for (const [key, rawValue] of stage.uniforms ?? []) {
     if (!validUniformKey(key)) throw new Error(`${stage.label} has invalid uniform key ${key}`);
-    const setterName = `uniform_set_${key}`;
-    const setter = stage.component.exports[setterName];
-    if (typeof setter !== "function") throw new Error(`${stage.label} does not export ${setterName}`);
+    if (!stage.component.uniformSetterNames.has(key)) throw new Error(`${stage.label} does not export uniform_set_${key}`);
     uniformArgument(stage, key, rawValue);
   }
 }
@@ -621,15 +619,33 @@ function validateUniforms(stage) {
 function applyUniforms(stage) {
   validateUniforms(stage);
   for (const [key, rawValue] of stage.uniforms ?? []) {
-    stage.component.exports[`uniform_set_${key}`](uniformArgument(stage, key, rawValue));
+    stage.component.exports[stage.component.uniformSetterNames.get(key)](uniformArgument(stage, key, rawValue));
   }
+}
+
+// Maps each uniform key to the export that sets it. A setter export is uniform_set_<key>,
+// optionally followed by "__" and a suffix reserved for declaring the uniform's maxima, so
+// hosts match on <key> alone. A module that exports two setters for one key is rejected.
+function uniformSetterNames(exportNames, label) {
+  const names = new Map();
+  for (const name of exportNames) {
+    if (!name.startsWith("uniform_set_")) continue;
+    const end = name.indexOf("__", 12);
+    const key = name.slice(12, end < 0 ? undefined : end);
+    if (names.has(key)) {
+      const [first, second] = [names.get(key), name].sort();
+      throw new Error(`${label} exports both ${first} and ${second} for uniform ${key}`);
+    }
+    names.set(key, name);
+  }
+  return names;
 }
 
 // Maps each uniform key to its uniform_set_* parameter types, decoded from the type, function
 // and export sections. The JS API does not expose a function's signature, and the setter's
 // parameter type decides whether it takes a Number or a BigInt. Because components must not
 // import, function indices are function-section indices.
-function readUniformParamTypes(wasm) {
+function readUniformParamTypes(wasm, label) {
   const types = [];
   let functionTypes = [];
   const setters = [];
@@ -662,14 +678,15 @@ function readUniformParamTypes(wasm) {
         const name = readName(wasm, cursor);
         const kind = wasm[name.offset];
         cursor = readULEB(wasm, name.offset + 1);
-        if (kind === 0x00 && name.value.startsWith("uniform_set_")) setters.push([name.value.slice(12), lebValue]);
+        if (kind === 0x00 && name.value.startsWith("uniform_set_")) setters.push([name.value, lebValue]);
       }
     }
     offset = sectionEnd;
   }
+  const funcIndices = new Map(setters);
   const paramTypes = new Map();
-  for (const [key, funcIndex] of setters) {
-    const params = types[functionTypes[funcIndex]];
+  for (const [key, name] of uniformSetterNames(funcIndices.keys(), label)) {
+    const params = types[functionTypes[funcIndices.get(name)]];
     if (params !== undefined) paramTypes.set(key, params);
   }
   return paramTypes;
@@ -988,10 +1005,11 @@ export function newComponent(wasm, instance, options = {}) {
   const label = contract.label ?? "component";
   if (!(wasm instanceof Uint8Array || wasm instanceof ArrayBuffer)) throw new TypeError(`${label} newComponent(wasm, instance, contract) requires the module bytes as a Uint8Array or ArrayBuffer`);
   if (!(instance instanceof WebAssembly.Instance)) throw new TypeError(`${label} newComponent(wasm, instance, contract) requires a WebAssembly.Instance`);
-  const uniformParamTypes = readUniformParamTypes(bytes(wasm));
+  const uniformParamTypes = readUniformParamTypes(bytes(wasm), label);
   const exports = instance.exports;
-  for (const name of Object.keys(exports)) {
-    if (name.startsWith("uniform_set_") && !uniformParamTypes.has(name.slice(12))) throw new Error(`${label} instance exports ${name}, which the module bytes do not; pass the bytes the instance was created from`);
+  const uniformSetterNamesByKey = uniformSetterNames(Object.keys(exports), label);
+  for (const [key, name] of uniformSetterNamesByKey) {
+    if (!uniformParamTypes.has(key)) throw new Error(`${label} instance exports ${name}, which the module bytes do not; pass the bytes the instance was created from`);
   }
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error(`${label} does not export memory`);
   requireFunction(exports, "render", label);
@@ -1026,6 +1044,7 @@ export function newComponent(wasm, instance, options = {}) {
     inputCapacity: inputless ? 0 : exportedValue(exports, inputCapName, label),
     outputCapacity: exportedValue(exports, outputCapName, label),
     uniformParamTypes,
+    uniformSetterNames: uniformSetterNamesByKey,
   });
   if (inputless && contract.inputType !== undefined) throw new Error(`${label} inputless generator does not accept an inputType contract`);
   if (!inputless) assertComponentContract(component, "inputType", contract.inputType);
@@ -1454,15 +1473,15 @@ async function runComplianceOracle(implWasm, implPath, oraclePath, oracleWasm, o
         failProtocol(`set_uniform_u32 name ${JSON.stringify(name)} is not a valid uniform key`);
         return 0;
       }
-      const setter = impl.exports[`uniform_set_${name}`];
-      if (typeof setter !== "function") {
+      const setterName = impl.uniformSetterNames.get(name);
+      if (setterName === undefined) {
         failProtocol(`implementation does not export uniform_set_${name}`);
         return 0;
       }
       try {
-        return Number(setter(Number(value) >>> 0)) | 0;
+        return Number(impl.exports[setterName](Number(value) >>> 0)) | 0;
       } catch (error) {
-        failProtocol(`uniform_set_${name} trapped: ${error.message ?? error}`);
+        failProtocol(`${setterName} trapped: ${error.message ?? error}`);
         return 0;
       }
     },
@@ -1620,12 +1639,12 @@ async function runComplianceOracle(implWasm, implPath, oraclePath, oracleWasm, o
   };
   oracleInstance = instantiateComplianceOracle(oracleWasm, oraclePath, { qip });
   if (options.seed !== undefined) {
-    const setSeed = oracleInstance.exports.uniform_set_seed;
-    if (typeof setSeed !== "function") throw new Error(`${oraclePath}: --seed given but Compliance oracle does not export uniform_set_seed`);
+    const seedSetterName = uniformSetterNames(Object.keys(oracleInstance.exports), oraclePath).get("seed");
+    if (seedSetterName === undefined) throw new Error(`${oraclePath}: --seed given but Compliance oracle does not export uniform_set_seed`);
     try {
-      setSeed(options.seed >>> 0);
+      oracleInstance.exports[seedSetterName](options.seed >>> 0);
     } catch (error) {
-      throw new Error(`${oraclePath}: uniform_set_seed failed: ${error.message ?? error}`);
+      throw new Error(`${oraclePath}: ${seedSetterName} failed: ${error.message ?? error}`);
     }
   }
   let declared;

@@ -35,7 +35,7 @@ import (
 const (
 	bridgeHostModuleName  = "qip"
 	bridgeExportComply    = "comply"
-	bridgeExportSetSeed   = "uniform_set_seed"
+	bridgeUniformSeed     = "seed"
 	bridgeMaxFailureNotes = 5
 )
 
@@ -64,6 +64,7 @@ type bridgeState struct {
 	runtime                wazero.Runtime
 	implWasm               []byte
 	implMod                api.Module
+	implSetters            map[string]string
 	renderFn               api.Function
 	hasFailure             bool
 	implInPtr              uint32
@@ -87,6 +88,10 @@ func (s *bridgeState) instantiateImplementation(ctx context.Context) error {
 		return errors.New("implementation module could not be instantiated")
 	}
 	s.implMod = implMod
+	s.implSetters, err = UniformSetterExports(implMod.ExportedFunctionDefinitions())
+	if err != nil {
+		return fmt.Errorf("implementation %w", err)
+	}
 	s.renderFn = implMod.ExportedFunction(complyExportRun)
 	if s.renderFn == nil {
 		return errors.New("bridge compliance requires implementation export render(i32) -> i64")
@@ -217,12 +222,12 @@ func runBridgeComplianceModule(implWasm []byte, compliance complianceSpec, seed 
 			return 0
 		}
 
-		exportName := "uniform_set_" + name
-		setter := state.implMod.ExportedFunction(exportName)
-		if setter == nil {
-			state.protocolViolation("implementation does not export %s", exportName)
+		exportName, ok := state.implSetters[name]
+		if !ok {
+			state.protocolViolation("implementation does not export uniform_set_%s", name)
 			return 0
 		}
+		setter := state.implMod.ExportedFunction(exportName)
 		if err := requireSignature(setter.Definition(), []api.ValueType{api.ValueTypeI32}, []api.ValueType{api.ValueTypeI32}, exportName); err != nil {
 			state.protocolViolation("%v", err)
 			return 0
@@ -424,13 +429,18 @@ func runBridgeComplianceModule(implWasm []byte, compliance complianceSpec, seed 
 	defer oracleMod.Close(ctx)
 
 	if seed != nil {
-		setSeed := oracleMod.ExportedFunction(bridgeExportSetSeed)
-		if setSeed == nil {
-			out.err = fmt.Errorf("--seed given but Compliance oracle does not export %s", bridgeExportSetSeed)
+		oracleSetters, err := UniformSetterExports(oracleMod.ExportedFunctionDefinitions())
+		if err != nil {
+			out.err = fmt.Errorf("Compliance oracle %w", err)
 			return out
 		}
-		if _, err := setSeed.Call(ctx, uint64(uint32(*seed))); err != nil {
-			out.err = fmt.Errorf("%s failed: %w", bridgeExportSetSeed, err)
+		seedExport, ok := oracleSetters[bridgeUniformSeed]
+		if !ok {
+			out.err = fmt.Errorf("--seed given but Compliance oracle does not export uniform_set_%s", bridgeUniformSeed)
+			return out
+		}
+		if _, err := oracleMod.ExportedFunction(seedExport).Call(ctx, uint64(uint32(*seed))); err != nil {
+			out.err = fmt.Errorf("%s failed: %w", seedExport, err)
 			return out
 		}
 	}
