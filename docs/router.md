@@ -316,6 +316,14 @@ recalculated `Content-Length`. The exporter uses the fixed capture time
 `2000-01-01T00:00:00Z` and derives record UUIDs from the target URI and response
 bytes. Given the same routes and content, the archive bytes are reproducible.
 
+Every response record also carries `WARC-Payload-Digest: sha256:<hex>`, the
+SHA-256 of its HTTP body. After each `application/warc` recipe, the router adds
+the digest to any response or resource record that lacks one and fails, naming
+the recipe, if an existing `sha256:` digest no longer matches its payload. A
+recipe that changes a body should drop the old digest (the shared
+`lib/warc.zig` helpers do) rather than compute a new one. Recipes that need a
+payload hash can read this header instead of hashing in wasm.
+
 The validator runs after the WARC recipe chain, not just before it. A recipe
 that drops a mandatory field, emits WARC 1.0, misstates a block length, or
 returns an incomplete HTTP response makes the router fail instead of writing a

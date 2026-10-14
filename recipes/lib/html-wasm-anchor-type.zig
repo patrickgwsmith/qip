@@ -26,26 +26,42 @@ fn startsTag(input: []const u8, start: usize, name: []const u8, closing: bool) b
     const prefix = if (closing) start + 2 else start + 1;
     if (prefix + name.len >= input.len) return false;
     if (input[start] != '<' or (closing and input[start + 1] != '/')) return false;
-    return equalIgnoreCase(input[prefix .. prefix + name.len], name) and tagBoundary(input[prefix + name.len]);
+    return lower(input[prefix]) == lower(name[0]) and
+        equalIgnoreCase(input[prefix .. prefix + name.len], name) and tagBoundary(input[prefix + name.len]);
+}
+
+// Same as warc.indexOfAnyPos: tests 16 bytes per loop iteration.
+fn indexOfAnyPos(input: []const u8, start: usize, comptime set: []const u8) ?usize {
+    const V = @Vector(16, u8);
+    var i = start;
+    for (0..(input.len -| start) / 16) |_| {
+        const block: V = input[i..][0..16].*;
+        var hits: u16 = 0;
+        inline for (set) |c| hits |= @bitCast(block == @as(V, @splat(c)));
+        if (hits != 0) return i + @ctz(hits);
+        i += 16;
+    }
+    while (i < input.len) : (i += 1) {
+        inline for (set) |c| if (input[i] == c) return i;
+    }
+    return null;
 }
 
 fn tagEnd(input: []const u8, start: usize) ?usize {
-    var quote: u8 = 0;
-    for (start..input.len) |index| {
-        const byte = input[index];
-        if (quote != 0) {
-            if (byte == quote) quote = 0;
-        } else if (byte == '"' or byte == '\'') {
-            quote = byte;
-        } else if (byte == '>') {
-            return index;
-        }
+    var i = start;
+    // Each quoted value moves i forward by at least two; the budget makes
+    // that bound provable to wasm-bounded-loops.
+    var steps = input.len -| start;
+    while (steps > 0) : (steps -= 1) {
+        const pos = indexOfAnyPos(input, i, "\"'>") orelse return null;
+        if (input[pos] == '>') return pos;
+        i = (std.mem.indexOfScalarPos(u8, input, pos + 1, input[pos]) orelse return null) + 1;
     }
     return null;
 }
 
 fn wasmHref(value: []const u8) bool {
-    const path_end = std.mem.indexOfAny(u8, value, "?#") orelse value.len;
+    const path_end = indexOfAnyPos(value, 0, "?#") orelse value.len;
     const path = value[0..path_end];
     return path.len >= 5 and equalIgnoreCase(path[path.len - 5 ..], ".wasm");
 }
@@ -105,8 +121,9 @@ pub fn addWasmAnchorTypes(input: []const u8, output: []u8) ?usize {
     var raw_tag: ?[]const u8 = null;
     while (i < input.len) {
         if (input[i] != '<') {
-            if (!writer.append(input[i .. i + 1])) return null;
-            i += 1;
+            const text_end = std.mem.indexOfScalarPos(u8, input, i, '<') orelse input.len;
+            if (!writer.append(input[i..text_end])) return null;
+            i = text_end;
             continue;
         }
         if (raw_tag) |name| {
@@ -117,7 +134,7 @@ pub fn addWasmAnchorTypes(input: []const u8, output: []u8) ?usize {
             }
             raw_tag = null;
         }
-        if (std.mem.startsWith(u8, input[i..], "<!--")) {
+        if (i + 1 < input.len and input[i + 1] == '!' and std.mem.startsWith(u8, input[i..], "<!--")) {
             const end = if (std.mem.indexOf(u8, input[i + 4 ..], "-->")) |offset|
                 i + 4 + offset + 3
             else

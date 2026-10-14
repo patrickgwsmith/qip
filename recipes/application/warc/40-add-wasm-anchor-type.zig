@@ -60,7 +60,7 @@ const Writer = struct {
 fn headerValue(headers: []const u8, name: []const u8) ?[]const u8 {
     var line_start: usize = 0;
     while (line_start < headers.len) {
-        const line_end = std.mem.indexOfPos(u8, headers, line_start, "\r\n") orelse return null;
+        const line_end = warc.indexOfPos(headers, line_start, "\r\n") orelse return null;
         const line = headers[line_start..line_end];
         line_start = line_end + 2;
         if (line.len == 0) break;
@@ -80,7 +80,7 @@ fn transformArchive(input: []const u8) ?usize {
     var writer = Writer{};
     var cursor: usize = 0;
     while (cursor < input.len) {
-        const header_end = (std.mem.indexOfPos(u8, input, cursor, "\r\n\r\n") orelse return null) + 4;
+        const header_end = (warc.indexOfPos(input, cursor, "\r\n\r\n") orelse return null) + 4;
         const headers = input[cursor..header_end];
         const length_text = headerValue(headers, "Content-Length") orelse return null;
         const payload_length = std.fmt.parseUnsigned(usize, length_text, 10) catch return null;
@@ -96,7 +96,7 @@ fn transformArchive(input: []const u8) ?usize {
             continue;
         }
         const payload = input[header_end..payload_end];
-        const http_header_end = (std.mem.indexOf(u8, payload, "\r\n\r\n") orelse return null) + 4;
+        const http_header_end = (warc.indexOfPos(payload, 0, "\r\n\r\n") orelse return null) + 4;
         const http_headers = payload[0..http_header_end];
         if (!htmlContentType(http_headers)) {
             writer.writeSlice(input[cursor..next]);
@@ -110,7 +110,7 @@ fn transformArchive(input: []const u8) ?usize {
             cursor = next;
             continue;
         }
-        const status_end = std.mem.indexOf(u8, http_headers, "\r\n") orelse return null;
+        const status_end = warc.indexOfPos(http_headers, 0, "\r\n") orelse return null;
         const status_line = http_headers[0..status_end];
         const new_payload_length = warc.httpHeaderRewriteLen(http_headers, status_line, html_length) + html_length;
         warc.writeRecordHeader(&writer, headers, new_payload_length, true);
