@@ -61,10 +61,27 @@
 //! `input_ptr`, `input_bytes_cap` and `tile_rgba32float_64x64`, which applies
 //! every kernel to each pixel of the 64x64 tile in place, in source order.
 //! Several kernels in one module are therefore a fused pipeline that keeps
-//! f32 precision between stages. A kernel reads no other pixel and ignores
-//! the tile's position, so it needs no halo. Its final statement must be
-//! `return expr;`. Overrides become uniforms as in compute shaders, but keep
-//! the value the host last set, because the host sets them once per image.
+//! f32 precision between stages. Its final statement must be `return expr;`.
+//! Overrides become uniforms as in compute shaders, but keep the value the
+//! host last set, because the host sets them once per image.
+//!
+//! A kernel may also read its neighbors with `sample(dx, dy)`, the previous
+//! stage's pixel at that offset, where `c` is `sample(0, 0)`:
+//!
+//!   fn blur(c: vec4f) -> vec4f {
+//!     return (sample(-1, 0) + c + sample(1, 0)) / 3.0;
+//!   }
+//!
+//! Each offset must be an integer literal or `const`, so the compiler knows
+//! the footprint without running the kernel: a kernel's halo is its largest
+//! |dx| or |dy|, and the module's halo is the sum over its kernels, at most
+//! 32. A module whose kernels sample exports `calculate_halo_px` and
+//! `uniform_set_width_and_height`. Each sampling kernel starts a pass that
+//! reads the previous pass's output and writes a region that shrinks by the
+//! kernel's halo, so the last pass writes the 64x64 core; point kernels join
+//! the pass before them. Samples are clamped to the image, as the host clamps
+//! the halo, so a fused module gives the same pixels as running each kernel
+//! as its own stage.
 //!
 //! WGSL's defined behavior replaces Wasm traps: integer division by zero
 //! returns the dividend, remainder by zero returns 0, signed MIN / -1 returns
@@ -111,11 +128,17 @@ const FN_FIRST_SETTER: u32 = 6;
 const GLOBAL_COUNT: u32 = 0;
 const GLOBAL_FIRST_OVERRIDE: u32 = 1;
 
-// Generated Tile component: one page holds the 64x64 RGBA32F tile.
+// Generated Tile component: one page holds the 64x64 RGBA32F tile. With a
+// halo, the tile buffer is (64 + 2 * halo) pixels square, and a scratch
+// buffer of the same size follows it.
 const TILE_INPUT_PTR: u32 = 0;
-const TILE_BYTES: u32 = 64 * 64 * 16;
+const TILE_SIZE: u32 = 64;
+const MAX_HALO: u32 = 32;
 const FN_TILE: u32 = 2;
-const FN_FIRST_KERNEL: u32 = 3;
+// Only modules whose kernels sample have `sample`, so kernels follow it there.
+const FN_SAMPLE: u32 = 3;
+// Tile state globals, after the overrides in a module whose kernels sample.
+const TileState = enum(u32) { width, height, x0, y0, col, row, lo, hi };
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -629,6 +652,11 @@ var have_entry = false;
 var kernel_count: usize = 0;
 var in_kernel = false;
 var kernel_returned = false;
+// Each kernel's halo, the largest |dx| or |dy| it samples, and their sum.
+var kernel_halos: [MAX_KERNELS]u8 = undefined;
+var kernel_samples: [MAX_KERNELS]bool = undefined;
+var tile_halo: u32 = 0;
+var tile_samples = false;
 
 // Main function locals after parameter 0 (`global_invocation_id.x`).
 var local_types: [MAX_LOCALS]u8 = undefined;
@@ -808,14 +836,15 @@ fn emitLiteral(w: *Buf, lit: Literal) CompileError!void {
 // ---------------------------------------------------------------------------
 // Expressions
 
-const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call };
+const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call, sample };
 
 const Callee = enum(u8) { abs, min, max, clamp, select, sqrt, floor, ceil, trunc, round, dot, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f };
 
 const Node = struct {
     kind: NodeKind,
     // Tk for unary and binary, Callee for call, buffer 0/1 for load, index
-    // for lane, and source lanes packed two bits each for swizzle.
+    // for lane, and source lanes packed two bits each for swizzle. A sample
+    // keeps its offsets in `lit.int_value` (dx) and `ref` (dy, as i32 bits).
     op: u8 = 0,
     ty: Ty,
     opnd_ty: Ty = .void,
@@ -1147,6 +1176,47 @@ fn parseSwizzle(member: Token, source: Ty) CompileError!Swizzle {
     return swizzle;
 }
 
+// A sample offset: an integer literal or `const`, optionally negated, so the
+// halo is known at compile time.
+fn parseSampleOffset() CompileError!i32 {
+    const negate = peek().kind == .minus;
+    if (negate) _ = advance();
+    const t = advance();
+    var lit: Literal = undefined;
+    if (t.kind == .int_lit) {
+        lit = try intLiteral(t);
+    } else if (t.kind == .ident) {
+        lit = for (consts[0..const_count]) |c| {
+            if (sameName(c.name, t)) break c.value;
+        } else return fail(t.start, .unsupported); // a runtime offset
+    } else {
+        return fail(t.start, .unsupported);
+    }
+    if (lit.ty != .abstract_int and lit.ty != .i32) return fail(t.start, .type_mismatch);
+    if (@abs(lit.int_value) > MAX_HALO) return fail(t.start, .unsupported);
+    return @intCast(if (negate) -lit.int_value else lit.int_value);
+}
+
+// `sample(dx, dy)` in a pixel kernel; the name is the current token.
+fn parseSample(t: Token) CompileError!bool {
+    if (!in_kernel) return fail(t.start, .unsupported);
+    pos += 2;
+    const dx = try parseSampleOffset();
+    _ = try expect(.comma);
+    const dy = try parseSampleOffset();
+    if (peek().kind == .comma) _ = advance();
+    _ = try expect(.r_paren);
+    const reach: u8 = @intCast(@max(@abs(dx), @abs(dy)));
+    kernel_samples[kernel_count] = true;
+    const halo = &kernel_halos[kernel_count];
+    if (reach > halo.*) {
+        if (tile_halo + reach > MAX_HALO) return fail(t.start, .unsupported);
+        halo.* = reach;
+    }
+    _ = try pushNode(.{ .kind = .sample, .ty = .vec4f, .lit = .{ .ty = .i32, .int_value = dx }, .ref = @bitCast(dy), .offset = t.start });
+    return true;
+}
+
 // Parses an operand that starts with an identifier. Returns true when the
 // operand is complete and false when it opened a call or index.
 fn parseIdentOperand() CompileError!bool {
@@ -1175,6 +1245,7 @@ fn parseIdentOperand() CompileError!bool {
             _ = try pushNode(.{ .kind = .array_len, .ty = .u32, .offset = t.start });
             return true;
         }
+        if (std.mem.eql(u8, name, "sample")) return parseSample(t);
         const callee = lookupCallee(name) orelse return fail(t.start, .unsupported);
         return parseConstructorCall(t, callee);
     }
@@ -1700,6 +1771,12 @@ fn emitNode(node: Node) CompileError!void {
             try body.uleb(GLOBAL_COUNT);
         },
         .load => try emitLoad(node.ty, bufferBase(node.op)),
+        .sample => {
+            try body.i32Const(@intCast(node.lit.int_value));
+            try body.i32Const(@bitCast(node.ref));
+            try body.byte(0x10);
+            try body.uleb(FN_SAMPLE);
+        },
         .lane => try body.simdLane(SIMD_F32X4_EXTRACT_LANE, node.op),
         .swizzle => try emitSwizzle(node.op, vecLen(node.ty)),
         .unary => switch (@as(Tk, @enumFromInt(node.op))) {
@@ -2260,6 +2337,8 @@ fn parseKernel(fn_tok: Token) CompileError!void {
     body.len = 0;
     in_kernel = true;
     kernel_returned = false;
+    kernel_halos[kernel_count] = 0;
+    kernel_samples[kernel_count] = false;
     while (block_len > 0) {
         if (peek().kind == .eof) return fail(peek().start, .syntax);
         try parseStatement();
@@ -2268,6 +2347,8 @@ fn parseKernel(fn_tok: Token) CompileError!void {
     // Every path must return; requiring a final `return` proves that simply.
     if (!kernel_returned) return fail(tokens[pos - 1].start, .unsupported);
     try emitFunction(&kernel_code);
+    tile_halo += kernel_halos[kernel_count];
+    tile_samples = tile_samples or kernel_samples[kernel_count];
     kernel_count += 1;
 }
 
@@ -2508,31 +2589,237 @@ fn emitModule() CompileError!usize {
     return w.len;
 }
 
-fn emitTile(w: *Buf) CompileError!void {
-    const at = try w.beginSize();
-    try w.raw(&.{ 1, 1, 0x7f }); // (local $p i32) after the x and y parameters
-    // for (p = 0; p < TILE_BYTES; p += 16) store(p, kernelN(...kernel0(load(p))))
+fn tileSpan() u32 {
+    return TILE_SIZE + 2 * tile_halo;
+}
+
+fn tileBytes() u32 {
+    return tileSpan() * tileSpan() * 16;
+}
+
+// Sampling passes write here, then copy their region back to the tile.
+fn scratchPtr() u32 {
+    return TILE_INPUT_PTR + tileBytes();
+}
+
+fn firstKernelFn() u32 {
+    return if (tile_samples) FN_SAMPLE + 1 else FN_SAMPLE;
+}
+
+fn stateGlobal(state: TileState) u32 {
+    return @intCast(GLOBAL_FIRST_OVERRIDE + override_count + @intFromEnum(state));
+}
+
+fn globalGet(w: *Buf, state: TileState) CompileError!void {
+    try w.byte(0x23);
+    try w.uleb(stateGlobal(state));
+}
+
+fn globalSet(w: *Buf, state: TileState) CompileError!void {
+    try w.byte(0x24);
+    try w.uleb(stateGlobal(state));
+}
+
+fn emitKernelCalls(w: *Buf, from: usize, to: usize) CompileError!void {
+    for (from..to) |k| {
+        try w.byte(0x10);
+        try w.uleb(firstKernelFn() + k);
+    }
+}
+
+// for (p = 0; p < tile bytes; p += 16) store(p, kernels(load(p))), in place.
+fn emitPointPass(w: *Buf, p: u32, from: usize, to: usize) CompileError!void {
     try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
-    try w.localGet(2);
-    try w.i32Const(@bitCast(TILE_BYTES));
+    try w.localGet(p);
+    try w.i32Const(@bitCast(tileBytes()));
     try w.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
-    try w.localGet(2);
-    try w.localGet(2);
+    try w.localGet(p);
+    try w.localGet(p);
     try w.simd(SIMD_LOAD);
     try w.byte(4);
     try w.uleb(TILE_INPUT_PTR);
-    for (0..kernel_count) |k| {
-        try w.byte(0x10);
-        try w.uleb(FN_FIRST_KERNEL + k);
-    }
+    try emitKernelCalls(w, from, to);
     try w.simd(SIMD_STORE);
     try w.byte(4);
     try w.uleb(TILE_INPUT_PTR);
-    try w.localGet(2);
+    try w.localGet(p);
     try w.i32Const(16);
     try w.byte(0x6a);
-    try w.localSet(2);
+    try w.localSet(p);
     try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+}
+
+// Locals of the tile function in a module whose kernels sample.
+const TILE_ROW: u32 = 2;
+const TILE_COL: u32 = 3;
+const TILE_P: u32 = 4;
+
+// Runs kernels [from, to) on rows and columns [inset, span - inset) into
+// the scratch buffer, with samples reading [read, span - read), then copies
+// those rows back so the next pass reads them in place.
+fn emitSamplePass(w: *Buf, from: usize, to: usize, read: u32, inset: u32) CompileError!void {
+    const span = tileSpan();
+    try w.i32Const(@intCast(read));
+    try globalSet(w, .lo);
+    try w.i32Const(@intCast(span - 1 - read));
+    try globalSet(w, .hi);
+    try w.i32Const(@intCast(inset));
+    try w.localSet(TILE_ROW);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.localGet(TILE_ROW);
+    try w.i32Const(@intCast(span - inset));
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
+    try w.localGet(TILE_ROW);
+    try globalSet(w, .row);
+    try w.i32Const(@intCast(inset));
+    try w.localSet(TILE_COL);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.localGet(TILE_COL);
+    try w.i32Const(@intCast(span - inset));
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    try w.localGet(TILE_COL);
+    try globalSet(w, .col);
+    // p = (row * span + col) * 16
+    try w.localGet(TILE_ROW);
+    try w.i32Const(@intCast(span));
+    try w.byte(0x6c);
+    try w.localGet(TILE_COL);
+    try w.byte(0x6a);
+    try w.i32Const(4);
+    try w.byte(0x74);
+    try w.localTee(TILE_P);
+    try w.localGet(TILE_P);
+    try w.simd(SIMD_LOAD);
+    try w.byte(4);
+    try w.uleb(TILE_INPUT_PTR);
+    try emitKernelCalls(w, from, to);
+    try w.simd(SIMD_STORE);
+    try w.byte(4);
+    try w.uleb(scratchPtr());
+    try w.localGet(TILE_COL);
+    try w.i32Const(1);
+    try w.byte(0x6a);
+    try w.localSet(TILE_COL);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    try w.localGet(TILE_ROW);
+    try w.i32Const(1);
+    try w.byte(0x6a);
+    try w.localSet(TILE_ROW);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    // The copy also moves scratch columns outside the region, but no later
+    // pass reads them.
+    const start = (inset * span + inset) * 16;
+    const end = ((span - 1 - inset) * span + span - inset) * 16;
+    try w.i32Const(@intCast(TILE_INPUT_PTR + start));
+    try w.i32Const(@intCast(scratchPtr() + start));
+    try w.i32Const(@intCast(end - start));
+    try w.raw(&.{ 0xfc, 0x0a, 0x00, 0x00 }); // memory.copy
+}
+
+fn emitTile(w: *Buf) CompileError!void {
+    const at = try w.beginSize();
+    if (!tile_samples) {
+        try w.raw(&.{ 1, 1, 0x7f }); // (local $p i32) after the x and y parameters
+        try emitPointPass(w, 2, 0, kernel_count);
+        try w.byte(0x0b);
+        w.endSize(at);
+        return;
+    }
+    try w.raw(&.{ 1, 3, 0x7f }); // (local $row i32) (local $col i32) (local $p i32)
+    // The host passes the buffer's top-left pixel, the core's minus the halo.
+    try w.localGet(0);
+    try w.raw(&.{ 0xfc, 0x00 }); // i32.trunc_sat_f32_s
+    try globalSet(w, .x0);
+    try w.localGet(1);
+    try w.raw(&.{ 0xfc, 0x00 });
+    try globalSet(w, .y0);
+    // Point kernels before the first sampling kernel run on the whole buffer.
+    var k: usize = 0;
+    while (k < kernel_count and !kernel_samples[k]) k += 1;
+    if (k > 0) try emitPointPass(w, TILE_P, 0, k);
+    var inset: u32 = 0;
+    while (k < kernel_count) {
+        var end = k + 1;
+        while (end < kernel_count and !kernel_samples[end]) end += 1;
+        const read = inset;
+        inset += kernel_halos[k];
+        try emitSamplePass(w, k, end, read, inset);
+        k = end;
+    }
+    try w.byte(0x0b);
+    w.endSize(at);
+}
+
+// v = max(v, m) or min(v, m), signed.
+fn emitKeep(w: *Buf, v: u32, m: u32, is_max: bool) CompileError!void {
+    try w.localGet(v);
+    try w.localGet(m);
+    try w.localGet(v);
+    try w.localGet(m);
+    try w.byte(if (is_max) 0x4a else 0x48); // i32.gt_s or i32.lt_s
+    try w.byte(0x1b); // select
+    try w.localSet(v);
+}
+
+// out = the buffer index of pos + d, clamped to the image and then to the
+// pass's read region.
+fn emitSampleAxis(w: *Buf, d: u32, out: u32, at: TileState, origin: TileState, size: TileState) CompileError!void {
+    const m: u32 = 4;
+    try globalGet(w, at);
+    try w.localGet(d);
+    try w.byte(0x6a);
+    try globalGet(w, origin);
+    try w.byte(0x6a);
+    try w.localSet(out);
+    try globalGet(w, size);
+    try w.i32Const(1);
+    try w.byte(0x6b);
+    try w.localSet(m);
+    try emitKeep(w, out, m, false);
+    try w.i32Const(0);
+    try w.localSet(m);
+    try emitKeep(w, out, m, true);
+    try w.localGet(out);
+    try globalGet(w, origin);
+    try w.byte(0x6b);
+    try w.localSet(out);
+    try globalGet(w, .lo);
+    try w.localSet(m);
+    try emitKeep(w, out, m, true);
+    try globalGet(w, .hi);
+    try w.localSet(m);
+    try emitKeep(w, out, m, false);
+}
+
+// sample(dx, dy) -> vec4f, reading the tile buffer.
+fn emitSample(w: *Buf) CompileError!void {
+    const at = try w.beginSize();
+    try w.raw(&.{ 1, 3, 0x7f }); // (local $col i32) (local $row i32) (local $m i32)
+    try emitSampleAxis(w, 0, 2, .col, .x0, .width);
+    try emitSampleAxis(w, 1, 3, .row, .y0, .height);
+    try w.localGet(3);
+    try w.i32Const(@intCast(tileSpan()));
+    try w.byte(0x6c);
+    try w.localGet(2);
+    try w.byte(0x6a);
+    try w.i32Const(4);
+    try w.byte(0x74);
+    try w.simd(SIMD_LOAD);
+    try w.byte(4);
+    try w.uleb(TILE_INPUT_PTR);
+    try w.byte(0x0b);
+    w.endSize(at);
+}
+
+fn emitSetWidthAndHeight(w: *Buf) CompileError!void {
+    const at = try w.beginSize();
+    try w.byte(0);
+    try w.localGet(0);
+    try w.raw(&.{ 0xfc, 0x00 }); // i32.trunc_sat_f32_s
+    try globalSet(w, .width);
+    try w.localGet(1);
+    try w.raw(&.{ 0xfc, 0x00 });
+    try globalSet(w, .height);
     try w.byte(0x0b);
     w.endSize(at);
 }
@@ -2541,35 +2828,46 @@ fn emitTile(w: *Buf) CompileError!void {
 fn emitTileModule() CompileError!usize {
     var w = Buf{ .bytes = &output_buf };
     try w.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
+    // Functions after the setters, in a module whose kernels sample.
+    const extra: u32 = if (tile_samples) 2 else 0;
+    const first_setter = firstKernelFn() + kernel_count;
+    const fn_count = first_setter + override_count + extra;
 
     // Setter types keep their indices from emitModule (see setterType).
     try w.byte(1); // type section
     var at = try w.beginSize();
-    try w.uleb(6);
+    try w.uleb(if (tile_samples) 7 else 6);
     try w.raw(&.{ 0x60, 0, 1, 0x7f }); // 0: () -> i32
     try w.raw(&.{ 0x60, 2, 0x7d, 0x7d, 0 }); // 1: (f32, f32) -> ()
     try w.raw(&.{ 0x60, 1, 0x7b, 1, 0x7b }); // 2: (v128) -> v128
     try w.raw(&.{ 0x60, 1, 0x7d, 1, 0x7d }); // 3: (f32) -> f32
     try w.raw(&.{ 0x60, 1, 0x7f, 1, 0x7f }); // 4: (i32) -> i32
     try w.raw(&.{ 0x60, 1, 0x7e, 1, 0x7e }); // 5: (i64) -> i64
+    if (tile_samples) try w.raw(&.{ 0x60, 2, 0x7f, 0x7f, 1, 0x7b }); // 6: (i32, i32) -> v128
     w.endSize(at);
 
     try w.byte(3); // function section
     at = try w.beginSize();
-    try w.uleb(FN_FIRST_KERNEL + kernel_count + override_count);
+    try w.uleb(fn_count);
     try w.raw(&.{ 0, 0, 1 });
+    if (tile_samples) try w.byte(6);
     for (0..kernel_count) |_| try w.byte(2);
     for (overrides[0..override_count]) |o| try w.byte(setterType(o.ty));
+    if (tile_samples) try w.raw(&.{ 0, 1 });
     w.endSize(at);
 
-    try w.byte(5); // memory section: one fixed page
+    try w.byte(5); // memory section: fixed size
     at = try w.beginSize();
-    try w.raw(&.{ 1, 1, 1, 1 });
+    const pages: u32 = if (tile_samples) (scratchPtr() + tileBytes() + 0xffff) / 0x10000 else 1;
+    try w.raw(&.{ 1, 1 });
+    try w.uleb(pages);
+    try w.uleb(pages);
     w.endSize(at);
 
     try w.byte(6); // global section
     at = try w.beginSize();
-    try w.uleb(1 + override_count);
+    const state_count: u32 = if (tile_samples) @typeInfo(TileState).@"enum".fields.len else 0;
+    try w.uleb(1 + override_count + state_count);
     // Unused here; it keeps override globals at GLOBAL_FIRST_OVERRIDE.
     try w.raw(&.{ 0x7f, 0, 0x41, 0, 0x0b });
     for (overrides[0..override_count]) |o| {
@@ -2577,11 +2875,19 @@ fn emitTileModule() CompileError!usize {
         try emitLiteral(&w, o.value);
         try w.byte(0x0b);
     }
+    for (0..state_count) |i| {
+        const state: TileState = @enumFromInt(i);
+        // Without uniform_set_width_and_height, samples clamp only to the tile.
+        const initial: i32 = if (state == .width or state == .height) std.math.maxInt(i32) else 0;
+        try w.raw(&.{ 0x7f, 1 });
+        try w.i32Const(initial);
+        try w.byte(0x0b);
+    }
     w.endSize(at);
 
     try w.byte(7); // export section
     at = try w.beginSize();
-    try w.uleb(4 + override_count);
+    try w.uleb(4 + override_count + extra);
     try w.name("memory");
     try w.raw(&.{ 2, 0 });
     const funcs = [_][]const u8{ "input_ptr", "input_bytes_cap", "tile_rgba32float_64x64" };
@@ -2596,18 +2902,31 @@ fn emitTileModule() CompileError!usize {
         try w.raw(prefix);
         try w.raw(text(o.name));
         try w.byte(0);
-        try w.uleb(FN_FIRST_KERNEL + kernel_count + i);
+        try w.uleb(first_setter + i);
+    }
+    if (tile_samples) {
+        try w.name("calculate_halo_px");
+        try w.byte(0);
+        try w.uleb(first_setter + override_count);
+        try w.name("uniform_set_width_and_height");
+        try w.byte(0);
+        try w.uleb(first_setter + override_count + 1);
     }
     w.endSize(at);
 
     try w.byte(10); // code section
     at = try w.beginSize();
-    try w.uleb(FN_FIRST_KERNEL + kernel_count + override_count);
+    try w.uleb(fn_count);
     try emitGetter(&w, TILE_INPUT_PTR);
-    try emitGetter(&w, TILE_BYTES);
+    try emitGetter(&w, tileBytes());
     try emitTile(&w);
+    if (tile_samples) try emitSample(&w);
     try w.raw(kernel_code_buf[0..kernel_code.len]);
     for (overrides[0..override_count], 0..) |o, i| try emitSetter(&w, @intCast(GLOBAL_FIRST_OVERRIDE + i), o.ty);
+    if (tile_samples) {
+        try emitGetter(&w, tile_halo);
+        try emitSetWidthAndHeight(&w);
+    }
     w.endSize(at);
 
     return w.len;
@@ -2629,6 +2948,8 @@ fn compile(source: []const u8) CompileError!usize {
     kernel_count = 0;
     kernel_code.len = 0;
     in_kernel = false;
+    tile_halo = 0;
+    tile_samples = false;
     try lex();
     while (peek().kind != .eof) try parseTopLevel();
     if (kernel_count > 0) return emitTileModule();
@@ -2853,4 +3174,39 @@ test "rejects pixel kernels outside the subset" {
         \\@group(0) @binding(0) var<storage, read_write> v: array<f32>;
     ;
     try expectRejected(then_buffer, std.mem.indexOf(u8, then_buffer, "v:").?, .unsupported);
+}
+
+test "derives a sampling module's halo from its constant offsets" {
+    const shader =
+        \\const R = 2;
+        \\fn blur(c: vec4f) -> vec4f { return (sample(-1, 0) + c + sample(1, 1)) / 3.0; }
+        \\fn darken(c: vec4f) -> vec4f { return c * 0.5; }
+        \\fn wide(c: vec4f) -> vec4f { return sample(0, -R); }
+    ;
+    const size = try compile(shader);
+    const module = output_buf[0..size];
+    try testing.expectEqual(@as(u32, 3), tile_halo);
+    try testing.expect(std.mem.indexOf(u8, module, "calculate_halo_px") != null);
+    try testing.expect(std.mem.indexOf(u8, module, "uniform_set_width_and_height") != null);
+    // sample(-1, 0) is i32.const -1, i32.const 0, call FN_SAMPLE.
+    try testing.expect(std.mem.indexOf(u8, module, &.{ 0x41, 0x7f, 0x41, 0x00, 0x10, FN_SAMPLE }) != null);
+}
+
+test "rejects sample offsets that are not constant or are too far" {
+    const runtime = "fn k(c: vec4f) -> vec4f { let d = 1; return sample(d, 0); }";
+    try expectRejected(runtime, std.mem.indexOf(u8, runtime, "d, 0").?, .unsupported);
+    const far = "fn k(c: vec4f) -> vec4f { return sample(0, -33); }";
+    try expectRejected(far, std.mem.indexOf(u8, far, "33").?, .unsupported);
+    const unsigned = "fn k(c: vec4f) -> vec4f { return sample(1u, 0); }";
+    try expectRejected(unsigned, std.mem.indexOf(u8, unsigned, "1u").?, .type_mismatch);
+    const total =
+        \\fn a(c: vec4f) -> vec4f { return sample(20, 0); }
+        \\fn b(c: vec4f) -> vec4f { return sample(0, 13); }
+    ;
+    try expectRejected(total, std.mem.lastIndexOf(u8, total, "sample").?, .unsupported);
+    const compute =
+        \\@group(0) @binding(0) var<storage, read_write> v: array<vec4f>;
+        \\@compute @workgroup_size(64) fn main() { v[0] = sample(0, 0); }
+    ;
+    try expectRejected(compute, std.mem.indexOf(u8, compute, "sample").?, .unsupported);
 }

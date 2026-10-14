@@ -10,6 +10,7 @@ import {
   fusePixelKernels,
   fusedUniformValues,
   pixelKernelNames,
+  pixelKernelPasses,
   pixelKernelsToComputeShader,
 } from "../text/wgsl/pixel-kernels.mjs";
 
@@ -47,9 +48,40 @@ function runTile(exports, tile) {
   return Float32Array.from(view);
 }
 
+// Runs a whole image through the Tile ABI the way main.go does: tiles of 64,
+// each padded by the module's halo with edge-clamped pixels, keeping only
+// each tile's core.
+function runImage(exports, pixels, width, height) {
+  exports.uniform_set_width_and_height?.(width, height);
+  const halo = Math.max(0, exports.calculate_halo_px?.() ?? 0);
+  const span = 64 + 2 * halo;
+  assert.ok(exports.input_bytes_cap() >= span * span * 16);
+  const view = new Float32Array(exports.memory.buffer, exports.input_ptr(), span * span * 4);
+  const out = new Float32Array(pixels.length);
+  const clamp = (v, max) => Math.min(Math.max(v, 0), max - 1);
+  for (let y = 0; y < height; y += 64) {
+    for (let x = 0; x < width; x += 64) {
+      for (let row = 0; row < span; row++) {
+        for (let col = 0; col < span; col++) {
+          const s = (clamp(y + row - halo, height) * width + clamp(x + col - halo, width)) * 4;
+          view.set(pixels.subarray(s, s + 4), (row * span + col) * 4);
+        }
+      }
+      exports.tile_rgba32float_64x64(x - halo, y - halo);
+      for (let row = 0; row < Math.min(64, height - y); row++) {
+        for (let col = 0; col < Math.min(64, width - x); col++) {
+          const s = ((row + halo) * span + col + halo) * 4;
+          out.set(view.subarray(s, s + 4), ((y + row) * width + x + col) * 4);
+        }
+      }
+    }
+  }
+  return out;
+}
+
 // Deterministic RGBA in [0, 1], including the endpoints.
-function sampleTile() {
-  const tile = new Float32Array(TILE_FLOATS);
+function sampleTile(floats = TILE_FLOATS) {
+  const tile = new Float32Array(floats);
   let state = 0x9e3779b9;
   for (let i = 0; i < tile.length; i++) {
     state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
@@ -66,25 +98,81 @@ function assertBitsEqual(actual, expected) {
 }
 
 const kernelPaths = {
+  "box-blur-3x3": "components/rgba/box-blur-3x3.wgsl",
   brightness: "components/rgba/brightness.wgsl",
   invert: "components/rgba/invert.wgsl",
 };
+
+// Not multiples of 64, so edge tiles are partial.
+const WIDTH = 150;
+const HEIGHT = 90;
 
 async function kernelSource(name) {
   return readFile(kernelPaths[name], "utf8");
 }
 
 test("committed component builds match their kernel sources", async () => {
-  const tile = sampleTile();
+  const image = sampleTile(WIDTH * HEIGHT * 4);
   for (const [name, uniforms] of [
+    ["box-blur-3x3", {}],
     ["brightness", { brightness: 0.3 }],
     ["brightness", { brightness: -0.4 }],
     ["invert", {}],
   ]) {
     const compiled = await instantiateTile(await compile(await kernelSource(name)), uniforms);
     const committed = await instantiateTile(join(process.cwd(), `components/rgba/${name}.wasm`), uniforms);
-    assertBitsEqual(runTile(compiled, tile), runTile(committed, tile));
+    assertBitsEqual(runImage(compiled, image, WIDTH, HEIGHT), runImage(committed, image, WIDTH, HEIGHT));
   }
+});
+
+test("box blur averages the 3x3 neighborhood, clamped at the image edges", async () => {
+  const exports = await instantiateTile(await compile(await kernelSource("box-blur-3x3")));
+  assert.equal(exports.calculate_halo_px(), 1);
+  const image = sampleTile(WIDTH * HEIGHT * 4);
+  const out = runImage(exports, image, WIDTH, HEIGHT);
+  // The kernel's f32 operations, in its order.
+  const f = Math.fround;
+  const at = (x, y, lane) =>
+    image[(Math.min(Math.max(y, 0), HEIGHT - 1) * WIDTH + Math.min(Math.max(x, 0), WIDTH - 1)) * 4 + lane];
+  const row = (x, y, lane) => f(f(at(x - 1, y, lane) + at(x, y, lane)) + at(x + 1, y, lane));
+  const expected = new Float32Array(image.length);
+  for (let y = 0; y < HEIGHT; y++) {
+    for (let x = 0; x < WIDTH; x++) {
+      for (let lane = 0; lane < 4; lane++) {
+        const sum = f(f(row(x, y - 1, lane) + row(x, y, lane)) + row(x, y + 1, lane));
+        expected[(y * WIDTH + x) * 4 + lane] = f(sum / 9);
+      }
+    }
+  }
+  assertBitsEqual(out, expected);
+});
+
+test("fused sampling kernels match running each stage in turn", async () => {
+  const stages = [
+    ["brightness", { brightness: 0.2 }],
+    ["box-blur-3x3", {}],
+    ["invert", {}],
+    ["box-blur-3x3", {}],
+    ["brightness", { brightness: -0.3 }],
+  ];
+  const sources = await Promise.all(stages.map(([name]) => kernelSource(name)));
+  const fused = fusePixelKernels(sources);
+  assert.deepEqual(pixelKernelPasses(fused.source), [["s0_pixel"], ["s1_pixel", "s2_pixel"], ["s3_pixel", "s4_pixel"]]);
+  const uniforms = fusedUniformValues(
+    fused.uniforms,
+    stages.map(([, values]) => values),
+  );
+
+  const image = sampleTile(WIDTH * HEIGHT * 4);
+  let expected = image;
+  for (const [i, [, values]] of stages.entries()) {
+    expected = runImage(await instantiateTile(await compile(sources[i]), values), expected, WIDTH, HEIGHT);
+  }
+  const fusedModule = await compile(fused.source);
+  const exports = await instantiateTile(fusedModule, uniforms);
+  assert.equal(exports.calculate_halo_px(), 2);
+  assertBitsEqual(runImage(exports, image, WIDTH, HEIGHT), expected);
+  await execFileAsync(qip, ["run", "-i", fusedModule, "--", ...tileCheckers]);
 });
 
 test("brightness kernel clamps its uniform and preserves alpha", async () => {
@@ -136,5 +224,21 @@ test("compute wrapper calls every kernel in order for WebGPU", async () => {
   const fused = fusePixelKernels([await kernelSource("brightness"), await kernelSource("invert")]);
   const shader = pixelKernelsToComputeShader(fused.source);
   assert.match(shader, /var c = qip_src\[id\.x\];\n  c = s0_pixel\(c\);\n  c = s1_pixel\(c\);\n  qip_dst\[id\.x\] = c;/);
-  assert.match(shader, /@compute @workgroup_size\(64\)/);
+  assert.match(shader, /@compute @workgroup_size\(64\)\nfn qip_pass0\(/);
+  assert.doesNotMatch(shader, /qip_pass1|fn sample|qip_width/);
+});
+
+test("compute wrapper starts a pass at each kernel that samples", async () => {
+  const fused = fusePixelKernels([
+    await kernelSource("invert"),
+    await kernelSource("box-blur-3x3"),
+    await kernelSource("brightness"),
+  ]);
+  const shader = pixelKernelsToComputeShader(fused.source);
+  assert.match(shader, /fn qip_pass0\([^]*c = s0_pixel\(c\);\n  qip_dst/);
+  assert.match(shader, /fn qip_pass1\([^]*c = s1_pixel\(c\);\n  c = s2_pixel\(c\);\n  qip_dst/);
+  assert.match(shader, /override qip_width: u32;/);
+  assert.match(shader, /fn sample\(dx: i32, dy: i32\) -> vec4f/);
+  // A member named `sample` does not make a kernel sample.
+  assert.deepEqual(pixelKernelPasses("fn a(c: vec4f) -> vec4f { return c.sample; }\nfn b(c: vec4f) -> vec4f { return c; }"), [["a", "b"]]);
 });

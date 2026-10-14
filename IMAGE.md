@@ -74,12 +74,11 @@ If the module uses internal scratch buffers, allocate enough memory and place th
 - Alpha is always provided.
 - Unless the filter explicitly modifies alpha, it should preserve it.
 
-## Point Filters in WGSL
+## Filters in WGSL
 
-A filter that maps each pixel without reading its neighbors can be a WGSL
-pixel kernel instead of hand-written Wasm. `text/wgsl/wgsl-compute-to-wasm.wasm`
-compiles it to a module with the exports above, and each `override` becomes a
-uniform:
+A filter can be a WGSL pixel kernel instead of hand-written Wasm.
+`text/wgsl/wgsl-compute-to-wasm.wasm` compiles it to a module with the exports
+above, and each `override` becomes a uniform:
 
 ```wgsl
 fn pixel(c: vec4f) -> vec4f {
@@ -88,19 +87,31 @@ fn pixel(c: vec4f) -> vec4f {
 ```
 
 `make components-wgsl-wasm` builds `components/**/*.wgsl` this way, such as
-`components/rgba/invert.wgsl`. Kernels have no halo and cannot read tile
-coordinates.
+`components/rgba/invert.wgsl`. Kernels cannot read tile coordinates.
+
+A kernel reads a neighbor with `sample(dx, dy)`, as
+`components/rgba/box-blur-3x3.wgsl` does. The offsets must be integer
+literals or `const`s, so the compiler derives the halo from them and exports
+`calculate_halo_px` and `uniform_set_width_and_height`. Samples are clamped to
+the image, the same as the host's halo, so a module whose kernels sample gives
+the same pixels as running each kernel as its own stage. An offset that
+depends on a uniform, such as a blur radius, is not supported yet.
 
 `text/wgsl/pixel-kernels.mjs` plans these kernels:
 
 - `fusePixelKernels(sources)` joins consecutive kernels into one source that
   compiles to one module. Pixels stay f32 between the fused stages, and the
-  host makes one tile pass for all of them. The output is bit for bit the same
-  as running each stage on the same f32 tile. Each stage's names get an
-  `s<i>_` prefix, so `brightness` in stage 0 becomes the uniform
-  `s0_brightness`.
+  host makes one tile pass for all of them, with a halo that is the sum of the
+  kernels' halos. The output is bit for bit the same as running each stage in
+  turn in f32. Each stage's names get an `s<i>_` prefix, so `brightness` in
+  stage 0 becomes the uniform `s0_brightness`.
+- `pixelKernelPasses(source)` groups the kernels into passes. Each kernel
+  that samples starts a pass, and point kernels join the pass before them.
 - `pixelKernelsToComputeShader(source)` wraps a kernel source in a WebGPU
-  compute shader with one invocation per pixel. GPU output can differ from the
+  compute shader with one entry point per pass, `qip_pass0` and on, and one
+  invocation per pixel. Dispatch them in order and swap `qip_src` and
+  `qip_dst` between passes. If a kernel samples, set the `qip_width` and
+  `qip_height` overrides to the image size. GPU output can differ from the
   Wasm output by about one ulp, because the GPU can fuse multiply-adds.
 
 ## Reference Implementation Notes
