@@ -7,4 +7,3 @@ gem "hotcell-client", path: File.join(hotcell, "hotcell-client")
 gem "image_processing", ">= 2.1.0"
 gem "ruby-vips", ">= 2.2.1"
 gem "wasmtime", "~> 46.0"
-
