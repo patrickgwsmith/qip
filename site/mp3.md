@@ -114,6 +114,8 @@ const inputPreviewSection = document.getElementById("mp3-input-preview-section")
 const outputPreviewSection = document.getElementById("mp3-output-preview-section");
 const inputPreview = document.getElementById("mp3-input-preview");
 const outputPreview = document.getElementById("mp3-output-preview");
+const cliExample = document.querySelector("#mp3-cli-example code");
+const cliExampleTemplate = cliExample.innerHTML;
 
 const useHints = {
   32: "Small enough to email or message; speech stays intelligible but sounds thin.",
@@ -202,6 +204,33 @@ function updateUseHint() {
     ? `About ${formatBytes(Math.round(bitrateKbps * 125 * selectedSeconds))} for this file.`
     : `About ${formatBytes(bitrateKbps * 125 * 3600)} per hour.`;
   useHint.textContent = [useHints[useSelect.value], size].filter(Boolean).join(" ");
+  updateCLIExample();
+}
+
+function outputNameFor(inputName) {
+  return inputName.replace(/\.wav$/i, "") + ".mp3";
+}
+
+function shellWord(value) {
+  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function escapeHTML(value) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+// The highlighted template wraps 192 in its own span, so only the number is
+// replaced. One pass keeps a file name from matching a later placeholder.
+function updateCLIExample() {
+  const values = {
+    "192": bitrateSelect.value,
+    "input.wav": shellWord(selectedFile?.name ?? "input.wav"),
+    "output.mp3": shellWord(selectedFile ? outputNameFor(selectedFile.name) : "output.mp3"),
+  };
+  cliExample.innerHTML = cliExampleTemplate.replace(
+    /192|input\.wav|output\.mp3/g,
+    (literal) => escapeHTML(values[literal]),
+  );
 }
 
 function resetOutput() {
@@ -292,7 +321,7 @@ encodeButton.addEventListener("click", async () => {
       outputPreview.src = outputURL;
       outputPreviewSection.hidden = false;
       downloadButton.disabled = false;
-      outputName = inputName.replace(/\.wav$/i, "") + ".mp3";
+      outputName = outputNameFor(inputName);
       status.textContent =
         `${formatBytes(output.length)} MP3 ready in ${(event.data.elapsedMs / 1000).toFixed(2)} s · ` +
         `encoder peak ${formatBytes(event.data.peakBytes)}.`;
@@ -354,7 +383,11 @@ Browse all [audio components](/audio).
 
 ## CLI equivalent
 
+<section id="mp3-cli-example">
+
 ```bash
 qip run audio/wav/wav-to-mp3-lossy.wasm -u bitrate_kbps=192 \
   < input.wav > output.mp3
 ```
+
+</section>
