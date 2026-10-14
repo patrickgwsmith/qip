@@ -199,6 +199,57 @@ test("inline SVG swaps only the child and keeps the focused pointer surface", ()
   }
 });
 
+function relatedSVGOutput(element, markup, rootType = "image/svg+xml") {
+  const boundary = "uuid-11111111-2222-3333-4444-555555555555";
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(
+    "--" + boundary + "\r\nContent-Type: " + rootType + "\r\n\r\n" + markup +
+    "\r\n--" + boundary + "\r\nContent-Type: font/woff2\r\n\r\n\x00\xff\r\n--" + boundary + "--\r\n",
+  );
+  new Uint8Array(element._memory.buffer, 0, bytes.length).set(bytes);
+  element._relatedDelimiter = encoder.encode("\r\n--" + boundary);
+  return { memory: element._memory, outputPtr: 0, outputLen: bytes.length, outputCapacity: 1024 };
+}
+
+test("SVG presentation shows only the root of multipart/related output", async () => {
+  const element = new QIPPlayElement();
+  element._memory = new WebAssembly.Memory({ initial: 1 });
+  element._steps = [];
+  element._installSVGPresentation();
+  const blobs = [];
+  const oldCreate = URL.createObjectURL;
+  URL.createObjectURL = (blob) => `blob:test-${blobs.push(blob)}`;
+  try {
+    element._presentSVGOutput(relatedSVGOutput(element, '<svg id="root"/>'), 1);
+    assert.equal(blobs[0].type, "image/svg+xml");
+    assert.equal(await blobs[0].text(), '<svg id="root"/>');
+    assert.throws(
+      () => element._presentSVGOutput(relatedSVGOutput(element, "<svg/>", "image/png"), 1),
+      /root part must be image\/svg\+xml, got image\/png/,
+    );
+  } finally {
+    URL.createObjectURL = oldCreate;
+  }
+
+  const inline = new QIPPlayElement();
+  inline._attrs.set("svg-inline", "");
+  inline._memory = new WebAssembly.Memory({ initial: 1 });
+  inline._steps = [];
+  inline._installSVGPresentation();
+  const oldParser = globalThis.DOMParser;
+  globalThis.DOMParser = class {
+    parseFromString(markup) {
+      return { documentElement: { localName: "svg", namespaceURI: "http://www.w3.org/2000/svg", style: {}, markup } };
+    }
+  };
+  try {
+    inline._presentSVGOutput(relatedSVGOutput(inline, '<svg id="inline-root"/>'), 1);
+    assert.equal(inline._canvas.children[0].markup, '<svg id="inline-root"/>');
+  } finally {
+    globalThis.DOMParser = oldParser;
+  }
+});
+
 test("no-text-selection lets inline SVG card labels start a captured drag", () => {
   const element = new QIPPlayElement();
   element._attrs.set("svg-inline", "");

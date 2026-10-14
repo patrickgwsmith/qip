@@ -318,6 +318,38 @@ application-style path. `snake` combines events with fixed-step scheduled
 wakes. See also [GUI Components](/docs/gui-components) and
 [Interactive Rendering Performance](/docs/interactive-rendering-performance).
 
+### Pointer lock and total movement
+
+Add `data-pointer-lock` to let a first-person or other mouse-look component
+turn without the cursor stopping at the canvas edge:
+
+```html
+<qip-play data-pointer-lock>
+  <source src="/gui/rotunda.wasm" type="application/wasm" />
+</qip-play>
+```
+
+A mouse press on the surface then asks the browser for
+[pointer lock](https://developer.mozilla.org/en-US/docs/Web/API/Pointer_Lock_API);
+Esc releases it, and the next press asks again. The press is still delivered to
+`pointer_event`. While the lock is held, `<qip-play>` adds each
+`pointermove`'s `movementX` and `movementY` to two running totals and passes
+them, rounded to whole CSS pixels, through optional uniforms:
+
+| Export | Value |
+| --- | --- |
+| `uniform_set_pointer_total_movement_x` | Total rightward movement since the element started |
+| `uniform_set_pointer_total_movement_y` | Total downward movement since the element started |
+
+Totals, not per-event deltas, are passed because the host reapplies uniforms
+before each update and each render. The component remembers the last totals it
+saw and moves by the difference, so a repeated value moves nothing. Locked
+motion schedules an update and a render, like an accepted event. Pointer
+coordinates in `pointer_event` stay where the cursor was locked, and
+`setPointerCapture` is skipped while locked. Pages without the attribute, touch
+and pen input, and components without these exports are unaffected; the
+totals stay at 0.
+
 ## `<qip-tui>`
 
 `<qip-tui>` hosts a keyboard-driven TUI component in a resizable browser text

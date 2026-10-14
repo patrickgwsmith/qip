@@ -100,15 +100,14 @@ function qipPlayParseKTX2(bytes) {
   }
   const payload = bytes.subarray(224);
   if (profile.pixelFormat === "rgba-float32") {
-    if ((payload.byteOffset & 3) !== 0) {
-      throw new Error("qip-play RGBA32F KTX2 payload is not four-byte aligned");
-    }
+    // A multipart/related root can start at any offset; only then is the payload copied.
+    const aligned = (payload.byteOffset & 3) === 0 ? payload : payload.slice();
     return {
       width,
       height,
       profile,
       sourceBytes: payload,
-      pixels: new Float32Array(payload.buffer, payload.byteOffset, payload.byteLength / 4),
+      pixels: new Float32Array(aligned.buffer, aligned.byteOffset, aligned.byteLength / 4),
     };
   }
   return { width, height, profile, sourceBytes: payload, pixels: payload };

@@ -31,9 +31,11 @@ every step has a fixed, known memory size. See [Hard Limits](/docs/hard-limits).
 A declared content type must be in canonical form: a lowercase media type,
 then `;name=value` for each parameter, with no whitespace anywhere, for
 example `image/ktx2;vkFormat=R8G8B8A8_SRGB;colorPrimaries=BT709;transferFunction=SRGB`.
-Parameter names are case-insensitive; values are case-sensitive. The one
-exception is `multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000`,
-the placeholder boundary a form component declares. A host rejects a
+Parameter names are case-insensitive; values are case-sensitive. The
+exceptions are `multipart/form-data;boundary=uuid-00000000-0000-0000-0000-000000000000`,
+the placeholder boundary a form component declares, and
+`multipart/related;type="<type>/<subtype>";boundary=uuid-00000000-0000-0000-0000-000000000000`,
+whose quoted `type` names the root part's media type. A host rejects a
 component whose declared type is spelled any other way, before validating the
 recipe. See [Formats and Encodings](/docs/formats) for the parameters QIP uses.
 
@@ -47,7 +49,8 @@ that will flow into the next step:
 
 The tracked type starts as the caller's input type when the host knows one.
 Multipart form input (`-F`) sets it to the canonical `multipart/form-data`
-boundary form. Plain stdin or `-i` file input has no type channel, so the
+boundary form, and related input (`-i` with typed `-F` parts) sets it to the
+canonical `multipart/related` form with the first component's declared root type. Plain stdin or `-i` alone has no type channel, so the
 tracked type starts unspecified. The tracked encoding starts unset.
 
 The host does validate the initial bytes when step 1 reads UTF-8: it checks

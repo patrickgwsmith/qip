@@ -4,6 +4,7 @@ function qipPlayPerfNow() {
 
 const QIP_PLAY_KEY_REPEAT_DELAY_MS = 250;
 const QIP_PLAY_KEY_REPEAT_INTERVAL_MS = 33;
+const QIP_PLAY_CRLF_CRLF = new Uint8Array([13, 10, 13, 10]);
 
 import {
   readModulePolicy as qipPlayReadModulePolicy,
@@ -26,6 +27,7 @@ import {
   sourceSteps as qipPlaySourceSteps,
   readDeclaredContentType as qipPlayReadDeclaredContentType,
   mediaTypeOf as qipPlayMediaTypeOf,
+  parseContentType as qipPlayParseContentType,
   stepLabel as qipPlayStepLabel,
   sourceLabel as qipPlaySourceLabel,
   validatePostStage as qipPlayValidatePostStage,
@@ -235,6 +237,46 @@ function qipPlayOutputCapacity(exportsObj, contentType = "") {
   return qipPlayReadI32Export(exportsObj, utf8 ? "output_utf8_cap" : "output_bytes_cap");
 }
 
+function qipPlayIndexOfBytes(bytes, needle, from) {
+  const last = bytes.length - needle.length;
+  for (let i = bytes.indexOf(needle[0], from); i !== -1 && i <= last; i = bytes.indexOf(needle[0], i + 1)) {
+    let j = 1;
+    while (j < needle.length && bytes[i + j] === needle[j]) j++;
+    if (j === needle.length) return i;
+  }
+  return -1;
+}
+
+// Returns the root part body of a QIP multipart/related output as a subarray of `bytes`,
+// so the root is never copied. Later parts are skipped unread. `delimiter` holds the
+// bytes "\r\n--<boundary>"; the CRLF before each later delimiter is not part of a body.
+function qipPlayMultipartRelatedRoot(bytes, delimiter, rootType) {
+  const fail = (reason) => {
+    throw new Error("qip-play multipart/related output " + reason);
+  };
+  const opening = delimiter.subarray(2);
+  if (qipPlayIndexOfBytes(bytes.subarray(0, opening.length), opening, 0) !== 0 ||
+      bytes[opening.length] !== 13 || bytes[opening.length + 1] !== 10) {
+    fail("must start with its boundary delimiter");
+  }
+  const headersStart = opening.length + 2;
+  const headersEnd = qipPlayIndexOfBytes(bytes, QIP_PLAY_CRLF_CRLF, headersStart);
+  if (headersEnd === -1) fail("root part headers are unterminated");
+  let partType = "";
+  const headers = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(headersStart, headersEnd));
+  for (const line of headers.split("\r\n")) {
+    const colon = line.indexOf(":");
+    if (colon !== -1 && line.slice(0, colon).trim().toLowerCase() === "content-type") {
+      partType = qipPlayMediaTypeOf(line.slice(colon + 1));
+    }
+  }
+  if (partType !== rootType) fail("root part must be " + rootType + ", got " + (partType || "no Content-Type"));
+  const bodyStart = headersEnd + 4;
+  const bodyEnd = qipPlayIndexOfBytes(bytes, delimiter, bodyStart);
+  if (bodyEnd === -1) fail("root part is not followed by a boundary delimiter");
+  return bytes.subarray(bodyStart, bodyEnd);
+}
+
 function qipPlayCustomProperty(computedStyle, propertyName, fallback) {
   if (!computedStyle) {
     return fallback;
@@ -278,6 +320,12 @@ function qipPlayPresentation(element, renderWidth) {
  *   maximum exceeds the byte cap. A module with memory but no declared maximum
  *   is rejected when this attribute is set.
  * - allow-memory-grow permits memory.grow and requires max-memory.
+ *
+ * Pointer lock:
+ *
+ * - data-pointer-lock asks for pointer lock on a mouse press. While locked,
+ *   movementX/movementY are summed and passed to the optional exports
+ *   uniform_set_pointer_total_movement_x/_y as running totals.
  */
 class QIPPlayElement extends HTMLElement {
   constructor() {
@@ -299,6 +347,7 @@ class QIPPlayElement extends HTMLElement {
     this._canvas = null;
     this._presentationElement = null;
     this._contentType = "";
+    this._relatedDelimiter = null;
     this._inlineSVG = false;
     this._svgBlobURL = "";
     this._svgLoadGeneration = 0;
@@ -354,6 +403,12 @@ class QIPPlayElement extends HTMLElement {
     this._eventSequence = 0;
     this._shiftKeyDown = false;
     this._altKeyDown = false;
+    this._pointerButtonMask = 0;
+    this._pointerPressAccepted = false;
+    this._pointerLock = false;
+    this._pointerTotalMovementX = 0;
+    this._pointerTotalMovementY = 0;
+    this._pointerMovementPending = false;
     this._nextWakeAtMS = 0;
     this._timeOriginMS = 0;
   }
@@ -484,13 +539,25 @@ class QIPPlayElement extends HTMLElement {
     this._wasmByteLength = loaded.reduce((total, step) => total + step.moduleBytes, 0);
     this._debugStats = this.hasAttribute("debug");
     this._logTimings = this.hasAttribute("log");
+    this._pointerLock = this.hasAttribute("data-pointer-lock");
 
     await this._setupInitialInput(inputSource, inputElement);
 
     this._outputCapacity = primary.outputCapacity;
-    const contentType = qipPlayMediaTypeOf(precedingOutputType);
+    let contentType = qipPlayMediaTypeOf(precedingOutputType);
+    this._relatedDelimiter = null;
+    if (contentType === "multipart/related") {
+      // Only the KTX2 or SVG root is presented; later parts are skipped.
+      const { params } = qipPlayParseContentType(precedingOutputType);
+      const rootType = params.get("type");
+      if ((rootType !== "image/ktx2" && rootType !== "image/svg+xml") || !params.get("boundary")) {
+        throw new Error("qip-play multipart/related output must declare type=\"image/ktx2\" or type=\"image/svg+xml\" and a boundary");
+      }
+      this._relatedDelimiter = new TextEncoder().encode("\r\n--" + params.get("boundary"));
+      contentType = rootType;
+    }
     if (contentType !== "image/ktx2" && contentType !== "image/svg+xml") {
-      throw new Error("qip-play presentation output must declare image/ktx2 or image/svg+xml");
+      throw new Error("qip-play presentation output must declare image/ktx2, image/svg+xml, or multipart/related with one of them as its type");
     }
     this._contentType = contentType;
     const initial = this._runInitialContentRender();
@@ -654,9 +721,12 @@ class QIPPlayElement extends HTMLElement {
 
   _presentSVGOutput(rendered, renderMS, reason) {
     if (rendered.outputLen < 0 || rendered.outputLen > rendered.outputCapacity) {
-      throw new Error("qip-play Timed render returned output outside output_utf8_cap");
+      throw new Error("qip-play Timed render returned output outside its output capacity");
     }
-    const source = qipPlayReadSlice(rendered.memory, rendered.outputPtr, rendered.outputLen, "output_ptr/output_utf8_cap");
+    let source = qipPlayReadSlice(rendered.memory, rendered.outputPtr, rendered.outputLen, "output_ptr/output capacity");
+    if (this._relatedDelimiter) {
+      source = qipPlayMultipartRelatedRoot(source, this._relatedDelimiter, "image/svg+xml");
+    }
     if (this._inlineSVG) {
       const markup = new TextDecoder("utf-8", { fatal: true }).decode(source);
       const root = new DOMParser().parseFromString(markup, "image/svg+xml").documentElement;
@@ -785,6 +855,43 @@ class QIPPlayElement extends HTMLElement {
     for (const uniform of uniforms) {
       qipPlayApplyUniform(this._exports, uniform);
     }
+    // Host-driven and optional. Totals rather than deltas, so reapplying them
+    // before another update or render cannot count the same motion twice.
+    if (typeof this._exports.uniform_set_pointer_total_movement_x === "function") {
+      qipPlayApplyUniform(this._exports, {
+        key: "pointer_total_movement_x",
+        value: String(Math.round(this._pointerTotalMovementX)),
+      });
+    }
+    if (typeof this._exports.uniform_set_pointer_total_movement_y === "function") {
+      qipPlayApplyUniform(this._exports, {
+        key: "pointer_total_movement_y",
+        value: String(Math.round(this._pointerTotalMovementY)),
+      });
+    }
+  }
+
+  _hasPointerMovementUniforms() {
+    return (
+      typeof this._exports?.uniform_set_pointer_total_movement_x === "function" ||
+      typeof this._exports?.uniform_set_pointer_total_movement_y === "function"
+    );
+  }
+
+  _isPointerLocked() {
+    return this._pointerLock && this._canvas !== null &&
+      typeof document !== "undefined" && document.pointerLockElement === this._canvas;
+  }
+
+  _requestPointerLock() {
+    if (typeof this._canvas?.requestPointerLock !== "function") return;
+    try {
+      // Newer browsers return a promise that rejects if the user or page
+      // denies the lock; older ones fire pointerlockerror instead.
+      this._canvas.requestPointerLock()?.catch?.(() => {});
+    } catch {
+      // Pointer lock is an enhancement; absolute pointer events still work.
+    }
   }
 
   _decodeRenderResult(renderResult, step = null, allowFailure = false) {
@@ -833,6 +940,9 @@ class QIPPlayElement extends HTMLElement {
       outputLen,
       "output_ptr/output_bytes_cap",
     );
+    if (this._relatedDelimiter) {
+      return qipPlayParseKTX2(qipPlayMultipartRelatedRoot(bytes, this._relatedDelimiter, "image/ktx2"));
+    }
     return qipPlayParseKTX2(bytes);
   }
 
@@ -944,9 +1054,11 @@ class QIPPlayElement extends HTMLElement {
     const requestedAtMS = Math.max(Math.floor(nowMS), this._finishedAtMS + 1);
     const begunAtMS = this._session ? this._session.begin(requestedAtMS) : requestedAtMS;
     if (!this._session) this._exports.begin_update_at(qipPlayNowMSArg(begunAtMS));
+    const pointerMoved = this._pointerMovementPending;
+    this._pointerMovementPending = false;
     this._applyUniforms();
     const eventResult = this._drainEvents(nowMS);
-    const shouldRender = this._canPresent() && (renderRequested || eventResult.accepted);
+    const shouldRender = this._canPresent() && (renderRequested || eventResult.accepted || pointerMoved);
     let rendered = null;
     let renderMS = 0;
     const nextWakeAtMS = this._readFinishedUpdate(begunAtMS);
@@ -1009,7 +1121,8 @@ class QIPPlayElement extends HTMLElement {
     }
     if (
       typeof this._exports.key_event !== "function" &&
-      typeof this._exports.pointer_event !== "function"
+      typeof this._exports.pointer_event !== "function" &&
+      !(this._pointerLock && this._hasPointerMovementUniforms())
     ) {
       return;
     }
@@ -1035,6 +1148,15 @@ class QIPPlayElement extends HTMLElement {
       this._resumeLoop();
     };
     this._boundContextMenu = (event) => {
+      // Deliver the queued press now so the module decides whether it wanted
+      // it; if pointer_event returned 0, leave the browser's context menu.
+      if (this._hasDueEvents(this._eventNowMS())) {
+        this._frameUpdate(qipPlayPerfNow());
+        this._resumeLoop();
+      }
+      if (!this._pointerPressAccepted) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
     };
@@ -1059,6 +1181,9 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _detachInputHandlers() {
+    if (this._isPointerLocked() && typeof document.exitPointerLock === "function") {
+      document.exitPointerLock();
+    }
     if (this._canvas) {
       if (this._boundKeyDown) {
         this._canvas.removeEventListener("keydown", this._boundKeyDown);
@@ -1141,11 +1266,27 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _dispatchPointer(event) {
-    if (
-      !this._exports ||
-      !this._canvas ||
-      typeof this._exports.pointer_event !== "function"
-    ) {
+    if (!this._exports || !this._canvas) {
+      return;
+    }
+
+    // With data-pointer-lock, a mouse press locks the pointer to the surface
+    // (Esc releases it). Locked motion is unbounded, so it is tallied into the
+    // pointer_total_movement uniforms rather than sent as canvas coordinates.
+    const locked = this._isPointerLocked();
+    if (locked && event.type === "pointermove" && (event.movementX || event.movementY)) {
+      this._pointerTotalMovementX += event.movementX || 0;
+      this._pointerTotalMovementY += event.movementY || 0;
+      if (this._hasPointerMovementUniforms()) {
+        this._pointerMovementPending = true;
+        this._resumeLoop();
+      }
+    }
+    if (this._pointerLock && !locked && event.type === "pointerdown" && event.pointerType === "mouse") {
+      this._requestPointerLock();
+    }
+
+    if (typeof this._exports.pointer_event !== "function") {
       return;
     }
 
@@ -1154,7 +1295,8 @@ class QIPPlayElement extends HTMLElement {
     }
     if (event.type === "pointerdown") {
       const selectingSVGText = this._inlineSVG && !this._noTextSelection && event.pointerType === "mouse" && event.target?.closest?.("text");
-      if (!selectingSVGText && typeof this._canvas.setPointerCapture === "function") {
+      // setPointerCapture throws while the document holds a pointer lock.
+      if (!selectingSVGText && !locked && typeof this._canvas.setPointerCapture === "function") {
         this._canvas.setPointerCapture(event.pointerId);
       }
       this._canvas.focus();
@@ -1333,6 +1475,10 @@ class QIPPlayElement extends HTMLElement {
         if (typeof this._exports?.pointer_event === "function") {
           result = this._exports.pointer_event(evt.buttonMask, evt.x, evt.y);
         }
+        if (evt.buttonMask & ~this._pointerButtonMask) {
+          this._pointerPressAccepted = Number(result) !== 0;
+        }
+        this._pointerButtonMask = evt.buttonMask;
       } else {
         if (evt.repeatState) evt.repeatState.pending = false;
         if (typeof this._exports?.key_event === "function") {
@@ -1453,6 +1599,9 @@ class QIPPlayElement extends HTMLElement {
     if (this._needsRender && this._canPresent()) {
       return true;
     }
+    if (this._pointerMovementPending) {
+      return true;
+    }
     if (this._isIntersecting && this._nextWakeAtMS > 0 && nowMS >= this._nextWakeAtMS) {
       return true;
     }
@@ -1471,6 +1620,9 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _hasDueEvents(nowMS) {
+    if (this._pointerMovementPending) {
+      return true;
+    }
     if (
       this._pendingEvents.length > 0 &&
       this._pendingEvents[0].timeMS <= nowMS

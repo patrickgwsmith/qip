@@ -269,6 +269,24 @@ test("qip-play only suppresses context menu on the canvas", () => {
   );
 });
 
+test("qip-play leaves the context menu when pointer_event ignores the press", () => {
+  for (const accepted of [0, 1]) {
+    const element = new QIPPlayElement();
+    element._exports = { pointer_event: (buttonMask) => (buttonMask === 0 ? 0 : accepted) };
+    element._canvas = makeEventTarget();
+    element._attachInputHandlers();
+
+    element._queuePointerEvent(4, 10, 10, 0);
+    element._flushPendingEvents(0);
+    let prevented = 0;
+    const contextMenu = element._canvas.listeners.find((entry) => entry.type === "contextmenu");
+    contextMenu.listener({ preventDefault() { prevented++; }, stopPropagation() {} });
+    assert.equal(prevented, accepted);
+
+    element._detachInputHandlers();
+  }
+});
+
 test("qip-play scopes keyboard focus to the canvas", () => {
   const element = new QIPPlayElement();
   element._exports = { key_event() {}, pointer_event() {} };
@@ -373,6 +391,102 @@ test("qip-play preserves permitted touch scrolling while dispatching pointers", 
   element._canvas.style.touchAction = "none";
   element._dispatchPointer(event);
   assert.equal(preventedN, 1);
+});
+
+test("qip-play tallies locked pointer movement into total movement uniforms", () => {
+  const element = new QIPPlayElement();
+  const applied = [];
+  const pointerEvents = [];
+  element._exports = {
+    pointer_event(...args) {
+      pointerEvents.push(args);
+      return 0;
+    },
+    uniform_set_pointer_total_movement_x(value) {
+      applied.push(["x", value]);
+    },
+    uniform_set_pointer_total_movement_y(value) {
+      applied.push(["y", value]);
+    },
+  };
+  element._pointerLock = true;
+  element._renderWidth = 320;
+  element._renderHeight = 240;
+  element._eventNowMS = () => 17;
+  let resumeN = 0;
+  element._resumeLoop = () => {
+    resumeN++;
+  };
+  let lockRequestN = 0;
+  let captureN = 0;
+  element._canvas = {
+    style: { touchAction: "none" },
+    getBoundingClientRect() {
+      return { left: 0, top: 0, width: 320, height: 240 };
+    },
+    requestPointerLock() {
+      lockRequestN++;
+      return Promise.resolve();
+    },
+    setPointerCapture() {
+      captureN++;
+    },
+    focus() {},
+  };
+  const move = (movementX, movementY) => ({
+    type: "pointermove", pointerType: "mouse", buttons: 0, clientX: 10, clientY: 10,
+    movementX, movementY, preventDefault() {},
+  });
+
+  // Unlocked motion is not tallied; a mouse press asks for the lock.
+  element._dispatchPointer(move(5, 5));
+  element._dispatchPointer({
+    type: "pointerdown", pointerType: "mouse", pointerId: 1, buttons: 1,
+    clientX: 10, clientY: 10, preventDefault() {},
+  });
+  assert.equal(lockRequestN, 1);
+  assert.equal(captureN, 1);
+  assert.equal(element._pointerMovementPending, false);
+
+  document.pointerLockElement = element._canvas;
+  try {
+    element._dispatchPointer(move(3, -2));
+    element._dispatchPointer(move(4.4, 1));
+    assert.equal(element._pointerMovementPending, true);
+    assert.equal(element._hasDueEvents(0), true);
+    assert.ok(resumeN >= 2);
+
+    // Reapplying the same totals is idempotent.
+    element._applyUniforms();
+    element._applyUniforms();
+    assert.deepEqual(applied, [["x", 7], ["y", -1], ["x", 7], ["y", -1]]);
+
+    // Presses while locked neither re-request the lock nor capture the pointer.
+    element._dispatchPointer({
+      type: "pointerdown", pointerType: "mouse", pointerId: 1, buttons: 1,
+      clientX: 10, clientY: 10, preventDefault() {},
+    });
+    assert.equal(lockRequestN, 1);
+    assert.equal(captureN, 1);
+    assert.equal(pointerEvents.length, 0);
+  } finally {
+    delete document.pointerLockElement;
+  }
+});
+
+test("qip-play ignores pointer movement without data-pointer-lock", () => {
+  const element = new QIPPlayElement();
+  element._exports = { uniform_set_pointer_total_movement_x() {} };
+  element._canvas = { requestPointerLock() { throw new Error("unexpected lock"); } };
+  document.pointerLockElement = element._canvas;
+  try {
+    element._dispatchPointer({ type: "pointerdown", pointerType: "mouse", movementX: 0, movementY: 0 });
+    element._dispatchPointer({ type: "pointermove", pointerType: "mouse", movementX: 9, movementY: 9 });
+    assert.equal(element._pointerTotalMovementX, 0);
+    assert.equal(element._pointerMovementPending, false);
+  } finally {
+    delete document.pointerLockElement;
+  }
 });
 
 test("qip-play observes its viewport intersection and disconnects cleanly", () => {
@@ -556,6 +670,72 @@ test("qip-play runs initial Content render and separate Timed KTX2 updates", () 
   assert.equal(element._drawN, 1);
   assert.equal(drawN, 1);
   assert.match(element._stats.textContent, /\| update +3 /);
+});
+
+function relatedKTX2Element(wasmPath, headerPad, configure = () => {}) {
+  const instance = new WebAssembly.Instance(new WebAssembly.Module(readFileSync(wasmPath)), {});
+  configure(instance.exports);
+  const element = new QIPPlayElement();
+  element._exports = instance.exports;
+  element._memory = instance.exports.memory;
+  element._outputCapacity = instance.exports.output_bytes_cap();
+  const ktx2 = element._readKTX2Output(element._decodeRenderResult(instance.exports.render(0))).sourceBytes;
+  const ktx2Bytes = new Uint8Array(ktx2.buffer, ktx2.byteOffset - 224, ktx2.byteLength + 224).slice();
+
+  const boundary = "uuid-11111111-2222-3333-4444-555555555555";
+  const encoder = new TextEncoder();
+  const head = encoder.encode("--" + boundary + "\r\nContent-Type: image/ktx2" + " ".repeat(headerPad) + "\r\n\r\n");
+  const tail = encoder.encode(
+    "\r\n--" + boundary + "\r\nContent-Type: audio/midi\r\n\r\nMThd\r\n--" + boundary + "--\r\n",
+  );
+  const memory = new WebAssembly.Memory({ initial: Math.ceil((ktx2Bytes.length + 4096) / 65536) });
+  const outputPtr = 64;
+  const view = new Uint8Array(memory.buffer);
+  view.set(head, outputPtr);
+  view.set(ktx2Bytes, outputPtr + head.length);
+  view.set(tail, outputPtr + head.length + ktx2Bytes.length);
+  const outputLen = head.length + ktx2Bytes.length + tail.length;
+
+  element._relatedDelimiter = encoder.encode("\r\n--" + boundary);
+  const rendered = { outputLen, outputPtr, memory, outputCapacity: outputLen };
+  return { element, rendered, memory, rootOffset: outputPtr + head.length, ktx2Bytes, view };
+}
+
+test("qip-play presents the KTX2 root of multipart/related output without copying it", () => {
+  const { element, rendered, memory, rootOffset, ktx2Bytes } = relatedKTX2Element("gui/highway-chase.wasm", 0);
+  const parsed = element._readKTX2Output(rendered);
+  assert.equal(parsed.profile.pixelFormat, "rgba-unorm8");
+  assert.equal(parsed.sourceBytes.buffer, memory.buffer);
+  assert.equal(parsed.sourceBytes.byteOffset, rootOffset + 224);
+  assert.equal(parsed.sourceBytes.byteLength, ktx2Bytes.length - 224);
+  assert.equal(parsed.pixels, parsed.sourceBytes);
+});
+
+test("qip-play reads unaligned RGBA32F multipart/related roots and rejects malformed parts", () => {
+  const configure = (exports) => {
+    exports.uniform_set_current_seconds(15.2);
+    exports.uniform_set_hdr(1);
+  };
+  const aligned = relatedKTX2Element("gui/chronograph.wasm", 0, configure);
+  const unaligned = relatedKTX2Element("gui/chronograph.wasm", 1, configure);
+  const expected = aligned.element._readKTX2Output(aligned.rendered).pixels;
+  const parsed = unaligned.element._readKTX2Output(unaligned.rendered);
+  assert.equal(parsed.sourceBytes.buffer, unaligned.memory.buffer);
+  assert.equal(parsed.pixels.constructor, Float32Array);
+  assert.deepEqual(parsed.pixels, expected);
+
+  const { element, rendered, view } = relatedKTX2Element("gui/highway-chase.wasm", 0);
+  view.set(new TextEncoder().encode("image/png "), rendered.outputPtr + 59);
+  assert.throws(() => element._readKTX2Output(rendered), /root part must be image\/ktx2, got image\/png/);
+  view[rendered.outputPtr + 2] = 0x55;
+  assert.throws(() => element._readKTX2Output(rendered), /must start with its boundary delimiter/);
+  view[rendered.outputPtr + 2] = 0x75;
+  view.set(new TextEncoder().encode("image/ktx2"), rendered.outputPtr + 59);
+  assert.ok(element._readKTX2Output({ ...rendered }));
+  assert.throws(
+    () => element._readKTX2Output({ ...rendered, outputLen: rendered.outputLen - 200 }),
+    /not followed by a boundary delimiter/,
+  );
 });
 
 test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", () => {
