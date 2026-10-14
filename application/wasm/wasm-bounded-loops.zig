@@ -915,11 +915,36 @@ const LoopHandler = struct {
     // Candidates stashed by a br_table instruction for its target events.
     table_exit: BoundCandidates = .{},
     table_continue: BoundCandidates = .{},
+    // A local.set's taint, deferred by one instruction. If the next
+    // instruction is an unconditional br or a return, the write is on an exit
+    // path, as in the `i = n` copy LLVM emits before leaving a scan loop, and
+    // it can't reach another iteration of the loops that branch leaves. Only
+    // the frames the branch stays inside are tainted.
+    pending_taint: ?u32 = null,
+
+    fn taintWrite(self: *LoopHandler, op: u8, local: u32) CheckError!void {
+        if (op == 0x21) {
+            self.pending_taint = local;
+            return;
+        }
+        try markActiveLoopCounterTaint(control_stack_buf[0..self.control_len], local);
+    }
 
     pub fn onInstr(self: *LoopHandler, instr: Instr) CheckError!void {
         const control_stack = &control_stack_buf;
         const ord = self.ord;
         self.ord += 1;
+        if (self.pending_taint) |local| {
+            self.pending_taint = null;
+            // A br leaves the frames above its target; the target and
+            // everything below it (a loop target continues) stay live.
+            const keep: usize = switch (instr.op) {
+                0x00, 0x0f => 0,
+                0x0c => self.control_len -| @as(usize, @intCast(instr.imm)),
+                else => self.control_len,
+            };
+            try markActiveLoopCounterTaint(control_stack[0..keep], local);
+        }
         switch (instr.op) {
             // nop, drop, select, ref.is_null: keep armed alive through data ops
             0x01, 0x1a, 0x1b, 0xd1 => {},
@@ -1033,7 +1058,7 @@ const LoopHandler = struct {
                     if (vu.src == idx) {
                         try markActiveLoopCounterUpdate(control_stack[0..self.control_len], idx, vu.dir);
                     } else {
-                        try markActiveLoopCounterTaint(control_stack[0..self.control_len], idx);
+                        try self.taintWrite(instr.op, idx);
                         new_src = vu.src;
                         new_dir = vu.dir;
                         has_new = true;
@@ -1050,10 +1075,10 @@ const LoopHandler = struct {
                     if (from < MAX_TRACKED_LOCALS and derived_active_buf[from] and derived_src_buf[from] == idx) {
                         try markActiveLoopCounterUpdate(control_stack[0..self.control_len], idx, derived_dir_buf[from]);
                     } else if (from != idx) {
-                        try markActiveLoopCounterTaint(control_stack[0..self.control_len], idx);
+                        try self.taintWrite(instr.op, idx);
                     }
                 } else {
-                    try markActiveLoopCounterTaint(control_stack[0..self.control_len], idx);
+                    try self.taintWrite(instr.op, idx);
                 }
                 if (idx < MAX_TRACKED_LOCALS) {
                     derived_active_buf[idx] = false;
@@ -1426,6 +1451,51 @@ const tainted_counter_loop = moduleWithBody(&[_]u8{
     0x0b,
 });
 
+// LLVM's scan shape: on exit, copy the bound into the counter (i = n) and br
+// out. The copy can't reach another iteration.
+const exit_path_write_loop = moduleWithBody(&[_]u8{
+    0x02, 0x40, 0x03, 0x40, 0x02, 0x40,
+    0x20, 0x01, 0x20, 0x00, 0x47, // local1 != local0
+    0x0d, 0x00, // br_if 0 (keep scanning)
+    0x20, 0x01, 0x21, 0x00, // local0 = local1
+    0x0c, 0x02, // br 2 (leave the loop)
+    0x0b,
+    0x20, 0x00, 0x41, 0x01, 0x6a, 0x21, 0x00, // local0 += 1
+    0x0c, 0x00, 0x0b, 0x0b,
+    0x0b,
+});
+
+// Same shape, but the br after the write continues the loop.
+const backedge_write_loop = moduleWithBody(&[_]u8{
+    0x02, 0x40, 0x03, 0x40, 0x02, 0x40,
+    0x20, 0x01, 0x20, 0x00, 0x47, // local1 != local0
+    0x0d, 0x00,
+    0x41, 0x00, 0x21, 0x00, // local0 = 0
+    0x0c, 0x01, // br 1 (backedge)
+    0x0b,
+    0x20, 0x00, 0x41, 0x01, 0x6a, 0x21, 0x00, // local0 += 1
+    0x0c, 0x00, 0x0b, 0x0b,
+    0x0b,
+});
+
+// The br leaves the inner loop only, so resetting the outer loop's counter
+// there still taints the outer loop.
+const exit_path_outer_write_loop = moduleWithBody(&[_]u8{
+    0x02, 0x40, 0x03, 0x40, // block, outer loop
+    0x20, 0x02, 0x41, 0x0a, 0x4f, // local2 >= 10
+    0x0d, 0x01,
+    0x02, 0x40, 0x03, 0x40, // block, inner loop
+    0x20, 0x00, 0x20, 0x01, 0x4f, // local0 >= local1
+    0x0d, 0x01,
+    0x20, 0x00, 0x41, 0x01, 0x6a, 0x21, 0x00, // local0 += 1
+    0x41, 0x00, 0x21, 0x02, // local2 = 0
+    0x0c, 0x01, // br 1 (leave inner only)
+    0x0b, 0x0b,
+    0x20, 0x02, 0x41, 0x01, 0x6a, 0x21, 0x02, // local2 += 1
+    0x0c, 0x00, 0x0b, 0x0b,
+    0x0b,
+});
+
 // The profile rules are the other component's job: memory.grow and atomics
 // pass here as long as every loop is proven.
 const memory_grow_module = [_]u8{
@@ -1540,4 +1610,16 @@ test "rejects a loop with a backedge and no bound" {
 
 test "rejects a counter with an unrecognized extra write" {
     try std.testing.expectError(CheckError.LoopBoundNotProven, checkModule(&tainted_counter_loop));
+}
+
+test "accepts a counter write followed by a br out of the loop" {
+    try checkModule(&exit_path_write_loop);
+}
+
+test "rejects a counter write followed by a backedge" {
+    try std.testing.expectError(CheckError.LoopBoundNotProven, checkModule(&backedge_write_loop));
+}
+
+test "rejects an exit-path write to an outer loop's counter" {
+    try std.testing.expectError(CheckError.LoopBoundNotProven, checkModule(&exit_path_outer_write_loop));
 }
