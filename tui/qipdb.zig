@@ -1669,6 +1669,8 @@ fn renderCounters(out: *Writer, include_runtime: bool) void {
             machine.counters.returns,
             machine.counters.indirect_calls,
         });
+        if (machine.counters.first_memory_write_instruction) |first|
+            out.print("  MEMORY   first-write-after={d}\n", .{first});
     }
     out.print("  CODE     instructions={d}  functions={d}  globals={d}\n", .{
         counts.function_instructions,

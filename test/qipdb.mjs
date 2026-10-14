@@ -258,6 +258,7 @@ test("question mark toggles the keyboard cheatsheet", async () => {
   const counters = renderedText(instance, 0);
   assertTerminalWidth(counters);
   assert.match(counters, /qipdb  ●  i collapse  \? help\n  WASM     274 B\n  QIP      UTF-8 → UTF-8  input-capacity=65536 B  output-capacity=65536 B\n  EXPORTS  functions=4  tables=0  memories=1  globals=0  tags=0\n  RUNTIME  executed=0  branches-taken=0  calls=0  returns=0/);
+  assert.doesNotMatch(counters, /first-write-after/);
   assert.match(counters, /CODE     instructions=61  functions=5  globals=4/);
   assert.match(counters, /CONTROL  loops=1  branch-sites=2  conditional-sites=2/);
   assert.match(counters, /CALLS    direct=1  call_indirect=0  return_call_indirect=0  call_ref=0/);
@@ -592,7 +593,7 @@ test("steps through a typed table dispatch and retains it across restart", async
   assert.match(completed, new RegExp(`sha256=${expectedDigest}`));
   sendKey(instance, 8n, 0x69); // i
   const info = renderedText(instance, 0);
-  assert.match(info, /RUNTIME[^\n]*indirect=1/);
+  assert.match(info, /RUNTIME[^\n]*indirect=1\n  MEMORY   first-write-after=\d+\n/);
   assert.match(info, /FUNCTIONS reachable=2\/5  → direct  ⇢ possible indirect\n    f4 render  calls=1  ⇢ f2\n    f2  calls=1/);
 
   sendKey(instance, 9n, 0x72); // r
