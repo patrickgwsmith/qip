@@ -33,8 +33,8 @@ const rows = lines.slice(1).map((line) => {
   const input = readDeclaredContentType(instance, "input");
   const output = readDeclaredContentType(instance, "output");
   for (const [index, value] of [[2, input], [5, output]]) {
-    // A form component declares a placeholder boundary; the catalog only needs its media type.
-    const declared = value?.startsWith("multipart/form-data;") ? "multipart/form-data" : value;
+    // A multipart component declares a placeholder boundary; the catalog only needs its media type.
+    const declared = value?.match(/^(multipart\/(?:form-data|related));/)?.[1] ?? value;
     if (declared === undefined || declared === fields[index]) continue;
     if (declared.includes(",") || declared.includes('"')) throw new Error(`${fields[0]} declares a content type that needs CSV quoting: ${declared}`);
     fields[index] = declared;

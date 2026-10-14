@@ -73,8 +73,10 @@ every sample:
 ```
 
 Use `-F name=value` for a text field, `-F name=@path` for file bytes, or
-`-F name=@-` for one file field read from standard input. `-F` and `-i` are
-mutually exclusive.
+`-F name=@-` for one file field read from standard input. For a component
+that accepts `multipart/related`, use `-i root.svg` and
+`-F '@Inter.ttf;type=font/ttf'` (quoted, since `;` ends a shell command). The
+first component declares the root type.
 
 ## Compare A Reused Instance In Node.js
 
