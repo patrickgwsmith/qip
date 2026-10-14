@@ -90,7 +90,7 @@ compares the two outputs float for float. Nothing is uploaded.
     <figure><canvas id="wgsl-input"></canvas><figcaption id="wgsl-input-caption">Input</figcaption></figure>
     <figure><canvas id="wgsl-gpu"></canvas><figcaption id="wgsl-gpu-caption">WebGPU</figcaption></figure>
     <figure><canvas id="wgsl-wasm"></canvas><figcaption id="wgsl-wasm-caption">WebAssembly</figcaption></figure>
-    <figure><canvas id="wgsl-diff"></canvas><figcaption>Difference ×256, red to yellow</figcaption></figure>
+    <figure><canvas id="wgsl-diff" tabindex="0" aria-label="Difference image. Hover or focus to magnify small differences."></canvas><figcaption><span id="wgsl-diff-caption">Absolute difference ×65,536: black → red → yellow</span>. Hover or focus to magnify.</figcaption></figure>
   </div>
   <p id="wgsl-summary" class="wgsl-summary" aria-live="polite">Loading…</p>
   <textarea id="wgsl-source" class="wgsl-source" spellcheck="false" aria-label="WGSL source"></textarea>
@@ -101,8 +101,13 @@ compares the two outputs float for float. Nothing is uploaded.
 Wasm `f32` arithmetic is IEEE 754 with correct rounding, so the Wasm output is
 the same on every machine. WGSL lets GPUs compute `sqrt` and division less
 precisely, and shader compilers can reorder or fuse floating-point operations.
-Those differences are a few ULP (units in the last place) and show only in the
-heatmap. The ULP count looks large near zero, where adjacent floats are closest
+Small differences can be a few ULP (units in the last place). The heatmap scales
+brightness by the largest absolute channel difference times the gain:
+zero is black, and a difference of 1/gain or more is yellow. The gain is
+65,536. Hover over the difference image or focus it with the keyboard to raise
+the gain to 1,048,576 and inspect tiny errors. The
+summary still counts every float mismatch. The ULP count
+looks large near zero, where adjacent floats are closest
 together: 7e-7 can be hundreds of ULP. **Comic book** and **Bulge** compare
 floats or turn them into pixel indexes, so a one-ULP change could move an
 outline or a sampled pixel; whether it does depends on the GPU and the image.
@@ -366,6 +371,8 @@ const gpuCaption = document.getElementById("wgsl-gpu-caption");
 const wasmCanvas = document.getElementById("wgsl-wasm");
 const wasmCaption = document.getElementById("wgsl-wasm-caption");
 const diffCanvas = document.getElementById("wgsl-diff");
+const diffCaption = document.getElementById("wgsl-diff-caption");
+let comparisonOutputs = null;
 
 const shaders = [...document.querySelectorAll('script[type="text/wgsl"]')];
 for (const [index, script] of shaders.entries()) {
@@ -655,16 +662,20 @@ async function runOnce() {
   }
 
   if (wasmOutput && gpuOutput) {
+    comparisonOutputs = [gpuOutput, wasmOutput];
     summary.textContent = compare(gpuOutput, wasmOutput);
   } else {
+    comparisonOutputs = null;
     clearCanvas(diffCanvas);
     summary.textContent = "Both runs must succeed to compare them.";
   }
 }
 
-// Bitwise comparison. The heatmap dims matching pixels and colours
-// differing ones from red to yellow by their largest channel difference.
+// Count bitwise mismatches, but scale heatmap brightness by absolute error.
+// Hover or keyboard focus magnifies small errors without rerunning the shaders.
 function compare(a, b) {
+  const gain = diffCanvas.matches(":hover, :focus") ? 1048576 : 65536;
+  diffCaption.textContent = "Absolute difference ×" + gain.toLocaleString() + ": black → red → yellow";
   const aBits = new Int32Array(a.buffer);
   const bBits = new Int32Array(b.buffer);
   const pixels = image.width * image.height;
@@ -688,11 +699,9 @@ function compare(a, b) {
     const o = p * 4;
     if (pixelMax >= 0) {
       pixelsDiffering += 1;
-      heat[o] = 255;
-      heat[o + 1] = 40 + pixelMax * 256 * 215;
-    } else {
-      const v = 0.25 * (b[p * lanes] + b[p * lanes + 1] + b[p * lanes + 2]) / 3;
-      heat[o] = heat[o + 1] = heat[o + 2] = v * 255;
+      const intensity = Math.min(pixelMax * gain, 1);
+      heat[o] = intensity * 255;
+      heat[o + 1] = intensity * intensity * 255;
     }
     heat[o + 3] = 255;
   }
@@ -832,6 +841,11 @@ sourceInput.addEventListener("input", () => {
   }, 300);
 });
 shaderSelect.addEventListener("change", selectShader);
+for (const event of ["mouseenter", "mouseleave", "focus", "blur"]) {
+  diffCanvas.addEventListener(event, () => {
+    if (comparisonOutputs) compare(...comparisonOutputs);
+  });
+}
 cameraButton.addEventListener("click", toggleCamera);
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files[0];
