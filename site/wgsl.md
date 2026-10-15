@@ -84,6 +84,7 @@ compares the two outputs float for float. Nothing is uploaded.
     <label>Effect <select id="wgsl-shader"></select></label>
     <label class="wgsl-upload">Image <input id="wgsl-file" type="file" accept="image/*"></label>
     <button id="wgsl-camera" type="button">Use camera</button>
+    <label><input id="wgsl-vectorize" type="checkbox">Vectorize Wasm invocations</label>
   </div>
   <div id="wgsl-uniforms" class="wgsl-controls"></div>
   <div class="wgsl-outputs">
@@ -117,8 +118,9 @@ bit.
 ## How it works
 
 Each shader reads one `array<vec4f>` of RGBA32F pixels (16 bytes each),
-up to 256×256, and writes one `vec4f` per invocation. Pixel values are the
-image's sRGB values divided by 255, without conversion to linear light.
+up to 256×256. Most shaders write one `vec4f` per invocation; Atkinson dither
+writes an 8×8 block. Pixel values are the image's sRGB values divided by 255,
+without conversion to linear light.
 
 - **WebGPU:** the page creates a compute pipeline with `layout: "auto"`, passes
   each `override` as a pipeline constant, dispatches one invocation per pixel,
@@ -137,8 +139,28 @@ qip run -i edges.wgsl -o edges.wasm text/wgsl/wgsl-compute-to-wasm.wasm
 qip run -i photo.rgba32f -o edges.rgba32f edges.wasm -u width=256 -u threshold=0.3
 ```
 
+Enable **Vectorize Wasm invocations** to compile eligible shaders in groups of
+four invocations with SIMD. The caption reports when a shader keeps the scalar
+path. The option is off by default: generated modules are larger and simple
+shaders can be slower. To use it from the CLI, pass
+`-u vectorize_invocations=1` to `wgsl-compute-to-wasm.wasm` when compiling.
+
 To add an effect, add a `<script type="text/wgsl" data-name="…">` block to
 this page.
+
+**Atkinson dither** converts luma to black and white in independent 8×8 blocks.
+Each pixel sends one eighth of its rounding error to six later neighbours.
+Error resets at block edges, so the pattern can repeat every eight pixels.
+The page generates the unrolled WGSL so it works with the compiler's loop-free
+subset. Adjust `threshold` to change the balance of black and white.
+
+**Perlin noise** generates a two-colour field from 3D gradient noise with
+quintic interpolation and up to eight octaves. Like the
+[Paper Perlin noise example](https://shaders.paper.design/perlin-noise), it has
+controls for colour balance, edge softness, persistence, and lacunarity.
+Move `time` to explore the third dimension. It ignores the input image except
+for its dimensions. This implementation uses an integer lattice hash, so its
+patterns differ from [Paper's GLSL shader](https://github.com/paper-design/shaders/blob/main/packages/shaders/src/shaders/perlin-noise.ts).
 
 <script type="text/wgsl" data-name="Edges">
 // Sobel edge detection on luma. A threshold of 0 shows the gradient strength.
@@ -353,14 +375,22 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 }
 </script>
 
+<script type="text/wgsl" data-name="Atkinson dither" data-generated="atkinson">
+// Generated below: Atkinson error diffusion in independent 8x8 blocks.
+</script>
+
+<script type="text/wgsl" data-name="Perlin noise" data-generated="perlin">
+// Generated below: 3D gradient noise with eight unrolled octaves.
+</script>
+
 <script type="module">
-import { contentComponent, contentTypeBytes, contentTypeUTF8 } from "/qip-runner.js";
 
 const MAX_SIDE = 256;
 const COMPILE_FAILURES = ["syntax error", "unsupported WGSL", "type error", "unknown or duplicate name"];
 const shaderSelect = document.getElementById("wgsl-shader");
 const fileInput = document.getElementById("wgsl-file");
 const cameraButton = document.getElementById("wgsl-camera");
+const vectorizeInput = document.getElementById("wgsl-vectorize");
 const uniformsBox = document.getElementById("wgsl-uniforms");
 const sourceInput = document.getElementById("wgsl-source");
 const summary = document.getElementById("wgsl-summary");
@@ -376,22 +406,150 @@ let comparisonOutputs = null;
 
 const shaders = [...document.querySelectorAll('script[type="text/wgsl"]')];
 for (const [index, script] of shaders.entries()) {
+  if (script.dataset.generated === "atkinson") script.textContent = atkinsonShader();
+  if (script.dataset.generated === "perlin") script.textContent = perlinNoiseShader();
   shaderSelect.add(new Option(script.dataset.name, String(index)));
+}
+
+// Each invocation owns one block. Keep all errors local, and unroll the
+// raster scan because the WGSL-to-Wasm compiler does not accept shader loops.
+function atkinsonShader() {
+  const lines = [`// Atkinson dither: monochrome, independent 8x8 blocks.
+// Errors stop at block edges. Each invocation writes a different block.
+override width: u32 = 256;
+override threshold: f32 = 0.5; // 0.1..0.9
+
+@group(0) @binding(0) var<storage, read> src: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let height = arrayLength(&src) / width;
+  let columns = (width + 7u) / 8u;
+  if id.x >= columns * ((height + 7u) / 8u) { return; }
+  let ox = (id.x % columns) * 8u;
+  let oy = (id.x / columns) * 8u;
+  let k = vec3f(0.2126, 0.7152, 0.0722);`];
+  for (let y = 0; y < 8; y++) {
+    for (let x = 0; x < 8; x++) {
+      const i = y * 8 + x;
+      // Incoming edges reverse Atkinson's outgoing diffusion stencil.
+      const previous = [[x - 1, y], [x - 2, y], [x - 1, y - 1],
+        [x, y - 1], [x + 1, y - 1], [x, y - 2]]
+        .filter(([px, py]) => px >= 0 && px < 8 && py >= 0)
+        .map(([px, py]) => "e" + (py * 8 + px));
+      const incoming = previous.map((name) => " + " + name).join("");
+      lines.push(`  var e${i} = 0.0;
+  {
+    let x = ox + ${x}u;
+    let y = oy + ${y}u;
+    if x < width && y < height {
+      let c = src[y * width + x];
+      let v = dot(c.rgb, k)${incoming};
+      let q = select(0.0, 1.0, v >= threshold);
+      e${i} = (v - q) * 0.125;
+      dst[y * width + x] = vec4f(vec3f(q), c.a);
+    }
+  }`);
+    }
+  }
+  lines.push("}");
+  return lines.join("\n");
+}
+
+// Independent gradient-noise implementation: hash lattice corners, project
+// their gradients, then interpolate with the quintic fade curve. Unroll the
+// eight corners and eight octaves to fit the compiler's loop-free subset.
+function perlinNoiseShader() {
+  const lines = [`// 3D Perlin gradient noise, with an integer lattice hash.
+// Move time to explore a continuous third dimension. Input colours are unused.
+override width: u32 = 256;
+override scale: f32 = 1.0; // 0.1..4
+override seed: u32 = 0; // 0..100
+override time: f32 = 0.0; // 0..20
+override octave_count: u32 = 1; // 1..8
+override persistence: f32 = 0.5; // 0.3..1
+override lacunarity: f32 = 1.5; // 1.5..4
+override proportion: f32 = 0.35; // 0..1
+override softness: f32 = 0.1; // 0..1
+override back_r: f32 = 0.3882353;
+override back_g: f32 = 0.1647059;
+override back_b: f32 = 0.8352941;
+override front_r: f32 = 0.9882353;
+override front_g: f32 = 0.8117647;
+override front_b: f32 = 0.9686275;
+
+@group(0) @binding(0) var<storage, read> src: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if id.x >= arrayLength(&src) { return; }
+  let height = arrayLength(&src) / width;
+  let size = f32(max(min(width, height), 1u));
+  let px = (f32(id.x % width) + 0.5 - f32(width) * 0.5) / size;
+  let py = (f32(id.x / width) + 0.5 - f32(height) * 0.5) / size;
+  var frequency = 5.0 / max(scale, 0.01);
+  var amplitude = 1.0;
+  var total = 0.0;
+  var weight = 0.0;
+  var hash: u32 = 0u;
+  var gradient: u32 = 0u;
+  var a = 0.0;
+  var b = 0.0;`];
+  for (let octave = 0; octave < 8; octave++) {
+    lines.push(`  if octave_count > ${octave}u {
+    let p = vec3f(px * frequency + 17.25, py * frequency + 43.5, time * 0.2 * frequency + 11.75);
+    let cell = floor(p);
+    let f = p - cell;
+    let fade = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);`);
+    for (let z = 0; z < 2; z++) {
+      for (let y = 0; y < 2; y++) {
+        for (let x = 0; x < 2; x++) {
+          lines.push(`    hash = (u32(i32(cell.x) + ${x}) * 0x8da6b343u) ^ (u32(i32(cell.y) + ${y}) * 0xd8163841u) ^ (u32(i32(cell.z) + ${z}) * 0xcb1ab31fu) ^ seed ^ ${octave * 1013}u;
+    hash = (hash ^ (hash >> 16u)) * 0x7feb352du;
+    hash = (hash ^ (hash >> 15u)) * 0x846ca68bu;
+    gradient = (hash ^ (hash >> 16u)) % 12u;
+    a = f.x - ${x}.0;
+    b = f.y - ${y}.0;
+    if gradient >= 4u { b = f.z - ${z}.0; }
+    if gradient >= 8u { a = f.y - ${y}.0; }
+    let v${x}${y}${z} = select(a, -a, (gradient & 1u) != 0u) + select(b, -b, (gradient & 2u) != 0u);`);
+        }
+      }
+    }
+    lines.push(`    let row0 = mix(v000, v100, fade.x);
+    let row1 = mix(v010, v110, fade.x);
+    let row2 = mix(v001, v101, fade.x);
+    let row3 = mix(v011, v111, fade.x);
+    let noise = mix(mix(row0, row1, fade.y), mix(row2, row3, fade.y), fade.z);
+    total += noise * amplitude;
+    weight += amplitude;
+    amplitude *= persistence;
+    frequency *= lacunarity;
+  }`);
+  }
+  lines.push(`  let value = clamp(total / max(weight, 0.0001) * 0.5 + proportion, 0.0, 1.0);
+  // A minimum one-pixel transition replaces fragment-only fwidth.
+  let half_width = max(softness * 0.5, 0.5 / size);
+  let t = clamp((value - (0.5 - half_width)) / (2.0 * half_width), 0.0, 1.0);
+  let blend = t * t * (3.0 - 2.0 * t);
+  let back = vec3f(back_r, back_g, back_b);
+  let front = vec3f(front_r, front_g, front_b);
+  dst[id.x] = vec4f(mix(back, front, blend), 1.0);
+  }`);
+  return lines.join("\n");
 }
 
 const [compilerModule, gpu] = await Promise.all([
   WebAssembly.compileStreaming(fetch("/text/wgsl/wgsl-compute-to-wasm.wasm")),
   initGPU(),
 ]);
-const compiler = contentComponent(
-  contentTypeUTF8("text/wgsl"),
-  compilerModule,
-  contentTypeBytes("application/wasm"),
-);
+const compiler = new WebAssembly.Instance(compilerModule, {}).exports;
 
 let image = testCard();
 let uniformValues = new Map();
-let wasmCache = { source: null, module: null, error: null, ms: 0 };
+let wasmCache = { source: null, variants: new Map() };
 let gpuCache = { key: null, pipeline: null, error: null, ms: 0 };
 let gpuBuffers = { key: null, buffers: [], entries: [], output: null, readback: null, bindGroups: null };
 let running = false;
@@ -443,14 +601,33 @@ function parseShader(source) {
 function renderUniformControls(overrides) {
   uniformsBox.replaceChildren();
   for (const o of overrides) {
-    if (o.name === "width") continue;
     if (!uniformValues.has(o.name)) uniformValues.set(o.name, o.value);
+  }
+  const colourUniforms = new Set();
+  for (const [prefix, title] of [["back", "Background"], ["front", "Foreground"]]) {
+    const names = ["r", "g", "b"].map((channel) => prefix + "_" + channel);
+    if (!names.every((name) => overrides.some((o) => o.name === name && o.type === "f32"))) continue;
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    input.type = "color";
+    input.value = "#" + names.map((name) => Math.round(Math.min(1, Math.max(0, uniformValues.get(name))) * 255)
+      .toString(16).padStart(2, "0")).join("");
+    input.addEventListener("input", () => {
+      names.forEach((name, i) => uniformValues.set(name, Number.parseInt(input.value.slice(1 + i * 2, 3 + i * 2), 16) / 255));
+      run();
+    });
+    names.forEach((name) => colourUniforms.add(name));
+    label.append(title + " ", input);
+    uniformsBox.append(label);
+  }
+  for (const o of overrides) {
+    if (o.name === "width" || colourUniforms.has(o.name)) continue;
     const label = document.createElement("label");
     const input = document.createElement("input");
     const output = document.createElement("output");
     const ranged = o.min !== null && o.max !== null;
     input.type = ranged ? "range" : "number";
-    input.step = o.type === "f32" ? (ranged ? String((o.max - o.min) / 200) : "any") : "1";
+    input.step = o.type === "f32" ? "any" : "1";
     if (ranged) {
       input.min = String(o.min);
       input.max = String(o.max);
@@ -478,16 +655,34 @@ function constantsFor(overrides) {
 }
 
 function compileWasm(source) {
-  if (wasmCache.source === source) return wasmCache;
+  const vectorize = vectorizeInput.checked;
+  if (wasmCache.source !== source) wasmCache = { source, variants: new Map() };
+  if (wasmCache.variants.has(vectorize)) return wasmCache.variants.get(vectorize);
   const start = performance.now();
-  wasmCache = { source, module: null, error: null, ms: 0 };
+  const compiled = { source, vectorize, vectorized: false, module: null, error: null, ms: 0 };
+  wasmCache.variants.set(vectorize, compiled);
   try {
-    wasmCache.module = new WebAssembly.Module(compiler(source));
+    const input = new TextEncoder().encode(source);
+    if (input.byteLength > compiler.input_utf8_cap()) throw Error("shader exceeds compiler input capacity");
+    if (vectorize && !compiler.uniform_set_vectorize_invocations) {
+      throw Error("Hard-refresh the page or restart the dev server to load the rebuilt WGSL compiler.");
+    }
+    compiler.uniform_set_vectorize_invocations?.(Number(vectorize));
+    new Uint8Array(compiler.memory.buffer, compiler.input_ptr(), input.byteLength).set(input);
+    const bits = BigInt.asUintN(64, compiler.render(input.byteLength));
+    const size = Number(bits & 0xffff_ffffn);
+    if (bits >> 63n) {
+      const modes = compiler.failure_modes_per_input_offset();
+      throw Error("rejected input at input offset " + Math.floor(size / modes) + " with mode " + size % modes);
+    }
+    const ptr = Number(bits >> 32n);
+    compiled.module = new WebAssembly.Module(new Uint8Array(compiler.memory.buffer, ptr, size));
+    compiled.vectorized = WebAssembly.Module.customSections(compiled.module, "qip.vectorize_invocations").length > 0;
   } catch (error) {
-    wasmCache.error = describeCompileError(source, error.message);
+    compiled.error = describeCompileError(source, error.message);
   }
-  wasmCache.ms = performance.now() - start;
-  return wasmCache;
+  compiled.ms = performance.now() - start;
+  return compiled;
 }
 
 function describeCompileError(source, message) {
@@ -632,7 +827,8 @@ async function runOnce() {
       const ms = performance.now() - start;
       drawPixels(wasmCanvas, wasmOutput, image.width, image.height);
       wasmCaption.className = "";
-      wasmCaption.textContent = "WebAssembly: compile " + formatMs(compiled.ms) + ", run " + formatMs(ms);
+      const mode = compiled.vectorize ? (compiled.vectorized ? " (4 invocations)" : " (scalar fallback)") : "";
+      wasmCaption.textContent = "WebAssembly" + mode + ": compile " + formatMs(compiled.ms) + ", run " + formatMs(ms);
     } catch (error) {
       // A trap may leave the instance half written, so start fresh next run.
       compiled.instance = null;
@@ -722,7 +918,7 @@ function drawPixels(canvas, floats, width, height) {
   const lanes = floats.length / (width * height);
   for (let p = 0; p < width * height; p += 1) {
     for (let c = 0; c < 4; c += 1) {
-      bytes[p * 4 + c] = lanes === 4 || c === 3 ? floats[p * lanes + Math.min(c, lanes - 1)] * 255 + 0.5 : 0;
+      bytes[p * 4 + c] = lanes === 4 || c === 3 ? Math.round(floats[p * lanes + Math.min(c, lanes - 1)] * 255) : 0;
     }
   }
   drawBytes(canvas, bytes, width, height);
@@ -841,6 +1037,7 @@ sourceInput.addEventListener("input", () => {
   }, 300);
 });
 shaderSelect.addEventListener("change", selectShader);
+vectorizeInput.addEventListener("change", run);
 for (const event of ["mouseenter", "mouseleave", "focus", "blur"]) {
   diffCanvas.addEventListener(event, () => {
     if (comparisonOutputs) compare(...comparisonOutputs);

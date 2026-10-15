@@ -629,7 +629,8 @@ application/tzif/tzif-transitions-csv.wasm: ZIG_WASM_MAX_MEMORY = 9437184
 application/dns-message/dns-message-to-text.wasm: ZIG_WASM_MAX_MEMORY = 34734080
 application/dns-message/dns-query-to-dns-message.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 application/dns-message/dns-message-to-text.wasm application/dns-message/dns-query-to-dns-message.wasm: application/dns-message/lib/dns.zig
-text/wgsl/wgsl-compute-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+# Fixed compute IR and packetization scratch require 36 Wasm pages.
+text/wgsl/wgsl-compute-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2359296
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640

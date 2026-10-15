@@ -19,6 +19,15 @@
 //! byte length as the input. Each `override` becomes a `uniform_set_<name>`
 //! export whose authored default is the override's initializer.
 //!
+//! Compiler uniform `vectorize_invocations=1` enables four-wide whole-function
+//! vectorization for compute shaders with separate input/output buffers and
+//! identity output indices. It defaults to 0 and resets after each compilation.
+//! Uniform values stay scalar, varying values occupy SIMD lanes, and divergent
+//! control flow uses masks, including the final partial batch of invocations.
+//! Dependencies, non-identity stores, Tile kernels, or exhausted optimization
+//! budgets retain the original scalar module. Generated modules keep the ABI;
+//! an optimized module records byte 4 in `qip.vectorize_invocations` metadata.
+//!
 //! Accepted subset:
 //!
 //! - Module scope: `override` and `const` with a literal initializer, at most
@@ -658,6 +667,65 @@ var kernel_samples: [MAX_KERNELS]bool = undefined;
 var tile_halo: u32 = 0;
 var tile_samples = false;
 
+// Opt-in, bounded compute IR. Capture only after the scalar parser validates
+// each expression. If this budget is exceeded, retain the scalar compilation.
+const IR_NODE_CAP = 8192;
+const IR_STMT_CAP = 2048;
+const Expr = struct { start: u16 = 0, len: u16 = 0 };
+const StmtKind = enum { declare, assign, store, if_head, else_head, end_if, ret, discard };
+const Stmt = struct {
+    kind: StmtKind,
+    expr: Expr = .{},
+    index_expr: Expr = .{},
+    local: u32 = 0,
+    ty: Ty = .void,
+    op: Tk = .eq,
+    lane: u8 = 255,
+};
+var ir_nodes: [IR_NODE_CAP]Node = undefined;
+var ir_stmts: [IR_STMT_CAP]Stmt = undefined;
+var ir_node_len: usize = 0;
+var ir_stmt_len: usize = 0;
+var ir_complete = false;
+var last_expr = Expr{};
+var vectorize_invocations: u32 = 0;
+var vectorized = false;
+var scalar_code = Buf{ .bytes = &kernel_code_buf };
+
+fn rememberExpr(root: u16) void {
+    last_expr = .{};
+    if (!ir_complete) return;
+    const len = @as(usize, root) + 1;
+    if (len > IR_NODE_CAP - ir_node_len) {
+        ir_complete = false;
+        return;
+    }
+    last_expr = .{ .start = @intCast(ir_node_len), .len = @intCast(len) };
+    @memcpy(ir_nodes[ir_node_len..][0..len], nodes[0..len]);
+    ir_node_len += len;
+}
+
+fn rememberLiteral(lit: Literal) void {
+    if (!ir_complete) return;
+    if (ir_node_len == IR_NODE_CAP) {
+        ir_complete = false;
+        return;
+    }
+    last_expr = .{ .start = @intCast(ir_node_len), .len = 1 };
+    ir_nodes[ir_node_len] = .{ .kind = .lit, .ty = lit.ty, .lit = lit, .offset = 0 };
+    ir_node_len += 1;
+}
+
+fn rememberStmt(stmt: Stmt) void {
+    if (!ir_complete) return;
+    if (ir_stmt_len == IR_STMT_CAP) {
+        ir_complete = false;
+        return;
+    }
+    ir_stmts[ir_stmt_len] = stmt;
+    ir_stmt_len += 1;
+}
+
 // Main function locals after parameter 0 (`global_invocation_id.x`).
 var local_types: [MAX_LOCALS]u8 = undefined;
 var local_count: usize = 0;
@@ -684,6 +752,11 @@ fn lookupLocal(name: Token) ?Local {
 }
 
 fn allocLocal(ty: Ty) CompileError!u32 {
+    if (batch_temps) return batchTemp(ty);
+    return allocPersistent(ty);
+}
+
+fn allocPersistent(ty: Ty) CompileError!u32 {
     if (local_count >= MAX_LOCALS) return fail(peek().start, .unsupported);
     local_types[local_count] = valType(ty);
     local_count += 1;
@@ -854,6 +927,687 @@ const Node = struct {
     lit: Literal = .{ .ty = .void },
     offset: u32,
 };
+
+// ---------------------------------------------------------------------------
+// Whole-function vectorization across four independent compute invocations.
+// Uniform values retain their original Wasm representation. A varying scalar
+// is one v128; a varying WGSL vector is one v128 per component (SoA).
+const BatchValue = struct { ty: Ty, varying: bool = false, literal: bool = false, regs: [4]u32 = .{ 0, 0, 0, 0 }, constant: ?u32 = null };
+var batch_locals: [MAX_LOCALS + 1]BatchValue = undefined;
+var batch_varying: [MAX_LOCALS + 1]bool = undefined;
+var batch_values: [MAX_NODES]BatchValue = undefined;
+var batch_flags: [MAX_NODES]bool = undefined;
+var batch_temps = false;
+var batch_temp_regs: [3][MAX_LOCALS]u32 = undefined;
+var batch_temp_len: [3]usize = .{ 0, 0, 0 };
+var batch_temp_used: [3]usize = .{ 0, 0, 0 };
+var batch_active: u32 = 0;
+var batch_alive: u32 = 0;
+const BatchSplat = struct { bits: u32, reg: u32, count: u32, float: bool };
+// A bounded pool of repeated literal splats. Uncached constants stay inline;
+// bitwise keys preserve distinctions such as positive and negative zero.
+var batch_splats: [32]BatchSplat = undefined;
+var batch_splat_len: usize = 0;
+
+fn findBatchSplat(bits: u32, float: bool) ?u32 {
+    for (batch_splats[0..batch_splat_len]) |s| {
+        if (s.bits == bits and s.float == float and s.count >= 3) return s.reg;
+    }
+    return null;
+}
+
+fn emitBatchSplats() CompileError!void {
+    batch_splat_len = 0;
+    for (ir_nodes[0..ir_node_len]) |node| {
+        if (node.kind != .lit or isVec(node.ty) or node.ty == .bool) continue;
+        const float = node.ty == .f32;
+        const bits: u32 = if (float) @bitCast(@as(f32, @floatCast(node.lit.float_value))) else @bitCast(literalValue(node.lit));
+        var found = false;
+        for (batch_splats[0..batch_splat_len]) |*s| {
+            if (s.bits == bits and s.float == float) {
+                s.count += 1;
+                found = true;
+                break;
+            }
+        }
+        if (!found and batch_splat_len < batch_splats.len) {
+            batch_splats[batch_splat_len] = .{ .bits = bits, .float = float, .count = 1, .reg = 0 };
+            batch_splat_len += 1;
+        }
+    }
+    for (batch_splats[0..batch_splat_len]) |*s| {
+        if (s.count < 3) continue;
+        s.reg = try allocPersistent(.vec4f);
+        if (s.float) try body.f32Const(@bitCast(s.bits)) else try body.i32Const(@bitCast(s.bits));
+        try body.simd(if (s.float) SIMD_F32X4_SPLAT else 17);
+        try body.localSet(s.reg);
+    }
+}
+
+fn nodeArity(node: Node) usize {
+    return switch (node.kind) {
+        .binary => 2,
+        .call => node.argc,
+        .load, .lane, .swizzle, .unary => 1,
+        else => 0,
+    };
+}
+
+fn invocationIndependent() bool {
+    for (ir_nodes[0..ir_node_len]) |node| {
+        if (node.kind == .sample or (node.kind == .load and node.op != 0)) return false;
+    }
+    var identities = [_]bool{false} ** (MAX_LOCALS + 1);
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind == .declare) {
+            const root = ir_nodes[stmt.expr.start + stmt.expr.len - 1];
+            identities[stmt.local] = stmt.expr.len == 1 and (root.kind == .gid_x or (root.kind == .local and identities[root.ref]));
+        } else if (stmt.kind == .assign) {
+            identities[stmt.local] = false;
+        } else if (stmt.kind == .store) {
+            const root = ir_nodes[stmt.index_expr.start + stmt.index_expr.len - 1];
+            if (stmt.index_expr.len != 1 or !(root.kind == .gid_x or (root.kind == .local and identities[root.ref]))) return false;
+        }
+    }
+    return true;
+}
+
+fn exprVarying(expr: Expr) bool {
+    if (expr.len == 0) return false;
+    for (ir_nodes[expr.start..][0..expr.len], 0..) |node, i| {
+        var varying = node.kind == .gid_x or (node.kind == .local and batch_varying[node.ref]);
+        for (node.kids[0..nodeArity(node)]) |kid| varying = varying or batch_flags[kid];
+        batch_flags[i] = varying;
+    }
+    return batch_flags[expr.len - 1];
+}
+
+fn analyzeBatchUniformity() void {
+    @memset(&batch_varying, false);
+    // Monotonic fixed point: each changing pass marks at least one of the
+    // bounded original local IDs varying. No shader code executes here.
+    for (0..MAX_LOCALS + 1) |_| {
+        var changed = false;
+        var control = false;
+        var alive = false;
+        var parents: [MAX_BLOCKS]bool = undefined;
+        var depth: usize = 0;
+        for (ir_stmts[0..ir_stmt_len]) |stmt| {
+            const varying = exprVarying(stmt.expr);
+            switch (stmt.kind) {
+                .declare, .assign => {
+                    if ((varying or (stmt.kind == .assign and control)) and !batch_varying[stmt.local]) {
+                        batch_varying[stmt.local] = true;
+                        changed = true;
+                    }
+                },
+                .if_head => {
+                    parents[depth] = control;
+                    depth += 1;
+                    control = control or varying;
+                },
+                .end_if => {
+                    depth -= 1;
+                    control = parents[depth] or alive;
+                },
+                .ret => {
+                    alive = alive or control;
+                    control = control or alive;
+                },
+                else => {},
+            }
+        }
+        if (!changed) break;
+    }
+}
+
+fn batchTemp(ty: Ty) CompileError!u32 {
+    const kind: usize = if (isVec(ty)) 2 else if (ty == .f32) 1 else 0;
+    const i = batch_temp_used[kind];
+    if (i >= MAX_LOCALS) return fail(0, .unsupported);
+    batch_temp_used[kind] += 1;
+    if (i == batch_temp_len[kind]) {
+        batch_temp_regs[kind][i] = try allocPersistent(ty);
+        batch_temp_len[kind] += 1;
+    }
+    return batch_temp_regs[kind][i];
+}
+
+fn batchValue(ty: Ty, varying: bool, persistent: bool) CompileError!BatchValue {
+    var value = BatchValue{ .ty = ty, .varying = varying };
+    for (0..if (varying) vecLen(ty) else 1) |i| {
+        const rt: Ty = if (varying) .vec4f else ty;
+        value.regs[i] = if (persistent) try allocPersistent(rt) else try batchTemp(rt);
+    }
+    return value;
+}
+
+fn batchSplat(ty: Ty) CompileError!void {
+    if (ty == .bool) {
+        // Scalar booleans use 0/1; SIMD masks use 0/-1.
+        try body.i32Const(-1);
+        try body.byte(0x6c);
+    }
+    try body.simd(if (ty == .f32) SIMD_F32X4_SPLAT else 17); // i32x4.splat
+}
+
+fn batchUniformGet(value: BatchValue) CompileError!void {
+    if (!value.literal) return body.localGet(value.regs[0]);
+    if (value.ty == .f32) return body.f32Const(@bitCast(value.constant.?));
+    if (isVec(value.ty)) {
+        try body.simd(SIMD_CONST);
+        return body.raw(&([_]u8{0} ** 16));
+    }
+    return body.i32Const(@bitCast(value.constant.?));
+}
+
+fn batchGet(value: BatchValue, component: usize) CompileError!void {
+    if (value.literal and !isVec(value.ty) and value.ty != .bool) {
+        if (findBatchSplat(value.constant.?, value.ty == .f32)) |reg| return body.localGet(reg);
+    }
+    if (value.varying) {
+        try body.localGet(value.regs[if (isVec(value.ty)) component else 0]);
+    } else {
+        try batchUniformGet(value);
+    }
+    if (!value.varying) {
+        if (isVec(value.ty)) try body.simdLane(SIMD_F32X4_EXTRACT_LANE, @intCast(component));
+        try batchSplat(if (isVec(value.ty)) .f32 else value.ty);
+    }
+}
+
+fn batchConst(value: i32) CompileError!void {
+    if (findBatchSplat(@bitCast(value), false)) |reg| return body.localGet(reg);
+    try body.i32Const(value);
+    try body.simd(17);
+}
+
+fn batchFloat(value: f32) CompileError!void {
+    if (findBatchSplat(@bitCast(value), true)) |reg| return body.localGet(reg);
+    try body.f32Const(value);
+    try body.simd(SIMD_F32X4_SPLAT);
+}
+
+fn batchBinary(kind: Tk, ty: Ty, a: BatchValue, b: BatchValue, component: usize) CompileError!void {
+    const lane_ty: Ty = if (isVec(ty)) .f32 else ty;
+    if (isInt(lane_ty) and (kind == .shl or kind == .shr) and !b.varying) {
+        try batchGet(a, component);
+        try batchUniformGet(b);
+        return body.simd(if (kind == .shl) 171 else if (lane_ty == .i32) 172 else 173);
+    }
+    if (lane_ty == .u32 and (kind == .slash or kind == .percent)) {
+        if (b.constant) |divisor| return batchUnsignedConstantDivide(a, divisor, kind == .percent);
+    }
+    if (isInt(lane_ty) and (kind == .slash or kind == .percent or kind == .shl or kind == .shr)) {
+        // SIMD has no integer division, remainder, or per-lane shift counts.
+        // Use the existing nontrapping scalar rules for these operations.
+        const result = try batchTemp(.vec4f);
+        try batchConst(0);
+        try body.localSet(result);
+        for (0..4) |lane| {
+            try body.localGet(result);
+            try batchGet(a, component);
+            try body.simdLane(27, @intCast(lane)); // i32x4.extract_lane
+            try batchGet(b, component);
+            try body.simdLane(27, @intCast(lane));
+            try emitArith(kind, lane_ty);
+            try body.simdLane(28, @intCast(lane)); // i32x4.replace_lane
+            try body.localSet(result);
+        }
+        return body.localGet(result);
+    }
+    try batchGet(a, component);
+    try batchGet(b, component);
+    if (lane_ty == .f32 and (kind == .plus or kind == .minus or kind == .star or kind == .slash or kind == .percent))
+        return emitVecArith(kind, .vec4f, .vec4f);
+    const signed = lane_ty == .i32;
+    const op: u32 = switch (kind) {
+        .plus => 174,
+        .minus => 177,
+        .star => 181,
+        .amp, .amp_amp => 78,
+        .pipe, .pipe_pipe => 80,
+        .caret => 81,
+        .eq_eq => if (lane_ty == .f32) 65 else 55,
+        .bang_eq => if (lane_ty == .f32) 66 else 56,
+        .lt => if (lane_ty == .f32) 67 else if (signed) 57 else 58,
+        .gt => if (lane_ty == .f32) 68 else if (signed) 59 else 60,
+        .le => if (lane_ty == .f32) 69 else if (signed) 61 else 62,
+        .ge => if (lane_ty == .f32) 70 else if (signed) 63 else 64,
+        else => return fail(0, .unsupported),
+    };
+    try body.simd(op);
+}
+
+fn batchUnsignedConstantDivide(a: BatchValue, divisor: u32, remainder: bool) CompileError!void {
+    if (divisor == 0 or divisor == 1) {
+        if (remainder) return batchConst(0);
+        return batchGet(a, 0);
+    }
+    if (std.math.isPowerOfTwo(divisor)) {
+        try batchGet(a, 0);
+        if (remainder) {
+            try batchConst(@bitCast(divisor - 1));
+            return body.simd(78);
+        }
+        try body.i32Const(@intCast(@ctz(divisor)));
+        return body.simd(173);
+    }
+    // q0=floor(x*floor(2^32/d)/2^32) is at most one below floor(x/d).
+    // Its remainder cannot wrap because q0*d <= x. One unsigned comparison
+    // corrects both quotient and remainder for every u32 input and divisor.
+    const multiplier: u32 = @intCast((@as(u64, 1) << 32) / divisor);
+    const low = try batchTemp(.vec4f);
+    const quotient = try batchTemp(.vec4f);
+    const rest = try batchTemp(.vec4f);
+    try batchGet(a, 0);
+    try batchConst(@bitCast(multiplier));
+    try body.simd(222); // i64x2.extmul_low_i32x4_u
+    try body.i32Const(32);
+    try body.simd(205); // i64x2.shr_u
+    try body.localSet(low);
+    try batchGet(a, 0);
+    try batchConst(@bitCast(multiplier));
+    try body.simd(223); // i64x2.extmul_high_i32x4_u
+    try body.i32Const(32);
+    try body.simd(205);
+    const high = try batchTemp(.vec4f);
+    try body.localSet(high);
+    try body.localGet(low);
+    try body.localGet(high);
+    try emitLaneShuffle(.{ 0, 2, 4, 6 });
+    try body.localSet(quotient);
+    try batchGet(a, 0);
+    try body.localGet(quotient);
+    try batchConst(@bitCast(divisor));
+    try body.simd(181);
+    try body.simd(177);
+    try body.localSet(rest);
+    if (remainder) try body.localGet(rest) else try body.localGet(quotient);
+    try body.localGet(rest);
+    try batchConst(@bitCast(divisor));
+    try body.simd(64); // i32x4.ge_u
+    if (remainder) {
+        try batchConst(@bitCast(divisor));
+        try body.simd(78);
+    }
+    try body.simd(177);
+}
+
+fn batchMinMax(ty: Ty, max: bool) CompileError!void {
+    try body.simd(if (ty == .f32 or isVec(ty))
+        (if (max) SIMD_F32X4_MAX else SIMD_F32X4_MIN)
+    else if (ty == .i32) (if (max) @as(u32, 184) else 182) else (if (max) @as(u32, 185) else 183));
+}
+
+fn batchLoad(node: Node, index: BatchValue, out: BatchValue) CompileError!void {
+    for (0..vecLen(node.ty)) |component| {
+        try batchConst(0);
+        try body.localSet(out.regs[component]);
+        for (0..4) |lane| {
+            try body.localGet(out.regs[component]);
+            try batchGet(index, 0);
+            try body.simdLane(27, @intCast(lane));
+            const address = try batchTemp(.u32);
+            try body.localTee(address);
+            try body.byte(0x23);
+            try body.uleb(GLOBAL_COUNT);
+            try body.raw(&.{ 0x49, 0x04, if (node.ty == .f32 or isVec(node.ty)) @as(u8, 0x7d) else 0x7f });
+            try body.localGet(address);
+            try body.i32Const(elemShift(node.ty));
+            try body.byte(0x74);
+            try body.byte(if (node.ty == .f32 or isVec(node.ty)) 0x2a else 0x28);
+            try body.byte(2);
+            try body.uleb(bufferBase(0) + component * 4);
+            try body.byte(0x05);
+            try emitLiteral(&body, .{ .ty = if (isVec(node.ty)) .f32 else node.ty });
+            try body.byte(0x0b);
+            try body.simdLane(if (node.ty == .f32 or isVec(node.ty)) SIMD_F32X4_REPLACE_LANE else 28, @intCast(lane));
+            try body.localSet(out.regs[component]);
+        }
+    }
+}
+
+fn batchExpr(expr: Expr) CompileError!BatchValue {
+    const expr_nodes = ir_nodes[expr.start..][0..expr.len];
+    @memcpy(nodes[0..expr.len], expr_nodes);
+    for (expr_nodes, 0..) |node_in, i| {
+        const node = node_in;
+        var varying = node.kind == .gid_x or (node.kind == .local and batch_varying[node.ref]);
+        for (node.kids[0..nodeArity(node)]) |kid| varying = varying or batch_values[kid].varying;
+        if (node.kind == .local) {
+            batch_values[i] = batch_locals[node.ref];
+            continue;
+        }
+        // Literals need no temporary local. Component extraction and
+        // swizzling of SoA vectors only rename existing registers.
+        if (node.kind == .lit) {
+            batch_values[i] = .{ .ty = node.ty, .literal = true, .constant = if (node.ty == .f32) @bitCast(@as(f32, @floatCast(node.lit.float_value))) else @bitCast(literalValue(node.lit)) };
+            continue;
+        }
+        const a = if (nodeArity(node) > 0) batch_values[node.kids[0]] else BatchValue{ .ty = .void };
+        const b = if (nodeArity(node) > 1) batch_values[node.kids[1]] else a;
+        const t = if (nodeArity(node) > 2) batch_values[node.kids[2]] else a;
+        if (varying and a.varying and (node.kind == .lane or node.kind == .swizzle)) {
+            var alias = BatchValue{ .ty = node.ty, .varying = true };
+            for (0..vecLen(node.ty)) |component| {
+                alias.regs[component] = a.regs[if (node.kind == .lane) node.op else (node.op >> @intCast(2 * component)) & 3];
+            }
+            batch_values[i] = alias;
+            continue;
+        }
+        var out = try batchValue(node.ty, varying, false);
+        batch_values[i] = out;
+        if (!varying) {
+            for (node.kids[0..nodeArity(node)]) |kid| try batchUniformGet(batch_values[kid]);
+            try emitNode(node);
+            try body.localSet(out.regs[0]);
+            continue;
+        }
+        if (node.kind == .load) {
+            try batchLoad(node, a, out);
+            continue;
+        }
+        if (node.kind == .gid_x) {
+            try body.localGet(0);
+            try body.simd(17);
+            try body.simd(SIMD_CONST);
+            try body.raw(&.{ 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 });
+            try body.simd(174);
+            try body.localSet(out.regs[0]);
+            continue;
+        }
+        if (node.kind == .call and (@as(Callee, @enumFromInt(node.op)) == .vec2f or
+            @as(Callee, @enumFromInt(node.op)) == .vec3f or @as(Callee, @enumFromInt(node.op)) == .vec4f))
+        {
+            var component: usize = 0;
+            for (node.kids[0..node.argc]) |kid| {
+                const arg = batch_values[kid];
+                const count = if (node.argc == 1 and !isVec(arg.ty)) vecLen(node.ty) else vecLen(arg.ty);
+                for (0..count) |c| {
+                    if (arg.varying) {
+                        out.regs[component] = arg.regs[if (isVec(arg.ty)) c else 0];
+                    } else {
+                        try batchGet(arg, if (isVec(arg.ty)) c else 0);
+                        try body.localSet(out.regs[component]);
+                    }
+                    component += 1;
+                }
+            }
+            batch_values[i] = out;
+            continue;
+        }
+        if (node.kind == .call and @as(Callee, @enumFromInt(node.op)) == .dot) {
+            for (0..vecLen(a.ty)) |component| {
+                try batchGet(a, component);
+                try batchGet(b, component);
+                try body.simd(SIMD_F32X4_MUL);
+                if (component != 0) try body.simd(SIMD_F32X4_ADD);
+            }
+            try body.localSet(out.regs[0]);
+            continue;
+        }
+        for (0..vecLen(node.ty)) |component| {
+            switch (node.kind) {
+                .lane => try batchGet(a, node.op),
+                .swizzle => try batchGet(a, (node.op >> @intCast(2 * component)) & 3),
+                .binary => try batchBinary(@enumFromInt(node.op), if (isVec(node.ty)) node.ty else node.opnd_ty, a, b, component),
+                .unary => {
+                    try batchGet(a, component);
+                    try body.simd(switch (@as(Tk, @enumFromInt(node.op))) {
+                        .minus => if (node.ty == .f32 or isVec(node.ty)) SIMD_F32X4_NEG else 161,
+                        .bang, .tilde => 77,
+                        else => return fail(0, .unsupported),
+                    });
+                },
+                .call => switch (@as(Callee, @enumFromInt(node.op))) {
+                    .select => {
+                        try batchGet(b, component);
+                        try batchGet(a, component);
+                        try batchGet(t, 0);
+                        try body.simd(82); // v128.bitselect
+                    },
+                    .mix => {
+                        try batchGet(a, component);
+                        try batchFloat(1);
+                        try batchGet(t, component);
+                        try body.simd(SIMD_F32X4_SUB);
+                        try body.simd(SIMD_F32X4_MUL);
+                        try batchGet(b, component);
+                        try batchGet(t, component);
+                        try body.simd(SIMD_F32X4_MUL);
+                        try body.simd(SIMD_F32X4_ADD);
+                    },
+                    .min, .max, .clamp => |callee| {
+                        try batchGet(a, component);
+                        try batchGet(b, component);
+                        try batchMinMax(node.ty, callee != .min);
+                        if (callee == .clamp) {
+                            try batchGet(t, component);
+                            try batchMinMax(node.ty, false);
+                        }
+                    },
+                    .to_f32, .to_i32, .to_u32, .to_bool => {
+                        try batchGet(a, 0);
+                        if (node.ty == .bool) {
+                            if (a.ty == .f32) try batchFloat(0) else try batchConst(0);
+                            try body.simd(if (a.ty == .f32) 66 else 56);
+                        } else if (a.ty == .bool) {
+                            try batchConst(1);
+                            try body.simd(78);
+                            if (node.ty == .f32) try body.simd(251);
+                        } else if (node.ty != a.ty and (node.ty == .f32 or a.ty == .f32)) {
+                            try body.simd(if (node.ty == .f32) (if (a.ty == .i32) @as(u32, 250) else 251) else (if (node.ty == .i32) @as(u32, 248) else 249));
+                        }
+                    },
+                    .abs, .sqrt, .floor, .ceil, .trunc, .round => |callee| {
+                        try batchGet(a, component);
+                        if (callee == .abs and node.ty == .u32) {} else try body.simd(switch (callee) {
+                            .abs => if (node.ty == .i32) 160 else SIMD_F32X4_ABS,
+                            .sqrt => SIMD_F32X4_SQRT,
+                            .floor => SIMD_F32X4_FLOOR,
+                            .ceil => SIMD_F32X4_CEIL,
+                            .trunc => SIMD_F32X4_TRUNC,
+                            else => SIMD_F32X4_NEAREST,
+                        });
+                    },
+                    else => return fail(0, .unsupported),
+                },
+                else => return fail(0, .unsupported),
+            }
+            try body.localSet(out.regs[component]);
+        }
+    }
+    return batch_values[expr.len - 1];
+}
+
+fn batchAssign(destination: BatchValue, value: BatchValue, masked: bool, lane: u8) CompileError!void {
+    if (!destination.varying) {
+        try batchUniformGet(value);
+        if (lane != 255) {
+            // A uniform lane write still uses the existing packed WGSL vector.
+            const rhs = try batchTemp(.f32);
+            try body.localSet(rhs);
+            try body.localGet(destination.regs[0]);
+            try body.localGet(rhs);
+            try body.simdLane(SIMD_F32X4_REPLACE_LANE, lane);
+        }
+        return body.localSet(destination.regs[0]);
+    }
+    for (0..if (lane == 255) vecLen(destination.ty) else 1) |i| {
+        const c = if (lane == 255) i else lane;
+        try batchGet(value, if (lane == 255) i else 0);
+        if (masked) {
+            try body.localGet(destination.regs[c]);
+            try body.localGet(batch_active);
+            try body.simd(82);
+        }
+        try body.localSet(destination.regs[c]);
+    }
+}
+
+fn batchStore(value: BatchValue) CompileError!void {
+    for (0..4) |lane| {
+        try body.localGet(batch_active);
+        try body.simdLane(27, @intCast(lane));
+        try body.raw(&.{ 0x04, 0x40 });
+        try body.localGet(0);
+        try body.i32Const(@intCast(lane));
+        try body.byte(0x6a);
+        try body.i32Const(elemShift(value.ty));
+        try body.byte(0x74);
+        if (isVec(value.ty)) {
+            try batchConst(0);
+            for (0..4) |component| {
+                try batchGet(value, component);
+                try body.simdLane(SIMD_F32X4_EXTRACT_LANE, @intCast(lane));
+                try body.simdLane(SIMD_F32X4_REPLACE_LANE, @intCast(component));
+            }
+            try body.simd(SIMD_STORE);
+        } else {
+            try batchGet(value, 0);
+            try body.simdLane(if (value.ty == .f32) SIMD_F32X4_EXTRACT_LANE else 27, @intCast(lane));
+            try body.byte(if (value.ty == .f32) 0x38 else 0x36);
+        }
+        try body.byte(elemShift(value.ty));
+        try body.uleb(bufferBase(1));
+        try body.byte(0x0b);
+    }
+}
+
+fn emitInvocationBatch() CompileError!bool {
+    analyzeBatchUniformity();
+    body.len = 0;
+    local_count = 0;
+    batch_temp_len = .{ 0, 0, 0 };
+    batch_temp_used = .{ 0, 0, 0 };
+    batch_temps = false;
+    batch_active = try allocPersistent(.vec4f);
+    batch_alive = try allocPersistent(.vec4f);
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind == .declare) batch_locals[stmt.local] = try batchValue(stmt.ty, batch_varying[stmt.local], true);
+    }
+    const Mask = struct { parent: u32, condition: u32, guarded: bool, divergent: bool };
+    var masks: [MAX_BLOCKS]Mask = undefined;
+    var depth: usize = 0;
+    try emitBatchSplats();
+    batch_temps = true;
+    defer batch_temps = false;
+    // Only existing invocations are alive, including the final partial batch.
+    try body.localGet(0);
+    try body.simd(17);
+    try body.simd(SIMD_CONST);
+    try body.raw(&.{ 0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0 });
+    try body.simd(174);
+    try body.byte(0x23);
+    try body.uleb(GLOBAL_COUNT);
+    try body.simd(17);
+    try body.simd(58); // i32x4.lt_u
+    try body.localTee(batch_alive);
+    try body.localSet(batch_active);
+    for (ir_stmts[0..ir_stmt_len], 0..) |stmt, stmt_index| {
+        batch_temp_used = .{ 0, 0, 0 };
+        switch (stmt.kind) {
+            .declare, .assign => {
+                const value = try batchExpr(stmt.expr);
+                var result = value;
+                const dest = batch_locals[stmt.local];
+                if (stmt.op != .eq) {
+                    var a = dest;
+                    const ty: Ty = if (stmt.lane == 255) dest.ty else .f32;
+                    if (stmt.lane != 255) {
+                        a.ty = .f32;
+                        if (a.varying) a.regs[0] = dest.regs[stmt.lane] else {
+                            const reg = try batchTemp(.f32);
+                            try body.localGet(dest.regs[0]);
+                            try body.simdLane(SIMD_F32X4_EXTRACT_LANE, stmt.lane);
+                            try body.localSet(reg);
+                            a.regs[0] = reg;
+                        }
+                    }
+                    result = try batchValue(ty, dest.varying, false);
+                    if (dest.varying) {
+                        for (0..vecLen(ty)) |component| {
+                            try batchBinary(stmt.op, ty, a, value, component);
+                            try body.localSet(result.regs[component]);
+                        }
+                    } else {
+                        try body.localGet(a.regs[0]);
+                        try batchUniformGet(value);
+                        if (isVec(ty)) try emitVecArith(stmt.op, a.ty, value.ty) else try emitArith(stmt.op, ty);
+                        try body.localSet(result.regs[0]);
+                    }
+                }
+                // Only divergent control needs to preserve other live lanes.
+                // Unconditional writes to dead/tail lanes cannot reach stores.
+                try batchAssign(dest, result, stmt.kind == .assign and depth > 0 and masks[depth - 1].divergent, stmt.lane);
+            },
+            .store => try batchStore(try batchExpr(stmt.expr)),
+            .if_head => {
+                const condition = try batchExpr(stmt.expr);
+                // A tiny divergent assignment is already protected by its
+                // lane mask. Avoid a horizontal mask test and CPU branch.
+                // Keep uniform branches and larger bodies guarded so inactive
+                // octaves, gathers and other expensive work are skipped.
+                var guarded = true;
+                if (condition.varying and stmt_index + 2 < ir_stmt_len) {
+                    const next = ir_stmts[stmt_index + 1];
+                    if (next.kind == .assign and next.expr.len <= 8 and ir_stmts[stmt_index + 2].kind == .end_if) {
+                        guarded = false;
+                        for (ir_nodes[next.expr.start..][0..next.expr.len]) |node| {
+                            if (node.kind == .load) guarded = true;
+                        }
+                    }
+                }
+                const mask = Mask{ .parent = try allocPersistent(.vec4f), .condition = try allocPersistent(.vec4f), .guarded = guarded, .divergent = condition.varying or (depth > 0 and masks[depth - 1].divergent) };
+                masks[depth] = mask;
+                depth += 1;
+                try body.localGet(batch_active);
+                try body.localTee(mask.parent);
+                try batchGet(condition, 0);
+                try body.localTee(mask.condition);
+                try body.simd(78);
+                try body.localTee(batch_active);
+                if (guarded) {
+                    try body.simd(83);
+                    try body.raw(&.{ 0x04, 0x40 });
+                } else try body.byte(0x1a);
+            },
+            .else_head => {
+                const mask = masks[depth - 1];
+                try body.byte(0x0b);
+                try body.localGet(mask.parent);
+                try body.localGet(mask.condition);
+                try body.simd(79); // parent & ~condition
+                try body.localGet(batch_alive);
+                try body.simd(78);
+                try body.localTee(batch_active);
+                try body.simd(83);
+                try body.raw(&.{ 0x04, 0x40 });
+            },
+            .end_if => {
+                depth -= 1;
+                if (masks[depth].guarded) try body.byte(0x0b);
+                try body.localGet(masks[depth].parent);
+                try body.localGet(batch_alive);
+                try body.simd(78);
+                try body.localSet(batch_active);
+            },
+            .ret => {
+                try body.localGet(batch_alive);
+                try body.localGet(batch_active);
+                try body.simd(79);
+                try body.localTee(batch_alive);
+                try body.simd(83);
+                try body.raw(&.{ 0x45, 0x04, 0x40, 0x0f, 0x0b });
+                try batchConst(0);
+                try body.localSet(batch_active);
+            },
+            .discard => _ = try batchExpr(stmt.expr),
+        }
+    }
+    return true;
+}
 
 const OpKind = enum(u8) { paren, call, bracket, unary, binary };
 
@@ -1861,6 +2615,7 @@ fn emitNode(node: Node) CompileError!void {
 
 fn emitExpr(root: u16, want: ?Ty) CompileError!Ty {
     try concretize(root, want);
+    rememberExpr(root);
     for (nodes[0 .. @as(usize, root) + 1]) |node| try emitNode(node);
     return nodes[root].ty;
 }
@@ -1919,11 +2674,13 @@ fn parseDeclaration(mutable: bool) CompileError!void {
         if (!mutable or declared == null) return fail(peek().start, .syntax);
         ty = declared.?;
         try emitLiteral(&body, .{ .ty = ty });
+        rememberLiteral(.{ .ty = ty });
     }
     _ = try expect(.semicolon);
     // Declare after the initializer so that `let x = x + 1;` sees the outer x.
     const index = try declareLocal(name, ty, mutable);
     try body.localSet(index);
+    rememberStmt(.{ .kind = .declare, .expr = last_expr, .local = index, .ty = ty });
 }
 
 fn compoundOp(kind: Tk) ?Tk {
@@ -1968,6 +2725,7 @@ fn parseLaneAssignment(local: Local) CompileError!void {
     _ = try expect(.semicolon);
     try body.simdLane(SIMD_F32X4_REPLACE_LANE, lane);
     try body.localSet(local.index);
+    rememberStmt(.{ .kind = .assign, .expr = last_expr, .local = local.index, .ty = local.ty, .op = compoundOp(op_tok.kind) orelse .eq, .lane = lane });
 }
 
 fn parseLocalAssignment(local: Local) CompileError!void {
@@ -1995,6 +2753,7 @@ fn parseLocalAssignment(local: Local) CompileError!void {
         if (op_tok.kind == .plus_plus or op_tok.kind == .minus_minus) {
             if (!isInt(local.ty)) return fail(op_tok.start, .type_mismatch);
             try body.i32Const(1);
+            rememberLiteral(.{ .ty = local.ty, .int_value = 1 });
         } else {
             const rhs_want: Ty = if (op == .shl or op == .shr) .u32 else local.ty;
             _ = try compileExpr(rhs_want);
@@ -2009,6 +2768,7 @@ fn parseLocalAssignment(local: Local) CompileError!void {
     }
     _ = try expect(.semicolon);
     try body.localSet(local.index);
+    rememberStmt(.{ .kind = .assign, .expr = last_expr, .local = local.index, .ty = local.ty, .op = compoundOp(op_tok.kind) orelse .eq });
 }
 
 fn parseStore(id: u8) CompileError!void {
@@ -2016,6 +2776,7 @@ fn parseStore(id: u8) CompileError!void {
     if (id != 1) return fail(name.start, .type_mismatch); // read-only buffer
     _ = try expect(.l_bracket);
     const index_ty = try compileExpr(null);
+    const index_expr = last_expr;
     if (!(index_ty == .i32 or index_ty == .u32)) return fail(name.start, .type_mismatch);
     const t_index = try allocLocal(.u32);
     try body.localSet(t_index);
@@ -2046,6 +2807,7 @@ fn parseStore(id: u8) CompileError!void {
     try body.byte(elemShift(elem)); // natural alignment
     try body.uleb(bufferBase(1));
     try body.byte(0x0b);
+    rememberStmt(.{ .kind = .store, .expr = last_expr, .index_expr = index_expr, .ty = elem });
 }
 
 fn emitEnds(count: u32) CompileError!void {
@@ -2055,6 +2817,7 @@ fn emitEnds(count: u32) CompileError!void {
 
 fn parseIfHead(extra_ends: u32) CompileError!void {
     _ = try compileExpr(.bool);
+    rememberStmt(.{ .kind = .if_head, .expr = last_expr });
     _ = try expect(.l_brace);
     try body.raw(&.{ 0x04, 0x40 });
     try pushBlock(.{ .kind = .if_then, .scope_mark = scope_len, .extra_ends = extra_ends });
@@ -2071,6 +2834,7 @@ fn closeBlock() CompileError!void {
             if (isWord(peek(), "else")) {
                 _ = advance();
                 try body.byte(0x05);
+                rememberStmt(.{ .kind = .else_head });
                 if (isWord(peek(), "if")) {
                     // `else if` nests a new if inside the else arm.
                     _ = advance();
@@ -2081,9 +2845,13 @@ fn closeBlock() CompileError!void {
                 }
             } else {
                 try emitEnds(1 + block.extra_ends);
+                for (0..1 + block.extra_ends) |_| rememberStmt(.{ .kind = .end_if });
             }
         },
-        .if_else => try emitEnds(1 + block.extra_ends),
+        .if_else => {
+            try emitEnds(1 + block.extra_ends);
+            for (0..1 + block.extra_ends) |_| rememberStmt(.{ .kind = .end_if });
+        },
     }
 }
 
@@ -2126,6 +2894,7 @@ fn parseStatement() CompileError!void {
             return fail(peek().start, .unsupported);
         }
         _ = try expect(.semicolon);
+        rememberStmt(.{ .kind = .ret });
         return body.byte(0x0f);
     }
     if (std.mem.eql(u8, word, "_")) {
@@ -2133,6 +2902,7 @@ fn parseStatement() CompileError!void {
         _ = try expect(.eq);
         _ = try compileExpr(null);
         _ = try expect(.semicolon);
+        rememberStmt(.{ .kind = .discard, .expr = last_expr });
         return body.byte(0x1a); // drop
     }
     const unsupported_words = [_][]const u8{ "for", "while", "loop", "switch", "break", "continue", "discard", "const_assert" };
@@ -2396,7 +3166,8 @@ fn emitGetter(w: *Buf, value: u32) CompileError!void {
 
 fn emitRender(w: *Buf) CompileError!void {
     const at = try w.beginSize();
-    try w.raw(&.{ 2, 1, 0x7f, 1, 0x7e }); // (local $i i32) (local $result i64)
+    // $i and $result. Both loop variants use the fixed element-count bound.
+    try w.raw(&.{ 2, 1, 0x7f, 1, 0x7e });
     // A host that exceeds the input capacity violates the contract.
     try w.localGet(0);
     try w.i32Const(@bitCast(RUN_BYTES_CAP));
@@ -2426,7 +3197,8 @@ fn emitRender(w: *Buf) CompileError!void {
         try w.localGet(0);
         try w.raw(&.{ 0xfc, 0x0b, 0x00 }); // memory.fill
     }
-    // for (i = 0; i < count; i += 1) main(i)
+    // for (i = 0; i < count; i += vectorized ? 4 : 1) main(i)
+    // The input cap keeps either counter far below unsigned overflow.
     try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
     try w.localGet(1);
     try w.byte(0x23);
@@ -2436,7 +3208,7 @@ fn emitRender(w: *Buf) CompileError!void {
     try w.byte(0x10);
     try w.uleb(FN_MAIN);
     try w.localGet(1);
-    try w.i32Const(1);
+    try w.i32Const(if (vectorized) 4 else 1);
     try w.byte(0x6a);
     try w.localSet(1);
     try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
@@ -2582,9 +3354,17 @@ fn emitModule() CompileError!usize {
     try emitGetter(&w, RUN_BYTES_CAP);
     try emitGetter(&w, 1);
     try emitRender(&w);
-    try emitFunction(&w);
+    if (!vectorized and scalar_code.len != 0) try w.raw(scalar_code.bytes[0..scalar_code.len]) else try emitFunction(&w);
     for (overrides[0..override_count], 0..) |o, i| try emitSetter(&w, @intCast(GLOBAL_FIRST_OVERRIDE + i), o.ty);
     w.endSize(at);
+
+    if (vectorized) {
+        try w.byte(0);
+        at = try w.beginSize();
+        try w.name("qip.vectorize_invocations");
+        try w.byte(4);
+        w.endSize(at);
+    }
 
     return w.len;
 }
@@ -2950,10 +3730,23 @@ fn compile(source: []const u8) CompileError!usize {
     in_kernel = false;
     tile_halo = 0;
     tile_samples = false;
+    ir_node_len = 0;
+    ir_stmt_len = 0;
+    ir_complete = vectorize_invocations != 0;
+    vectorized = false;
+    scalar_code.len = 0;
     try lex();
     while (peek().kind != .eof) try parseTopLevel();
     if (kernel_count > 0) return emitTileModule();
     if (!have_entry or !output_buffer.declared) return fail(@intCast(source.len), .unsupported);
+    if (ir_complete and input_buffer.declared and invocationIndependent()) {
+        // Keep the validated scalar function only for safe compilation fallback.
+        emitFunction(&scalar_code) catch {
+            scalar_code.len = 0;
+            return emitModule();
+        };
+        vectorized = emitInvocationBatch() catch false;
+    }
     return emitModule();
 }
 
@@ -2993,6 +3786,7 @@ export fn failure_modes_per_input_offset() u32 {
 }
 
 export fn render(input_size: u32) RenderResult {
+    defer vectorize_invocations = 0;
     if (input_size > INPUT_CAP) @trap();
     const size = compile(input_buf[0..input_size]) catch {
         return .{
@@ -3006,6 +3800,11 @@ export fn render(input_size: u32) RenderResult {
         .output_ptr = @intCast(@intFromPtr(&output_buf)),
         .failed = 0,
     };
+}
+
+export fn uniform_set_vectorize_invocations(value: u32) u32 {
+    vectorize_invocations = @intFromBool(value != 0);
+    return vectorize_invocations;
 }
 
 // ---------------------------------------------------------------------------
