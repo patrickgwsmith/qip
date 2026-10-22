@@ -125,6 +125,8 @@ const ANTHROPIC_POINTS = [_]ARRPoint{
     .{ .month = 28, .label = "Apr 2026", .arr_b = 30.0, .note = "Anthropic: Run-rate revenue surpassed $30B." },
     .{ .month = 29, .label = "May 2026", .arr_b = 47.0, .note = "FT and MarketWatch: Run rate crossed $47B." },
     .{ .month = 31, .label = "Jul 2026", .arr_b = 65.0, .note = "Bloomberg, Aug 18: Run rate hit $65B at July's end." },
+    // https://www.ft.com/content/11632d03-358c-454b-af95-d06d4072932b
+    .{ .month = 32, .label = "Q3 2026", .arr_b = 67.2, .note = "FT, Oct 15: Q3 revenue was $16.8B, or $67.2B annualized." },
 };
 
 var output_buf: [OUTPUT_BYTES]u8 = undefined;
@@ -807,13 +809,13 @@ test "latest Anthropic ARR is above latest OpenAI run-rate milestone" {
     try std.testing.expect(ANTHROPIC_POINTS[ANTHROPIC_POINTS.len - 1].arr_b > OPENAI_POINTS[OPENAI_POINTS.len - 1].arr_b);
 }
 
-test "latest milestones cite Bloomberg in hover detail" {
+test "latest milestones cite their sources in hover detail" {
     const openai = OPENAI_POINTS[OPENAI_POINTS.len - 1];
     const anthropic = ANTHROPIC_POINTS[ANTHROPIC_POINTS.len - 1];
     try std.testing.expectEqual(@as(f64, 40.0), openai.arr_b);
-    try std.testing.expectEqual(@as(f64, 65.0), anthropic.arr_b);
+    try std.testing.expectEqual(@as(f64, 67.2), anthropic.arr_b);
     try std.testing.expect(std.mem.indexOf(u8, openai.note, "Bloomberg") != null);
-    try std.testing.expect(std.mem.indexOf(u8, anthropic.note, "Bloomberg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, anthropic.note, "FT") != null);
 }
 
 test "scale tween interpolates for 300 milliseconds" {

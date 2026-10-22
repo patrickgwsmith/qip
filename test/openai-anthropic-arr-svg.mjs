@@ -32,7 +32,7 @@ test("SVG chart declares UTF-8 SVG and emits vector marks with live text", () =>
   const svg = render();
   assert.match(svg, /viewBox="0 0 820 540"/);
   assert.equal((svg.match(/<path /g) ?? []).length, 2);
-  assert.equal((svg.match(/<circle /g) ?? []).length, 25);
+  assert.equal((svg.match(/<circle /g) ?? []).length, 26);
   assert.match(svg, /<text[^>]*>OpenAI vs Anthropic revenue run rate<\/text>/);
   assert.match(svg, /data-qip-chart-control="scale-log"/);
   assert.doesNotMatch(svg, /<image\b|data:image\//);

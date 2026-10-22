@@ -116,6 +116,8 @@ const ANTHROPIC_POINTS = [_]ARRPoint{
     .{ .month = 28, .label = "Apr 2026", .arr_b = 30.0, .note = "Anthropic: Run-rate revenue surpassed $30B." },
     .{ .month = 29, .label = "May 2026", .arr_b = 47.0, .note = "FT and MarketWatch: Run rate crossed $47B." },
     .{ .month = 31, .label = "Jul 2026", .arr_b = 65.0, .note = "Bloomberg, Aug 18: Run rate hit $65B at July's end." },
+    // https://www.ft.com/content/11632d03-358c-454b-af95-d06d4072932b
+    .{ .month = 32, .label = "Q3 2026", .arr_b = 67.2, .note = "FT, Oct 15: Q3 revenue was $16.8B, or $67.2B annualized." },
 };
 
 var output_buf: [OUTPUT_CAP]u8 = undefined;

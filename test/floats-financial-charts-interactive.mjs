@@ -100,7 +100,7 @@ test("openai-anthropic-arr uses the full milestone hover area for its tooltip", 
   const initial = digest(exports, size);
 
   exports.begin_update_at(1n);
-  assert.equal(exports.pointer_event(0, 1426, 212), 1); // 24 logical pixels above the July 2026 Anthropic point.
+  assert.equal(exports.pointer_event(0, 1466, 210), 1); // 24 logical pixels above the Q3 2026 Anthropic point.
   assert.equal(exports.finish_update(), 1n);
   assert.equal(qipRenderSize(exports, 0), size);
   assert.notEqual(digest(exports, size), initial);
