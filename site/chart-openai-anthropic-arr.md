@@ -21,8 +21,8 @@ host calls `render`.
 </style>
 
 <fieldset class="arr-renderers" aria-label="Chart renderer">
-  <label><input type="radio" name="arr-renderer" value="ktx2" checked> KTX2</label>
-  <label><input type="radio" name="arr-renderer" value="svg"> SVG</label>
+  <label><input type="radio" name="arr-renderer" value="ktx2" checked> KTX2 pixels</label>
+  <label><input type="radio" name="arr-renderer" value="svg"> SVG vectors</label>
 </fieldset>
 
 <div id="arr-ktx-panel">
