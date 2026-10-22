@@ -255,6 +255,20 @@ main {
         }
     }
 }
+:root[data-path^="/essays/"] main {
+    font-size: 125%;
+    --measure: 40em;
+
+    h1 {
+        font-family: system-ui, sans-serif;
+        font-style: italic;
+        font-size: 300%;
+        line-height: 2.5rlh;
+        text-wrap: balance;
+        padding-bottom: 0.5lh;
+        border-bottom: 0.5px solid currentColor;
+    }
+}
 qip-main-layout {
     display: block;
 }
