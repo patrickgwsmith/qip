@@ -260,7 +260,9 @@ export fn active_count() u32 {
 }
 export fn render(input_size: u32) packed struct(u64) { output_size: u32, output_ptr: u31, failed: u1 } {
     if (input_size > INPUT_CAP) @trap();
-    const size = frame(std.mem.trim(u8, input[0..input_size], " \t\r\n"));
+    var size = frame(std.mem.trim(u8, input[0..input_size], " \t\r\n"));
+    // A newline after the last row would scroll a full frame up under the host's input line.
+    if (size > 0 and output[size - 1] == '\n') size -= 1;
     columns = 80;
     lines = 24;
     requested_active_index = 0;

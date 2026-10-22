@@ -388,6 +388,9 @@ tui/browser-compat-finder.wasm tui/browser-compat-finder-old.wasm: tui/lib/brows
 tui/caniuse-finder.wasm tui/caniuse-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 tui/caniuse-finder.wasm tui/caniuse-finder-old.wasm: tui/lib/caniuse-data.zig
 
+tui/caniemail-finder.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+tui/caniemail-finder.wasm: tui/lib/caniemail-data.zig
+
 tui/iana-media-type-finder.wasm tui/iana-media-type-finder-old.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 tui/iana-media-type-finder.wasm tui/iana-media-type-finder-old.wasm: tui/lib/iana-media-type-data.zig
 
@@ -1208,7 +1211,7 @@ qipx-rust:
 	cargo build --manifest-path rust/qipx/Cargo.toml --locked
 
 .PHONY: test-tui-text-input
-test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/country-finder-old.wasm tui/tld-finder-old.wasm tui/iana-media-type-finder-old.wasm tui/iana-service-port-finder-old.wasm tui/browser-compat-finder-old.wasm tui/caniuse-finder-old.wasm tui/emoji-finder.wasm tui/emoji-finder-old.wasm tui/calendar-gregorian.wasm
+test-tui-text-input: tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/caniemail-finder.wasm tui/country-finder-old.wasm tui/tld-finder-old.wasm tui/iana-media-type-finder-old.wasm tui/iana-service-port-finder-old.wasm tui/browser-compat-finder-old.wasm tui/caniuse-finder-old.wasm tui/emoji-finder.wasm tui/emoji-finder-old.wasm tui/calendar-gregorian.wasm
 	node --test test/finder-content-tui.mjs test/*finder-old-tui.mjs test/emoji-finder-tui.mjs test/qiptui.mjs test/qip-tui.mjs
 
 test-qipx-parity: qip qipx-rust text/hello.wasm text/hello-c.wasm text/trim.wasm bytes/identity.wasm text/utf8-must-be-valid.wasm tui/emoji-finder-old.wasm test/fixtures/uniform-setter-suffix.wasm test/fixtures/uniform-setter-duplicate.wasm
@@ -1765,4 +1768,4 @@ dev:
 defluff:
 	find . -name '.DS_Store' -type f -delete
 
-tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm: tui/lib/finder-content.zig
+tui/country-finder.wasm tui/tld-finder.wasm tui/iana-media-type-finder.wasm tui/iana-service-port-finder.wasm tui/browser-compat-finder.wasm tui/caniuse-finder.wasm tui/caniemail-finder.wasm: tui/lib/finder-content.zig

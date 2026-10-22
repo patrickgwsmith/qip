@@ -281,6 +281,32 @@ It shows four desktop browsers; the source also covers mobile browsers.
 Support status can depend on flags, prefixes, and the conditions in each feature's notes.
 The snapshot does not update when browser releases change.
 
+### Can I Email finder
+
+Search Can I Email feature titles, slugs, or keywords, such as `display:flex`,
+`css-margin`, or `dark mode`. Use Up and Down to select a feature. Apple Mail,
+Gmail, Outlook, and Yahoo! Mail summaries appear below the list, showing the
+latest tested support on each platform. Use Page Up and Page Down to read the
+test history and notes for every tested email client.
+
+<qip-tui aria-label="Can I Email finder" height="26rem">
+  <source src="/tui/caniemail-finder.wasm" type="application/wasm" />
+</qip-tui>
+
+<copy-code>
+
+```sh
+npx qiptui qip.dev tui/caniemail-finder.wasm
+```
+
+</copy-code>
+
+This finder contains 308 features from a [Can I Email data](https://github.com/hteumeuleu/caniemail)
+snapshot updated 16 September 2026. Data from caniemail.com is used under the
+[MIT License](https://github.com/hteumeuleu/caniemail/blob/main/LICENSE).
+Each result shows the most recent test for each client and platform, and some tests are several years old.
+The snapshot does not update when email clients change.
+
 ### Media types
 
 Type `application/json`, `+xml`, or an RFC number such as `RFC 8259`.

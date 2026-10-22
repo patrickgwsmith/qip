@@ -136,10 +136,12 @@ reset the offset to zero. A component without these exports has no detail page
 navigation.
 
 The country, top-level domain, IANA media type, IANA service port, MDN browser
-compatibility, and Can I Use finders use this model. Each accepts up to 1,024
-UTF-8 input bytes. The two compatibility finders select one feature at a time
-and show Chrome, Firefox, Safari, and Edge summaries before the longer notes.
-Their original eventful versions are preserved as `tui/<name>-old.wasm`.
+compatibility, Can I Use, and Can I Email finders use this model. Each accepts
+up to 1,024 UTF-8 input bytes. The two browser compatibility finders select one
+feature at a time and show Chrome, Firefox, Safari, and Edge summaries before
+the longer notes. The Can I Email finder shows Apple Mail, Gmail, Outlook, and
+Yahoo! Mail summaries, then every tested email client's history. The original
+eventful versions of the other finders are preserved as `tui/<name>-old.wasm`.
 
 The new emoji finder accepts up to 1,024 UTF-8 input bytes and shows the active
 emoji's details without a separate Enter or Escape action. The original finder

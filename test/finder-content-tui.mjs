@@ -11,6 +11,7 @@ const cases = [
   ["iana-service-port-finder", "53 udp", /53\/udp.*domain/, 11723],
   ["browser-compat-finder", "api.AbortController", /Safari: 12.1\+ history/, 13603],
   ["caniuse-finder", "css-grid", /CSS Grid Layout/, 554],
+  ["caniemail-finder", "css-display", /Gmail: Supported on Desktop Webmail/, 308],
 ];
 function finder(bytes) {
   const host = new ContentComponentHost(bytes);
@@ -43,6 +44,7 @@ for (const [name, query, expected, count] of cases) {
     assert.equal(f.exports.detail_count(), 0);
     for (const columns of [1, 20, 80, 160]) for (const lines of [1, 8, 10, 24, 60]) {
       const output = f.render(query, { columns, lines, active_index: 0xffffffff, detail_offset: 0xffffffff });
+      assert.ok(!output.endsWith("\n"), "a trailing newline scrolls a full frame under the input line");
       assert.ok(output.trimEnd().split("\n").length <= lines);
       assert.ok(output.trimEnd().split("\n").every(line => [...line].length <= columns));
     }
@@ -70,6 +72,24 @@ for (const [name, query, expected, count] of cases) {
     });
   }
 }
+test("Can I Email ranks an exact slug first and pages through every client", async () => {
+  const f = finder(await readFile("tui/caniemail-finder.wasm"));
+  const frame = f.render("css-display");
+  assert.match(frame, /^> display \[css-display\]$/m);
+  for (const client of ["Apple Mail", "Gmail", "Outlook", "Yahoo! Mail"]) assert.match(frame, new RegExp(`^${client}: `, "m"));
+  assert.match(frame, /caniemail\.com\/features\/css-display\//);
+  assert.ok(f.exports.detail_count() > f.exports.detail_page_size());
+  const last = f.render("css-display", { detail_offset: 0xffffffff });
+  assert.match(last, /Snapshot: 2026-09-16/);
+  assert.match(last, /MIT licence/);
+  assert.match(f.render("dark mode"), /prefers-color-scheme/);
+});
+
+test("Can I Email keeps tag names written in code", async () => {
+  const f = finder(await readFile("tui/caniemail-finder.wasm"));
+  assert.match(f.render("css-border-collapse", { lines: 40 }), /cells inside a <table> have shared/);
+});
+
 test("service ports preserve numeric range matching and transport filtering", async () => {
   const f = finder(await readFile("tui/iana-service-port-finder.wasm"));
   assert.match(f.render("6003 tcp"), /6000-6063\/tcp/);
