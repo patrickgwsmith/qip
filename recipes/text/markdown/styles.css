@@ -116,6 +116,15 @@ footer[role="contentinfo"] {
     }
 }
 
+header[role="banner"] ul {
+    align-items: baseline;
+
+    /* Logo is cropped to its glyphs; the Q tail and P stem drop 2 of 6 rows below the letter baseline. */
+    svg {
+        vertical-align: -6px;
+    }
+}
+
 qip-search {
     position: relative;
     display: block;
