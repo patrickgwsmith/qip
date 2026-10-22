@@ -59,12 +59,13 @@ So this is the approach I’ve taken with QIP, which is an API contract that Web
 
 I’ve readjusted my priors. Did you know that using `.innerHTML = ` to replace an HTML element can take a millisecond? We can use the same “naive” trick rendering SVGs, such as for [the OpenAI vs Anthropic revenue chart](https://qip.dev/chart-openai-anthropic-arr) (switch the radios between the bitmap KTX2 and vector SVG and you’ll find the SVG renders in under a millisecond). This is the kind of reset that removing older layers can achieve.
 
-The overhead of the DOM adds up. A single <div> takes up 11 bytes as HTML: `<div></div>` then expands into over ten times as a DOM node in the running browser. Then when that goes into the layout tree it takes roughly 1 kilobyte. That’s a hundredfold increase!
+The overhead of the DOM adds up. A single `<div>` takes up 11 bytes as HTML: `<div></div>` then expands into over ten times as a DOM node in the running browser. Then when that goes into the layout tree it takes roughly 1 kilobyte. That’s a hundredfold increase!
 
 These are the sorts of things agents are amazing at researching. You can ask its innate understanding baked into the LLM. You can then ask it to verify by spelunking in the Blink and WebKit source code. You can then ask it to run an experiment and measure something real.
 
-There’s a spectrum I’ve found that looks like this.
-Innate model -> External research -> Empirical experiment
+There’s a spectrum I’ve found that looks like this:
+
+**Innate model -> External research -> Empirical experiment**
 
 As the LLMs get more capable you can trust its innate model more. But you ought not take its word, and I think this will hold even as models get more knowledgeable. You simply can’t know everything because it would require doing everything. So you ask the LLM to step outside and trawl through raw data. For me, this is often a source file or article or book.
 
@@ -74,11 +75,11 @@ We can use this same approach with agents. What can I measure objectively? Add t
 
 This sort of thing was a chore before coding agents but now you can just ask. The agent will arm itself with a pencil, adding in the traces it needs, and a stopwatch and report back the speed. As you make changes keep the stopwatch handy. Is it faster? Did you accidentally make it way slower? The agent can iteratively measure time and memory and try to reduce these things and then measure itself. The scientific method has yielded us so much progress. Make your agents empirical.
 
-And the best way to embrace empiricism is to treat your software like a black box. I’ve been reading The Unaccountability Machine and the author Dan Davies talks about when you have a big system the people in charge find it so complex they are forced to treat it like a black box. For the purposes of testing and validation, not knowing how something works (or could work) helps stay objective.
+And the best way to embrace empiricism is to treat your software like a black box. I’ve been reading [The Unaccountability Machine](https://en.wikipedia.org/wiki/The_Unaccountability_Machine) and the author Dan Davies talks about when you have a big system the people in charge find it so complex they are forced to treat it like a black box. For the purposes of testing and validation, not knowing how something works (or could work) helps stay objective.
 
 A QIP component is a black box: it exposes input & output buffers, and a render function to turn one into the other. That’s pretty much it. This allows you to more easily unit test it, or rewrite it, or split in into two.
 
-Another book I’ve read recently is Inside the Box. Does this sound familiar like how AI adoption has proceeded in many companies? “The irony is that total freedom can be paralyzing, and unlimited resources don't necessarily lead to the biggest breakthroughs.” The book’s message resonated strongly with me: ”David Epstein argues that all of us—individuals, businesses, institutions, even societies—can benefit from narrowing our options. He dives into the science and practice of constraints, exploring exactly when and how guardrails can be beneficial, whether we're working with limited resources or using self-imposed boundaries to tap unexpected wells of focus and innovation.” Sounds like WebAssembly and QIP, no?
+Another book I’ve read recently is [Inside the Box](https://davidepstein.com/inside-the-box/). Does this sound familiar like how AI adoption has proceeded in many companies? “The irony is that total freedom can be paralyzing, and unlimited resources don't necessarily lead to the biggest breakthroughs.” The book’s message resonated strongly with me: ”David Epstein argues that all of us—individuals, businesses, institutions, even societies—can benefit from narrowing our options. He dives into the science and practice of constraints, exploring exactly when and how guardrails can be beneficial, whether we're working with limited resources or using self-imposed boundaries to tap unexpected wells of focus and innovation.” Sounds like WebAssembly and QIP, no?
 
 I find agents really fantastic at research. I can discover nuances about problem spaces or formats or domains. It can study papers and articles and existing implementations of solutions. It can gather test cases and edge cases and make sure we have considered them. I often use the ChatGPT app for research because I know it is constrained and cannot write any code. It takes me out of the solution mode that I am often in when using a coding agent.
 
