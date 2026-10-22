@@ -184,7 +184,7 @@ header nav,
 footer nav {
     width: 100%;
     max-width: var(--measure);
-    margin: auto;
+    margin: 0 auto;
     padding: 1lh 1em;
 }
 main {
