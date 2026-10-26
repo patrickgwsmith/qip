@@ -12,7 +12,7 @@ const [nodeCrypto, nodeFS, nodeOS, nodePath, nodeZlib] = runningInNode
   : [{}, {}, {}, {}, {}];
 const { createHash, randomUUID } = nodeCrypto;
 const { link, mkdir, open, readFile, readdir, realpath, stat, unlink, writeFile } = nodeFS;
-const { arch, cpus, platform } = nodeOS;
+const { arch, cpus, platform, release, type, version } = nodeOS;
 const { basename, dirname, isAbsolute, join, relative } = nodePath;
 const { gzipSync } = nodeZlib;
 
@@ -2316,13 +2316,45 @@ function benchmarkRuntimeDescription() {
   return `Node.js ${process.versions.node}, V8 ${process.versions.v8}`;
 }
 
+// benchmarkOSDescription names the OS distribution when the host publishes it, followed by
+// the kernel name and release, e.g. "macOS 15.5 (Darwin 24.5.0)".
+async function benchmarkOSDescription() {
+  const kernel = `${type()} ${release()}`;
+  let distribution;
+  try {
+    if (platform() === "darwin") {
+      const plist = await readFile("/System/Library/CoreServices/SystemVersion.plist", "utf8");
+      const field = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1];
+      distribution = [field("ProductName"), field("ProductVersion")].filter(Boolean).join(" ");
+    } else if (platform() === "linux") {
+      const osRelease = await readFile("/etc/os-release", "utf8");
+      distribution = /^PRETTY_NAME=(?:"([^"]*)"|(.*))$/m.exec(osRelease)?.slice(1).find((value) => value !== undefined);
+    } else if (platform() === "win32") {
+      distribution = version();
+    }
+  } catch {}
+  return distribution ? `${distribution} (${kernel})` : kernel;
+}
+
+async function benchmarkEnvironment() {
+  const processors = cpus();
+  const model = processors[0]?.model?.trim();
+  const count = `${processors.length} logical core${processors.length === 1 ? "" : "s"}`;
+  return {
+    os: await benchmarkOSDescription(),
+    architecture: arch(),
+    cpu: model ? `${model} (${count})` : count,
+    runtime: benchmarkRuntimeDescription(),
+  };
+}
+
 function benchmarkGCOptInCommand() {
   const runtime = globalThis.Bun?.version ? "bun" : "node";
   const modulePath = process.argv[1] ? JSON.stringify(process.argv[1]) : "path/to/qipx.mjs";
   return `${runtime} --expose-gc ${modulePath} bench ...`;
 }
 
-function printBenchmarkReport(candidates, input, inputLabel, expected, options, collectedAfterWarmup) {
+function printBenchmarkReport(candidates, input, inputLabel, expected, options, collectedAfterWarmup, environment) {
   const outputHash = sha256Hex(expected.outputBytes);
   console.log(candidates.length === 1 ? "Benchmark: baseline output captured" : "Benchmark: outputs match");
   console.log(`Input: ${displayText(inputLabel)} (${input.byteLength} bytes, sha256 ${sha256Hex(input)})`);
@@ -2337,9 +2369,11 @@ function printBenchmarkReport(candidates, input, inputLabel, expected, options, 
   }
   if (options.runs === undefined) console.log(`Measured: ${options.benchtimeLabel} target/component`);
   else console.log(`Measured: ${options.runs} runs/component`);
-  console.log(`Runtime: ${benchmarkRuntimeDescription()}`);
-  const cpu = cpus()[0]?.model;
-  console.log(`Platform: ${platform()} ${arch()}${cpu ? `, ${cpu}` : ""}`);
+  console.log("Environment:");
+  console.log(`  OS: ${displayText(environment.os)}`);
+  console.log(`  Architecture: ${environment.architecture}`);
+  console.log(`  CPU: ${displayText(environment.cpu)}`);
+  console.log(`  Runtime: ${environment.runtime}`);
   console.log("Boundary: uniforms, input/output copies, and render on one reused instance\n");
 
   const summaries = candidates.map((candidate) => summarizeBenchmarkSamples(candidate.samples, candidate.measuredNanoseconds / candidate.renderCount));
@@ -2442,7 +2476,7 @@ async function benchCommand(argv, hosts) {
     }
   }
 
-  printBenchmarkReport(candidates, input, inputLabel, expected, options, collectAfterWarmup);
+  printBenchmarkReport(candidates, input, inputLabel, expected, options, collectAfterWarmup, await benchmarkEnvironment());
 }
 
 /** @private Shared implementation for the package's unexported CLI module. */

@@ -414,6 +414,20 @@ test("qipx hosts benchmark a verified Content result", () => {
   });
 });
 
+test("qipx hosts report the same benchmark environment", () => {
+  const environments = implementations.map((implementation) => {
+    const result = run(implementation, ["bench", "-F", "message=hello", "--runs", "1", "--warmup", "0", "bytes/identity.wasm"]);
+    assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
+    const block = /^Environment:\n  OS: (.+)\n  Architecture: (.+)\n  CPU: (.+)\n  Runtime: (.+)$/m.exec(result.stdout.toString());
+    assert.ok(block, `${implementation.name} environment block`);
+    return block.slice(1);
+  });
+  // Only the runtime line describes the host itself.
+  assert.deepEqual(environments[1].slice(0, 3), environments[0].slice(0, 3));
+  assert.match(environments[0][3], /^(Node\.js .+, V8|Bun .+, JavaScriptCore)/);
+  assert.match(environments[1][3], /^Wasmtime \d+\.\d+\.\d+ \(Cranelift\), rustc \d+\.\d+\.\d+/);
+});
+
 test("qipx hosts benchmark multipart input for a short target duration", () => {
   for (const implementation of implementations) {
     const result = run(implementation, ["bench", "-F", "message=hello", "--warmup", "0", "--benchtime=1ms", "bytes/identity.wasm"]);

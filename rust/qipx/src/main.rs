@@ -1546,7 +1546,11 @@ fn bench(args: &[String], hosts: &[String]) -> Result<(), String> {
     } else {
         println!("Measured: {} target/component", benchtime.unwrap_or("3s"));
     }
-    println!("Runtime: Wasmtime");
+    println!("Environment:");
+    println!("  OS: {}", os_description().display_text());
+    println!("  Architecture: {}", node_arch_name());
+    println!("  CPU: {}", cpu_description().display_text());
+    println!("  Runtime: {}", runtime_description());
     println!("Boundary: input/output copies and render on one reused instance");
     for (candidate, mean) in candidates.iter().zip(means) {
         println!("{}: {mean:.0} ns mean", candidate.label.display_text());
@@ -1576,6 +1580,140 @@ fn parse_benchtime(value: &str) -> Result<Duration, String> {
     Err(format!(
         "invalid --benchtime {value}; use a duration such as 250ms, 3s, or 1m"
     ))
+}
+
+// os_description names the OS distribution when the host publishes it, followed by the
+// kernel name and release, e.g. "macOS 15.5 (Darwin 24.5.0)", matching the Node host.
+fn os_description() -> String {
+    let kernel = kernel_description();
+    let distribution = match env::consts::OS {
+        "macos" => fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist")
+            .ok()
+            .map(|plist| {
+                let field = |key: &str| {
+                    let (_, rest) = plist.split_once(&format!("<key>{key}</key>"))?;
+                    let rest = rest.trim_start().strip_prefix("<string>")?;
+                    Some(rest.split_once("</string>")?.0.to_owned())
+                };
+                [field("ProductName"), field("ProductVersion")]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            }),
+        "linux" => fs::read_to_string("/etc/os-release").ok().and_then(|text| {
+            let value = text
+                .lines()
+                .find_map(|line| line.strip_prefix("PRETTY_NAME="))?;
+            Some(value.trim_matches('"').to_owned())
+        }),
+        _ => None,
+    }
+    .filter(|name| !name.is_empty());
+    match distribution {
+        Some(name) => format!("{name} ({kernel})"),
+        None => kernel,
+    }
+}
+
+#[cfg(unix)]
+fn kernel_description() -> String {
+    // SAFETY: uname fills a zeroed utsname whose fields are NUL-terminated on success.
+    unsafe {
+        let mut name: libc::utsname = std::mem::zeroed();
+        if libc::uname(&mut name) != 0 {
+            return env::consts::OS.into();
+        }
+        let field = |raw: &[libc::c_char]| {
+            std::ffi::CStr::from_ptr(raw.as_ptr())
+                .to_string_lossy()
+                .into_owned()
+        };
+        format!("{} {}", field(&name.sysname), field(&name.release))
+    }
+}
+
+#[cfg(not(unix))]
+fn kernel_description() -> String {
+    env::consts::OS.into()
+}
+
+// node_arch_name reports the process architecture with Node's names so both hosts agree.
+fn node_arch_name() -> &'static str {
+    match env::consts::ARCH {
+        "aarch64" => "arm64",
+        "x86_64" => "x64",
+        "x86" => "ia32",
+        "powerpc64" => "ppc64",
+        arch => arch,
+    }
+}
+
+fn cpu_description() -> String {
+    #[cfg(unix)]
+    // SAFETY: sysconf has no preconditions.
+    let count = match unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) } {
+        count if count > 0 => count as usize,
+        _ => std::thread::available_parallelism().map_or(0, |n| n.get()),
+    };
+    #[cfg(not(unix))]
+    let count = std::thread::available_parallelism().map_or(0, |n| n.get());
+    let count = format!("{count} logical core{}", if count == 1 { "" } else { "s" });
+    match cpu_model() {
+        Some(model) => format!("{model} ({count})"),
+        None => count,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn cpu_model() -> Option<String> {
+    let mut buffer = [0u8; 256];
+    let mut length = buffer.len();
+    // SAFETY: the name is NUL-terminated and length describes the writable buffer.
+    let status = unsafe {
+        libc::sysctlbyname(
+            c"machdep.cpu.brand_string".as_ptr(),
+            buffer.as_mut_ptr().cast(),
+            &mut length,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if status != 0 {
+        return None;
+    }
+    let model = std::ffi::CStr::from_bytes_until_nul(&buffer[..length]).ok()?;
+    Some(model.to_string_lossy().trim().to_owned()).filter(|model| !model.is_empty())
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_model() -> Option<String> {
+    let cpuinfo = fs::read_to_string("/proc/cpuinfo").ok()?;
+    cpuinfo.lines().find_map(|line| {
+        let (key, value) = line.split_once(':')?;
+        (key.trim() == "model name")
+            .then(|| value.trim().to_owned())
+            .filter(|model| !model.is_empty())
+    })
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn cpu_model() -> Option<String> {
+    env::var("PROCESSOR_IDENTIFIER").ok()
+}
+
+fn runtime_description() -> String {
+    let wasmtime = env!("QIPX_WASMTIME_VERSION");
+    let rustc = env!("QIPX_RUSTC_VERSION");
+    let mut description = String::from("Wasmtime");
+    if !wasmtime.is_empty() {
+        description = format!("{description} {wasmtime}");
+    }
+    description.push_str(" (Cranelift)");
+    if !rustc.is_empty() {
+        description = format!("{description}, rustc {rustc}");
+    }
+    description
 }
 
 struct OracleState {
