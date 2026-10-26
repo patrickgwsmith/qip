@@ -106,7 +106,7 @@ func applyModulePolicyFlags(opts *options, maxMemoryBytes uint64, allowMemoryGro
 	return nil
 }
 
-const usageMain = "Usage: qip [host ...] <command> [args]\n\nHosts are dotted DNS names with optional ports. Missing safe relative .wasm files\nare requested over HTTPS in host order and saved at their original paths.\n\nCommands:\n  run      Run a chain of QIP components on input\n  dry run  Validate a run pipeline without executing it\n  tui      Run an Interactive text component in the terminal\n  bench    Compare one or more QIP components for output parity and performance\n  image    Run wasm filters on an input image\n  comply   Validate Content components and run Compliance oracles\n  router   Serve sites, resolve routed paths, and export route artifacts\n  form     Run an interactive QIP form component in the terminal\n  help     Show command help"
+const usageMain = "Usage: qip [host ...] <command> [args]\n\nHosts are dotted DNS names with optional ports. Missing safe relative .wasm files\nare requested over HTTPS in host order and saved at their original paths.\n\nCommands:\n  run      Run a chain of QIP components on input\n  dry run  Validate a run pipeline without executing it\n  tui      Run an Interactive text component in the terminal\n  bench    Compare one or more QIP components for output parity and performance\n  image    Run wasm filters on an input image\n  comply   Validate Content components and run Compliance oracles\n  router   Serve sites, resolve routed paths, and export route artifacts\n  help     Show command help"
 const usageRun = "Usage: qip [host ...] run [-v] [-i <input>] [-F, --form <name=value> ...] [-o <output file or ->] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
 const usageDry = "Usage: qip [host ...] dry run [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <QIP component URL or file> [-u <key=value> ...] ..."
 const usageBench = "Usage: qip [host ...] bench [-i <input>] [-F, --form <name=value> ...] [-r <benchmark runs> | --benchtime=<duration>] [--node] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] <component1> [component2 ...]"
@@ -122,7 +122,6 @@ const usageRouteHead = "Usage: qip router head <content_dir> <path> [--recipes <
 const usageRouteKindred = "Usage: qip router kindred <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
 const usageRouteList = "Usage: qip router list <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
 const usageRouteWarc = "Usage: qip router warc <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--host <host>] [--view-source] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
-const usageForm = "Usage: qip form [-v|--verbose] <QIP form component URL or file>"
 const usageTUI = "Usage: qip [host ...] tui [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--allow-memory-grow] [--capacities-must-fit] <Interactive component> [-u <key=value> ...] [Content component [-u <key=value> ...] ...]"
 const usageHelp = "Usage: qip help [command]"
 const legacyDevNotice = "qip: `qip dev` has moved to `qip router dev`; please update your command. `qip dev` will continue to work for now."
@@ -259,8 +258,6 @@ func main() {
 		routerCmd(args[1:])
 	} else if args[0] == "tui" {
 		tuiCmd(args[1:])
-	} else if args[0] == "form" {
-		formCmd(args[1:])
 	} else {
 		gameOver(usageMain)
 	}
@@ -270,7 +267,7 @@ var activeComponentHosts []qinternal.ComponentHost
 
 func parseHostedInvocation(args []string) ([]qinternal.ComponentHost, []string, error) {
 	known := map[string]bool{"run": true, "dry": true, "dry-run": true, "tui": true, "bench": true, "comply": true}
-	ordinary := map[string]bool{"run": true, "dry": true, "dry-run": true, "tui": true, "bench": true, "comply": true, "help": true, "doc": true, "score": true, "image": true, "dev": true, "router": true, "form": true}
+	ordinary := map[string]bool{"run": true, "dry": true, "dry-run": true, "tui": true, "bench": true, "comply": true, "help": true, "doc": true, "score": true, "image": true, "dev": true, "router": true}
 	if len(args) == 0 || ordinary[args[0]] {
 		return nil, args, nil
 	}
@@ -342,8 +339,6 @@ func helpCmd(args []string) {
 		fmt.Println(usageRouteWarc)
 	case "tui":
 		fmt.Println(usageTUI + "\n\n" + multipartHelp("tui"))
-	case "form":
-		fmt.Println(usageForm)
 	default:
 		gameOver(usageHelp)
 	}
@@ -408,12 +403,6 @@ func multipartHelp(command string) string {
 			"  qip run -F 'data=<input.txt' bytes/identity.wasm\n" +
 			"  printf hello | qip run -F 'data=<-' bytes/identity.wasm\n" +
 			"  qip run -i logo.svg -F '@Inter.ttf;type=font/ttf' svg-renderer.wasm\n"
-	}
-}
-
-func formCmd(args []string) {
-	if err := qinternal.RunFormCommand(args); err != nil {
-		gameOver("%v", err)
 	}
 }
 

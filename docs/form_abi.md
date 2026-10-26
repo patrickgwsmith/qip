@@ -638,9 +638,9 @@ graph TD
 
 ## Repository Status
 
-This contract replaces the previous stateful Form ABI. The current `qip form`
-command, `<qip-form>` browser element, and modules in `components/form/` still
-implement the previous ABI. They do not conform to this contract. Port them
+This contract replaces the previous stateful Form ABI. The `qip form` command
+has been removed. The `<qip-form>` browser element and modules in
+`components/form/` still implement the previous ABI. They do not conform to this contract. Port them
 before you use them as Prompt Projection examples.
 
 ## CLI Presentation

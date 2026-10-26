@@ -692,6 +692,8 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
     - [ ] Will be like an uncontrolled form in React, where every keypress does NOT need a re-render. Only do this on submit.
     - [ ] See how it could work with Time and Events, and HTML-in-canvas
   - [ ] In favor of a future cross-host `Prompt` contract: sequential prompts with recoverable failure, `submit(input_size, now_ms)` for state changes, and `render(0)` for the current semantic projection/output.
+  - [x] Remove the `qip form` CLI command.
+  - [ ] Port `<qip-form>` and the `components/form/*.zig` modules to Prompt Projection. Split each module into two stateless Content components: one maps urlencoded answers to urlencoded output carrying `_prompt[key]`, `_aria[role/label]`, and `_prompt[error]`; the other generates the final rfc822/iCal/vCard output. `qip-form.js` re-sends all answers on each step.
 - [ ] Add Command Palette example, combining `<input>` and `<canvas>`
 - [ ] Add CSV to chart SVG example
 - [ ] Add TCP simulator example, showing segments and allowing you to test failure.

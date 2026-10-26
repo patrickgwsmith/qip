@@ -63,8 +63,7 @@ path:
    component receives keyboard events. `qip tui` and `qipx tui` currently run
    eventful TUIs in a native terminal. Later CLI stages are finite Content
    transforms over each rendered frame.
-4. `qip form` uses Form.
-5. `qip comply --with` uses Compliance and requires an exported `memory` and
+4. `qip comply --with` uses Compliance and requires an exported `memory` and
    `comply() -> i32` entry point.
 
 `qip run` invokes only Content. It can perform the initial render of a
@@ -83,6 +82,7 @@ conventions used at composition boundaries. A component must not assume
 filesystem, network, environment, clock, or other host access unless its
 contract explicitly provides it.
 
-`IMAGE.md` documents the current Tile interface, and [Form ABI](/docs/form_abi)
-documents Form. Components may need to be rebuilt when an evolving contract
+`IMAGE.md` documents the current Tile interface, and
+[Prompt Projection](/docs/form_abi) documents prompt-driven Content components.
+Components may need to be rebuilt when an evolving contract
 changes during QIP alpha.

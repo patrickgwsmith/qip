@@ -32,15 +32,6 @@ func TestNormalizeComplyArgs(t *testing.T) {
 	}
 }
 
-func TestNormalizeFormArgs(t *testing.T) {
-	in := []string{"module.wasm", "-v"}
-	got := normalizeFormArgs(in)
-	want := []string{"-v", "module.wasm"}
-	if !reflect.DeepEqual(got, want) {
-		t.Fatalf("args=%v, want %v", got, want)
-	}
-}
-
 func TestNormalizeFlagArgsPreservingPositionalOptions(t *testing.T) {
 	in := []string{"module.wasm", "-u", "width=640", "--max-memory", "1048576"}
 	got := NormalizeFlagArgsPreserving(
