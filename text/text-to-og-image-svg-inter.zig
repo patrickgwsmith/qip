@@ -723,7 +723,15 @@ fn glyphKerning(left: usize, right: usize, use_bold: bool) i32 {
     return value;
 }
 
+// Packed font modules decode path data on demand instead of storing strings.
+// The returned slice is valid until the next call.
+const PACKED_GLYPH_PATHS = !@hasDecl(regular, "glyph_paths");
+var glyph_path_buf: [if (PACKED_GLYPH_PATHS) @max(regular.MAX_GLYPH_PATH_LEN, bold.MAX_GLYPH_PATH_LEN) else 0]u8 = undefined;
+
 fn glyphPath(glyph_index: usize, use_bold: bool) []const u8 {
+    if (PACKED_GLYPH_PATHS) {
+        return if (use_bold) bold.glyphPath(glyph_index, &glyph_path_buf) else regular.glyphPath(glyph_index, &glyph_path_buf);
+    }
     return if (use_bold) bold.glyph_paths[glyph_index] else regular.glyph_paths[glyph_index];
 }
 

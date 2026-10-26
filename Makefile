@@ -544,6 +544,8 @@ text/text-to-og-image-svg-inter.wasm: text/lib/inter_display_latin_paths.zig tex
 
 text/text-to-svg-inter.wasm: text/text-to-og-image-svg-inter.zig text/lib/inter_display_latin_paths.zig text/lib/inter_display_bold_latin_paths.zig
 
+text/text-to-svg-inter-packed.wasm: text/text-to-og-image-svg-inter.zig text/lib/inter_display_latin_packed_paths.zig text/lib/inter_display_bold_latin_packed_paths.zig
+
 text/text-to-svg-jetbrains-mono-v2.304.wasm: text/text-to-og-image-svg-inter.zig text/lib/jetbrains_mono_2_304_regular_latin_paths.zig text/lib/jetbrains_mono_2_304_bold_latin_paths.zig
 
 text/strip-ansi-sgr.wasm text/ansi-sgr-to-html.wasm text/ansi-sgr-to-svg.wasm: text/lib/ansi-sgr.zig
