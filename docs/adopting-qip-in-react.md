@@ -249,7 +249,7 @@ each keystroke is synchronous and does not need an Effect or server request.
 
 You can use both. Run the component in the browser for an immediate preview,
 then run it on the server before the application accepts or stores the result.
-See [Architecture Boundaries](/docs/architecture-boundaries#choose-the-server-or-browser)
+See [Architecture Boundaries](/docs/architecture-boundaries#server-or-browser)
 for the full placement and security guidance.
 
 ## Handle Failure And Output
