@@ -69,6 +69,8 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 - [`utf8-must-be-ascii.wasm`](/text/utf8-must-be-ascii.wasm) accepts ASCII bytes unchanged and reports the first non-ASCII byte offset.
 - [`luhn.wasm`](/text/luhn.wasm) validates a number with the Luhn checksum and returns its digits without spaces or hyphens.
 - [`tld-validator.wasm`](/text/tld-validator.wasm) validates a top-level domain label.
+- [`bcp47-must-be-well-formed.wasm`](/text/bcp47-must-be-well-formed.wasm) accepts a language tag unchanged if it matches the RFC 5646 grammar, and reports the offset of the first bad subtag.
+- [`bcp47-must-be-valid.wasm`](/text/bcp47-must-be-valid.wasm) also requires every subtag to be in the IANA Language Subtag Registry (2026-09-17 snapshot) and rejects repeated variants and extension singletons.
 
 ## Unicode 17
 

@@ -1081,6 +1081,8 @@ text/unicode-17-uppercase.wasm: text/lib/unicode-17-uppercase-tables.zig text/li
 text/unicode-17-normalize-nfc.wasm: ZIG_WASM_FLAGS += -mcpu=generic+bulk_memory
 text/unicode-17-normalize-nfc.wasm: text/lib/unicode-17-nfc-singletons.zig
 text/iso-4217-alpha-to-numeric.wasm: text/lib/iso-4217-alpha-numeric-table.zig
+text/bcp47-must-be-well-formed.wasm: text/lib/bcp47.zig
+text/bcp47-must-be-valid.wasm: text/lib/bcp47.zig text/lib/bcp47-registry.zig
 
 bytes/zlib-compress-dynamic-huffman-opt.wasm: bytes/lib/deflate.zig
 image/bmp/bmp-to-png.wasm: image/bmp/lib/deflate.zig
@@ -1359,6 +1361,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/shortcode-to-emoji.mjs
 	node --test test/html-to-accessibility-tree.mjs
 	node --test test/luhn.mjs
+	node --test test/bcp47.mjs
 	node --test test/unicode-17-lowercase.mjs
 	node --test test/unicode-17-uppercase-comply.mjs
 	node --test test/unicode-17-normalize-nfc.mjs
