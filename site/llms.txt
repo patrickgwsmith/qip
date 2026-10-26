@@ -23,7 +23,9 @@ qip favors explicit contracts and simple pipelines. QIP components are sandboxed
 
 ## Router & Site Building
 
-- [Router](/docs/router.md): `qip router` and `qip dev` behavior, route resolution, and WARC flow.
+- [Router overview](/docs/router.md): File-system routing, numbered Wasm recipe pipelines per content type, layouts as markup, WARC output, and a comparison with other static site generators.
+- [Build a site and blog](/docs/router-tutorial.md): Step-by-step tutorial from an empty folder to a deployable static site with `npx qip-router`.
+- [Router specification](/docs/router-spec.md): Normative route resolution, recipe ordering, main layouts, Kindred Routes, and WARC export rules.
 - [Recipes](/docs/recipes.md): Recipe discovery/order and content-vs-WARC processing layers.
 - [Content layout](/docs/content.md): Content root layout and path rules.
 - [Formats and encodings](/docs/formats.md): Preferred content formats used throughout qip.

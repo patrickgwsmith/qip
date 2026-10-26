@@ -2,7 +2,7 @@
 
 QIP routes files from a content tree and applies recipe components based on the source MIME type.
 
-Use this page as the operational summary. The normative route rules live in [Router](/docs/router), and recipe discovery/order is defined in [Recipes](/docs/recipes).
+Use this page as the operational summary. The normative route rules live in the [Router Specification](/docs/router-spec), and recipe discovery/order is defined in [Recipes](/docs/recipes).
 
 ## Content Discovery
 

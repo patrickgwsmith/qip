@@ -386,4 +386,4 @@ Flutter helps you write one app for many platforms. QIP helps you write one comp
 - [Adopting QIP in React](/docs/adopting-qip-in-react)
 - [How QIP Works](/docs/how-it-works)
 - [QIP Component Contract](/docs/component-contract)
-- [Router Specification](/docs/router)
+- [Router Specification](/docs/router-spec)

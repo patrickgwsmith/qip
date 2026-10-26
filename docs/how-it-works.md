@@ -184,7 +184,7 @@ sees the current response bytes. A whole-site component sees the WARC bytes
 that the host deliberately supplies. Neither component receives filesystem or
 network access.
 
-See [Router](/docs/router) for path resolution and [Recipes](/docs/recipes) for
+See the [Router Specification](/docs/router-spec) for path resolution and [Recipes](/docs/recipes) for
 selection, ordering, and whole-site processing.
 
 ## Where To Go Next

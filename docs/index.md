@@ -156,7 +156,9 @@ Server Component and Client Component example.
 </li>
 <li><span class="docs-section">Router</span>
 <ol>
-<li><a href="/docs/router">Router</a></li>
+<li><a href="/docs/router">Router Overview</a></li>
+<li><a href="/docs/router-tutorial">Build a Site and Blog</a></li>
+<li><a href="/docs/router-spec">Router Specification</a></li>
 <li><a href="/docs/content">Content Layout</a></li>
 <li><a href="/docs/recipes">Recipe Layout</a></li>
 <li><a href="/docs/routing-recipes">File Routing & Recipe Orchestration</a></li>
