@@ -115,12 +115,10 @@ class QIPPlayWasmReader {
 function qipPlayReadModulePolicy(rootElement) {
   const maxMemoryRaw = rootElement.getAttribute("max-memory");
   const maxMemoryBytes = maxMemoryRaw === null ? 0 : qipPlayParsePolicyBytes(maxMemoryRaw, "max-memory");
-  const allowMemoryGrow = rootElement.hasAttribute("allow-memory-grow");
-  if (allowMemoryGrow && maxMemoryBytes === 0) {
-    throw new Error("allow-memory-grow requires max-memory=\"<bytes>\"");
+  if (rootElement.hasAttribute("allow-memory-grow")) {
+    throw new Error("allow-memory-grow has been removed: modules containing memory.grow are always rejected");
   }
-  const rejectOpcodes = allowMemoryGrow ? [] : [QIP_PLAY_OPCODE_MEMORY_GROW];
-  return { maxMemoryBytes, rejectOpcodes };
+  return { maxMemoryBytes, rejectOpcodes: [QIP_PLAY_OPCODE_MEMORY_GROW] };
 }
 
 function qipPlayParsePolicyBytes(rawValue, attrName) {

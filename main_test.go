@@ -231,7 +231,7 @@ func TestNormalizeRunArgs(t *testing.T) {
 		"2500",
 		"--max-memory",
 		"1048576",
-		"--allow-memory-grow",
+		"--capacities-must-fit",
 	}
 	got := normalizeRunArgs(in)
 	want := []string{
@@ -241,7 +241,7 @@ func TestNormalizeRunArgs(t *testing.T) {
 		"2500",
 		"--max-memory",
 		"1048576",
-		"--allow-memory-grow",
+		"--capacities-must-fit",
 		"text/trim.wasm",
 		"?x=1",
 		"text/wc.wasm",
@@ -291,36 +291,21 @@ func TestNormalizeBenchArgsWithMultipartInput(t *testing.T) {
 }
 
 func TestApplyModulePolicyFlags(t *testing.T) {
-	t.Run("fixed memory by default", func(t *testing.T) {
-		var opts options
-		if err := applyModulePolicyFlags(&opts, 0, false); err != nil {
-			t.Fatalf("applyModulePolicyFlags: %v", err)
-		}
-		if !reflect.DeepEqual(opts.modulePolicy.RejectOpcodes, []wasminspect.InstructionOpcode{wasminspect.OpcodeMemoryGrow}) {
-			t.Fatalf("RejectOpcodes=%v, want memory.grow", opts.modulePolicy.RejectOpcodes)
-		}
-	})
+	var opts options
+	applyModulePolicyFlags(&opts, 1048576)
+	if opts.modulePolicy.MaxMemoryBytes != 1048576 {
+		t.Fatalf("MaxMemoryBytes=%d, want 1048576", opts.modulePolicy.MaxMemoryBytes)
+	}
+	if !reflect.DeepEqual(opts.modulePolicy.RejectOpcodes, []wasminspect.InstructionOpcode{wasminspect.OpcodeMemoryGrow}) {
+		t.Fatalf("RejectOpcodes=%v, want memory.grow", opts.modulePolicy.RejectOpcodes)
+	}
+}
 
-	t.Run("growth requires cap", func(t *testing.T) {
-		var opts options
-		err := applyModulePolicyFlags(&opts, 0, true)
-		if err == nil || !strings.Contains(err.Error(), "requires --max-memory") {
-			t.Fatalf("error=%v, want max-memory requirement", err)
-		}
-	})
-
-	t.Run("capped growth", func(t *testing.T) {
-		var opts options
-		if err := applyModulePolicyFlags(&opts, 1048576, true); err != nil {
-			t.Fatalf("applyModulePolicyFlags: %v", err)
-		}
-		if opts.modulePolicy.MaxMemoryBytes != 1048576 {
-			t.Fatalf("MaxMemoryBytes=%d, want 1048576", opts.modulePolicy.MaxMemoryBytes)
-		}
-		if len(opts.modulePolicy.RejectOpcodes) != 0 {
-			t.Fatalf("RejectOpcodes=%v, want none", opts.modulePolicy.RejectOpcodes)
-		}
-	})
+func TestRunRejectsRemovedAllowMemoryGrowFlag(t *testing.T) {
+	_, err := parseRunCommandArgs([]string{"--allow-memory-grow", "--max-memory", "1048576", "text/trim.wasm"}, "run")
+	if err == nil || !strings.Contains(err.Error(), "allow-memory-grow") {
+		t.Fatalf("error=%v, want unknown --allow-memory-grow flag", err)
+	}
 }
 
 func TestNormalizeRouteArgs(t *testing.T) {

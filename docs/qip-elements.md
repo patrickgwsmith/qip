@@ -231,7 +231,7 @@ Components use fixed memory by default. Add a byte cap when the page needs a tig
 ```
 
 - `max-memory="<bytes>"` rejects a module whose declared memory minimum or maximum exceeds the cap. If a module has memory but no declared maximum, it is rejected.
-- `allow-memory-grow` permits `memory.grow` and requires `max-memory` on the same element.
+- A module containing `memory.grow` is always rejected. The `allow-memory-grow` attribute has been removed, and an element that still sets it reports an error.
 
 These checks run after the module bytes are fetched and before `WebAssembly.compile`. `<qip-view>` and `<qip-play>` accept the same attributes.
 

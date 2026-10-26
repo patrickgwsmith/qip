@@ -316,11 +316,10 @@ function qipPlayPresentation(element, renderWidth) {
  *
  * Static module policy:
  *
- * - Modules containing memory.grow are rejected by default.
+ * - Modules containing memory.grow are always rejected.
  * - max-memory="<bytes>" rejects modules whose declared memory minimum or
  *   maximum exceeds the byte cap. A module with memory but no declared maximum
  *   is rejected when this attribute is set.
- * - allow-memory-grow permits memory.grow and requires max-memory.
  *
  * Pointer lock:
  *

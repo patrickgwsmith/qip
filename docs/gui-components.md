@@ -189,8 +189,7 @@ The comparison scans the complete output, so keep it disabled for normal use.
 
 `<qip-play max-memory="67108864">` rejects a module whose declared memory
 minimum or maximum exceeds that cap. A module without a declared maximum is
-also rejected. `memory.grow` is rejected unless `allow-memory-grow` is present
-with `max-memory`.
+also rejected. A module containing `memory.grow` is always rejected.
 
 See [Testing GUI Components](/docs/testing-gui-components) for direct Wasm,
 host-loop, output, and browser tests.

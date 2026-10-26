@@ -142,12 +142,10 @@ class QIPEditWasmReader {
 function qipEditReadModulePolicy(rootElement) {
   const maxMemoryRaw = rootElement.getAttribute("max-memory");
   const maxMemoryBytes = maxMemoryRaw === null ? 0 : qipEditParsePolicyBytes(maxMemoryRaw, "max-memory");
-  const allowMemoryGrow = rootElement.hasAttribute("allow-memory-grow");
-  if (allowMemoryGrow && maxMemoryBytes === 0) {
-    throw new Error("allow-memory-grow requires max-memory=\"<bytes>\"");
+  if (rootElement.hasAttribute("allow-memory-grow")) {
+    throw new Error("allow-memory-grow has been removed: modules containing memory.grow are always rejected");
   }
-  const rejectOpcodes = allowMemoryGrow ? [] : [QIP_EDIT_OPCODE_MEMORY_GROW];
-  return { maxMemoryBytes, rejectOpcodes };
+  return { maxMemoryBytes, rejectOpcodes: [QIP_EDIT_OPCODE_MEMORY_GROW] };
 }
 
 function qipEditParsePolicyBytes(rawValue, attrName) {
@@ -1089,11 +1087,10 @@ function qipEditRenderTextOutput(outputElement, text, contentType, isError) {
  *
  * Static module policy:
  *
- * - Modules containing memory.grow are rejected by default.
+ * - Modules containing memory.grow are always rejected.
  * - max-memory="<bytes>" rejects modules whose declared memory minimum or
  *   maximum exceeds the byte cap. A module with memory but no declared maximum
  *   is rejected when this attribute is set.
- * - allow-memory-grow permits memory.grow and requires max-memory.
  */
 class QIPEditElement extends HTMLElement {
   constructor() {

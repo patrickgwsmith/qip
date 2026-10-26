@@ -13,7 +13,7 @@ separate controls for host access, memory, and execution time.
 | Control | Limit | Normal QIP rule |
 | --- | --- | --- |
 | Host access | Data and services a component can use | No WASI. The host provides only imports required by the selected contract. |
-| Linear memory | Declared Wasm memory size and growth | Reject `memory.grow` by default. An optional byte cap checks declared memory limits. |
+| Linear memory | Declared Wasm memory size and growth | Always reject `memory.grow`. An optional byte cap checks declared memory limits. |
 | Execution time | Time for one executed CLI stage | `--timeout-ms` stops a stage that exceeds its time limit. |
 
 ABI capacity checks stop host copies outside the advertised input and output
@@ -29,7 +29,7 @@ use valid Wasm features that the strict tier rejects.
 | Check | `run`, `dry run`, `bench`, and `image` | `comply` |
 | --- | --- | --- |
 | Component contract and pipeline compatibility | Yes | Base Content ABI and static QIP getter checks |
-| Reject `memory.grow` | Yes, unless `--allow-memory-grow` is set | No |
+| Reject `memory.grow` | Yes, always | No |
 | Check declared memory against `--max-memory` | Yes, when set | Yes, when set |
 | Reject indirect calls | No | No |
 | Strict Wasm profile | Only with `wasm-strict-profile.wasm` in the pipeline | No |
@@ -65,11 +65,9 @@ qip image -i in.png -o out.png --timeout-ms 1000 --max-memory 8388608 components
 - `--max-memory <bytes>` rejects a module when a declared memory minimum or
   maximum is larger than the cap. It also rejects a declared memory with no
   maximum.
-- `memory.grow` is rejected by default. Equal initial and maximum memory sizes
-  do not change this rule. Allocator code can contain `memory.grow` even when
-  every call to it will fail.
-- `--allow-memory-grow` permits `memory.grow` and requires
-  `--max-memory <bytes>`.
+- `memory.grow` is always rejected, and no flag allows it. Equal initial and
+  maximum memory sizes do not change this rule. Allocator code can contain
+  `memory.grow` even when every call to it will fail.
 - `--timeout-ms <ms>` limits one executed CLI stage. It limits execution time,
   not allocation.
 
@@ -82,14 +80,6 @@ Browser elements use the equivalent attributes:
 ```html
 <qip-edit max-memory="67108864">
   <source src="/text/markdown/commonmark.0.31.2.wasm" type="application/wasm" />
-</qip-edit>
-```
-
-Allow memory growth only with a cap:
-
-```html
-<qip-edit allow-memory-grow max-memory="16777216">
-  <source src="/example.wasm" type="application/wasm" />
 </qip-edit>
 ```
 
@@ -300,11 +290,8 @@ RUSTFLAGS="-C link-arg=--initial-memory=1048576 -C link-arg=--max-memory=1048576
 qip run target/wasm32v1-none/release/component.wasm
 ```
 
-If an existing component needs a growable allocator, set a host cap:
-
-```bash
-qip run --allow-memory-grow --max-memory 16777216 component.wasm
-```
+QIP hosts reject a component that contains `memory.grow`, so replace a
+growable allocator with one on a fixed static region.
 
 See the Rust [wasm32-unknown-unknown target notes](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html)
 and [wasm32v1-none target notes](https://doc.rust-lang.org/rustc/platform-support/wasm32v1-none.html).

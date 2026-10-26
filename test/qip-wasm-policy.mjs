@@ -94,29 +94,16 @@ test("browser wasm policy rejects memory.grow by default", () => {
   }
 });
 
-test("browser wasm policy requires a cap when memory growth is allowed", () => {
-  assert.throws(
-    () => readPolicyWithBoth({ "allow-memory-grow": "" }),
-    /allow-memory-grow requires max-memory/,
-  );
+test("browser wasm policy rejects memory.grow under a memory cap", () => {
+  for (const policy of readPolicyWithBoth({ "max-memory": String(2 * page) })) {
+    assert.deepEqual(policy, { maxMemoryBytes: 2 * page, rejectOpcodes: [opcodeMemoryGrow] });
+  }
 });
 
-test("browser wasm policy allows capped memory growth explicitly", () => {
-  const moduleBytes = buildModule({
-    memory: { min: 1, hasMax: true, max: 2 },
-    ops: [
-      0x41, 0x01, // i32.const 1
-      0x40, 0x00, // memory.grow 0
-      0x1a, // drop
-      0x0b, // end
-    ],
-  });
-  for (const policy of readPolicyWithBoth({
-    "allow-memory-grow": "",
-    "max-memory": String(2 * page),
-  })) {
-    assert.deepEqual(policy, { maxMemoryBytes: 2 * page, rejectOpcodes: [] });
-    assert.doesNotThrow(() => validateWithBoth(moduleBytes, policy));
+test("browser wasm policy refuses the removed allow-memory-grow attribute", () => {
+  for (const attributes of [{ "allow-memory-grow": "" }, { "allow-memory-grow": "", "max-memory": String(2 * page) }]) {
+    assert.throws(() => __qipEditReadModulePolicy(policyElement(attributes)), /allow-memory-grow has been removed/);
+    assert.throws(() => __qipPlayReadModulePolicy(policyElement(attributes)), /allow-memory-grow has been removed/);
   }
 });
 
