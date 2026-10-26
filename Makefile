@@ -1385,6 +1385,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/site-warc-recipe-report.mjs
 	node --test test/warc-connect-search-params-comply.mjs
 	node --test test/warc-text-uri-list-to-redirect.mjs
+	node --test test/warc-check-broken-links.mjs
 	node --test test/qip-wasm-checks.mjs
 	node --test test/trace-with.mjs
 	node --test test/qip-wasm-policy.mjs

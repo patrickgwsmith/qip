@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -499,10 +500,11 @@ func executeModuleWithInput(
 			returnErr = fmt.Errorf("render returned input failure offset %d beyond input size %d", inputOffset, inputSize)
 			return
 		}
+		location := describeInputOffset(inputBytes, int(inputOffset), contract.declaredInputContentType)
 		if contract.failureModesPerInputOffset == 1 {
-			returnErr = fmt.Errorf("rejected input at input offset %d", inputOffset)
+			returnErr = fmt.Errorf("rejected input at input offset %d%s", inputOffset, location)
 		} else {
-			returnErr = fmt.Errorf("rejected input at input offset %d with mode %d", inputOffset, mode)
+			returnErr = fmt.Errorf("rejected input at input offset %d with mode %d%s", inputOffset, mode, location)
 		}
 		return
 	}
@@ -546,6 +548,104 @@ func memorySizeBytes(mem api.Memory) uint64 {
 		return 0
 	}
 	return uint64(pages) * 65536
+}
+
+// describeInputOffset locates a rejected input offset for people reading the error. For WARC input
+// it names the enclosing record's target URI, because offsets into a whole-site archive are otherwise
+// hard to trace back to a page. For text it quotes the surrounding line. It returns "" when neither
+// applies, such as for binary input.
+func describeInputOffset(input []byte, offset int, contentType string) string {
+	if offset < 0 || offset > len(input) {
+		return ""
+	}
+	var b strings.Builder
+	if mediaTypeEssence(contentType) == "application/warc" {
+		if target := warcTargetURIBefore(input, offset); target != "" {
+			fmt.Fprintf(&b, " in WARC record %s", target)
+		}
+	}
+	if snippet, ok := inputSnippet(input, offset); ok {
+		fmt.Fprintf(&b, " near %s", snippet)
+	}
+	return b.String()
+}
+
+func mediaTypeEssence(contentType string) string {
+	essence, _, _ := strings.Cut(contentType, ";")
+	return strings.ToLower(strings.TrimSpace(essence))
+}
+
+// warcTargetURIBefore returns the WARC-Target-URI of the last record header starting at or before
+// offset. It scans back for a "WARC/" version line at the start of a line, so a payload that happens
+// to contain one can misattribute the offset; the result is only a hint in an error message.
+func warcTargetURIBefore(input []byte, offset int) string {
+	end := min(offset+1, len(input))
+	for search := end; search > 0; {
+		start := strings.LastIndex(string(input[:search]), "WARC/")
+		if start < 0 {
+			return ""
+		}
+		if start == 0 || input[start-1] == '\n' {
+			headerEnd := len(input)
+			if i := strings.Index(string(input[start:]), "\r\n\r\n"); i >= 0 {
+				headerEnd = start + i
+			}
+			for _, line := range strings.Split(string(input[start:headerEnd]), "\n") {
+				key, value, found := strings.Cut(strings.TrimRight(line, "\r"), ":")
+				if found && strings.EqualFold(strings.TrimSpace(key), "WARC-Target-URI") {
+					return strings.TrimSpace(value)
+				}
+			}
+			return ""
+		}
+		search = start
+	}
+	return ""
+}
+
+const (
+	inputSnippetBefore = 24
+	inputSnippetAfter  = 48
+)
+
+// inputSnippet quotes the text around offset on its line, marking truncation with "…". It declines
+// input that is not printable UTF-8 near the offset.
+func inputSnippet(input []byte, offset int) (string, bool) {
+	start := max(offset-inputSnippetBefore, 0)
+	end := min(offset+inputSnippetAfter, len(input))
+	if i := strings.LastIndexByte(string(input[start:offset]), '\n'); i >= 0 {
+		start += i + 1
+	}
+	if i := strings.IndexByte(string(input[offset:end]), '\n'); i >= 0 {
+		end = offset + i
+	}
+	for start < offset && !utf8.RuneStart(input[start]) {
+		start++
+	}
+	for end > offset && end < len(input) && !utf8.RuneStart(input[end]) {
+		end--
+	}
+	window := strings.TrimRight(string(input[start:end]), "\r")
+	if window == "" || !utf8.ValidString(window) {
+		return "", false
+	}
+	for _, r := range window {
+		if r != '\t' && (r < 0x20 || r == 0x7f) {
+			return "", false
+		}
+	}
+	prefix, suffix := "", ""
+	if start > 0 && input[start-1] != '\n' {
+		prefix = "…"
+	}
+	if end < len(input) && input[end] != '\n' && input[end] != '\r' {
+		suffix = "…"
+	}
+	snippet := prefix + window + suffix
+	if strconv.CanBackquote(snippet) {
+		return "`" + snippet + "`", true
+	}
+	return strconv.Quote(snippet), true
 }
 
 // firstInvalidUTF8Offset returns the byte offset of the first invalid UTF-8 sequence, or -1.

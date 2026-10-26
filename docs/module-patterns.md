@@ -2,7 +2,7 @@
 
 A Content component receives one bounded input, calls `render`, and produces
 one bounded output. Start by deciding what the output means. That choice
-determines whether rejection should trap, whether empty output is valid, and
+determines how malformed input is rejected, whether empty output is valid, and
 whether the component belongs in the middle or at the end of a pipeline.
 
 This page covers implementation patterns. The
@@ -16,16 +16,18 @@ that.
 
 ## Choose By Purpose
 
-| Purpose | Successful output | Reject with | Repository example |
+| Purpose | Successful output | Malformed input | Repository example |
 | --- | --- | --- | --- |
 | Assertion gate | Original input unchanged | `render` rejection | [`utf8-must-be-valid.wasm`](/text/utf8-must-be-valid.wasm) |
-| Transformer | Replacement content | Trap | [`json-prettify.wasm`](/application/json/json-prettify.wasm) |
-| Converter | Content in a different format | Trap | [`svg-to-data-uri.wasm`](/image/svg+xml/svg-to-data-uri.wasm) |
-| Reporter | Counts, scores, or diagnostics | Trap | [`wasm-counts.wasm`](/application/wasm/wasm-counts.wasm) |
-| Extractor or filter | Matching content, which may be empty | Trap | [`wasm-read-input-content-type.wasm`](/application/wasm/wasm-read-input-content-type.wasm) |
+| Transformer | Replacement content | Rejection if cheap, else trap | [`json-prettify.wasm`](/application/json/json-prettify.wasm) |
+| Converter | Content in a different format | Rejection if cheap, else trap | [`svg-to-data-uri.wasm`](/image/svg+xml/svg-to-data-uri.wasm) |
+| Reporter | Counts, scores, or diagnostics | Rejection if cheap, else trap | [`wasm-counts.wasm`](/application/wasm/wasm-counts.wasm) |
+| Extractor or filter | Matching content, which may be empty | Rejection if cheap, else trap | [`wasm-read-input-content-type.wasm`](/application/wasm/wasm-read-input-content-type.wasm) |
 
 These purposes describe data flow. UTF-8 versus arbitrary bytes is a separate
 ABI choice, covered under [Choose The Byte Contract](#choose-the-byte-contract).
+Several examples predate recoverable rejection and still trap on malformed
+input; new components should follow [Reject Or Trap](#reject-or-trap).
 
 ## Assertion Gate
 
@@ -37,7 +39,10 @@ the `render` result so the pipeline stops before an unsafe value reaches another
 every UTF-8 sequence and preserves valid input. The
 [`warc-check-broken-links.wasm`](/application/warc/warc-check-broken-links.wasm)
 assertion uses the same shape: it returns the archive unchanged when every
-internal link resolves and traps when one does not.
+internal link resolves. Otherwise it rejects at the input offset of the first
+broken link's attribute value, with mode 0 for a missing page, 1 for a 4xx or
+5xx response, 2 for a missing `#fragment`, 3 for a link that cannot resolve to
+a path on the site, or 4 for a malformed WARC record.
 
 An assertion may use the input region as its output region when no rewrite is
 needed. Otherwise, copy the input to a separate output buffer. In either case,
@@ -89,8 +94,8 @@ report, not the original input. Use an assertion gate when the original payload
 must continue through the pipeline.
 
 Do not call a reporter a validator merely because it emits `valid` or
-`invalid`. Returning `invalid` is still successful execution. Trap when invalid
-input must abort the operation.
+`invalid`. Returning `invalid` is still successful execution. Reject when
+invalid input must stop the pipeline.
 
 ## Extractor Or Filter
 
@@ -106,44 +111,66 @@ No match does not always mean a zero-byte file.
 returns a valid archive containing no response records when it finds no broken
 internal links; the archive still contains its required `warcinfo` record.
 
-Malformed input and output overflow are not “no match”. Trap for those
-conditions so callers can distinguish failure from a successful empty result.
+Malformed input and output overflow are not “no match”. Reject malformed input
+and trap on overflow so callers can distinguish failure from a successful empty
+result.
 
-## Current Contract: A Trap Is The Emergency Stop
+## Reject Or Trap
 
-Use a trap when continuing could corrupt, truncate, mislabel, or discard data.
-The pipeline stops and reports failure instead of passing damaged output to the
-next component.
+Rejection and trapping both stop the pipeline and keep partial output out of
+the next component. Rejection is better for the person running it: the host
+can report the input offset, the failure mode, and a snippet of the input
+around it, and it can reuse the instance. A trap only reports that the
+component stopped.
 
-Trap on:
+Prefer recoverable rejection for malformed input when all three hold:
 
-- malformed input;
-- input or output outside the component's supported limits;
-- violated safety or format invariants;
-- allocation or cleanup failure; and
-- any condition that would otherwise produce partial or misleading output.
+- **Possible:** your own code detects the failure and can return normally from
+  `render`. Nothing it calls aborts on that input.
+- **Useful:** the input can be wrong in normal use, such as hand-written
+  Markdown, a site's links, an uploaded file, or Base64 from a form. An offset
+  points the author at something they can fix.
+- **Cheap:** the parser already knows where it is when the check fails, so
+  recording the first failing offset costs a few variables, not a second pass,
+  extra tables, or a large increase in code size.
 
-Returning zero is different. It tells the host that the component succeeded
-and produced an empty result. Return zero only when empty output is correct.
+Trap for the remaining failures:
+
+- a host ABI precondition was violated, such as an input size above capacity
+  or invalid UTF-8 passed to a UTF-8 input;
+- output or internal tables exceed the component's fixed capacity;
+- an internal invariant that valid control flow must preserve was broken; or
+- a wrapped library cannot report failure cleanly.
+
+A wrapper around a C library such as libwebp is the usual example of the last
+case. The library decides what malformed input does, its own code may abort,
+and it reports a status code rather than a byte offset. Such a wrapper can stay
+infallible and trap. If the library already returns an error status, rejecting
+with zero failure modes is also cheap, but neither choice proves that `render`
+cannot trap.
+
+Returning zero is different from both. It tells the host that the component
+succeeded and produced an empty result. Return zero only when empty output is
+correct.
 
 Some existing components return zero on parse errors or overflow. Do not copy
 that behavior into new components: it makes failure indistinguishable from a
 successful empty result. When changing such a component, preserve zero only if
 its documented output can legitimately be empty; otherwise, change the failure
-path to trap and update its tests.
+path to reject or trap as described above and update its tests.
 
-Language forms:
+Trap forms:
 
 ```zig
-if (invalid_input or output_overflow) @trap();
+if (output_overflow) @trap();
 ```
 
 ```c
-if (invalid_input || output_overflow) __builtin_trap();
+if (output_overflow) __builtin_trap();
 ```
 
 ```wat
-(if (local.get $invalid_input)
+(if (local.get $output_overflow)
   (then unreachable))
 ```
 
@@ -158,18 +185,13 @@ Nontrapping behavior is not declared through export absence. A static analyzer
 must inspect the compiled Wasm and prove that valid Content calls cannot trap.
 It can prove this for fallible and infallible components.
 
-Use recoverable rejection when a conforming call can still be rejected. A
-validator which accepts arbitrary bytes can reject malformed content this way.
-A transform which requires already validated input may instead treat malformed
-content as a precondition violation. The host ignores the output fields after
-rejection, so a partial result cannot enter the next pipeline stage. An
-accepted zero-byte output remains distinct from rejection.
-
-A trap becomes an emergency stop for a narrower set of failures:
-
-- a hard host ABI precondition was violated;
-- an internal invariant that valid control flow must preserve was broken; or
-- the component encountered an unrecoverable implementation defect.
+Use recoverable rejection when a conforming call can still be rejected and
+[Reject Or Trap](#reject-or-trap) favors it. A validator which accepts
+arbitrary bytes can reject malformed content this way. A transform which
+requires already validated input may instead treat malformed content as a
+precondition violation. The host ignores the output fields after rejection, so
+a partial result cannot enter the next pipeline stage. An accepted zero-byte
+output remains distinct from rejection.
 
 After a trap, the host ignores output, discards the Wasm instance, and creates
 another instance before a later call.
@@ -237,6 +259,45 @@ detail exports a mode count of zero and sets the low bits to zero. See the
 [Content Component Contract](/docs/content-component#optional-failure-detail)
 for the complete encoding.
 
+### Several Failure Modes
+
+When the author needs to know why the input was rejected, not only where,
+declare `N` modes and encode `input_offset * N + mode`. The host decodes the
+pair with division and remainder.
+[`warc-check-broken-links.wasm`](/application/warc/warc-check-broken-links.wasm)
+uses five modes, from a missing page to a malformed WARC record:
+
+```zig
+const FailureMode = enum(u32) {
+    missing_resource = 0,
+    error_status = 1,
+    missing_fragment = 2,
+    invalid_url = 3,
+    malformed_warc = 4,
+};
+
+const FAILURE_MODES: u32 = @typeInfo(FailureMode).@"enum".fields.len;
+
+comptime {
+    // Every offset in 0..INPUT_CAP and every mode must fit in the 32-bit detail.
+    std.debug.assert(@as(u64, INPUT_CAP + 1) * FAILURE_MODES <= std.math.maxInt(u32) + 1);
+}
+
+export fn failure_modes_per_input_offset() u32 {
+    return FAILURE_MODES;
+}
+
+fn failureDetail(input_offset: usize, mode: FailureMode) u32 {
+    return @intCast(input_offset * FAILURE_MODES + @intFromEnum(mode));
+}
+```
+
+Append new modes at the end so existing numbers keep their meaning, and list
+them in the component's documentation. Point the offset at the byte the author
+should look at, such as the start of a link's attribute value, rather than the
+start of the surrounding record. The host quotes the input around that offset
+in its error message.
+
 Testing changes with this boundary. A recoverable invalid case must prove that
 `render` returns normally with the failure bit set, output is ignored, and a
 later valid render succeeds on the same instance. A precondition case
@@ -272,7 +333,8 @@ reset after rejection.
 For each component, cover:
 
 - one representative successful input and exact output;
-- malformed input that must trap;
+- malformed input that must reject, with its offset and mode, or must trap
+  when the component cannot reject cheaply;
 - empty input and no-match input, when either is valid;
 - the largest supported input or a focused capacity-boundary case;
 - output overflow;
