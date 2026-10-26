@@ -609,6 +609,9 @@ text/markdown/markdown-basic.wasm: recipes/text/markdown/10-markdown-basic.wasm
 text/html/html-page-wrap.wasm: recipes/text/markdown/80-html-page-wrap.wasm
 	cp $< $@
 
+application/warc/warc-apply-main-layout.wasm: recipes/application/warc/20-apply-main-layout.wasm
+	cp $< $@
+
 application/warc/warc-check-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 167772160
 application/warc/warc-counts.wasm: ZIG_WASM_MAX_MEMORY = 142606336
 application/warc/warc-extract-broken-links.wasm: ZIG_WASM_MAX_MEMORY = 335544320
@@ -1185,6 +1188,7 @@ components-c-wasm: $(COMPONENT_C_TARGETS)
 components-zig-wasm: $(COMPONENT_ZIG_TARGETS)
 components-zig-wasm: text/markdown/markdown-basic.wasm
 components-zig-wasm: text/html/html-page-wrap.wasm
+components-zig-wasm: application/warc/warc-apply-main-layout.wasm
 components-zig-wasm: recipes/text/markdown/10-markdown-basic.wasm
 components-zig-wasm: recipes/text/markdown/80-html-page-wrap.wasm
 components-rust-wasm: application/wasm/wasm-validate-core-2.0.wasm image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm

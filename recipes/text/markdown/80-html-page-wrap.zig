@@ -211,6 +211,68 @@ fn findExistingTitle(input: []const u8) ?ExistingTitle {
     return null;
 }
 
+fn skipSpace(input: []const u8, start: usize) usize {
+    var i = start;
+    while (i < input.len and isSpace(input[i])) : (i += 1) {}
+    return i;
+}
+
+fn startsWithTag(input: []const u8, name: []const u8) bool {
+    if (input.len < name.len + 2 or input[0] != '<') return false;
+    if (!hasPrefixIgnoreCase(input[1..], name)) return false;
+    const boundary = input[1 + name.len];
+    return boundary == '>' or boundary == '/' or isSpace(boundary);
+}
+
+// Returns the end of the leading run of elements that belong in <head>:
+// <meta>, <link>, <title>, <style>, <script type="application/ld+json">, and external
+// scripts with defer or async, which run the same from <head>.
+fn findLeadingHeadEnd(input: []const u8) usize {
+    var end: usize = 0;
+    var i = skipSpace(input, 0);
+    while (i < input.len) {
+        const rest = input[i..];
+        var next: usize = undefined;
+        if (startsWithTag(rest, "meta") or startsWithTag(rest, "link")) {
+            const close = std.mem.indexOfScalarPos(u8, input, i, '>') orelse break;
+            next = close + 1;
+        } else if (startsWithTag(rest, "style")) {
+            const close = indexOfIgnoreCase(input, "</style>", i) orelse break;
+            next = close + "</style>".len;
+        } else if (startsWithTag(rest, "title")) {
+            const close = indexOfIgnoreCase(input, "</title>", i) orelse break;
+            next = close + "</title>".len;
+        } else if (startsWithTag(rest, "script")) {
+            const open_end = std.mem.indexOfScalarPos(u8, input, i, '>') orelse break;
+            const open_tag = input[i..open_end];
+            const close = indexOfIgnoreCase(input, "</script>", open_end) orelse break;
+            const is_json_ld = indexOfIgnoreCase(open_tag, "application/ld+json", 0) != null;
+            const is_deferred_external = close == open_end + 1 and
+                indexOfIgnoreCase(open_tag, " src=", 0) != null and
+                (indexOfIgnoreCase(open_tag, " defer", 0) != null or indexOfIgnoreCase(open_tag, " async", 0) != null);
+            if (!is_json_ld and !is_deferred_external) break;
+            next = close + "</script>".len;
+        } else {
+            break;
+        }
+        end = next;
+        i = skipSpace(input, next);
+    }
+    return end;
+}
+
+// Writes input[start..end] without the existing <title>, which is written separately.
+fn writeWithoutTitle(w: *Writer, input: []const u8, start: usize, end: usize, existing_title: ?ExistingTitle) void {
+    if (existing_title) |t| {
+        if (t.open_start >= start and t.close_end <= end) {
+            w.writeSlice(input[start..t.open_start]);
+            w.writeSlice(input[t.close_end..end]);
+            return;
+        }
+    }
+    w.writeSlice(input[start..end]);
+}
+
 fn wrapHtml(input: []const u8, output: []u8, title_buf: []u8) usize {
     var w = Writer.init(output);
     const existing_title = findExistingTitle(input);
@@ -219,20 +281,19 @@ fn wrapHtml(input: []const u8, output: []u8, title_buf: []u8) usize {
         const existing_text = trimWhitespace(input[t.content_start..t.content_end]);
         if (existing_text.len > 0) title = existing_text;
     }
+    const head_end = findLeadingHeadEnd(input);
 
     w.writeSlice("<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>");
     w.writeEscaped(title);
     w.writeSlice("</title><style>");
     w.writeSlice(EMBEDDED_STYLES);
     w.writeSlice("</style>");
+    // After the site styles, so styles added by earlier recipe steps keep their cascade order.
+    if (head_end > 0) writeWithoutTitle(&w, input, skipSpace(input, 0), head_end, existing_title);
     w.writeSlice(EMBEDDED_HEADER);
     w.writeSlice("<main>");
-    if (existing_title) |t| {
-        w.writeSlice(input[0..t.open_start]);
-        w.writeSlice(input[t.close_end..]);
-    } else {
-        w.writeSlice(input);
-    }
+    const body_start = if (head_end > 0) skipSpace(input, head_end) else 0;
+    writeWithoutTitle(&w, input, body_start, input.len, existing_title);
     w.writeSlice("</main>");
     w.writeSlice(EMBEDDED_FOOTER);
     w.writeByte('\n');
@@ -318,4 +379,52 @@ test "matches existing title case-insensitively" {
         expected,
         out[0..written],
     );
+}
+
+test "moves leading meta, link, and JSON-LD into head" {
+    const input = "<meta name=\"description\" content=\"About it\">\n<link rel=\"canonical\" href=\"https://qip.dev/a\">\n<script type=\"application/ld+json\">{\"@type\":\"TechArticle\"}</script>\n<h1>Hello</h1><p>Hi</p><meta name=\"kept\">";
+    const expected = std.fmt.comptimePrint(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Hello</title><style>{s}</style><meta name=\"description\" content=\"About it\">\n<link rel=\"canonical\" href=\"https://qip.dev/a\">\n<script type=\"application/ld+json\">{{\"@type\":\"TechArticle\"}}</script>{s}<main><h1>Hello</h1><p>Hi</p><meta name=\"kept\"></main>{s}\n",
+        .{ EMBEDDED_STYLES, EMBEDDED_HEADER, EMBEDDED_FOOTER },
+    );
+    var out: [expected.len]u8 = undefined;
+    var title_buf: [TITLE_CAP]u8 = undefined;
+    const written = wrapHtml(input, out[0..], title_buf[0..]);
+    try std.testing.expectEqualStrings(expected, out[0..written]);
+}
+
+test "moves a leading title together with head elements" {
+    const input = "<title>Custom</title>\n<meta name=\"description\" content=\"D\">\n<script>alert(1)</script><p>Body</p>";
+    const expected = std.fmt.comptimePrint(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>Custom</title><style>{s}</style>\n<meta name=\"description\" content=\"D\">{s}<main><script>alert(1)</script><p>Body</p></main>{s}\n",
+        .{ EMBEDDED_STYLES, EMBEDDED_HEADER, EMBEDDED_FOOTER },
+    );
+    var out: [expected.len]u8 = undefined;
+    var title_buf: [TITLE_CAP]u8 = undefined;
+    const written = wrapHtml(input, out[0..], title_buf[0..]);
+    try std.testing.expectEqualStrings(expected, out[0..written]);
+}
+
+test "moves a leading deferred external script with head elements" {
+    const input = "<script src=\"https://cdn.example/a.js\" defer></script>\n<meta name=\"description\" content=\"D\">\n<script src=\"/b.js\"></script><h1>T</h1>";
+    const expected = std.fmt.comptimePrint(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>T</title><style>{s}</style><script src=\"https://cdn.example/a.js\" defer></script>\n<meta name=\"description\" content=\"D\">{s}<main><script src=\"/b.js\"></script><h1>T</h1></main>{s}\n",
+        .{ EMBEDDED_STYLES, EMBEDDED_HEADER, EMBEDDED_FOOTER },
+    );
+    var out: [expected.len]u8 = undefined;
+    var title_buf: [TITLE_CAP]u8 = undefined;
+    const written = wrapHtml(input, out[0..], title_buf[0..]);
+    try std.testing.expectEqualStrings(expected, out[0..written]);
+}
+
+test "moves leading styles from earlier steps after the site styles" {
+    const input = "<style>pre{}</style>\n<meta name=\"description\" content=\"D\">\n<h1>T</h1>";
+    const expected = std.fmt.comptimePrint(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>T</title><style>{s}</style><style>pre{{}}</style>\n<meta name=\"description\" content=\"D\">{s}<main><h1>T</h1></main>{s}\n",
+        .{ EMBEDDED_STYLES, EMBEDDED_HEADER, EMBEDDED_FOOTER },
+    );
+    var out: [expected.len]u8 = undefined;
+    var title_buf: [TITLE_CAP]u8 = undefined;
+    const written = wrapHtml(input, out[0..], title_buf[0..]);
+    try std.testing.expectEqualStrings(expected, out[0..written]);
 }
