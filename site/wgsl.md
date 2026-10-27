@@ -102,16 +102,23 @@ compares the two outputs float for float. Nothing is uploaded.
 Wasm `f32` arithmetic is IEEE 754 with correct rounding, so the Wasm output is
 the same on every machine. WGSL lets GPUs compute `sqrt` and division less
 precisely, and shader compilers can reorder or fuse floating-point operations.
-Small differences can be a few ULP (units in the last place). The heatmap scales
+Wasm has no `sin`, `cos`, `tan`, `asin`, `atan`, `tanh`, `exp`, `log` or `pow`
+instructions, so the compiler inlines its own polynomial approximations. They
+are accurate to about 3 ULP
+(`pow` loses more as its result grows, and `atan2` is accurate to 2.4e-7
+absolute, which is many ULP when its result is near zero), while GPUs may trade accuracy for speed:
+WGSL allows `sin` an absolute error of 2⁻¹¹ in [−π, π] and does not bound it
+outside that range. Small differences can be a few ULP (units in the last place). The heatmap scales
 brightness by the largest absolute channel difference times the gain:
 zero is black, and a difference of 1/gain or more is yellow. The gain is
 65,536. Hover over the difference image or focus it with the keyboard to raise
 the gain to 1,048,576 and inspect tiny errors. The
 summary still counts every float mismatch. The ULP count
 looks large near zero, where adjacent floats are closest
-together: 7e-7 can be hundreds of ULP. **Comic book** and **Bulge** compare
-floats or turn them into pixel indexes, so a one-ULP change could move an
-outline or a sampled pixel; whether it does depends on the GPU and the image.
+together: 7e-7 can be hundreds of ULP. **Comic book**, **Bulge** and
+**Halftone dots** compare floats or turn them into pixel indexes, so a one-ULP
+change could move an outline or a sampled pixel; whether it does depends on the
+GPU and the image.
 **Mirror** and **Pop art** index with integers, so they should match bit for
 bit.
 
@@ -130,9 +137,8 @@ without conversion to linear light.
   `render` runs the entry point once per element with SIMD for `vec4f`.
 
 The page sets `width` to the image width. A trailing `// min..max` comment on an
-`override` gives it a slider. The compiler accepts a subset of WGSL: no loops,
-no helper functions and no `sin`, `cos` or `pow`, so each effect reads its
-neighbours one by one. Run it on the command line with `qip`:
+`override` gives it a slider. The compiler accepts a subset of WGSL: no loops
+and no helper functions, so each effect reads its neighbours one by one. Run it on the command line with `qip`:
 
 ```bash
 qip run -i edges.wgsl -o edges.wasm text/wgsl/wgsl-compute-to-wasm.wasm
@@ -161,6 +167,26 @@ controls for colour balance, edge softness, persistence, and lacunarity.
 Move `time` to explore the third dimension. It ignores the input image except
 for its dimensions. This implementation uses an integer lattice hash, so its
 patterns differ from [Paper's GLSL shader](https://github.com/paper-design/shaders/blob/main/packages/shaders/src/shaders/perlin-noise.ts).
+
+**Halftone dots** is a port of the classic dot style from
+[Paper's Halftone Dots](https://shaders.paper.design/halftone-dots)
+([GLSL source](https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/halftone-dots.ts)).
+Each dot's size follows the luma at its centre. Set `grid` to 1 for
+hex rows or 0 for a square grid. `spacing` is the distance between dots in
+pixels. Paper Shaders is licensed under the
+[Apache License 2.0](/licenses/paper-shaders-LICENSE.txt)
+(NOTICE: “Powered by Paper Shaders: https://shaders.paper.design”). We changed the shader to fit what the compiler
+supported when it was ported:
+
+- The four overlapping dot samples are unrolled, in place of loops and helper
+  functions.
+- An algebraic sigmoid, `0.5 + 0.5·s / √(1 + s²)`, replaces Paper's logistic
+  contrast curve. It has the same slope at mid-grey.
+- A fixed one-pixel edge replaces `fwidth` antialiasing.
+- The image is sampled nearest-neighbour.
+- Dot spacing is set in pixels, in place of Paper's `size`.
+- Only the classic dots are included. The gooey, holes and soft styles, original
+  colours, and grain are left out.
 
 <script type="text/wgsl" data-name="Edges">
 // Sobel edge detection on luma. A threshold of 0 shows the gradient strength.
@@ -383,6 +409,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // Generated below: 3D gradient noise with eight unrolled octaves.
 </script>
 
+<script type="text/wgsl" data-name="Halftone dots" data-generated="halftone">
+// Generated below: Paper's classic halftone dots with four unrolled samples.
+</script>
+
 <script type="module">
 
 const MAX_SIDE = 256;
@@ -408,6 +438,7 @@ const shaders = [...document.querySelectorAll('script[type="text/wgsl"]')];
 for (const [index, script] of shaders.entries()) {
   if (script.dataset.generated === "atkinson") script.textContent = atkinsonShader();
   if (script.dataset.generated === "perlin") script.textContent = perlinNoiseShader();
+  if (script.dataset.generated === "halftone") script.textContent = halftoneDotsShader();
   shaderSelect.add(new Option(script.dataset.name, String(index)));
 }
 
@@ -538,6 +569,83 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let front = vec3f(front_r, front_g, front_b);
   dst[id.x] = vec4f(mix(back, front, blend), 1.0);
   }`);
+  return lines.join("\n");
+}
+
+// Port of Paper's classic halftone dots (Apache-2.0). Classic dots use a grid
+// at half-cell steps, so each pixel sums the dots of four overlapping cells.
+// Unroll those four samples to fit the compiler's loop-free subset.
+function halftoneDotsShader() {
+  const lines = [`// Classic halftone dots, ported from Paper Shaders (Apache-2.0):
+// https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
+override width: u32 = 256;
+override spacing: f32 = 6.0; // 2..16
+override radius: f32 = 1.25; // 0..2
+override contrast: f32 = 0.4; // 0..1
+override grid: u32 = 1; // 0..1
+override inverted: u32 = 0; // 0..1
+override back_r: f32 = 0.9490196;
+override back_g: f32 = 0.9450980;
+override back_b: f32 = 0.9098039;
+override front_r: f32 = 0.1686275;
+override front_g: f32 = 0.1686275;
+override front_b: f32 = 0.1686275;
+
+@group(0) @binding(0) var<storage, read> src: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let n = arrayLength(&src);
+  if id.x >= n { return; }
+  let height = n / width;
+  let w = f32(width);
+  let h = f32(height);
+  let cx = w * 0.5;
+  let cy = h * 0.5;
+  // Paper offsets a second grid by half a cell, so dots are half a cell apart.
+  let cell = spacing * 2.0;
+  let ux = (f32(id.x % width) + 0.5 - cx) / cell;
+  let uy = (f32(id.x / width) + 0.5 - cy) / cell;
+  // Paper maps contrast through pow(contrast, 1.5) into a logistic curve.
+  let steepness = 15.0 * contrast * sqrt(contrast);
+  // One pixel of antialiasing, in place of fwidth.
+  let aa = 1.0 / cell;
+  let margin = cell * 0.5;
+  let k = vec3f(0.2126, 0.7152, 0.0722);
+  var shape = 0.0;`];
+  for (const oy of [-0.5, 0]) {
+    for (const ox of [-0.5, 0]) {
+      // On the hex grid, every second row of the half-step grid shifts right.
+      const shift = oy === 0 ? " + 0.25 * f32(min(grid, 1u))" : "";
+      lines.push(`  {
+    let ox = ${ox.toFixed(1)}${shift};
+    let oy = ${oy.toFixed(1)};
+    let qx = ux + ox;
+    let qy = uy + oy;
+    let ix = floor(qx);
+    let iy = floor(qy);
+    let fx = qx - ix - 0.5;
+    let fy = qy - iy - 0.5;
+    // Sample the image at the dot's centre, nearest-neighbour.
+    let sx = (ix + 0.5 - ox) * cell + cx;
+    let sy = (iy + 0.5 - oy) * cell + cy;
+    let inside = sx >= -margin && sx <= w + margin && sy >= -margin && sy <= h + margin;
+    let c = src[u32(clamp(sy, 0.0, h - 1.0)) * width + u32(clamp(sx, 0.0, w - 1.0))];
+    // An algebraic sigmoid with the logistic curve's slope at 0.5.
+    let s = (c.rgb - vec3f(0.5)) * (steepness * 0.5);
+    let toned = vec3f(0.5) + s * 0.5 / sqrt(vec3f(1.0) + s * s);
+    let lum = mix(1.0, dot(toned, k), c.a);
+    let r = 0.25 * radius * (1.0 - select(lum, 1.0 - lum, inverted != 0u));
+    let t = clamp((sqrt(fx * fx + fy * fy) - r + aa) / (2.0 * aa), 0.0, 1.0);
+    shape += select(0.0, 1.0 - t * t * (3.0 - 2.0 * t), inside);
+  }`);
+    }
+  }
+  lines.push(`  let back = vec3f(back_r, back_g, back_b);
+  let front = vec3f(front_r, front_g, front_b);
+  dst[id.x] = vec4f(mix(back, front, min(shape, 1.0)), 1.0);
+}`);
   return lines.join("\n");
 }
 

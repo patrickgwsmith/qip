@@ -254,8 +254,198 @@ test("compiled shader builds vectors from swizzles and mixed arguments", async (
   assert.deepEqual(f32Values(await run(module, f32Bytes(elements.flat()))), expected);
 });
 
+// One output per builtin, from an f32 input; `y` is a second pow operand.
+const mathShader = (type) => `
+@group(0) @binding(0) var<storage, read> src: array<${type}>;
+@group(0) @binding(1) var<storage, read_write> dst: array<${type}>;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let x = src[id.x];
+  let y = x * 0.25;
+  var r = sin(x) * 1000.0 + cos(x) * 100.0;
+  r += exp2(x * 0.125) + exp(x * 0.0625) + log2(abs(x) + 1.0) + log(abs(x) + 0.5);
+  r += pow(abs(x) + 0.5, y) + fract(x * 0.1);
+  r += tan(x * 0.1) + asin(fract(x)) + acos(fract(y)) + atan(x) + atan2(y, x + 0.5) + tanh(y);
+  r += inverseSqrt(abs(x) + 1.0) + step(y, x) + smoothstep(y - 1.0, y + 2.0, x) + sign(x);
+  dst[id.x] = r;
+}
+`;
+
+function ulpOf(value) {
+  const magnitude = Math.abs(Math.fround(value));
+  if (magnitude < 2 ** -126) return 2 ** -149;
+  return 2 ** (Math.floor(Math.log2(magnitude)) - 23);
+}
+
+test("transcendental builtins stay within WGSL accuracy and agree across paths", async () => {
+  const cases = [
+    ["sin", Math.sin, [-Math.PI, Math.PI], (want) => 2 ** -22],
+    ["cos", Math.cos, [-Math.PI, Math.PI], (want) => 2 ** -22],
+    ["sin", Math.sin, [-8192, 8192], (want) => 2 ** -22],
+    ["exp2", (x) => 2 ** x, [-140, 127.9], (want) => 2 * ulpOf(want)],
+    ["exp", Math.exp, [-95, 88.7], (want) => 2 * ulpOf(want)],
+    ["log2", Math.log2, [1e-40, 3e38], (want) => 2 * ulpOf(want)],
+    ["log", Math.log, [0.5, 2], (want) => 2 ** -21],
+    ["tan", Math.tan, [-1.5, 1.5], (want) => 3 * ulpOf(want)],
+    ["tan", Math.tan, [-8000, 8000], (want) => 3 * ulpOf(want)],
+    ["asin", Math.asin, [-1, 1], (want) => 3 * ulpOf(want)],
+    ["acos", Math.acos, [-1, 1], (want) => 2 * ulpOf(want)],
+    ["atan", Math.atan, [-100, 100], (want) => 2 * ulpOf(want)],
+    ["tanh", Math.tanh, [-12, 12], (want) => 2 * ulpOf(want)],
+    ["inverseSqrt", (x) => 1 / Math.sqrt(x), [1e-30, 1e30], (want) => 2 * ulpOf(want)],
+  ];
+  for (const [name, reference, [low, high], tolerance] of cases) {
+    const shader = (type) => `
+@group(0) @binding(0) var<storage, read> src: array<${type}>;
+@group(0) @binding(1) var<storage, read_write> dst: array<${type}>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) { dst[id.x] = ${name}(src[id.x]); }
+`;
+    const logScale = low > 0 && high / low > 1e6;
+    const input = new Float32Array(4096).map((_, i) => {
+      const t = i / 4095;
+      return logScale ? low * (high / low) ** t : low + (high - low) * t;
+    });
+    const bytes = Buffer.from(input.buffer);
+    const [scalar, vector, batch] = await Promise.all([
+      compile(shader("f32")), compile(shader("vec4f")), compile(shader("f32"), ["vectorize_invocations=1"]),
+    ]);
+    const output = await run(scalar, bytes);
+    assert.deepEqual(await run(vector, bytes), output, `${name} vec4f`);
+    assert.deepEqual(await run(batch, bytes), output, `${name} vectorized`);
+    f32Values(output).forEach((got, i) => {
+      const want = reference(input[i]);
+      assert.ok(Math.abs(got - want) <= tolerance(want), `${name}(${input[i]}) = ${got}, want ${want}`);
+    });
+  }
+});
+
+test("transcendental builtins handle special values and compose in expressions", async () => {
+  const shader = `
+@group(0) @binding(0) var<storage, read_write> v: array<vec4f>;
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let x = v[id.x].x;
+  v[id.x] = vec4f(sin(x), exp2(x), log2(x), fract(x));
+}
+`;
+  const module = await compile(shader);
+  const specials = [0, Infinity, -Infinity, NaN, -1, 2 ** -149, 3, 128, -151, 1e30];
+  const output = f32Values(await run(module, f32Bytes(specials.flatMap((x) => [x, 0, 0, 0]))));
+  const lanes = (lane) => specials.map((_, i) => output[4 * i + lane]);
+  const s = lanes(0);
+  assert.deepEqual(s.slice(0, 4), [0, NaN, NaN, NaN]);
+  assert.ok(s.slice(4).every((value) => Math.abs(value) <= 1), "sin stays in [-1, 1] for finite input");
+  assert.deepEqual(lanes(1), [1, Infinity, 0, NaN, 0.5, 1, 8, Infinity, 0, Infinity]);
+  assert.deepEqual(lanes(2).slice(0, 8), [-Infinity, Infinity, NaN, NaN, NaN, -149, Math.fround(Math.log2(3)), 7]);
+  assert.deepEqual(lanes(3).slice(4), [0, 2 ** -149, 0, 0, 0, 0]);
+
+  // Scalar, vector and vectorized code paths give the same bits.
+  const input = f32Bytes(Array.from({ length: 256 }, (_, i) => (i - 128) * 0.37));
+  const [scalar, vector, batch] = await Promise.all([
+    compile(mathShader("f32")), compile(mathShader("vec4f")), compile(mathShader("f32"), ["vectorize_invocations=1"]),
+  ]);
+  const want = await run(scalar, input);
+  assert.deepEqual(await run(vector, input), want);
+  assert.deepEqual(await run(batch, input), want);
+  f32Values(want).forEach((got) => assert.ok(Number.isFinite(got)));
+
+  // pow(x, y) is exp2(y * log2(x)): exact at y = 0 and powers of two.
+  const powModule = await compile(`
+@group(0) @binding(0) var<storage, read_write> v: array<vec4f>;
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let p = v[id.x];
+  v[id.x] = vec4f(pow(p.x, p.y), pow(p.zw, vec2f(2.0, 0.5)), 0.0);
+}
+`);
+  const powOut = f32Values(await run(powModule, f32Bytes([2, 10, 4, 9, 5, 0, -1, 1])));
+  assert.deepEqual(powOut.slice(0, 3), [1024, 16, 3]);
+  assert.deepEqual(powOut.slice(4, 7), [1, NaN, 1]);
+});
+
+test("geometric, step, sign and atan2 builtins match references across paths", async () => {
+  const shader = `
+@group(0) @binding(0) var<storage, read> src: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let p = src[id.x];
+  let n = normalize(p.xyz);
+  dst[id.x] = vec4f(
+    length(p.xy) + distance(p.z, p.w) + length(p.w) + distance(p, p.wzyx),
+    n.x + n.y * 2.0 + n.z * 3.0,
+    step(0.5, p.x) + smoothstep(-1.0, 2.0, p.y) + sign(p.z) + f32(sign(i32(p.w * 3.0))) * 10.0,
+    dot(step(p.xy, p.zw), smoothstep(vec2f(0.0), vec2f(1.0, 2.0), p.zw)) + atan2(p.x, p.y - 1.0));
+}
+`;
+  const input = new Float32Array(4096).map((_, i) => Math.fround(Math.sin(i * 12.9898) * 2));
+  const bytes = Buffer.from(input.buffer);
+  const [plain, batch] = await Promise.all([compile(shader), compile(shader, ["vectorize_invocations=1"])]);
+  const output = await run(plain, bytes);
+  assert.deepEqual(await run(batch, bytes), output);
+  const smoothstep = (low, high, x) => {
+    const t = Math.min(1, Math.max(0, (x - low) / (high - low)));
+    return t * t * (3 - 2 * t);
+  };
+  const got = f32Values(output);
+  for (let i = 0; i < 1024; i++) {
+    const [x, y, z, w] = input.slice(4 * i, 4 * i + 4);
+    const length = Math.hypot(x, y, z);
+    const want = [
+      Math.hypot(x, y) + Math.abs(z - w) + Math.abs(w) + Math.hypot(x - w, y - z, z - y, w - x),
+      (x + 2 * y + 3 * z) / length,
+      (x >= 0.5) + smoothstep(-1, 2, y) + Math.sign(z) + Math.sign(Math.trunc(w * 3)) * 10,
+      (z >= x) * smoothstep(0, 1, z) + (w >= y) * smoothstep(0, 2, w) + Math.atan2(x, Math.fround(y - 1)),
+    ];
+    want.forEach((value, lane) => {
+      assert.ok(Math.abs(got[4 * i + lane] - value) <= 4e-6, `input ${i} lane ${lane}: ${got[4 * i + lane]}, want ${value}`);
+    });
+  }
+
+  // atan2 takes its quadrant from both signs, as libm does.
+  const atan2Module = await compile(`
+@group(0) @binding(0) var<storage, read_write> v: array<vec4f>;
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) id: vec3u) { v[id.x] = vec4f(atan2(v[id.x].x, v[id.x].y), sign(v[id.x].x), 0.0, 0.0); }
+`);
+  const pairs = [[0, 0], [0, -1], [-0, -1], [1, 0], [-1, 0], [Infinity, 1], [1, -Infinity], [NaN, 1], [-2, -2],
+    [0, -0], [-0, -0], [-0, 0], [1, -0], [Infinity, Infinity], [-Infinity, -Infinity], [Infinity, NaN], [1, NaN]];
+  const atan2Out = f32Values(await run(atan2Module, f32Bytes(pairs.flatMap(([y, x]) => [y, x, 0, 0]))));
+  assert.deepEqual(pairs.map((_, i) => atan2Out[4 * i]), pairs.map(([y, x]) => Math.fround(Math.atan2(y, x))));
+  // sign keeps zeros, including -0, and NaN.
+  assert.deepEqual(pairs.map((_, i) => atan2Out[4 * i + 1]), [0, 0, -0, 1, -1, 1, 1, NaN, -1, 0, -0, -0, 1, 1, -1, 1, 1]);
+
+  const intModule = `
+@group(0) @binding(0) var<storage, read_write> v: array<i32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) { v[id.x] = sign(v[id.x]); }
+`;
+  const ints = i32Bytes([-5, 0, 7, -2147483648, 2147483647, 1, -1, 3]);
+  for (const module of await Promise.all([compile(intModule), compile(intModule, ["vectorize_invocations=1"])])) {
+    assert.deepEqual(i32Values(await run(module, ints)), [-1, 0, 1, -1, 1, 1, -1, 1]);
+  }
+});
+
+test("pixel kernels compile transcendental builtins into Tile components", async () => {
+  const module = await compile(`
+override phase: f32 = 0.0;
+fn wave(c: vec4f) -> vec4f {
+  return vec4f(0.5 + 0.5 * sin(c.rgb * 6.2831855 + phase), pow(c.a, 2.2));
+}
+`);
+  const exports = new WebAssembly.Instance(new WebAssembly.Module(await readFile(module))).exports;
+  const tile = new Float32Array(exports.memory.buffer, Number(exports.input_ptr()), 64 * 64 * 4);
+  tile.set([0.25, 0.5, 0, 0.5]);
+  exports.tile_rgba32float_64x64(0, 0);
+  const [r, g, b, a] = tile.slice(0, 4);
+  assert.ok(Math.abs(r - 1) < 1e-6 && Math.abs(g - 0.5) < 1e-6 && Math.abs(b - 0.5) < 1e-6, `${r} ${g} ${b}`);
+  assert.ok(Math.abs(a - 0.5 ** 2.2) < 1e-6, `${a}`);
+});
+
 test("compiled shaders pass the strict profile, loop and division checkers", async () => {
-  for (const source of [scaleShader, integerShader, pixelShader, vectorOpsShader, warmShader, swizzleShader]) {
+  for (const source of [scaleShader, integerShader, pixelShader, vectorOpsShader, warmShader, swizzleShader, mathShader("f32"), mathShader("vec4f")]) {
     const module = await compile(source);
     await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
   }
@@ -276,6 +466,23 @@ test("compiler rejects unsupported WGSL with offset and mode", async () => {
     compile(mismatch),
     new RegExp(`rejected input at input offset ${mismatch.indexOf("1u")} with mode 2\\b`),
   );
+  // sign has no u32 overload, normalize takes only vectors, and smoothstep
+  // does not splat a scalar edge.
+  for (const call of ["sign(1u)", "normalize(v[0])", "smoothstep(vec2f(0.0), 1.0, vec2f(0.5)).x"]) {
+    const source = `@group(0) @binding(0) var<storage, read_write> v: array<f32>;
+@compute @workgroup_size(1) fn main() { v[0] = f32(${call}); }
+`;
+    await assert.rejects(compile(source), /with mode 2\b/, call);
+  }
+});
+
+test("smoothstep rejects equal constant edges", async () => {
+  const source = `fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(0.0, 0.0, c.x)); }`;
+  await assert.rejects(
+    compile(source),
+    new RegExp(`rejected input at input offset ${source.indexOf("smoothstep")} with mode 2\\b`),
+  );
+  await compile(`fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(1.0, 0.0, c.x)); }`);
 });
 
 test("demo Atkinson shader matches forward error diffusion, including partial blocks", async () => {

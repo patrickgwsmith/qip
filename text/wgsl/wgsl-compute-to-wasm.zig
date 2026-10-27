@@ -44,16 +44,21 @@
 //! - Expressions: bool, i32, u32 and f32 scalars, abstract integer and float
 //!   literals, arithmetic, comparison, logical and bitwise operators, buffer
 //!   element loads, `arrayLength(&buffer)`, scalar conversions such as
-//!   `f32(x)`, and `abs`, `min`, `max`, `clamp`, `select`, `sqrt`, `floor`,
-//!   `ceil`, `trunc`, `round` and `mix`.
+//!   `f32(x)`, and `abs`, `sign`, `min`, `max`, `clamp`, `select`, `sqrt`,
+//!   `inverseSqrt`, `floor`, `ceil`, `trunc`, `round`, `fract`, `mix`,
+//!   `step`, `smoothstep`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`,
+//!   `atan2`, `tanh`, `exp`, `exp2`, `log`, `log2`, `pow`, and `length` and
+//!   `distance` (as `abs`) (see "Transcendental builtins" for accuracy).
 //! - `vec2f`, `vec3f` and `vec4f` (or `vecN<f32>`) each lower to one v128:
 //!   constructors `vecNf()`, `vecNf(s)`, `vecNf(v)`, and any mix of scalars
 //!   and vectors that supplies N lanes, such as `vec4f(c.rgb, 1.0)`; members
 //!   `.x` to `.w` or `.r` to `.a`, where one letter reads a lane and two to
 //!   four letters swizzle (`c.bgr`, `c.xxxx`); `+ - * / %` lane-wise, with a
-//!   scalar operand splatted; unary `-`; `abs`, `min`, `max`, `clamp`,
-//!   `select`, `sqrt`, `floor`, `ceil`, `trunc` and `round`; `dot`; and
-//!   `mix(a, b, t)` as a * (1 - t) + b * t, with t a vector or an f32.
+//!   scalar operand splatted; unary `-`; the f32 builtins above lane-wise,
+//!   with every argument of `step`, `smoothstep`, `pow` and `atan2` the same
+//!   vector type; `dot`, `length`, `distance` and `normalize`, as the square
+//!   root of the sum of squares in lane order; and `mix(a, b, t)` as
+//!   a * (1 - t) + b * t, with t a vector or an f32.
 //!   Buffers hold only `vec4f` vectors. Swizzle assignment, vector
 //!   comparisons and integer or bool vectors are unsupported.
 //!
@@ -642,7 +647,7 @@ fn parseConstLiteral() CompileError!Literal {
     return lit;
 }
 
-const Local = struct { name: Token, index: u32, ty: Ty, mutable: bool };
+const Local = struct { name: Token, index: u32, ty: Ty, mutable: bool, const_value: ?ConstFloat = null };
 const Override = struct { name: Token, ty: Ty, value: Literal };
 const ModuleConst = struct { name: Token, value: Literal };
 const Buffer = struct { name: Token, elem: Ty, declared: bool = false };
@@ -911,7 +916,7 @@ fn emitLiteral(w: *Buf, lit: Literal) CompileError!void {
 
 const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call, sample };
 
-const Callee = enum(u8) { abs, min, max, clamp, select, sqrt, floor, ceil, trunc, round, dot, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f };
+const Callee = enum(u8) { abs, sign, min, max, clamp, select, sqrt, inverse_sqrt, floor, ceil, trunc, round, fract, sin, cos, tan, asin, acos, atan, atan2, tanh, exp, exp2, log, log2, pow, step, smoothstep, dot, length, distance, normalize, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f };
 
 const Node = struct {
     kind: NodeKind,
@@ -927,6 +932,88 @@ const Node = struct {
     lit: Literal = .{ .ty = .void },
     offset: u32,
 };
+
+const ConstFloat = struct { len: u8 = 1, values: [4]f64 = .{ 0, 0, 0, 0 } };
+
+fn constFloat(index: u16) ?ConstFloat {
+    const node = nodes[index];
+    switch (node.kind) {
+        .lit => {
+            if (node.ty == .bool) return null;
+            const value: f64 = if (node.ty == .abstract_int or node.ty == .i32 or node.ty == .u32)
+                @floatFromInt(node.lit.int_value)
+            else
+                node.lit.float_value;
+            return .{ .len = vecLen(node.ty), .values = .{ value, value, value, value } };
+        },
+        .local => {
+            for (scope[0..scope_len]) |local| {
+                if (local.index == node.ref) return local.const_value;
+            }
+            return null;
+        },
+        .unary => {
+            if (@as(Tk, @enumFromInt(node.op)) != .minus) return null;
+            var value = constFloat(node.kids[0]) orelse return null;
+            for (value.values[0..value.len]) |*lane| lane.* = -lane.*;
+            return value;
+        },
+        .binary => {
+            const op: Tk = @enumFromInt(node.op);
+            if (op != .plus and op != .minus and op != .star and op != .slash) return null;
+            const a = constFloat(node.kids[0]) orelse return null;
+            const b = constFloat(node.kids[1]) orelse return null;
+            var result = ConstFloat{ .len = @max(a.len, b.len) };
+            for (0..result.len) |lane| {
+                const x = a.values[if (a.len == 1) 0 else lane];
+                const y = b.values[if (b.len == 1) 0 else lane];
+                const value = switch (op) {
+                    .plus => x + y,
+                    .minus => x - y,
+                    .star => x * y,
+                    .slash => x / y,
+                    else => unreachable,
+                };
+                result.values[lane] = if (node.ty == .f32 or isVec(node.ty)) @as(f64, @floatCast(@as(f32, @floatCast(value)))) else value;
+            }
+            return result;
+        },
+        .call => {
+            const callee: Callee = @enumFromInt(node.op);
+            if (callee == .to_f32) {
+                var value = constFloat(node.kids[0]) orelse return null;
+                value.values[0] = @as(f64, @floatCast(@as(f32, @floatCast(value.values[0]))));
+                return value;
+            }
+            if (callee != .vec2f and callee != .vec3f and callee != .vec4f) return null;
+            var result = ConstFloat{ .len = vecLen(node.ty) };
+            if (node.argc == 1) {
+                const value = constFloat(node.kids[0]) orelse return null;
+                for (0..result.len) |lane| result.values[lane] = @as(f32, @floatCast(value.values[if (value.len == 1) 0 else lane]));
+                return result;
+            }
+            var lane: usize = 0;
+            for (node.kids[0..node.argc]) |kid| {
+                const value = constFloat(kid) orelse return null;
+                for (value.values[0..value.len]) |part| {
+                    result.values[lane] = @as(f32, @floatCast(part));
+                    lane += 1;
+                }
+            }
+            return result;
+        },
+        .lane, .swizzle => {
+            const source = constFloat(node.kids[0]) orelse return null;
+            var result = ConstFloat{ .len = vecLen(node.ty) };
+            for (0..result.len) |lane| {
+                const source_lane = if (node.kind == .lane) node.op else (node.op >> @intCast(2 * lane)) & 3;
+                result.values[lane] = source.values[source_lane];
+            }
+            return result;
+        },
+        else => return null,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Whole-function vectorization across four independent compute invocations.
@@ -1347,6 +1434,40 @@ fn batchExpr(expr: Expr) CompileError!BatchValue {
             try body.localSet(out.regs[0]);
             continue;
         }
+        if (node.kind == .call) switch (@as(Callee, @enumFromInt(node.op))) {
+            .length, .distance, .normalize => |callee| {
+                // sqrt of the sum of squares in component order, as emitDot.
+                const length = try batchTemp(.vec4f);
+                for (0..vecLen(a.ty)) |component| {
+                    try batchGet(a, component);
+                    if (callee == .distance) {
+                        try batchGet(b, component);
+                        try body.simd(SIMD_F32X4_SUB);
+                    }
+                    if (!isVec(a.ty)) {
+                        try body.simd(SIMD_F32X4_ABS);
+                        break;
+                    }
+                    try body.localTee(length);
+                    try body.localGet(length);
+                    try body.simd(SIMD_F32X4_MUL);
+                    if (component != 0) try body.simd(SIMD_F32X4_ADD);
+                }
+                if (isVec(a.ty)) try body.simd(SIMD_F32X4_SQRT);
+                try body.localSet(length);
+                if (callee != .normalize) {
+                    try body.localGet(length);
+                    try body.localSet(out.regs[0]);
+                } else for (0..vecLen(a.ty)) |component| {
+                    try batchGet(a, component);
+                    try body.localGet(length);
+                    try body.simd(SIMD_F32X4_DIV);
+                    try body.localSet(out.regs[component]);
+                }
+                continue;
+            },
+            else => {},
+        };
         for (0..vecLen(node.ty)) |component| {
             switch (node.kind) {
                 .lane => try batchGet(a, node.op),
@@ -1410,6 +1531,16 @@ fn batchExpr(expr: Expr) CompileError!BatchValue {
                             .trunc => SIMD_F32X4_TRUNC,
                             else => SIMD_F32X4_NEAREST,
                         });
+                    },
+                    .sign => |callee| {
+                        try batchGet(a, component);
+                        if (node.ty == .i32) try emitSignInt(true) else try emitMath(callee, .vec4f);
+                    },
+                    .inverse_sqrt, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .atan2, .tanh, .exp, .exp2, .log, .log2, .pow, .step, .smoothstep => |callee| {
+                        try batchGet(a, component);
+                        if (node.argc > 1) try batchGet(b, component);
+                        if (node.argc > 2) try batchGet(t, component);
+                        try emitMath(callee, .vec4f);
                     },
                     else => return fail(0, .unsupported),
                 },
@@ -1775,11 +1906,16 @@ fn reduceToOpen() CompileError!void {
 
 fn lookupCallee(name: []const u8) ?Callee {
     const table = [_]struct { []const u8, Callee }{
-        .{ "abs", .abs },       .{ "min", .min },     .{ "max", .max },     .{ "clamp", .clamp },
-        .{ "select", .select }, .{ "sqrt", .sqrt },   .{ "floor", .floor }, .{ "ceil", .ceil },
-        .{ "trunc", .trunc },   .{ "round", .round }, .{ "dot", .dot },     .{ "mix", .mix },
-        .{ "f32", .to_f32 },    .{ "i32", .to_i32 },  .{ "u32", .to_u32 },  .{ "bool", .to_bool },
-        .{ "vec2f", .vec2f },   .{ "vec3f", .vec3f }, .{ "vec4f", .vec4f },
+        .{ "abs", .abs },               .{ "min", .min },                  .{ "max", .max },       .{ "clamp", .clamp },
+        .{ "select", .select },         .{ "sqrt", .sqrt },                .{ "floor", .floor },   .{ "ceil", .ceil },
+        .{ "trunc", .trunc },           .{ "round", .round },              .{ "dot", .dot },       .{ "mix", .mix },
+        .{ "fract", .fract },           .{ "sin", .sin },                  .{ "cos", .cos },       .{ "exp", .exp },
+        .{ "exp2", .exp2 },             .{ "log", .log },                  .{ "log2", .log2 },     .{ "pow", .pow },
+        .{ "sign", .sign },             .{ "tan", .tan },                  .{ "asin", .asin },     .{ "acos", .acos },
+        .{ "atan", .atan },             .{ "atan2", .atan2 },              .{ "tanh", .tanh },     .{ "step", .step },
+        .{ "smoothstep", .smoothstep }, .{ "inverseSqrt", .inverse_sqrt }, .{ "length", .length }, .{ "distance", .distance },
+        .{ "normalize", .normalize },   .{ "f32", .to_f32 },               .{ "i32", .to_i32 },    .{ "u32", .to_u32 },
+        .{ "bool", .to_bool },          .{ "vec2f", .vec2f },              .{ "vec3f", .vec3f },   .{ "vec4f", .vec4f },
     };
     for (table) |entry| if (std.mem.eql(u8, entry[0], name)) return entry[1];
     return null;
@@ -1801,8 +1937,8 @@ fn conversionTarget(callee: Callee) ?Ty {
 fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
     const callee: Callee = @enumFromInt(entry.op);
     const want: u8 = switch (callee) {
-        .min, .max, .dot => 2,
-        .clamp, .select, .mix => 3,
+        .min, .max, .dot, .pow, .atan2, .step, .distance => 2,
+        .clamp, .select, .mix, .smoothstep => 3,
         .vec2f, .vec3f, .vec4f => @min(argc, vecLen(conversionTarget(callee).?)),
         else => 1,
     };
@@ -1817,8 +1953,9 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
     var ty: Ty = undefined;
     var opnd: Ty = undefined;
     switch (callee) {
-        .abs => {
+        .abs, .sign => {
             if (!isNumeric(t0) and !isVec(t0)) return fail(entry.offset, .type_mismatch);
+            if (callee == .sign and t0 == .u32) return fail(entry.offset, .type_mismatch);
             opnd = t0;
             ty = t0;
         },
@@ -1833,10 +1970,34 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             if (!(isScalar(opnd) or isVec(opnd)) or nodes[kids[2]].ty != .bool) return fail(entry.offset, .type_mismatch);
             ty = opnd;
         },
-        .sqrt, .floor, .ceil, .trunc, .round => {
+        .sqrt, .inverse_sqrt, .floor, .ceil, .trunc, .round, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .tanh, .exp, .exp2, .log, .log2 => {
             ty = if (isVec(t0)) t0 else .f32;
             if (!(t0 == .f32 or isVec(t0) or isAbstract(t0))) return fail(entry.offset, .type_mismatch);
             opnd = ty;
+        },
+        .pow, .atan2, .step, .smoothstep => {
+            opnd = try unify(t0, nodes[kids[1]].ty, entry.offset);
+            if (callee == .smoothstep) opnd = try unify(opnd, nodes[kids[2]].ty, entry.offset);
+            if (!isVec(opnd)) opnd = if (convertible(opnd, .f32)) .f32 else return fail(entry.offset, .type_mismatch);
+            if (callee == .smoothstep) {
+                if (constFloat(kids[0])) |low| {
+                    if (constFloat(kids[1])) |high| {
+                        for (0..low.len) |lane| {
+                            const low_f32: f32 = @floatCast(low.values[lane]);
+                            const high_f32: f32 = @floatCast(high.values[lane]);
+                            if (low_f32 == high_f32) return fail(entry.offset, .type_mismatch);
+                        }
+                    }
+                }
+            }
+            ty = opnd;
+        },
+        .length, .distance, .normalize => {
+            // length(e) and distance(a, b) of an f32 or vector are an f32;
+            // normalize(v) takes a vector only.
+            opnd = if (callee == .distance) try unify(t0, nodes[kids[1]].ty, entry.offset) else t0;
+            if (!isVec(opnd)) opnd = if (callee != .normalize and convertible(opnd, .f32)) .f32 else return fail(entry.offset, .type_mismatch);
+            ty = if (callee == .normalize) opnd else .f32;
         },
         .dot => {
             if (!isVec(t0) or nodes[kids[1]].ty != t0) return fail(entry.offset, .type_mismatch);
@@ -2189,7 +2350,7 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
             .call => {
                 const callee: Callee = @enumFromInt(node.op);
                 switch (callee) {
-                    .abs, .min, .max, .clamp => {
+                    .abs, .sign, .min, .max, .clamp => {
                         node.opnd_ty = node.ty;
                         for (node.kids[0..node.argc]) |kid| try setNodeTy(kid, node.ty);
                     },
@@ -2198,7 +2359,9 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
                         try setNodeTy(node.kids[0], node.ty);
                         try setNodeTy(node.kids[1], node.ty);
                     },
-                    .sqrt, .floor, .ceil, .trunc, .round => try setNodeTy(node.kids[0], node.ty),
+                    .sqrt, .inverse_sqrt, .floor, .ceil, .trunc, .round, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .tanh, .exp, .exp2, .log, .log2 => try setNodeTy(node.kids[0], node.ty),
+                    .pow, .atan2, .step, .smoothstep => for (node.kids[0..node.argc]) |kid| try setNodeTy(kid, node.ty),
+                    .length, .distance, .normalize => for (node.kids[0..node.argc]) |kid| try setNodeTy(kid, node.opnd_ty),
                     .dot => {},
                     .mix => {
                         try setNodeTy(node.kids[0], node.ty);
@@ -2489,6 +2652,750 @@ fn emitMix(ty: Ty, t_ty: Ty) CompileError!void {
     try emitFloatOp(ty, 0x92, SIMD_F32X4_ADD);
 }
 
+// ---------------------------------------------------------------------------
+// Transcendental builtins
+//
+// sin, cos, tan, asin, acos, atan, tanh, exp2 and log2 are range reduction
+// plus minimax polynomials (Cephes sinf/cosf, asinf, atanf, tanhf, exp2f and
+// logf), lowered inline to f32x4 code; exp, log and pow are composed from
+// them as WGSL defines them, pow(x, y) being exp2(y * log2(x)). Only
+// correctly rounded f32 add, sub, mul, div and sqrt are used, never fused
+// multiply-add, so every host computes the same bits, and scalar, vector and
+// vectorized invocations agree. A scalar is splatted, computed in all four
+// lanes and extracted. Measured worst errors against double precision, all
+// within WGSL's f32 accuracy bounds:
+//
+// - sin, cos: 2^-23.6 absolute (1.5 ULP) in [-pi, pi], where WGSL allows
+//   2^-11, and the same through |x| < 8192, where reduction by pi/2 in three
+//   parts is exact; 2^-20 at |x| = 1e5. Any finite x gives a result in
+//   [-1, 1]; infinity and NaN give NaN.
+// - exp2: 1.2 ULP, exact at integers, with gradual underflow; +inf from
+//   x >= 128 and 0 below -150.
+// - exp: 1.4 ULP, reducing by ln(2) in two parts rather than rounding
+//   x * log2(e); +inf above 88.73 and 0 below -103.98.
+// - log2, log: 1.8 ULP, 2^-23.7 absolute in [0.5, 2], and exact log2 at
+//   powers of two, including subnormal input; 0 gives -inf, +inf gives +inf,
+//   and negative input or NaN gives NaN. log(x) is log2(x) * ln(2).
+// - pow: log2's error is multiplied by y * log2(x), so pow is a few ULP near
+//   1 and about 40 ULP for x < 10, |y| < 4, as WGSL's definition allows;
+//   x < 0 gives NaN and pow(0, 0) is NaN, as on GPUs.
+// - tan: 2.8 ULP through |x| < 8000, from the shared sin/cos reduction as
+//   sin(r) / cos(r), or -cos(r) / sin(r) in odd quadrants.
+// - asin: 2.1 ULP and acos: 1.2 ULP, reducing above |x| = 0.5 through
+//   sqrt((1 - |x|) / 2) so that acos near 1 keeps its relative accuracy;
+//   NaN outside [-1, 1].
+// - atan: 1.7 ULP; atan2(y, x): 2.4e-7 absolute, from atan of
+//   min(|x|, |y|) / max(|x|, |y|) reflected by the signs, matching libm on
+//   +-0, +-inf and NaN, where WGSL leaves it undefined. Being absolute, the
+//   error is many ULP when the result is near zero (|y| much less than x).
+// - tanh: 1.2 ULP, polynomial below |x| = 0.625 and 1 - 2 / (e^(2|x|) + 1)
+//   above, so it reaches +-1 rather than NaN.
+// - inverseSqrt: 1.5 ULP, as 1 / sqrt(x), within WGSL's 2 ULP.
+// - fract(x) is x - floor(x), so fract(-1e-8) rounds to 1.0, as in WGSL.
+// - sign keeps +-0 and NaN; step(edge, x) is 1.0 where edge <= x;
+//   smoothstep is WGSL's t * t * (3 - 2t). Reversed edges are defined;
+//   equal constant edges are rejected.
+
+const SIMD_F32X4_EQ: u32 = 65;
+const SIMD_F32X4_NE: u32 = 66;
+const SIMD_F32X4_LT: u32 = 67;
+const SIMD_F32X4_GT: u32 = 68;
+const SIMD_F32X4_LE: u32 = 69;
+const SIMD_F32X4_GE: u32 = 70;
+const SIMD_V128_AND: u32 = 78;
+const SIMD_V128_OR: u32 = 80;
+const SIMD_V128_XOR: u32 = 81;
+const SIMD_V128_BITSELECT: u32 = 82;
+const SIMD_I32X4_SPLAT: u32 = 17;
+const SIMD_I32X4_SHL: u32 = 171;
+const SIMD_I32X4_SHR_S: u32 = 172;
+const SIMD_I32X4_SHR_U: u32 = 173;
+const SIMD_I32X4_ADD: u32 = 174;
+const SIMD_I32X4_SUB: u32 = 177;
+const SIMD_I32X4_TRUNC_SAT_F32X4_S: u32 = 248;
+const SIMD_F32X4_CONVERT_I32X4_S: u32 = 250;
+
+// Cephes sinf and cosf on [-pi/4, pi/4], highest degree first.
+const SIN_POLY = [_]f32{ -1.9515295891e-4, 8.3321608736e-3, -1.6666654611e-1 };
+const COS_POLY = [_]f32{ 2.443315711809948e-5, -1.388731625493765e-3, 4.166664568298827e-2 };
+// pi/2 as three parts; k * PIO2_1 and k * PIO2_2 are exact for |k| < 2^13.
+const PIO2_1: f32 = 1.5703125;
+const PIO2_2: f32 = 4.837512969970703125e-4;
+const PIO2_3: f32 = 7.54978995489188216e-8;
+// Cephes atanf on [-tan(pi/8), tan(pi/8)], asinf on [0, 0.25] in z = u * u,
+// and tanhf on [0, 0.625^2].
+const ATAN_POLY = [_]f32{ 8.05374449538e-2, -1.38776856032e-1, 1.99777106478e-1, -3.33329491539e-1 };
+const ASIN_POLY = [_]f32{ 4.2163199048e-2, 2.4181311049e-2, 4.5470025998e-2, 7.4953002686e-2, 1.6666752422e-1 };
+const TANH_POLY = [_]f32{ -5.70498872745e-3, 2.06390887954e-2, -5.37397155531e-2, 1.33314422036e-1, -3.33332819422e-1 };
+// Cephes exp2f: 2^f = 1 + f * P(f) on [-0.5, 0.5].
+const EXP2_POLY = [_]f32{ 1.535336188319500e-4, 1.339887440266574e-3, 9.618437357674640e-3, 5.550332471162809e-2, 2.402264791363012e-1, 6.931472028550421e-1 };
+// ln(2) as two parts (Cephes expf); n * LN2_1 is exact for |n| < 2^15.
+const LN2_1: f32 = 0.693359375;
+const LN2_2: f32 = -2.12194440e-4;
+// Cephes logf: ln(1 + t) = t - t^2 / 2 + t^3 * P(t) on [sqrt(1/2) - 1, sqrt(2) - 1].
+const LOG_POLY = [_]f32{ 7.0376836292e-2, -1.1514610310e-1, 1.1676998740e-1, -1.2420140846e-1, 1.4249322787e-1, -1.6668057665e-1, 2.0000714765e-1, -2.4999993993e-1, 3.3333331174e-1 };
+
+fn mathSplat(value: f32) CompileError!void {
+    try body.f32Const(value);
+    try body.simd(SIMD_F32X4_SPLAT);
+}
+
+fn mathSplatInt(value: i32) CompileError!void {
+    try body.i32Const(value);
+    try body.simd(SIMD_I32X4_SPLAT);
+}
+
+// Leaves poly[0] * x^(n-1) + ... + poly[n-1] by Horner's rule, x a local.
+fn mathHorner(x: u32, poly: []const f32) CompileError!void {
+    try mathSplat(poly[0]);
+    for (poly[1..]) |c| {
+        try body.localGet(x);
+        try body.simd(SIMD_F32X4_MUL);
+        try mathSplat(c);
+        try body.simd(SIMD_F32X4_ADD);
+    }
+}
+
+// Stack: [k] i32x4. Leaves all ones in the lanes where k is odd.
+fn mathOddMask() CompileError!void {
+    try body.i32Const(31);
+    try body.simd(SIMD_I32X4_SHL);
+    try body.i32Const(31);
+    try body.simd(SIMD_I32X4_SHR_S);
+}
+
+// Stack: [x] f32x4. Leaves sin(x), cos(x) when `callee` is .cos, or
+// tan(x) when .tan.
+fn emitSinCos(callee: Callee) CompileError!void {
+    const x = try allocLocal(.vec4f); // later sin(r)
+    const k = try allocLocal(.vec4f); // later the quadrant as i32
+    const r = try allocLocal(.vec4f);
+    const z = try allocLocal(.vec4f);
+    // k = nearest(x * 2/pi), r = x - k * pi/2
+    try body.localTee(x);
+    try mathSplat(2.0 / std.math.pi);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.simd(SIMD_F32X4_NEAREST);
+    try body.localSet(k);
+    try body.localGet(x);
+    for ([_]f32{ PIO2_1, PIO2_2, PIO2_3 }) |part| {
+        try body.localGet(k);
+        try mathSplat(part);
+        try body.simd(SIMD_F32X4_MUL);
+        try body.simd(SIMD_F32X4_SUB);
+    }
+    // Beyond exact reduction r is meaningless; bound it so z stays finite
+    // and the result in [-1, 1]. Inside, |r| <= pi/4.
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_MIN);
+    try mathSplat(-1);
+    try body.simd(SIMD_F32X4_MAX);
+    try body.localTee(r);
+    try body.localGet(r);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localSet(z);
+    // sin(r) = r + r * z * S(z)
+    try mathHorner(z, &SIN_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(r);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(r);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.localSet(x);
+    try body.localGet(k);
+    try body.simd(SIMD_I32X4_TRUNC_SAT_F32X4_S);
+    if (callee == .cos) {
+        try mathSplatInt(1);
+        try body.simd(SIMD_I32X4_ADD);
+    }
+    try body.localSet(k);
+    // cos(r) = 1 - z / 2 + z * z * C(z)
+    try mathHorner(z, &COS_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(z);
+    try mathSplat(0.5);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.simd(SIMD_F32X4_SUB);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_ADD);
+    if (callee == .tan) {
+        // tan(x) is sin(r) / cos(r), or -cos(r) / sin(r) in odd quadrants.
+        try body.localSet(z);
+        try body.localGet(z);
+        try body.simd(SIMD_F32X4_NEG);
+        try body.localGet(x);
+        try body.localGet(k);
+        try mathOddMask();
+        try body.simd(SIMD_V128_BITSELECT);
+        try body.localGet(x);
+        try body.localGet(z);
+        try body.localGet(k);
+        try mathOddMask();
+        try body.simd(SIMD_V128_BITSELECT);
+        return body.simd(SIMD_F32X4_DIV);
+    }
+    // Odd quadrants take cos(r); quadrants 2 and 3 negate.
+    try body.localGet(x);
+    try body.localGet(k);
+    try mathOddMask();
+    try body.simd(SIMD_V128_BITSELECT);
+    try body.localGet(k);
+    try body.i32Const(30);
+    try body.simd(SIMD_I32X4_SHL);
+    try mathSplatInt(std.math.minInt(i32));
+    try body.simd(SIMD_V128_AND);
+    try body.simd(SIMD_V128_XOR);
+}
+
+// Stack: [x] f32x4. Leaves 2^x, or e^x when `natural`.
+fn emitExp2(natural: bool) CompileError!void {
+    const x = try allocLocal(.vec4f); // later f, then n / 2
+    const n = try allocLocal(.vec4f); // later as i32
+    const p = try allocLocal(.vec4f);
+    // Clamp so that each half of the exponent stays normal; NaN passes.
+    const scale: f32 = if (natural) std.math.ln2 else 1;
+    try mathSplat(-151 * scale);
+    try body.simd(SIMD_F32X4_MAX);
+    try mathSplat(129 * scale);
+    try body.simd(SIMD_F32X4_MIN);
+    try body.localTee(x);
+    if (natural) {
+        try mathSplat(std.math.log2e);
+        try body.simd(SIMD_F32X4_MUL);
+    }
+    try body.simd(SIMD_F32X4_NEAREST);
+    try body.localTee(n);
+    // f = x - n, or (x - n * ln(2)) * log2(e) with ln(2) in two parts so
+    // that the reduction is exact rather than rounding x * log2(e).
+    try body.localGet(x);
+    if (natural) {
+        for ([_]f32{ LN2_1, LN2_2 }) |part| {
+            try body.localGet(n);
+            try mathSplat(part);
+            try body.simd(SIMD_F32X4_MUL);
+            try body.simd(SIMD_F32X4_SUB);
+        }
+        try mathSplat(std.math.log2e);
+        try body.simd(SIMD_F32X4_MUL);
+    } else {
+        try body.localGet(n);
+        try body.simd(SIMD_F32X4_SUB);
+    }
+    try body.localSet(x);
+    try body.simd(SIMD_I32X4_TRUNC_SAT_F32X4_S);
+    try body.localSet(n);
+    // 2^f = 1 + f * P(f)
+    try mathHorner(x, &EXP2_POLY);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_MUL);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.localSet(p);
+    // Scale by 2^(n >> 1) and then 2^(n - (n >> 1)), so 2^128 overflows
+    // and subnormal results round once.
+    try body.localGet(p);
+    try body.localGet(n);
+    try body.i32Const(1);
+    try body.simd(SIMD_I32X4_SHR_S);
+    try body.localTee(x);
+    try mathSplatInt(127);
+    try body.simd(SIMD_I32X4_ADD);
+    try body.i32Const(23);
+    try body.simd(SIMD_I32X4_SHL);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(n);
+    try body.localGet(x);
+    try body.simd(SIMD_I32X4_SUB);
+    try mathSplatInt(127);
+    try body.simd(SIMD_I32X4_ADD);
+    try body.i32Const(23);
+    try body.simd(SIMD_I32X4_SHL);
+    try body.simd(SIMD_F32X4_MUL);
+}
+
+// Stack: [x] f32x4. Leaves log2(x).
+fn emitLog2() CompileError!void {
+    const x = try allocLocal(.vec4f);
+    const m = try allocLocal(.vec4f); // the mantissa, later t = m - 1
+    const e = try allocLocal(.vec4f); // the exponent as i32, later f32
+    const mask = try allocLocal(.vec4f);
+    const z = try allocLocal(.vec4f);
+    // Subnormal input is scaled by 2^23 first.
+    try body.localTee(x);
+    try mathSplat(std.math.floatMin(f32));
+    try body.simd(SIMD_F32X4_LT);
+    try body.localSet(mask);
+    try body.localGet(x);
+    try mathSplat(0x1p23);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(x);
+    try body.localGet(mask);
+    try body.simd(SIMD_V128_BITSELECT);
+    try body.localTee(m);
+    try body.i32Const(23);
+    try body.simd(SIMD_I32X4_SHR_U);
+    try mathSplatInt(127);
+    try body.simd(SIMD_I32X4_SUB);
+    try body.localGet(mask);
+    try mathSplatInt(23);
+    try body.simd(SIMD_V128_AND);
+    try body.simd(SIMD_I32X4_SUB);
+    try body.localSet(e);
+    // m in [1, 2), then halved above sqrt(2) so that t = m - 1 is small.
+    try body.localGet(m);
+    try mathSplatInt(0x007fffff);
+    try body.simd(SIMD_V128_AND);
+    try mathSplatInt(0x3f800000);
+    try body.simd(SIMD_V128_OR);
+    try body.localTee(m);
+    try mathSplat(std.math.sqrt2);
+    try body.simd(SIMD_F32X4_GT);
+    try body.localSet(mask);
+    try body.localGet(m);
+    try mathSplat(0.5);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(m);
+    try body.localGet(mask);
+    try body.simd(SIMD_V128_BITSELECT);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localTee(m);
+    try body.localGet(m);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localSet(z);
+    // A true mask is -1, so subtracting it adds one to the exponent.
+    try body.localGet(e);
+    try body.localGet(mask);
+    try body.simd(SIMD_I32X4_SUB);
+    try body.simd(SIMD_F32X4_CONVERT_I32X4_S);
+    try body.localSet(e);
+    // ln(m) = t + (t * z * P(t) - z / 2), then log2(x) = e + ln(m) * log2(e)
+    try mathHorner(m, &LOG_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(m);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(z);
+    try mathSplat(0.5);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(m);
+    try body.simd(SIMD_F32X4_ADD);
+    try mathSplat(std.math.log2e);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(e);
+    try body.simd(SIMD_F32X4_ADD);
+    // Negative input and NaN give NaN, 0 gives -inf, and +inf stays.
+    try mathSplat(std.math.nan(f32));
+    try body.localGet(x);
+    try mathSplat(0);
+    try body.simd(SIMD_F32X4_GE);
+    try body.simd(SIMD_V128_BITSELECT);
+    try body.localSet(z);
+    try mathSplat(-std.math.inf(f32));
+    try body.localGet(z);
+    try body.localGet(x);
+    try mathSplat(0);
+    try body.simd(SIMD_F32X4_EQ);
+    try body.simd(SIMD_V128_BITSELECT);
+    try body.localSet(z);
+    try body.localGet(x);
+    try body.localGet(z);
+    try body.localGet(x);
+    try mathSplat(std.math.inf(f32));
+    try body.simd(SIMD_F32X4_EQ);
+    try body.simd(SIMD_V128_BITSELECT);
+}
+
+// Stack: [x] f32x4. Leaves x with the sign of `sign`, a local.
+fn mathCopySign(sign: u32) CompileError!void {
+    try mathSplatInt(0x7fffffff);
+    try body.simd(SIMD_V128_AND);
+    try body.localGet(sign);
+    try mathSplatInt(std.math.minInt(i32));
+    try body.simd(SIMD_V128_AND);
+    try body.simd(SIMD_V128_OR);
+}
+
+// Stack: [a, b, mask]. Leaves a where mask is set and b elsewhere.
+fn mathSelect() CompileError!void {
+    try body.simd(SIMD_V128_BITSELECT);
+}
+
+// Stack: [x] f32x4 with x >= 0 or NaN. Leaves atan(x): Cephes atanf
+// reduces to |t| <= tan(pi/8) by atan(x) = pi/2 + atan(-1/x) above
+// tan(3pi/8) and pi/4 + atan((x - 1)/(x + 1)) above tan(pi/8).
+fn emitAtanPositive() CompileError!void {
+    const x = try allocLocal(.vec4f);
+    const big = try allocLocal(.vec4f);
+    const mid = try allocLocal(.vec4f);
+    const t = try allocLocal(.vec4f);
+    const z = try allocLocal(.vec4f);
+    try body.localTee(x);
+    try mathSplat(2.414213562373095);
+    try body.simd(SIMD_F32X4_GT);
+    try body.localSet(big);
+    try body.localGet(x);
+    try mathSplat(0.4142135623730950);
+    try body.simd(SIMD_F32X4_GT);
+    try body.localSet(mid);
+    // t = -1 / x, (x - 1) / (x + 1) or x
+    try mathSplat(-1);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_DIV);
+    try body.localGet(x);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(x);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.simd(SIMD_F32X4_DIV);
+    try body.localGet(x);
+    try body.localGet(mid);
+    try mathSelect();
+    try body.localGet(big);
+    try mathSelect();
+    try body.localTee(t);
+    try body.localGet(t);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localSet(z);
+    // atan(t) = t + t * z * P(z)
+    try mathHorner(z, &ATAN_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(t);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(t);
+    try body.simd(SIMD_F32X4_ADD);
+    try mathSplat(std.math.pi / 2.0);
+    try mathSplat(std.math.pi / 4.0);
+    try mathSplat(0);
+    try body.localGet(mid);
+    try mathSelect();
+    try body.localGet(big);
+    try mathSelect();
+    try body.simd(SIMD_F32X4_ADD);
+}
+
+// Stack: [y] f32x4, with x a local. Leaves atan2(y, x) from the atan of
+// min(|x|, |y|) / max(|x|, |y|) in [0, 1], reflected into the quadrant.
+// atan2(+-0, +0) is +-0 and atan2(+-0, -0) is +-pi; both infinite gives
+// +-pi/4 or +-3pi/4, as libm does.
+fn emitAtan2(x: u32) CompileError!void {
+    const y = try allocLocal(.vec4f);
+    const ax = try allocLocal(.vec4f);
+    const ay = try allocLocal(.vec4f);
+    const lo = try allocLocal(.vec4f);
+    const r = try allocLocal(.vec4f);
+    try body.localTee(y);
+    try body.simd(SIMD_F32X4_ABS);
+    try body.localSet(ay);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_ABS);
+    try body.localSet(ax);
+    // min / max, with 0 / 0 taken as 0 and inf / inf as 1
+    try body.localGet(ax);
+    try body.localGet(ay);
+    try body.simd(SIMD_F32X4_MIN);
+    try body.localTee(lo);
+    try body.localGet(ax);
+    try body.localGet(ay);
+    try body.simd(SIMD_F32X4_MAX);
+    try body.localTee(r);
+    try body.simd(SIMD_F32X4_DIV);
+    try mathSplat(0);
+    try body.localGet(r);
+    try mathSplat(0);
+    try body.simd(SIMD_F32X4_NE);
+    try mathSelect();
+    try body.localSet(r);
+    try mathSplat(1);
+    try body.localGet(r);
+    try body.localGet(lo);
+    try mathSplat(std.math.inf(f32));
+    try body.simd(SIMD_F32X4_EQ);
+    try mathSelect();
+    try emitAtanPositive();
+    try body.localSet(r);
+    // pi/2 - r when |y| > |x|, then pi - r when x < 0
+    try mathSplat(std.math.pi / 2.0);
+    try body.localGet(r);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(r);
+    try body.localGet(ay);
+    try body.localGet(ax);
+    try body.simd(SIMD_F32X4_GT);
+    try mathSelect();
+    try body.localSet(r);
+    // the sign bit rather than x < 0, so that x = -0 counts as negative
+    try mathSplat(std.math.pi);
+    try body.localGet(r);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(r);
+    try body.localGet(x);
+    try body.i32Const(31);
+    try body.simd(SIMD_I32X4_SHR_S);
+    try mathSelect();
+    try mathCopySign(y);
+}
+
+// Stack: [x] f32x4. Leaves asin(x), or acos(x) when `cosine`. Cephes asinf:
+// above |x| = 0.5, asin(|x|) = pi/2 - 2 * asin(sqrt((1 - |x|) / 2)), and
+// asin(u) = u + u * z * P(z) with z = u * u. Outside [-1, 1] the square
+// root of a negative gives NaN.
+fn emitAsinAcos(cosine: bool) CompileError!void {
+    const x = try allocLocal(.vec4f);
+    const big = try allocLocal(.vec4f);
+    const u = try allocLocal(.vec4f);
+    const z = try allocLocal(.vec4f);
+    try body.localTee(x);
+    try body.simd(SIMD_F32X4_ABS);
+    try body.localTee(u);
+    try mathSplat(0.5);
+    try body.simd(SIMD_F32X4_GT);
+    try body.localSet(big);
+    // z = (1 - |x|) / 2 or x * x, and u = sqrt(z) or x (|x| for asin)
+    try mathSplat(1);
+    try body.localGet(u);
+    try body.simd(SIMD_F32X4_SUB);
+    try mathSplat(0.5);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(x);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(big);
+    try mathSelect();
+    try body.localTee(z);
+    try body.simd(SIMD_F32X4_SQRT);
+    if (cosine) try body.localGet(x) else try body.localGet(u);
+    try body.localGet(big);
+    try mathSelect();
+    try body.localSet(u);
+    try mathHorner(z, &ASIN_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(u);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(u);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.localSet(u);
+    if (cosine) {
+        // 2p for x > 0.5, pi - 2p for x < -0.5, and pi/2 - p between.
+        try body.localGet(u);
+        try body.localGet(u);
+        try body.simd(SIMD_F32X4_ADD);
+        try body.localSet(z);
+        try body.localGet(z);
+        try mathSplat(std.math.pi);
+        try body.localGet(z);
+        try body.simd(SIMD_F32X4_SUB);
+        try body.localGet(x);
+        try mathSplat(0);
+        try body.simd(SIMD_F32X4_GT);
+        try mathSelect();
+        try mathSplat(std.math.pi / 2.0);
+        try body.localGet(u);
+        try body.simd(SIMD_F32X4_SUB);
+        try body.localGet(big);
+        return mathSelect();
+    }
+    // pi/2 - 2p above 0.5, with the sign of x.
+    try mathSplat(std.math.pi / 2.0);
+    try body.localGet(u);
+    try body.localGet(u);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(u);
+    try body.localGet(big);
+    try mathSelect();
+    try mathCopySign(x);
+}
+
+// Stack: [x] f32x4. Leaves tanh(x): Cephes tanhf's x + x * z * P(z) below
+// |x| = 0.625, and 1 - 2 / (e^(2|x|) + 1) with the sign of x above, which
+// reaches 1 when e^(2|x|) overflows.
+fn emitTanh() CompileError!void {
+    const x = try allocLocal(.vec4f);
+    const z = try allocLocal(.vec4f);
+    const big = try allocLocal(.vec4f);
+    try body.localTee(x);
+    try body.simd(SIMD_F32X4_ABS);
+    try body.localTee(z);
+    try mathSplat(0.625);
+    try body.simd(SIMD_F32X4_GT);
+    try body.localSet(big);
+    try mathSplat(1);
+    try mathSplat(2);
+    try body.localGet(z);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_ADD);
+    try emitExp2(true);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.simd(SIMD_F32X4_DIV);
+    try body.simd(SIMD_F32X4_SUB);
+    try mathCopySign(x);
+    try body.localGet(x);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localSet(z);
+    try mathHorner(z, &TANH_POLY);
+    try body.localGet(z);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_MUL);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.localGet(big);
+    try mathSelect();
+}
+
+// Stack: [low] f32x4, with high and x locals. Leaves WGSL's t * t * (3 - 2t)
+// where t = clamp((x - low) / (high - low), 0, 1).
+fn emitSmoothstep(high: u32, x: u32) CompileError!void {
+    const low = try allocLocal(.vec4f);
+    const t = try allocLocal(.vec4f);
+    try body.localSet(low);
+    try body.localGet(x);
+    try body.localGet(low);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.localGet(high);
+    try body.localGet(low);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.simd(SIMD_F32X4_DIV);
+    try mathSplat(0);
+    try body.simd(SIMD_F32X4_MAX);
+    try mathSplat(1);
+    try body.simd(SIMD_F32X4_MIN);
+    try body.localTee(t);
+    try body.localGet(t);
+    try body.simd(SIMD_F32X4_MUL);
+    try mathSplat(3);
+    try body.localGet(t);
+    try body.localGet(t);
+    try body.simd(SIMD_F32X4_ADD);
+    try body.simd(SIMD_F32X4_SUB);
+    try body.simd(SIMD_F32X4_MUL);
+}
+
+// Stack: [x] f32x4. Leaves 1 or -1 with the sign of x, or x when it is
+// zero (keeping -0) or NaN.
+fn emitSignFloat() CompileError!void {
+    const x = try allocLocal(.vec4f);
+    try body.localSet(x);
+    try mathSplat(1);
+    try mathCopySign(x);
+    try body.localGet(x);
+    try body.localGet(x);
+    try mathSplat(0);
+    try body.simd(SIMD_F32X4_NE);
+    try body.localGet(x);
+    try body.localGet(x);
+    try body.simd(SIMD_F32X4_EQ);
+    try body.simd(SIMD_V128_AND);
+    try mathSelect();
+}
+
+// Stack: [x] as i32, or i32x4 when `simd`. Leaves sign(x) as -1, 0 or 1.
+fn emitSignInt(simd: bool) CompileError!void {
+    if (simd) {
+        // A true mask is -1, so (x < 0) - (x > 0) is the sign.
+        const x = try allocLocal(.vec4f);
+        try body.localTee(x);
+        try mathSplatInt(0);
+        try body.simd(57); // i32x4.lt_s
+        try body.localGet(x);
+        try mathSplatInt(0);
+        try body.simd(59); // i32x4.gt_s
+        return body.simd(SIMD_I32X4_SUB);
+    }
+    const x = try allocLocal(.i32);
+    try body.localTee(x);
+    try body.i32Const(0);
+    try body.byte(0x4a); // i32.gt_s
+    try body.localGet(x);
+    try body.i32Const(0);
+    try body.byte(0x48); // i32.lt_s
+    try body.byte(0x6b); // i32.sub
+}
+
+// Stack: the call's arguments as `ty`, an f32 or a vector. Leaves the result.
+fn emitMath(callee: Callee, ty: Ty) CompileError!void {
+    const scalar = !isVec(ty);
+    if (callee == .fract) {
+        const t = try allocLocal(ty);
+        try body.localTee(t);
+        try body.localGet(t);
+        try emitFloatOp(ty, 0x8e, SIMD_F32X4_FLOOR);
+        return emitFloatOp(ty, 0x93, SIMD_F32X4_SUB);
+    }
+    // Later arguments go to locals, leaving the first on the stack.
+    var args: [3]u32 = undefined;
+    var i: usize = switch (callee) {
+        .pow, .atan2, .step => 2,
+        .smoothstep => 3,
+        else => 1,
+    };
+    while (i > 1) {
+        i -= 1;
+        args[i] = try allocLocal(.vec4f);
+        if (scalar) try body.simd(SIMD_F32X4_SPLAT);
+        try body.localSet(args[i]);
+    }
+    if (scalar) try body.simd(SIMD_F32X4_SPLAT);
+    switch (callee) {
+        .sin, .cos, .tan => try emitSinCos(callee),
+        .asin => try emitAsinAcos(false),
+        .acos => try emitAsinAcos(true),
+        .atan => {
+            const x = try allocLocal(.vec4f);
+            try body.localTee(x);
+            try body.simd(SIMD_F32X4_ABS);
+            try emitAtanPositive();
+            try mathCopySign(x);
+        },
+        .atan2 => try emitAtan2(args[1]),
+        .tanh => try emitTanh(),
+        .sign => try emitSignFloat(),
+        .inverse_sqrt => {
+            const x = try allocLocal(.vec4f);
+            try body.localSet(x);
+            try mathSplat(1);
+            try body.localGet(x);
+            try body.simd(SIMD_F32X4_SQRT);
+            try body.simd(SIMD_F32X4_DIV);
+        },
+        .step => {
+            // 1.0 where edge <= x, else 0.0
+            try body.localGet(args[1]);
+            try body.simd(SIMD_F32X4_LE);
+            try mathSplat(1);
+            try body.simd(SIMD_V128_AND);
+        },
+        .smoothstep => try emitSmoothstep(args[1], args[2]),
+        .exp2 => try emitExp2(false),
+        .exp => try emitExp2(true),
+        .log2 => try emitLog2(),
+        .log => {
+            try emitLog2();
+            try mathSplat(std.math.ln2);
+            try body.simd(SIMD_F32X4_MUL);
+        },
+        .pow => {
+            try emitLog2();
+            try body.localGet(args[1]);
+            try body.simd(SIMD_F32X4_MUL);
+            try emitExp2(false);
+        },
+        else => unreachable,
+    }
+    if (scalar) try body.simdLane(SIMD_F32X4_EXTRACT_LANE, 0);
+}
+
 fn emitConvert(from: Ty, to: Ty) CompileError!void {
     if (from == to) return;
     switch (to) {
@@ -2605,6 +3512,28 @@ fn emitNode(node: Node) CompileError!void {
             .round => try emitFloatOp(node.ty, 0x90, SIMD_F32X4_NEAREST),
             .dot => try emitDot(vecLen(node.opnd_ty)),
             .mix => try emitMix(node.ty, nodes[node.kids[2]].ty),
+            .sign => |callee| if (node.ty == .i32) try emitSignInt(false) else try emitMath(callee, node.ty),
+            .inverse_sqrt, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .atan2, .tanh, .exp, .exp2, .log, .log2, .pow, .step, .smoothstep => |callee| try emitMath(callee, node.ty),
+            .length, .distance => |callee| {
+                if (callee == .distance) try emitFloatOp(node.opnd_ty, 0x93, SIMD_F32X4_SUB);
+                if (!isVec(node.opnd_ty)) return body.byte(0x8b); // f32.abs
+                const t = try allocLocal(.vec4f);
+                try body.localTee(t);
+                try body.localGet(t);
+                try emitDot(vecLen(node.opnd_ty));
+                try body.byte(0x91); // f32.sqrt
+            },
+            .normalize => {
+                // v / sqrt(dot(v, v))
+                const t = try allocLocal(.vec4f);
+                try body.localTee(t);
+                try body.localGet(t);
+                try body.localGet(t);
+                try emitDot(vecLen(node.ty));
+                try body.byte(0x91);
+                try body.simd(SIMD_F32X4_SPLAT);
+                try body.simd(SIMD_F32X4_DIV);
+            },
             .to_f32, .to_i32, .to_u32, .to_bool => try emitConvert(node.opnd_ty, node.ty),
             .vec2f, .vec3f, .vec4f => if (node.argc > 1) try emitVecConstruct(node) else if (!isVec(node.opnd_ty)) {
                 try body.simd(SIMD_F32X4_SPLAT);
@@ -2659,7 +3588,7 @@ fn declareLocal(name: Token, ty: Ty, mutable: bool) CompileError!u32 {
     return index;
 }
 
-fn parseDeclaration(mutable: bool) CompileError!void {
+fn parseDeclaration(mutable: bool, is_const: bool) CompileError!void {
     const name = try expect(.ident);
     var declared: ?Ty = null;
     if (peek().kind == .colon) {
@@ -2677,8 +3606,10 @@ fn parseDeclaration(mutable: bool) CompileError!void {
         rememberLiteral(.{ .ty = ty });
     }
     _ = try expect(.semicolon);
+    const const_value = if (is_const) constFloat(@intCast(node_len - 1)) else null;
     // Declare after the initializer so that `let x = x + 1;` sees the outer x.
     const index = try declareLocal(name, ty, mutable);
+    scope[scope_len - 1].const_value = const_value;
     try body.localSet(index);
     rememberStmt(.{ .kind = .declare, .expr = last_expr, .local = index, .ty = ty });
 }
@@ -2874,12 +3805,12 @@ fn parseStatement() CompileError!void {
     const word = text(t);
     if (std.mem.eql(u8, word, "let") or std.mem.eql(u8, word, "const")) {
         _ = advance();
-        return parseDeclaration(false);
+        return parseDeclaration(false, std.mem.eql(u8, word, "const"));
     }
     if (std.mem.eql(u8, word, "var")) {
         _ = advance();
         if (peek().kind == .lt) return fail(peek().start, .unsupported);
-        return parseDeclaration(true);
+        return parseDeclaration(true, false);
     }
     if (std.mem.eql(u8, word, "if")) {
         _ = advance();
@@ -4008,4 +4939,18 @@ test "rejects sample offsets that are not constant or are too far" {
         \\@compute @workgroup_size(64) fn main() { v[0] = sample(0, 0); }
     ;
     try expectRejected(compute, std.mem.indexOf(u8, compute, "sample").?, .unsupported);
+}
+
+test "smoothstep rejects equal constant edges but permits runtime and reversed edges" {
+    const equal = [_][]const u8{
+        "fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(0.0, 0.0, c.x)); }",
+        "const EDGE = 0.5; fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(EDGE, 0.5, c.x)); }",
+        "fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(0.25 + 0.25, 0.5, c.x)); }",
+        "fn k(c: vec4f) -> vec4f { const edge = 0.5; return vec4f(smoothstep(edge, 0.5, c.x)); }",
+        "fn k(c: vec4f) -> vec4f { return smoothstep(vec4f(0.0, 0.5, 0.0, 0.0), vec4f(1.0, 0.5, 1.0, 1.0), c); }",
+    };
+    for (equal) |shader| try expectRejected(shader, std.mem.indexOf(u8, shader, "smoothstep").?, .type_mismatch);
+    _ = try compile("fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(1.0, 0.0, c.x)); }");
+    _ = try compile("fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(c.x, c.x, c.y)); }");
+    _ = try compile("override edge: f32 = 0.5; fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(edge, 0.5, c.x)); }");
 }
