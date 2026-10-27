@@ -27,6 +27,7 @@ type RouteWARCRequest struct {
 	Host           string
 	Verbose        bool
 	ViewSource     bool
+	CheckKindred   bool
 }
 
 type RouteConfig struct {
@@ -76,6 +77,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	hostRaw := "qip.local"
 	outputPath := "-"
 	viewSource := false
+	checkKindred := false
 
 	fs := flag.NewFlagSet("route warc", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -89,6 +91,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	fs.StringVar(&outputPath, "o", "-", "output WARC path ('-' for stdout)")
 	fs.StringVar(&outputPath, "output", "-", "output WARC path ('-' for stdout)")
 	fs.BoolVar(&viewSource, "view-source", false, "include /view-source plus recipe source files from --recipes")
+	fs.BoolVar(&checkKindred, "check-kindred", false, "rerun each page's WARC recipes with only its Kindred Routes and fail if any output differs")
 	if err := fs.Parse(normalizeRouteWarcArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(config.UsageRouteWarc)
@@ -129,6 +132,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 		Host:           host,
 		Verbose:        verbose,
 		ViewSource:     viewSource,
+		CheckKindred:   checkKindred,
 	}
 
 	paths, err := config.ListWARCPaths(context.Background(), baseRequest)
@@ -223,11 +227,17 @@ func parseRouteWARCHost(raw string) (string, error) {
 	return origin.Scheme + "://" + origin.Host, nil
 }
 
-func buildRouteWARCRequestURI(host string, requestPath string) string {
-	origin := host
-	if !strings.Contains(origin, "://") {
-		origin = "http://" + origin
+// RouteWARCOrigin returns the scheme and host that prefix every
+// WARC-Target-URI in a route WARC archive.
+func RouteWARCOrigin(host string) string {
+	if !strings.Contains(host, "://") {
+		return "http://" + host
 	}
+	return host
+}
+
+func buildRouteWARCRequestURI(host string, requestPath string) string {
+	origin := RouteWARCOrigin(host)
 	if !strings.HasPrefix(requestPath, "/") {
 		requestPath = "/" + requestPath
 	}

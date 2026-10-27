@@ -346,6 +346,8 @@ These rules give WARC recipes access to direct static dependencies without turni
 
 The target response must be selected from the transformed WARC by exact target URI.
 
+A whole-site export runs the WARC recipes once over every record, so a recipe can read routes that dev mode would not have given it, and a page can build differently from how it previews. `qip router warc --check-kindred` catches this. After the whole-site run, it reruns the WARC recipes for each content route with only that route's Kindred Routes, as dev mode does, and fails if any page's status, headers or body differ from its record in the whole-site archive. The error lists each differing page with the first byte that differs. Records that only a recipe synthesizes, such as a sitemap, are not checked. The archive written is the same with or without the flag. The check reuses content recipe output from the export and runs pages in parallel, reusing each WARC recipe instance between pages.
+
 ## Route Listing
 
 `npx qip-router list` must list all routable content, component asset, and element module paths known before WARC recipe synthesis.

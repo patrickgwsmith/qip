@@ -7,7 +7,9 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	qinternal "github.com/royalicing/qip/internal"
@@ -163,6 +165,9 @@ type wasmRunDriver struct {
 	opts                         options
 	uniforms                     map[string]string
 	allowMissingInputContentType bool
+
+	idleMu sync.Mutex
+	idle   []api.Module
 }
 
 // Instance names must be unique among live modules within a wazero runtime,
@@ -182,18 +187,22 @@ func (d *wasmRunDriver) Execute(ctx context.Context, input qinternal.Content, re
 
 	instanceName := fmt.Sprintf("%s-r%d-e%d", d.instanceName, requestID, wasmRunInstanceCounter.Add(1))
 
-	// Implementation of executeModuleWithInput logic adapted to Content
-	exec, err := executeModuleWithInput(
-		ctx,
-		d.runtime,
-		d.compiled,
-		inputBytes,
-		d.opts,
-		instanceName,
-		d.uniforms,
-		qinternal.ContentTypeOf(input),
-		d.allowMissingInputContentType,
-	)
+	var exec moduleExecutionResult
+	if d.opts.reuseInstances {
+		exec, err = d.executeOnIdleInstance(ctx, inputBytes, instanceName, qinternal.ContentTypeOf(input))
+	} else {
+		exec, err = executeModuleWithInput(
+			ctx,
+			d.runtime,
+			d.compiled,
+			inputBytes,
+			d.opts,
+			instanceName,
+			d.uniforms,
+			qinternal.ContentTypeOf(input),
+			d.allowMissingInputContentType,
+		)
+	}
 	if err != nil {
 		var renderTrap *contentRenderTrapError
 		if d.opts.traceWith != "" && errors.As(err, &renderTrap) {
@@ -219,11 +228,57 @@ func (d *wasmRunDriver) Execute(ctx context.Context, input qinternal.Content, re
 	}
 }
 
+// executeOnIdleInstance renders on an instance left by an earlier render,
+// instantiating one if none is idle. Instantiation allocates and zeroes the
+// module's whole declared memory, which for a whole-site WARC recipe is
+// hundreds of megabytes, so reuse matters when one stage renders many times.
+// An instance returns to the idle list only after a successful render.
+func (d *wasmRunDriver) executeOnIdleInstance(ctx context.Context, inputBytes []byte, instanceName string, incomingContentType string) (moduleExecutionResult, error) {
+	start := time.Now()
+	var exec moduleExecutionResult
+	d.idleMu.Lock()
+	var mod api.Module
+	if n := len(d.idle); n > 0 {
+		mod = d.idle[n-1]
+		d.idle = d.idle[:n-1]
+	}
+	d.idleMu.Unlock()
+	if mod == nil {
+		var err error
+		mod, err = d.runtime.InstantiateModule(ctx, d.compiled, wazero.NewModuleConfig().WithName(instanceName))
+		if err != nil {
+			return exec, errors.New("Wasm module could not be instantiated")
+		}
+		if err := applyModuleUniforms(ctx, mod, d.uniforms); err != nil {
+			_ = mod.Close(ctx)
+			return exec, err
+		}
+		exec.instantiation = time.Since(start)
+	}
+	exec, err := renderModuleInstance(ctx, mod, inputBytes, d.opts, d.modulePath, incomingContentType, d.allowMissingInputContentType, exec)
+	exec.total = time.Since(start)
+	if err != nil {
+		_ = mod.Close(ctx)
+		return exec, err
+	}
+	d.idleMu.Lock()
+	d.idle = append(d.idle, mod)
+	d.idleMu.Unlock()
+	return exec, nil
+}
+
 func (d *wasmRunDriver) Label() string {
 	return d.modulePath
 }
 
 func (d *wasmRunDriver) Close(ctx context.Context) error {
+	d.idleMu.Lock()
+	idle := d.idle
+	d.idle = nil
+	d.idleMu.Unlock()
+	for _, mod := range idle {
+		_ = mod.Close(ctx)
+	}
 	return d.compiled.Close(ctx)
 }
 

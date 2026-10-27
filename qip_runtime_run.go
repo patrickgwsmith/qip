@@ -433,10 +433,27 @@ func executeModuleWithInput(
 		return
 	}
 
+	return renderModuleInstance(ctx, mod, inputBytes, opts, moduleName, incomingContentType, allowMissingInputContentType, exec)
+}
+
+// renderModuleInstance runs one render on an instance whose uniforms are
+// already set. The instance may have rendered before: hosts may reuse an
+// instance after a successful or rejected render, but not after a trap,
+// which is returned as *contentRenderTrapError.
+func renderModuleInstance(
+	ctx context.Context,
+	mod api.Module,
+	inputBytes []byte,
+	opts options,
+	moduleName string,
+	incomingContentType string,
+	allowMissingInputContentType bool,
+	exec moduleExecutionResult,
+) (_ moduleExecutionResult, returnErr error) {
 	contract, err := inspectRunModuleContract(ctx, mod)
 	if err != nil {
 		returnErr = err
-		return
+		return exec, returnErr
 	}
 	exec.inputCapBytes = contract.inputCapBytes
 	exec.outputCapBytes = contract.outputCapBytes
@@ -444,7 +461,7 @@ func executeModuleWithInput(
 	_, exec.outputContentType, err = resolveRunModuleContentType(contract, incomingContentType, allowMissingInputContentType, opts.contentTypeChecking, moduleName)
 	if err != nil {
 		returnErr = err
-		return
+		return exec, returnErr
 	}
 
 	inputPtr := contract.inputPtr
@@ -455,25 +472,25 @@ func executeModuleWithInput(
 	var inputSize = uint64(len(inputBytes))
 	if contract.inputless && inputSize != 0 {
 		returnErr = fmt.Errorf("inputless generator cannot receive %d input bytes", inputSize)
-		return
+		return exec, returnErr
 	}
 	if !contract.inputless && inputSize > inputCap {
 		returnErr = fmt.Errorf("input is too large (%d bytes > %d bytes input capacity)", inputSize, inputCap)
-		return
+		return exec, returnErr
 	}
 	// The pipeline's own input is validated for a UTF-8 first stage, because nothing before it
 	// established the guarantee. Later stages trust the preceding stage's UTF-8 output.
 	if allowMissingInputContentType && contract.inputEncoding == dataEncodingUTF8 {
 		if offset := firstInvalidUTF8Offset(inputBytes); offset >= 0 {
 			returnErr = fmt.Errorf("expected UTF-8 input, got invalid UTF-8 at input offset %d", offset)
-			return
+			return exec, returnErr
 		}
 	}
 
 	mem := mod.Memory()
 	if !contract.inputless && !mem.Write(uint32(inputPtr), inputBytes) {
 		returnErr = errors.New("Could not write input")
-		return
+		return exec, returnErr
 	}
 
 	runStart := time.Now()
@@ -481,24 +498,24 @@ func executeModuleWithInput(
 	exec.run = time.Since(runStart)
 	if returnErr != nil {
 		returnErr = &contentRenderTrapError{cause: wasmruntime.HumanizeExecutionError(ctx, returnErr)}
-		return
+		return exec, returnErr
 	}
 	renderResult := runResult[0]
 	if renderResult&(uint64(1)<<63) != 0 {
 		if !contract.hasFailure {
 			returnErr = errors.New("render returned failure but failure_modes_per_input_offset is not exported")
-			return
+			return exec, returnErr
 		}
 		detail := uint32(renderResult)
 		if contract.failureModesPerInputOffset == 0 {
 			returnErr = errors.New("rejected input")
-			return
+			return exec, returnErr
 		}
 		inputOffset := detail / contract.failureModesPerInputOffset
 		mode := detail % contract.failureModesPerInputOffset
 		if uint64(inputOffset) > inputSize {
 			returnErr = fmt.Errorf("render returned input failure offset %d beyond input size %d", inputOffset, inputSize)
-			return
+			return exec, returnErr
 		}
 		location := describeInputOffset(inputBytes, int(inputOffset), contract.declaredInputContentType)
 		if contract.failureModesPerInputOffset == 1 {
@@ -506,7 +523,7 @@ func executeModuleWithInput(
 		} else {
 			returnErr = fmt.Errorf("rejected input at input offset %d with mode %d%s", inputOffset, mode, location)
 		}
-		return
+		return exec, returnErr
 	}
 
 	outputCount := uint32(renderResult)
@@ -516,12 +533,12 @@ func executeModuleWithInput(
 
 		if outputCount > outputCap {
 			returnErr = errors.New("Module returned more bytes than its stated capacity")
-			return
+			return exec, returnErr
 		}
 		outputBytes, ok := mem.Read(outputPtr, outputCount)
 		if !ok {
 			returnErr = errors.New("Could not read output")
-			return
+			return exec, returnErr
 		}
 		// Copy out of wasm memory so callers can safely use the bytes after module close.
 		exec.output.bytes = slices.Clone(outputBytes)
@@ -534,7 +551,7 @@ func executeModuleWithInput(
 	}
 
 	exec.memoryBytes = memorySizeBytes(mem)
-	return
+	return exec, returnErr
 }
 
 func memorySizeBytes(mem api.Memory) uint64 {

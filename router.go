@@ -514,6 +514,9 @@ func routerCmd(args []string) {
 	type routeRuntime struct {
 		state        *RouterServerState
 		routeOptions qinternal.RouteOptions
+		// resolveBase caches content recipe output so --check-kindred can
+		// reuse it for every page's Kindred Routes.
+		resolveBase qinternal.KindredRouteResolver
 	}
 	handlerTimeouts := RouterServerTimeouts{
 		contentRecipe:   defaultRouteRecipeTimeout,
@@ -537,6 +540,8 @@ func routerCmd(args []string) {
 			verbose:             request.Verbose,
 			mode:                mode,
 			contentTypeChecking: ContentTypeCheckingStrong,
+			// --check-kindred renders each WARC recipe once per page.
+			reuseInstances: request.CheckKindred,
 		}
 
 		if err := validateContentRootArg(request.ContentRoot); err != nil {
@@ -561,6 +566,9 @@ func routerCmd(args []string) {
 		runtime = &routeRuntime{
 			state:        state,
 			routeOptions: routeOptions,
+			resolveBase: memoKindredResolver(func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
+				return resolveRouterBaseResponse(context.Background(), state, requestPath, 0, handlerTimeouts)
+			}),
 		}
 		return runtime, nil
 	}
@@ -624,17 +632,23 @@ func routerCmd(args []string) {
 					return response, nil
 				}
 			}
-			requestCtx := ctx
-			var traceRecorder *routeTraceRecorder
-			if request.Verbose {
-				traceRecorder = &routeTraceRecorder{}
-				requestCtx = qinternal.WithPipelineTrace(requestCtx, traceRecorder.Record)
+			var response qinternal.InProcessHTTPResponse
+			var ok bool
+			if request.CheckKindred {
+				response, ok, err = loaded.resolveBase(request.RequestPath)
+			} else {
+				requestCtx := ctx
+				var traceRecorder *routeTraceRecorder
+				if request.Verbose {
+					traceRecorder = &routeTraceRecorder{}
+					requestCtx = qinternal.WithPipelineTrace(requestCtx, traceRecorder.Record)
+				}
+				response, ok, err = resolveRouterBaseResponse(requestCtx, loaded.state, request.RequestPath, 0, handlerTimeouts)
+				logRouteTrace("router warc "+request.RequestPath, traceRecorder)
 			}
-			response, ok, err := resolveRouterBaseResponse(requestCtx, loaded.state, request.RequestPath, 0, handlerTimeouts)
 			if err != nil {
 				return qinternal.InProcessHTTPResponse{}, err
 			}
-			logRouteTrace("router warc "+request.RequestPath, traceRecorder)
 			if !ok {
 				return qinternal.InProcessHTTPResponse{
 					StatusCode: http.StatusNotFound,
@@ -665,6 +679,21 @@ func routerCmd(args []string) {
 				return nil, err
 			}
 			logRouteTrace("router warc archive", traceRecorder)
+			if request.CheckKindred {
+				start := time.Now()
+				pagePaths := kindredCheckPagePaths(loaded.state, loaded.routeOptions)
+				err := checkKindredWARC(ctx, pipeline, qcmd.RouteWARCOrigin(request.Host), pagePaths, transformed, loaded.resolveBase, func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
+					return resolveKindredStaticRoute(ctx, loaded.state, requestPath)
+				}, loaded.state.elementEntryPaths, func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
+					return resolveElementAssetResponse(ctx, loaded.state, requestPath, 0, handlerTimeouts)
+				}, warcTransformTimeout)
+				if err != nil {
+					return nil, err
+				}
+				if request.Verbose {
+					log.Printf("router warc --check-kindred: %d pages match in %s", len(pagePaths), formatTraceDuration(time.Since(start)))
+				}
+			}
 			return transformed, nil
 		},
 		Verbosef: func(format string, args ...any) {

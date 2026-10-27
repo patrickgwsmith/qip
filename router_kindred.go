@@ -145,7 +145,7 @@ func transformRouteResponseWithKindredRoutes(
 		return response, nil
 	}
 	requestURI := buildWARCRequestURI("qip.local", requestPath)
-	archive, err := buildKindredWARCArchive(requestPath, response, resolveParent, resolveStatic, elementEntryPaths, resolveElement)
+	archive, err := buildKindredWARCArchive("http://qip.local", requestPath, response, resolveParent, resolveStatic, elementEntryPaths, resolveElement)
 	if err != nil {
 		return qinternal.InProcessHTTPResponse{}, err
 	}
@@ -161,7 +161,10 @@ func transformRouteResponseWithKindredRoutes(
 	return transformedResponse, nil
 }
 
+// buildKindredWARCArchive builds the archive an application/warc recipe sees
+// for one route. Each record's WARC-Target-URI is origin followed by its path.
 func buildKindredWARCArchive(
+	origin string,
 	requestPath string,
 	response qinternal.InProcessHTTPResponse,
 	resolveParent qinternal.KindredRouteResolver,
@@ -199,7 +202,7 @@ func buildKindredWARCArchive(
 	}
 	var archive bytes.Buffer
 	for _, route := range routes {
-		record, err := buildMinimalWARCResponseRecord(buildWARCRequestURI("qip.local", route.RequestPath), route.Response)
+		record, err := buildMinimalWARCResponseRecord(origin+route.RequestPath, route.Response)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build Kindred Route WARC record for %q: %w", route.RequestPath, err)
 		}

@@ -91,8 +91,11 @@ type options struct {
 	capacitiesMustFit      bool
 	viewSource             bool
 	traceWith              string
-	modulePolicy           wasminspect.ModulePolicy
-	hosts                  []qinternal.ComponentHost
+	// reuseInstances keeps each run stage's instances for later renders
+	// instead of instantiating per render, which hosts may do.
+	reuseInstances bool
+	modulePolicy   wasminspect.ModulePolicy
+	hosts          []qinternal.ComponentHost
 }
 
 // applyModulePolicyFlags sets the module policy. memory.grow is always rejected:
@@ -117,7 +120,7 @@ const usageRouteGet = "Usage: qip router get <content_dir> <path> [--recipes <re
 const usageRouteHead = "Usage: qip router head <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
 const usageRouteKindred = "Usage: qip router kindred <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
 const usageRouteList = "Usage: qip router list <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [-v|--verbose]" + usageRouteDocs
-const usageRouteWarc = "Usage: qip router warc <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--host <host>] [--view-source] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
+const usageRouteWarc = "Usage: qip router warc <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--host <host>] [--view-source] [--check-kindred] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
 const usageTUI = "Usage: qip [host ...] tui [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--capacities-must-fit] <Interactive component> [-u <key=value> ...] [Content component [-u <key=value> ...] ...]"
 const usageHelp = "Usage: qip help [command]"
 const legacyDevNotice = "qip: `qip dev` has moved to `qip router dev`; please update your command. `qip dev` will continue to work for now."
