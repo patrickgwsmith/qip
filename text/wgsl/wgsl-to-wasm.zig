@@ -1,5 +1,5 @@
-//! wgsl-compute-to-wasm: compiles a small subset of WGSL compute shaders into a
-//! QIP Content component.
+//! wgsl-to-wasm: compiles a small subset of WGSL compute and fragment shaders
+//! into a QIP Content component, or pixel kernels into a Tile component.
 //!
 //! The shader runs once per element of the component's input (4 bytes for a
 //! scalar array, 16 for `array<vec4f>`), the way a GPU dispatch runs once per
@@ -35,12 +35,30 @@
 //!   `array<f32|i32|u32|vec4f>`, and one `@compute` function. Both buffers
 //!   must have the same element size. A shader with only a read_write buffer
 //!   transforms the input in place. Names must be declared before use.
+//! - Constant arrays, in a module with a `@compute` or `@fragment` entry:
+//!   `const name = array<T, N>(...)`, `array(...)` or `const name:
+//!   array<T, N> = ...`, with T f32, i32, u32 or vecNf and literal elements
+//!   (vecNf elements as constructors of literals). They go into a data
+//!   segment, and `name[i]` reads `min(u32(i), N - 1)`, as Dawn clamps.
+//!   Shaders that index them are not vectorized.
+//! - Helpers: in a module with a `@compute` or `@fragment` entry, every other
+//!   `fn` is a helper compiled to its own Wasm function. Helpers come before
+//!   the entry and call only helpers above them, so there is no recursion.
+//!   They take up to 8 scalar or vector parameters, may return a value (and
+//!   then must end with `return expr;`) or nothing, and may be called as a
+//!   statement. Shaders that call helpers are not vectorized.
 //! - Entry parameter: none, or `@builtin(global_invocation_id)` as `vec3<u32>`;
 //!   only `.x`, `.y` and `.z` are readable, and `.y` and `.z` are always 0.
 //! - Statements: `let`, `var`, `const`, assignment and compound assignment to
 //!   `var` or to one lane of a vector var (`v.a *= 0.5;`), `++`, `--`, whole
-//!   buffer element stores, `if`/`else if`/`else`, blocks, `return;`, and
-//!   `_ = expr;`.
+//!   buffer element stores, `if`/`else if`/`else`, blocks, `return`, calls,
+//!   `_ = expr;`, and constant-bounded loops:
+//!   `for (var i = start; i < N; i++) { ... }` with `<`, `<=`, `>` or `>=`,
+//!   `i++`, `i--`, `i += C`, `i -= C`, `i = i + C` or `i = i - C`, where N and
+//!   C are integer literals or consts, the step runs the comparison's way and
+//!   cannot wrap past N, and the body does not assign `i`. `break` and
+//!   `continue` work inside them. Loops compile to counted Wasm loops that
+//!   wasm-bounded-loops proves, and keep the scalar path when vectorized.
 //! - Expressions: bool, i32, u32 and f32 scalars, abstract integer and float
 //!   literals, arithmetic, comparison, logical and bitwise operators, buffer
 //!   element loads, `arrayLength(&buffer)`, scalar conversions such as
@@ -61,6 +79,34 @@
 //!   a * (1 - t) + b * t, with t a vector or an f32.
 //!   Buffers hold only `vec4f` vectors. Swizzle assignment, vector
 //!   comparisons and integer or bool vectors are unsupported.
+//!
+//! Fragment shaders: a module whose entry is `@fragment` runs it once per
+//! RGBA32F pixel of the input and writes the returned colour:
+//!
+//!   @group(0) @binding(0) var src: texture_2d<f32>;
+//!   @fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+//!     return textureLoad(src, vec2i(pos.xy), 0) * 0.5;
+//!   }
+//!
+//! The parameter is optional, and the result must be `@location(0) vec4f`.
+//! The component exports `uniform_set_width` (u32, default 0), which a host
+//! sets to the image width before each render; width 0 or a partial row is
+//! rejected, so the shader cannot declare an override named `width`. `pos` is
+//! the pixel centre `(x + 0.5, y + 0.5, 0, 1)`, as for a full-viewport triangle
+//! at depth 0. At most one `texture_2d<f32>` is the input image:
+//! `textureDimensions(t)` is a `vec2u`, and `textureLoad(t, coords, level)`
+//! takes `vec2i` or `vec2u` coordinates, clamped as Dawn's robustness does,
+//! `min(u32(c), size - 1)`, so a negative coordinate reads the last column or
+//! row (WGSL allows any texel or zero). A level other than 0 reads zero. `discard` returns transparent black, which matches a target
+//! cleared to transparent black. Storage buffers are unsupported here.
+//! `dpdx`, `dpdy` and `fwidth`, and their Fine and Coarse forms, take an f32
+//! or float vector. A module that calls them runs its pixels in 2x2 quads
+//! with helper lanes past odd edges, and every form is the fine derivative,
+//! as Chrome computes on Metal; see emitQuadLoops. There, a `discard` inside
+//! control flow demotes the invocation, which runs on and returns zero.
+//! `vec2i` and `vec2u` (or `vec2<i32>`, `vec2<u32>`) support constructors from
+//! scalars, splats, conversions to and from `vec2f`, members and swizzles of
+//! up to two lanes, and lane-wise `+ - *` with a scalar splatted.
 //!
 //! Pixel kernels: a module with no `@compute` function and no buffers may
 //! instead declare one or more point kernels, each a function that maps one
@@ -124,6 +170,14 @@ const MAX_OVERRIDES: usize = 32;
 const MAX_CONSTS: usize = 64;
 const MAX_KERNELS: usize = 32;
 const KERNEL_CODE_CAP: usize = 64 * 1024;
+const MAX_HELPERS: usize = 64;
+const MAX_CONST_ARRAYS: usize = 32;
+// Constant arrays live in a data segment in the second half of page 0, above
+// the derivative banks.
+const CONST_DATA_PTR: u32 = 32 * 1024;
+const CONST_DATA_CAP: usize = 32 * 1024;
+const MAX_PARAMS: usize = 8;
+const HELPER_CODE_CAP: usize = 64 * 1024;
 
 const INPUT_CONTENT_TYPE = "text/wgsl";
 const OUTPUT_CONTENT_TYPE = "application/wasm";
@@ -131,7 +185,7 @@ const OUTPUT_CONTENT_TYPE = "application/wasm";
 // Generated component memory: page 0 is unused, then the input and output
 // regions. An in-place shader returns its input region as output.
 const RUN_INPUT_PTR: u32 = 64 * 1024;
-const RUN_BYTES_CAP: u32 = 1024 * 1024;
+const RUN_BYTES_CAP: u32 = 4 * 1024 * 1024;
 const RUN_OUTPUT_PTR: u32 = RUN_INPUT_PTR + RUN_BYTES_CAP;
 const RUN_PAGES: u32 = (RUN_OUTPUT_PTR + RUN_BYTES_CAP) / (64 * 1024);
 
@@ -158,6 +212,12 @@ var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
 var body_buf: [BODY_CAP]u8 = undefined;
 var kernel_code_buf: [KERNEL_CODE_CAP]u8 = undefined;
+var helper_code_buf: [HELPER_CODE_CAP]u8 = undefined;
+var const_data: [CONST_DATA_CAP]u8 = undefined;
+var const_data_len: usize = 0;
+const ConstArray = struct { name: Token, elem: Ty, len: u32, offset: u32 };
+var const_arrays: [MAX_CONST_ARRAYS]ConstArray = undefined;
+var const_array_count: usize = 0;
 
 const RenderResult = packed struct(u64) {
     output_size_or_failure: u32,
@@ -444,16 +504,26 @@ fn expectWord(word: []const u8) CompileError!Token {
 // ---------------------------------------------------------------------------
 // Types and names
 
-const Ty = enum(u8) { void, bool, i32, u32, f32, vec2f, vec3f, vec4f, abstract_int, abstract_float };
+const Ty = enum(u8) { void, bool, i32, u32, f32, vec2f, vec3f, vec4f, vec2i, vec2u, abstract_int, abstract_float };
 
 // Every vector lowers to one v128; lanes past its length are unused.
 fn isVec(t: Ty) bool {
     return t == .vec2f or t == .vec3f or t == .vec4f;
 }
 
+// `vec2i` and `vec2u` exist for texture coordinates and dimensions: they
+// support constructors, conversions, members, and lane-wise `+ - *`.
+fn isIVec(t: Ty) bool {
+    return t == .vec2i or t == .vec2u;
+}
+
+fn ivecElem(t: Ty) Ty {
+    return if (t == .vec2i) .i32 else .u32;
+}
+
 fn vecLen(t: Ty) u8 {
     return switch (t) {
-        .vec2f => 2,
+        .vec2f, .vec2i, .vec2u => 2,
         .vec3f => 3,
         .vec4f => 4,
         else => 1,
@@ -511,14 +581,14 @@ fn unify(a: Ty, b: Ty, offset: u32) CompileError!Ty {
 fn valType(t: Ty) u8 {
     return switch (t) {
         .f32 => 0x7d,
-        .vec2f, .vec3f, .vec4f => 0x7b,
+        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u => 0x7b,
         else => 0x7f,
     };
 }
 
 // log2 of a buffer element's byte size.
 fn elemShift(t: Ty) u5 {
-    return if (t == .vec4f) 4 else 2;
+    return if (isVec(t)) 4 else 2;
 }
 
 fn parseScalarType() CompileError!Ty {
@@ -540,18 +610,24 @@ fn vecWordLen(t: Token, suffixed: bool) ?u8 {
     return if (name[3] >= '2' and name[3] <= '4') name[3] - '0' else null;
 }
 
-// A scalar type, `vecNf` or `vecN<f32>` for N in 2..4.
+// A scalar type, `vecNf` or `vecN<f32>` for N in 2..4, or `vec2i`, `vec2u`,
+// `vec2<i32>` or `vec2<u32>`.
 fn parseType() CompileError!Ty {
     const t = peek();
     if (vecWordLen(t, true)) |len| {
         _ = advance();
         return vecOf(len);
     }
+    if (isWord(t, "vec2i") or isWord(t, "vec2u")) {
+        _ = advance();
+        return if (isWord(t, "vec2i")) .vec2i else .vec2u;
+    }
     const len = vecWordLen(t, false) orelse return parseScalarType();
     _ = advance();
     _ = try expect(.lt);
     const elem = peek();
-    if (!isWord(elem, "f32")) return fail(elem.start, .unsupported);
+    const int_elem = isWord(elem, "i32") or isWord(elem, "u32");
+    if (!isWord(elem, "f32") and !(int_elem and len == 2)) return fail(elem.start, .unsupported);
     _ = advance();
     if (peek().kind == .shr) {
         // `array<vec4<f32>>` lexes its closing `>>` as one token: consume half.
@@ -561,6 +637,7 @@ fn parseType() CompileError!Ty {
     } else {
         _ = try expect(.gt);
     }
+    if (int_elem) return if (isWord(elem, "i32")) .vec2i else .vec2u;
     return vecOf(len);
 }
 
@@ -662,6 +739,29 @@ var input_buffer: Buffer = undefined;
 var output_buffer: Buffer = undefined;
 var gid_name: ?Token = null;
 var have_entry = false;
+// Fragment shaders: the entry is `@fragment`, and the optional texture is the
+// input image.
+var fragment_entry = false;
+var in_fragment = false;
+var texture_name: ?Token = null;
+// A module with a `@compute` or `@fragment` entry treats its other functions
+// as helpers, compiled to Wasm functions after the entry, in source order.
+// Without one, every function is a pixel kernel.
+var stage_module = false;
+// A fragment module that calls dpdx, dpdy or fwidth (or their Fine and Coarse
+// forms) runs its pixels in 2x2 quads; see emitDerivRender.
+var fragment_module = false;
+var uses_derivatives = false;
+const Helper = struct { name: Token, params: [MAX_PARAMS]Ty, param_count: u8, ret: Ty };
+var helpers: [MAX_HELPERS]Helper = undefined;
+var helper_count: usize = 0;
+var helper_code: Buf = .{ .bytes = &helper_code_buf };
+// The function being parsed: its Wasm parameter count, which precedes its
+// locals, and its WGSL result type (void for a compute entry).
+var param_count: u32 = 1;
+var return_ty: Ty = .void;
+// A call statement may call a helper without a result.
+var allow_void_call = false;
 // Pixel kernels: code entries are complete once each kernel is parsed.
 var kernel_count: usize = 0;
 var in_kernel = false;
@@ -744,8 +844,38 @@ fn moduleNameTaken(name: Token) bool {
     for (consts[0..const_count]) |c| if (sameName(c.name, name)) return true;
     if (input_buffer.declared and sameName(input_buffer.name, name)) return true;
     if (output_buffer.declared and sameName(output_buffer.name, name)) return true;
+    if (texture_name) |t| if (sameName(t, name)) return true;
+    if (lookupHelper(name) != null) return true;
+    if (lookupConstArray(name) != null) return true;
     return false;
 }
+
+fn lookupConstArray(name: Token) ?usize {
+    for (const_arrays[0..const_array_count], 0..) |a, i| if (sameName(a.name, name)) return i;
+    return null;
+}
+
+fn lookupHelper(name: Token) ?usize {
+    for (helpers[0..helper_count], 0..) |h, i| if (sameName(h.name, name)) return i;
+    return null;
+}
+
+fn helperFn(index: usize) u32 {
+    return @intCast(FN_MAIN + 1 + @intFromBool(uses_derivatives) + index);
+}
+
+// Derivative modules: the function that records an argument and returns its
+// derivative follows the entry, and five globals follow width and height.
+const FN_DERIV: u32 = FN_MAIN + 1;
+const DerivState = enum(u32) { count, lane, pass, discarded, overflow };
+fn derivGlobal(state: DerivState) u32 {
+    return globalWidth() + 2 + @intFromEnum(state);
+}
+// Each of up to DERIV_CALLS derivative calls per invocation stores its
+// argument for the quad's four lanes in the pass's bank, in page 0.
+const DERIV_CALLS: u32 = 256;
+const DERIV_BANK: u32 = DERIV_CALLS * 64;
+const DERIV_PASSES: u32 = 8;
 
 fn lookupLocal(name: Token) ?Local {
     var i = scope_len;
@@ -765,7 +895,7 @@ fn allocPersistent(ty: Ty) CompileError!u32 {
     if (local_count >= MAX_LOCALS) return fail(peek().start, .unsupported);
     local_types[local_count] = valType(ty);
     local_count += 1;
-    return @intCast(local_count); // index 0 is the parameter
+    return @intCast(param_count + local_count - 1); // after the parameters
 }
 
 // ---------------------------------------------------------------------------
@@ -881,6 +1011,8 @@ const SIMD_STORE: u32 = 11;
 const SIMD_CONST: u32 = 12;
 const SIMD_I8X16_SHUFFLE: u32 = 13;
 const SIMD_F32X4_SPLAT: u32 = 19;
+const SIMD_I32X4_EXTRACT_LANE: u32 = 27;
+const SIMD_I32X4_REPLACE_LANE: u32 = 28;
 const SIMD_F32X4_EXTRACT_LANE: u32 = 31;
 const SIMD_F32X4_REPLACE_LANE: u32 = 32;
 const SIMD_F32X4_CEIL: u32 = 103;
@@ -896,6 +1028,9 @@ const SIMD_F32X4_MUL: u32 = 230;
 const SIMD_F32X4_DIV: u32 = 231;
 const SIMD_F32X4_MIN: u32 = 232;
 const SIMD_F32X4_MAX: u32 = 233;
+const SIMD_I32X4_MUL: u32 = 181;
+const SIMD_I32X4_EQ: u32 = 55;
+const SIMD_I32X4_ALL_TRUE: u32 = 163;
 
 fn literalValue(lit: Literal) i32 {
     return @truncate(lit.int_value);
@@ -903,7 +1038,7 @@ fn literalValue(lit: Literal) i32 {
 
 fn emitLiteral(w: *Buf, lit: Literal) CompileError!void {
     if (lit.ty == .f32) return w.f32Const(@floatCast(lit.float_value));
-    if (isVec(lit.ty)) {
+    if (isVec(lit.ty) or isIVec(lit.ty)) {
         // Only the zero vector is a literal.
         try w.simd(SIMD_CONST);
         return w.raw(&([_]u8{0} ** 16));
@@ -914,9 +1049,9 @@ fn emitLiteral(w: *Buf, lit: Literal) CompileError!void {
 // ---------------------------------------------------------------------------
 // Expressions
 
-const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call, sample };
+const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call, sample, texture_dims, user_call, const_load };
 
-const Callee = enum(u8) { abs, sign, min, max, clamp, select, sqrt, inverse_sqrt, floor, ceil, trunc, round, fract, sin, cos, tan, asin, acos, atan, atan2, tanh, exp, exp2, log, log2, pow, step, smoothstep, dot, length, distance, normalize, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f };
+const Callee = enum(u8) { abs, sign, min, max, clamp, select, sqrt, inverse_sqrt, floor, ceil, trunc, round, fract, sin, cos, tan, asin, acos, atan, atan2, tanh, exp, exp2, log, log2, pow, step, smoothstep, dot, length, distance, normalize, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f, vec2i, vec2u, texture_load, dpdx, dpdy, fwidth };
 
 const Node = struct {
     kind: NodeKind,
@@ -1083,6 +1218,8 @@ fn nodeArity(node: Node) usize {
 fn invocationIndependent() bool {
     for (ir_nodes[0..ir_node_len]) |node| {
         if (node.kind == .sample or (node.kind == .load and node.op != 0)) return false;
+        // Helper calls and integer vectors keep the scalar path.
+        if (node.kind == .user_call or node.kind == .const_load or isIVec(node.ty) or isIVec(node.opnd_ty)) return false;
     }
     var identities = [_]bool{false} ** (MAX_LOCALS + 1);
     for (ir_stmts[0..ir_stmt_len]) |stmt| {
@@ -1740,7 +1877,7 @@ fn emitInvocationBatch() CompileError!bool {
     return true;
 }
 
-const OpKind = enum(u8) { paren, call, bracket, unary, binary };
+const OpKind = enum(u8) { paren, call, user_call, bracket, unary, binary };
 
 const OpEntry = struct { kind: OpKind, op: u8, prec: u8 = 0, argc: u8 = 0, offset: u32 };
 
@@ -1824,6 +1961,17 @@ fn applyBinary(entry: OpEntry) CompileError!void {
     const kind: Tk = @enumFromInt(entry.op);
     var ty: Ty = undefined;
     var opnd: Ty = undefined;
+    if (isIVec(at) or isIVec(bt)) {
+        // `+ - *` lane-wise on vec2i or vec2u, with a scalar splatted.
+        const arith = kind == .plus or kind == .minus or kind == .star;
+        const vt = if (isIVec(at)) at else bt;
+        const elem = ivecElem(vt);
+        const lanes_ok = (at == vt or convertible(at, elem)) and (bt == vt or convertible(bt, elem));
+        if (!arith) return fail(entry.offset, if (kind == .slash or kind == .percent) .unsupported else .type_mismatch);
+        if (!lanes_ok) return fail(entry.offset, .type_mismatch);
+        _ = try pushNode(.{ .kind = .binary, .op = entry.op, .ty = vt, .opnd_ty = vt, .kids = .{ a, b, 0, 0 }, .offset = entry.offset });
+        return;
+    }
     if (isVec(at) or isVec(bt)) {
         // Vector arithmetic; a scalar operand is splatted to every lane.
         const arith = switch (kind) {
@@ -1894,7 +2042,7 @@ fn innermostOpen() ?usize {
     while (i > 0) {
         i -= 1;
         const kind = ops[i].kind;
-        if (kind == .paren or kind == .call or kind == .bracket) return i;
+        if (kind == .paren or kind == .call or kind == .user_call or kind == .bracket) return i;
     }
     return null;
 }
@@ -1916,8 +2064,17 @@ fn lookupCallee(name: []const u8) ?Callee {
         .{ "smoothstep", .smoothstep }, .{ "inverseSqrt", .inverse_sqrt }, .{ "length", .length }, .{ "distance", .distance },
         .{ "normalize", .normalize },   .{ "f32", .to_f32 },               .{ "i32", .to_i32 },    .{ "u32", .to_u32 },
         .{ "bool", .to_bool },          .{ "vec2f", .vec2f },              .{ "vec3f", .vec3f },   .{ "vec4f", .vec4f },
+        .{ "vec2i", .vec2i },           .{ "vec2u", .vec2u },
     };
     for (table) |entry| if (std.mem.eql(u8, entry[0], name)) return entry[1];
+    // Chrome on Metal computes every form per row and column of the quad, so
+    // the coarse forms are the fine ones, which WGSL permits.
+    const derivs = [_]struct { []const u8, Callee }{
+        .{ "dpdx", .dpdx },     .{ "dpdxFine", .dpdx },     .{ "dpdxCoarse", .dpdx },
+        .{ "dpdy", .dpdy },     .{ "dpdyFine", .dpdy },     .{ "dpdyCoarse", .dpdy },
+        .{ "fwidth", .fwidth }, .{ "fwidthFine", .fwidth }, .{ "fwidthCoarse", .fwidth },
+    };
+    for (derivs) |entry| if (std.mem.eql(u8, entry[0], name)) return entry[1];
     return null;
 }
 
@@ -1930,6 +2087,8 @@ fn conversionTarget(callee: Callee) ?Ty {
         .vec2f => .vec2f,
         .vec3f => .vec3f,
         .vec4f => .vec4f,
+        .vec2i => .vec2i,
+        .vec2u => .vec2u,
         else => null,
     };
 }
@@ -1939,7 +2098,8 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
     const want: u8 = switch (callee) {
         .min, .max, .dot, .pow, .atan2, .step, .distance => 2,
         .clamp, .select, .mix, .smoothstep => 3,
-        .vec2f, .vec3f, .vec4f => @min(argc, vecLen(conversionTarget(callee).?)),
+        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u => @min(argc, vecLen(conversionTarget(callee).?)),
+        .texture_load => 2,
         else => 1,
     };
     if (argc != want or val_len < argc) return fail(entry.offset, .type_mismatch);
@@ -1969,6 +2129,13 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             opnd = try unify(t0, nodes[kids[1]].ty, entry.offset);
             if (!(isScalar(opnd) or isVec(opnd)) or nodes[kids[2]].ty != .bool) return fail(entry.offset, .type_mismatch);
             ty = opnd;
+        },
+        .dpdx, .dpdy, .fwidth => {
+            // Derivatives exist only in fragment shaders.
+            if (!uses_derivatives) return fail(entry.offset, .unsupported);
+            ty = if (isVec(t0)) t0 else .f32;
+            if (!(t0 == .f32 or isVec(t0) or isAbstract(t0))) return fail(entry.offset, .type_mismatch);
+            opnd = ty;
         },
         .sqrt, .inverse_sqrt, .floor, .ceil, .trunc, .round, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .tanh, .exp, .exp2, .log, .log2 => {
             ty = if (isVec(t0)) t0 else .f32;
@@ -2016,6 +2183,13 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             // vecN(v) copies, vecN(s) splats, and otherwise the scalar and
             // vector arguments supply exactly N lanes, as in vec4f(v.rgb, 1.0).
             ty = conversionTarget(callee).?;
+            opnd = t0;
+            // vec2f(v) converts a vec2i or vec2u lane-wise.
+            if (argc == 1 and isIVec(t0)) {
+                if (ty != .vec2f) return fail(entry.offset, .type_mismatch);
+                _ = try pushNode(.{ .kind = .call, .op = entry.op, .ty = ty, .opnd_ty = opnd, .kids = kids, .argc = argc, .offset = entry.offset });
+                return;
+            }
             var lanes: u8 = 0;
             for (kids[0..argc]) |kid| {
                 const kt = nodes[kid].ty;
@@ -2024,7 +2198,24 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             }
             const ok = if (argc == 1) (t0 == ty or !isVec(t0)) else lanes == vecLen(ty);
             if (!ok) return fail(entry.offset, .type_mismatch);
+        },
+        .vec2i, .vec2u => {
+            // vec2i(s) splats, vec2i(a, b) takes two scalars of the element
+            // type, and vec2i(v) converts any vec2.
+            ty = conversionTarget(callee).?;
             opnd = t0;
+            const elem = ivecElem(ty);
+            const ok = if (argc == 1)
+                t0 == .vec2f or isIVec(t0) or convertible(t0, elem)
+            else
+                convertible(t0, elem) and convertible(nodes[kids[1]].ty, elem);
+            if (!ok) return fail(entry.offset, .type_mismatch);
+        },
+        .texture_load => {
+            // textureLoad(t, coords, level) after the texture argument.
+            if (!isIVec(t0) or !isInt(nodes[kids[1]].ty)) return fail(entry.offset, .type_mismatch);
+            opnd = t0;
+            ty = .vec4f;
         },
         .to_f32, .to_i32, .to_u32, .to_bool => {
             if (!isScalar(t0)) return fail(entry.offset, .type_mismatch);
@@ -2035,11 +2226,32 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
     _ = try pushNode(.{ .kind = .call, .op = entry.op, .ty = ty, .opnd_ty = opnd, .kids = kids, .argc = argc, .offset = entry.offset });
 }
 
+// A call of helper `entry.op`. Each argument takes its parameter's type now,
+// so the call node needs no record of its arguments: in postfix order they
+// are already on the Wasm stack.
+fn applyUserCall(entry: OpEntry, argc: u8) CompileError!void {
+    const h = helpers[entry.op];
+    if (argc != h.param_count or val_len < argc) return fail(entry.offset, .type_mismatch);
+    if (h.ret == .void and !allow_void_call) return fail(entry.offset, .type_mismatch);
+    var i: usize = argc;
+    while (i > 0) {
+        i -= 1;
+        try setNodeTy(popVal(), h.params[i]);
+    }
+    _ = try pushNode(.{ .kind = .user_call, .op = entry.op, .ty = h.ret, .argc = argc, .offset = entry.offset });
+}
+
 fn applyLoad(entry: OpEntry) CompileError!void {
     if (val_len < 1) return fail(entry.offset, .syntax);
     const index = popVal();
     const it = nodes[index].ty;
     if (!isInt(it)) return fail(nodes[index].offset, .type_mismatch);
+    if (entry.op >= 2) {
+        // Bracket ops 2 and up index constant array op - 2.
+        const array = const_arrays[entry.op - 2];
+        _ = try pushNode(.{ .kind = .const_load, .op = entry.op - 2, .ty = array.elem, .opnd_ty = it, .kids = .{ index, 0, 0, 0 }, .offset = entry.offset });
+        return;
+    }
     const buffer = if (entry.op == 0) input_buffer else output_buffer;
     _ = try pushNode(.{ .kind = .load, .op = entry.op, .ty = buffer.elem, .opnd_ty = it, .kids = .{ index, 0, 0, 0 }, .offset = entry.offset });
 }
@@ -2138,6 +2350,13 @@ fn parseIdentOperand() CompileError!bool {
     const t = peek();
     const name = text(t);
     const next = peekAt(1);
+    if (vecWordLen(t, false) == 2 and next.kind == .lt and (isWord(peekAt(2), "i32") or isWord(peekAt(2), "u32")) and
+        peekAt(3).kind == .gt and peekAt(4).kind == .l_paren)
+    {
+        const callee: Callee = if (isWord(peekAt(2), "i32")) .vec2i else .vec2u;
+        pos += 3;
+        return parseConstructorCall(t, callee);
+    }
     if (vecWordLen(t, false)) |len| if (next.kind == .lt and isWord(peekAt(2), "f32") and
         peekAt(3).kind == .gt and peekAt(4).kind == .l_paren)
     {
@@ -2161,6 +2380,31 @@ fn parseIdentOperand() CompileError!bool {
             return true;
         }
         if (std.mem.eql(u8, name, "sample")) return parseSample(t);
+        if (lookupHelper(t)) |index| {
+            pos += 2;
+            if (peek().kind == .r_paren) {
+                _ = advance();
+                try applyUserCall(.{ .kind = .user_call, .op = @intCast(index), .offset = t.start }, 0);
+                return true;
+            }
+            try pushOp(.{ .kind = .user_call, .op = @intCast(index), .offset = t.start });
+            return false;
+        }
+        if (std.mem.eql(u8, name, "textureDimensions") or std.mem.eql(u8, name, "textureLoad")) {
+            pos += 2;
+            const tex = try expect(.ident);
+            const known = if (texture_name) |tn| sameName(tn, tex) else false;
+            if (!known) return fail(tex.start, .name);
+            if (std.mem.eql(u8, name, "textureLoad")) {
+                _ = try expect(.comma);
+                try pushOp(.{ .kind = .call, .op = @intFromEnum(Callee.texture_load), .offset = t.start });
+                return false;
+            }
+            if (peek().kind == .comma) return fail(peek().start, .unsupported); // a mip level
+            _ = try expect(.r_paren);
+            _ = try pushNode(.{ .kind = .texture_dims, .ty = .vec2u, .offset = t.start });
+            return true;
+        }
         const callee = lookupCallee(name) orelse return fail(t.start, .unsupported);
         return parseConstructorCall(t, callee);
     }
@@ -2203,6 +2447,12 @@ fn parseIdentOperand() CompileError!bool {
         if (next.kind != .l_bracket) return fail(next.start, .unsupported);
         pos += 2;
         try pushOp(.{ .kind = .bracket, .op = id, .offset = t.start });
+        return false;
+    }
+    if (lookupConstArray(t)) |index| {
+        if (next.kind != .l_bracket) return fail(next.start, .unsupported); // a whole-array value
+        pos += 2;
+        try pushOp(.{ .kind = .bracket, .op = @intCast(2 + index), .offset = t.start });
         return false;
     }
     return fail(t.start, .name);
@@ -2251,7 +2501,7 @@ fn parseExpr() CompileError!u16 {
                 const open_at = innermostOpen() orelse break;
                 const open = ops[open_at];
                 if (t.kind == .comma) {
-                    if (open.kind != .call) break;
+                    if (open.kind != .call and open.kind != .user_call) break;
                     try reduceToOpen();
                     ops[op_len - 1].argc += 1;
                     _ = advance();
@@ -2265,6 +2515,7 @@ fn parseExpr() CompileError!u16 {
                 _ = advance();
                 switch (open.kind) {
                     .call => try applyCall(open, open.argc + 1),
+                    .user_call => try applyUserCall(open, open.argc + 1),
                     .bracket => try applyLoad(open),
                     else => {},
                 }
@@ -2275,9 +2526,16 @@ fn parseExpr() CompileError!u16 {
                 const member = try expect(.ident);
                 const v = popVal();
                 const vt = nodes[v].ty;
-                if (!isVec(vt)) return fail(t.start, .type_mismatch);
+                if (!isVec(vt) and !isIVec(vt)) return fail(t.start, .type_mismatch);
                 const swizzle = try parseSwizzle(member, vt);
-                if (swizzle.len == 1) {
+                if (isIVec(vt)) {
+                    // Only vec2i and vec2u exist, so a swizzle has two lanes.
+                    if (swizzle.len > 2) return fail(member.start, .unsupported);
+                    const ty = if (swizzle.len == 1) ivecElem(vt) else vt;
+                    const kind: NodeKind = if (swizzle.len == 1) .lane else .swizzle;
+                    const op = if (swizzle.len == 1) swizzle.lanes[0] else swizzle.packedLanes();
+                    _ = try pushNode(.{ .kind = kind, .op = op, .ty = ty, .opnd_ty = vt, .kids = .{ v, 0, 0, 0 }, .offset = member.start });
+                } else if (swizzle.len == 1) {
                     _ = try pushNode(.{ .kind = .lane, .op = swizzle.lanes[0], .ty = .f32, .opnd_ty = vt, .kids = .{ v, 0, 0, 0 }, .offset = member.start });
                 } else {
                     _ = try pushNode(.{ .kind = .swizzle, .op = swizzle.packedLanes(), .ty = vecOf(swizzle.len), .opnd_ty = vt, .kids = .{ v, 0, 0, 0 }, .offset = member.start });
@@ -2291,7 +2549,7 @@ fn parseExpr() CompileError!u16 {
     while (op_len > 0) {
         op_len -= 1;
         const top = ops[op_len];
-        if (top.kind == .paren or top.kind == .call or top.kind == .bracket) return fail(top.offset, .syntax);
+        if (top.kind == .paren or top.kind == .call or top.kind == .user_call or top.kind == .bracket) return fail(top.offset, .syntax);
         try applyOp(top);
     }
     if (val_len != 1) return fail(start, .syntax);
@@ -2326,6 +2584,8 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
             },
             .binary => if (isVec(node.ty)) {
                 for (node.kids[0..2]) |kid| try setNodeTy(kid, if (isVec(nodes[kid].ty)) node.ty else .f32);
+            } else if (isIVec(node.ty)) {
+                for (node.kids[0..2]) |kid| try setNodeTy(kid, if (isIVec(nodes[kid].ty)) node.ty else ivecElem(node.ty));
             } else {
                 const kind: Tk = @enumFromInt(node.op);
                 switch (kind) {
@@ -2359,7 +2619,7 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
                         try setNodeTy(node.kids[0], node.ty);
                         try setNodeTy(node.kids[1], node.ty);
                     },
-                    .sqrt, .inverse_sqrt, .floor, .ceil, .trunc, .round, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .tanh, .exp, .exp2, .log, .log2 => try setNodeTy(node.kids[0], node.ty),
+                    .sqrt, .inverse_sqrt, .floor, .ceil, .trunc, .round, .fract, .sin, .cos, .tan, .asin, .acos, .atan, .tanh, .exp, .exp2, .log, .log2, .dpdx, .dpdy, .fwidth => try setNodeTy(node.kids[0], node.ty),
                     .pow, .atan2, .step, .smoothstep => for (node.kids[0..node.argc]) |kid| try setNodeTy(kid, node.ty),
                     .length, .distance, .normalize => for (node.kids[0..node.argc]) |kid| try setNodeTy(kid, node.opnd_ty),
                     .dot => {},
@@ -2370,7 +2630,14 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
                         try setNodeTy(t, if (isVec(nodes[t].ty)) node.ty else .f32);
                     },
                     .vec2f, .vec3f, .vec4f => for (node.kids[0..node.argc]) |kid| {
-                        if (!isVec(nodes[kid].ty)) try setNodeTy(kid, .f32);
+                        if (!isVec(nodes[kid].ty) and !isIVec(nodes[kid].ty)) try setNodeTy(kid, .f32);
+                    },
+                    .vec2i, .vec2u => for (node.kids[0..node.argc]) |kid| {
+                        if (!isVec(nodes[kid].ty) and !isIVec(nodes[kid].ty)) try setNodeTy(kid, ivecElem(node.ty));
+                    },
+                    .texture_load => {
+                        const level = node.kids[1];
+                        try setNodeTy(level, defaultTy(nodes[level].ty));
                     },
                     .to_f32, .to_i32, .to_u32, .to_bool => {
                         const arg = node.opnd_ty;
@@ -2379,7 +2646,7 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
                     },
                 }
             },
-            .load => {
+            .load, .const_load => {
                 node.opnd_ty = if (isAbstract(node.opnd_ty)) .u32 else node.opnd_ty;
                 try setNodeTy(node.kids[0], node.opnd_ty);
             },
@@ -2571,6 +2838,72 @@ fn emitVecArith(kind: Tk, a_ty: Ty, b_ty: Ty) CompileError!void {
         },
         else => unreachable,
     }
+}
+
+// Stack: [a, b] where each is a vec2i/vec2u or a scalar to splat.
+fn emitIVecArith(kind: Tk, a_ty: Ty, b_ty: Ty) CompileError!void {
+    if (!isIVec(b_ty)) try body.simd(SIMD_I32X4_SPLAT);
+    if (!isIVec(a_ty)) {
+        const tb = try allocLocal(.vec2i);
+        try body.localSet(tb);
+        try body.simd(SIMD_I32X4_SPLAT);
+        try body.localGet(tb);
+    }
+    try body.simd(switch (kind) {
+        .plus => SIMD_I32X4_ADD,
+        .minus => SIMD_I32X4_SUB,
+        .star => SIMD_I32X4_MUL,
+        else => unreachable,
+    });
+}
+
+// Stack: [i32]. Limits a texel coordinate to size - 1 as unsigned, where size
+// is the global after the overrides plus `axis`.
+fn emitClampCoord(axis: u32) CompileError!void {
+    const t = try allocLocal(.i32);
+    const m = try allocLocal(.i32);
+    try body.localTee(t);
+    try body.byte(0x23);
+    try body.uleb(globalWidth() + axis);
+    try body.i32Const(1);
+    try body.byte(0x6b); // i32.sub
+    try body.localTee(m);
+    try body.localGet(t);
+    try body.localGet(m);
+    try body.byte(0x49); // i32.lt_u
+    try body.byte(0x1b); // select
+}
+
+// Stack: [coords, level]. Out-of-range coordinates are clamped as Dawn's
+// robustness does, `min(u32(c), size - 1)`, so a negative vec2i coordinate
+// reads the last column or row; WGSL allows any texel or zero. A level other
+// than 0 reads zero.
+fn emitTextureLoad() CompileError!void {
+    const level = try allocLocal(.i32);
+    const coords = try allocLocal(.vec2i);
+    try body.localSet(level);
+    try body.localSet(coords);
+    try body.raw(&.{ 0x02, 0x7b }); // block (result v128)
+    try body.simd(SIMD_CONST);
+    try body.raw(&([_]u8{0} ** 16));
+    try body.localGet(level);
+    try body.raw(&.{ 0x0d, 0x00, 0x1a }); // br_if 0 drop
+    try body.localGet(coords);
+    try body.simdLane(SIMD_I32X4_EXTRACT_LANE, 1);
+    try emitClampCoord(1);
+    try body.byte(0x23);
+    try body.uleb(globalWidth());
+    try body.byte(0x6c); // i32.mul
+    try body.localGet(coords);
+    try body.simdLane(SIMD_I32X4_EXTRACT_LANE, 0);
+    try emitClampCoord(0);
+    try body.byte(0x6a); // i32.add
+    try body.i32Const(4);
+    try body.byte(0x74); // i32.shl
+    try body.simd(SIMD_LOAD);
+    try body.byte(4);
+    try body.uleb(RUN_INPUT_PTR);
+    try body.byte(0x0b);
 }
 
 // i8x16.shuffle of [a, b] whose result lane i is f32 lane `lanes[i]`, where
@@ -3438,7 +3771,39 @@ fn emitNode(node: Node) CompileError!void {
             try body.byte(0x10);
             try body.uleb(FN_SAMPLE);
         },
-        .lane => try body.simdLane(SIMD_F32X4_EXTRACT_LANE, node.op),
+        .lane => try body.simdLane(if (isIVec(node.opnd_ty)) SIMD_I32X4_EXTRACT_LANE else SIMD_F32X4_EXTRACT_LANE, node.op),
+        .user_call => {
+            try body.byte(0x10);
+            try body.uleb(helperFn(node.op));
+        },
+        .const_load => {
+            // An index past the end reads the last element, as Dawn clamps
+            // `min(u32(i), n - 1)`; WGSL allows any element or zero.
+            const array = const_arrays[node.op];
+            const t = try allocLocal(.u32);
+            try body.localTee(t);
+            try body.i32Const(@bitCast(array.len - 1));
+            try body.localGet(t);
+            try body.i32Const(@bitCast(array.len - 1));
+            try body.raw(&.{ 0x49, 0x1b }); // i32.lt_u select
+            try body.i32Const(elemShift(array.elem));
+            try body.byte(0x74);
+            switch (array.elem) {
+                .f32 => try body.byte(0x2a),
+                .i32, .u32 => try body.byte(0x28),
+                else => try body.simd(SIMD_LOAD),
+            }
+            try body.byte(elemShift(array.elem));
+            try body.uleb(CONST_DATA_PTR + array.offset);
+        },
+        .texture_dims => {
+            try body.byte(0x23);
+            try body.uleb(globalWidth());
+            try body.simd(SIMD_I32X4_SPLAT);
+            try body.byte(0x23);
+            try body.uleb(globalWidth() + 1);
+            try body.simdLane(SIMD_I32X4_REPLACE_LANE, 1);
+        },
         .swizzle => try emitSwizzle(node.op, vecLen(node.ty)),
         .unary => switch (@as(Tk, @enumFromInt(node.op))) {
             .minus => if (isVec(node.ty)) try body.simd(SIMD_F32X4_NEG) else if (node.ty == .f32) try body.byte(0x8c) else {
@@ -3455,6 +3820,7 @@ fn emitNode(node: Node) CompileError!void {
         .binary => {
             const kind: Tk = @enumFromInt(node.op);
             if (isVec(node.ty)) return emitVecArith(kind, nodes[node.kids[0]].ty, nodes[node.kids[1]].ty);
+            if (isIVec(node.ty)) return emitIVecArith(kind, nodes[node.kids[0]].ty, nodes[node.kids[1]].ty);
             switch (kind) {
                 .lt, .gt, .le, .ge, .eq_eq, .bang_eq => try emitCompare(kind, node.opnd_ty),
                 .amp_amp => try body.byte(0x71),
@@ -3535,8 +3901,30 @@ fn emitNode(node: Node) CompileError!void {
                 try body.simd(SIMD_F32X4_DIV);
             },
             .to_f32, .to_i32, .to_u32, .to_bool => try emitConvert(node.opnd_ty, node.ty),
-            .vec2f, .vec3f, .vec4f => if (node.argc > 1) try emitVecConstruct(node) else if (!isVec(node.opnd_ty)) {
+            .vec2f, .vec3f, .vec4f => if (node.argc > 1) try emitVecConstruct(node) else if (isIVec(node.opnd_ty)) {
+                try body.simd(SIMD_F32X4_CONVERT_I32X4_S + @intFromBool(node.opnd_ty == .vec2u));
+            } else if (!isVec(node.opnd_ty)) {
                 try body.simd(SIMD_F32X4_SPLAT);
+            },
+            .vec2i, .vec2u => if (node.argc > 1) {
+                const t = try allocLocal(.i32);
+                try body.localSet(t);
+                try body.simd(SIMD_I32X4_SPLAT);
+                try body.localGet(t);
+                try body.simdLane(SIMD_I32X4_REPLACE_LANE, 1);
+            } else if (node.opnd_ty == .vec2f) {
+                // Saturating, as WGSL's float-to-integer conversion.
+                try body.simd(SIMD_I32X4_TRUNC_SAT_F32X4_S + @intFromBool(node.ty == .vec2u));
+            } else if (!isIVec(node.opnd_ty)) {
+                try body.simd(SIMD_I32X4_SPLAT);
+            },
+            .texture_load => try emitTextureLoad(),
+            .dpdx, .dpdy, .fwidth => |callee| {
+                if (!isVec(node.ty)) try body.simd(SIMD_F32X4_SPLAT);
+                try body.i32Const(@intFromEnum(callee) - @intFromEnum(Callee.dpdx));
+                try body.byte(0x10);
+                try body.uleb(FN_DERIV);
+                if (!isVec(node.ty)) try body.simdLane(SIMD_F32X4_EXTRACT_LANE, 0);
             },
         },
     }
@@ -3566,8 +3954,10 @@ fn compileVecOperand(ty: Ty) CompileError!void {
 // ---------------------------------------------------------------------------
 // Statements
 
-const BlockKind = enum(u8) { func, plain, if_then, if_else };
-const Block = struct { kind: BlockKind, scope_mark: usize, extra_ends: u32 = 0 };
+const BlockKind = enum(u8) { func, plain, if_then, if_else, loop_body };
+// A loop body also records its counter local, step and type, for the
+// increment its closing brace emits.
+const Block = struct { kind: BlockKind, scope_mark: usize, extra_ends: u32 = 0, counter: u32 = 0, step: i64 = 0 };
 
 var blocks: [MAX_BLOCKS]Block = undefined;
 var block_len: usize = 0;
@@ -3754,6 +4144,138 @@ fn parseIfHead(extra_ends: u32) CompileError!void {
     try pushBlock(.{ .kind = .if_then, .scope_mark = scope_len, .extra_ends = extra_ends });
 }
 
+// An integer literal or `const`, optionally negated, of type `ty`.
+fn parseLoopConst(ty: Ty) CompileError!i64 {
+    const negate = peek().kind == .minus;
+    if (negate) _ = advance();
+    const t = advance();
+    var lit: Literal = undefined;
+    if (t.kind == .int_lit) {
+        lit = try intLiteral(t);
+    } else if (t.kind == .ident) {
+        lit = for (consts[0..const_count]) |c| {
+            if (sameName(c.name, t)) break c.value;
+        } else return fail(t.start, .unsupported); // a runtime bound
+    } else {
+        return fail(t.start, .unsupported);
+    }
+    if (negate) {
+        if (lit.ty == .u32) return fail(t.start, .type_mismatch);
+        lit.int_value = -lit.int_value;
+    }
+    try concretizeLiteral(&lit, ty, t.start);
+    return lit.int_value;
+}
+
+// `for (var i = init; i < N; i++) { ... }`: the bound N and the step are
+// integer literals or consts, the comparison runs the same way as the step,
+// and the body cannot assign `i`. It compiles to a counted Wasm loop that
+// wasm-bounded-loops proves:
+//
+//   block $break  loop $top  (i >= N) br_if $break  block $continue
+//     body
+//   end  i += step  br $top  end end
+fn parseFor() CompileError!void {
+    _ = advance();
+    _ = try expect(.l_paren);
+    _ = try expectWord("var");
+    const name = try expect(.ident);
+    var declared: ?Ty = null;
+    if (peek().kind == .colon) {
+        _ = advance();
+        declared = try parseType();
+    }
+    _ = try expect(.eq);
+    const init_at = peek().start;
+    const ty = try compileExpr(declared);
+    if (ty != .i32 and ty != .u32) return fail(init_at, .type_mismatch);
+    _ = try expect(.semicolon);
+    // The counter's scope is the loop; the body sees it as immutable.
+    try pushBlock(.{ .kind = .plain, .scope_mark = scope_len });
+    const counter = try declareLocal(name, ty, false);
+    try body.localSet(counter);
+    // Loops are not vectorized.
+    ir_complete = false;
+
+    const cond = try expect(.ident);
+    if (!sameName(cond, name)) return fail(cond.start, .unsupported);
+    const cmp = advance();
+    switch (cmp.kind) {
+        .lt, .le, .gt, .ge => {},
+        else => return fail(cmp.start, .unsupported),
+    }
+    const bound = try parseLoopConst(ty);
+    _ = try expect(.semicolon);
+
+    const update = try expect(.ident);
+    if (!sameName(update, name)) return fail(update.start, .unsupported);
+    const op = advance();
+    const step: i64 = switch (op.kind) {
+        .plus_plus => 1,
+        .minus_minus => -1,
+        .plus_eq => try parseLoopConst(ty),
+        .minus_eq => -(try parseLoopConst(ty)),
+        .eq => blk: {
+            const again = try expect(.ident);
+            if (!sameName(again, name)) return fail(again.start, .unsupported);
+            const sign = advance();
+            if (sign.kind != .plus and sign.kind != .minus) return fail(sign.start, .unsupported);
+            const amount = try parseLoopConst(ty);
+            break :blk if (sign.kind == .plus) amount else -amount;
+        },
+        else => return fail(op.start, .unsupported),
+    };
+    const up = cmp.kind == .lt or cmp.kind == .le;
+    if (step == 0 or (step > 0) != up) return fail(op.start, .unsupported);
+    // The step past the last iteration must not wrap, or the loop would not end.
+    const lo: i64 = if (ty == .i32) std.math.minInt(i32) else 0;
+    const hi: i64 = if (ty == .i32) std.math.maxInt(i32) else std.math.maxInt(u32);
+    const last: i64 = switch (cmp.kind) {
+        .lt => bound - 1,
+        .gt => bound + 1,
+        else => bound,
+    };
+    if (last + step > hi or last + step < lo) return fail(op.start, .unsupported);
+    _ = try expect(.r_paren);
+    _ = try expect(.l_brace);
+
+    try body.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // block loop
+    try body.localGet(counter);
+    try body.i32Const(@truncate(bound));
+    // The exit test is the comparison's negation.
+    const signed = ty == .i32;
+    try body.byte(switch (cmp.kind) {
+        .lt => if (signed) @as(u8, 0x4e) else 0x4f, // ge
+        .le => if (signed) @as(u8, 0x4a) else 0x4b, // gt
+        .gt => if (signed) @as(u8, 0x4c) else 0x4d, // le
+        else => if (signed) @as(u8, 0x48) else 0x49, // lt
+    });
+    try body.raw(&.{ 0x0d, 0x01, 0x02, 0x40 }); // br_if $break block $continue
+    try pushBlock(.{ .kind = .loop_body, .scope_mark = scope_len, .counter = counter, .step = step });
+}
+
+// `break;` or `continue;` in a loop body: a branch to $break or $continue
+// past the Wasm frames that ifs opened inside the body.
+fn parseLoopBranch(is_break: bool) CompileError!void {
+    const t = advance();
+    var depth: u32 = 0;
+    var i = block_len;
+    const found = while (i > 0) {
+        i -= 1;
+        switch (blocks[i].kind) {
+            .loop_body => break true,
+            .if_then, .if_else => depth += 1 + blocks[i].extra_ends,
+            .func => break false,
+            .plain => {},
+        }
+    } else false;
+    if (!found) return fail(t.start, .unsupported); // outside a loop
+    if (is_break and isWord(peek(), "if")) return fail(peek().start, .unsupported);
+    _ = try expect(.semicolon);
+    try body.byte(0x0c); // br
+    try body.uleb(depth + @as(u32, if (is_break) 2 else 0));
+}
+
 fn closeBlock() CompileError!void {
     _ = advance();
     block_len -= 1;
@@ -3761,6 +4283,17 @@ fn closeBlock() CompileError!void {
     scope_len = block.scope_mark;
     switch (block.kind) {
         .func, .plain => {},
+        .loop_body => {
+            try body.byte(0x0b); // end $continue
+            try body.localGet(block.counter);
+            try body.i32Const(@truncate(block.step));
+            try body.byte(0x6a); // i32.add
+            try body.localSet(block.counter);
+            try body.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br $top end end
+            // Close the scope that holds the counter.
+            block_len -= 1;
+            scope_len = blocks[block_len].scope_mark;
+        },
         .if_then => {
             if (isWord(peek(), "else")) {
                 _ = advance();
@@ -3816,11 +4349,22 @@ fn parseStatement() CompileError!void {
         _ = advance();
         return parseIfHead(0);
     }
+    if (std.mem.eql(u8, word, "for")) return parseFor();
+    if (std.mem.eql(u8, word, "break") or std.mem.eql(u8, word, "continue")) return parseLoopBranch(std.mem.eql(u8, word, "break"));
     if (std.mem.eql(u8, word, "return")) {
         _ = advance();
-        if (in_kernel) {
-            _ = try compileExpr(.vec4f);
+        if (return_ty != .void) {
+            _ = try compileExpr(return_ty);
             if (block_len == 1) kernel_returned = true;
+            if (in_fragment and uses_derivatives) {
+                // A demoted invocation returns zero.
+                try body.simd(SIMD_CONST);
+                try body.raw(&([_]u8{0} ** 16));
+                try body.byte(0x23);
+                try body.uleb(derivGlobal(.discarded));
+                try body.byte(0x45); // i32.eqz
+                try body.raw(&.{ 0x1c, 0x01, 0x7b }); // select (result v128)
+            }
         } else if (peek().kind != .semicolon) {
             return fail(peek().start, .unsupported);
         }
@@ -3836,10 +4380,41 @@ fn parseStatement() CompileError!void {
         rememberStmt(.{ .kind = .discard, .expr = last_expr });
         return body.byte(0x1a); // drop
     }
-    const unsupported_words = [_][]const u8{ "for", "while", "loop", "switch", "break", "continue", "discard", "const_assert" };
+    if (in_fragment and std.mem.eql(u8, word, "discard")) {
+        // The output starts transparent black and a discarded fragment
+        // writes nothing, so returning zero leaves the same pixel. With
+        // derivatives, a discard nested in control flow demotes the
+        // invocation instead, as on a GPU: it runs on so its quad neighbours
+        // see its values, and its returns give zero.
+        _ = advance();
+        _ = try expect(.semicolon);
+        if (uses_derivatives and block_len > 1) {
+            try body.i32Const(1);
+            try body.byte(0x24);
+            return body.uleb(derivGlobal(.discarded));
+        }
+        if (block_len == 1) kernel_returned = true;
+        try body.simd(SIMD_CONST);
+        try body.raw(&([_]u8{0} ** 16));
+        return body.byte(0x0f);
+    }
+    const unsupported_words = [_][]const u8{ "while", "loop", "switch", "discard", "const_assert" };
     for (unsupported_words) |w| if (std.mem.eql(u8, word, w)) return fail(t.start, .unsupported);
     if (lookupLocal(t)) |local| return parseLocalAssignment(local);
     if (bufferId(t)) |id| return parseStore(id);
+    if (lookupHelper(t) != null and peekAt(1).kind == .l_paren) {
+        // A call statement drops any result.
+        allow_void_call = true;
+        const ty = compileExpr(null) catch |err| {
+            allow_void_call = false;
+            return err;
+        };
+        allow_void_call = false;
+        _ = try expect(.semicolon);
+        rememberStmt(.{ .kind = .discard, .expr = last_expr });
+        if (ty != .void) try body.byte(0x1a); // drop
+        return;
+    }
     if (moduleNameTaken(t)) return fail(t.start, .type_mismatch);
     if (peekAt(1).kind == .l_paren) return fail(t.start, .unsupported); // function call statement
     return fail(t.start, .name);
@@ -3848,7 +4423,7 @@ fn parseStatement() CompileError!void {
 // ---------------------------------------------------------------------------
 // Module scope
 
-const Attributes = struct { compute: bool = false, builtin_gid: bool = false, other_builtin: ?u32 = null };
+const Attributes = struct { compute: bool = false, fragment: bool = false, builtin_gid: bool = false, builtin_position: bool = false, location0: bool = false, other_builtin: ?u32 = null };
 
 fn parseAttributes() CompileError!Attributes {
     var attrs = Attributes{};
@@ -3856,12 +4431,28 @@ fn parseAttributes() CompileError!Attributes {
         _ = advance();
         const name = try expect(.ident);
         if (isWord(name, "compute")) attrs.compute = true;
-        if (isWord(name, "vertex") or isWord(name, "fragment")) return fail(name.start, .unsupported);
+        if (isWord(name, "fragment")) attrs.fragment = true;
+        if (isWord(name, "vertex")) return fail(name.start, .unsupported);
         if (peek().kind != .l_paren) continue;
         if (isWord(name, "builtin")) {
             _ = advance();
             const arg = try expect(.ident);
-            if (isWord(arg, "global_invocation_id")) attrs.builtin_gid = true else attrs.other_builtin = arg.start;
+            if (isWord(arg, "global_invocation_id")) {
+                attrs.builtin_gid = true;
+            } else if (isWord(arg, "position")) {
+                attrs.builtin_position = true;
+            } else {
+                attrs.other_builtin = arg.start;
+            }
+            _ = try expect(.r_paren);
+            continue;
+        }
+        if (isWord(name, "location")) {
+            _ = advance();
+            const arg = try expect(.int_lit);
+            const lit = try intLiteral(arg);
+            if (lit.int_value != 0) return fail(arg.start, .unsupported); // one colour output
+            attrs.location0 = true;
             _ = try expect(.r_paren);
             continue;
         }
@@ -3914,9 +4505,110 @@ fn parseOverride() CompileError!void {
     override_count += 1;
 }
 
+// `array<T, N>` after its `array` token; T is f32, i32, u32 or vecNf.
+fn parseArrayType(len: *?u32) CompileError!Ty {
+    _ = try expect(.lt);
+    const elem_at = peek().start;
+    const elem = try parseType();
+    if (elem == .bool or isIVec(elem)) return fail(elem_at, .unsupported);
+    _ = try expect(.comma);
+    const n = try expect(.int_lit);
+    const lit = try intLiteral(n);
+    if (lit.int_value < 1 or lit.int_value > CONST_DATA_CAP) return fail(n.start, .unsupported);
+    len.* = @intCast(lit.int_value);
+    _ = try expect(.gt);
+    return elem;
+}
+
+// `const name = array<T, N>(e0, e1, ...);`, `array(...)`, or with the type
+// after the name. Elements are literals, or vecNf constructors of literals.
+// The values go into the module's data segment.
+fn parseConstArray(name: Token, declared_elem: ?Ty, declared_len: ?u32) CompileError!void {
+    if (const_array_count >= MAX_CONST_ARRAYS) return fail(name.start, .unsupported);
+    const array_tok = try expectWord("array");
+    var elem = declared_elem;
+    var len = declared_len;
+    if (peek().kind == .lt) {
+        var written_len: ?u32 = null;
+        const written = try parseArrayType(&written_len);
+        if ((elem != null and elem.? != written) or (len != null and len.? != written_len.?)) return fail(array_tok.start, .type_mismatch);
+        elem = written;
+        len = written_len;
+    }
+    _ = try expect(.l_paren);
+    const offset: u32 = @intCast(const_data_len);
+    var count: u32 = 0;
+    while (peek().kind != .r_paren) {
+        const at = peek().start;
+        var lanes: [4]Literal = undefined;
+        var lane_count: u8 = 1;
+        var vec_ty: ?Ty = null;
+        if (vecWordLen(peek(), true)) |n| {
+            _ = advance();
+            vec_ty = vecOf(n);
+        } else if (vecWordLen(peek(), false)) |n| {
+            _ = advance();
+            _ = try expect(.lt);
+            _ = try expectWord("f32");
+            _ = try expect(.gt);
+            vec_ty = vecOf(n);
+        }
+        if (vec_ty) |vt| {
+            _ = try expect(.l_paren);
+            lane_count = vecLen(vt);
+            for (0..lane_count) |i| {
+                if (i > 0) _ = try expect(.comma);
+                const lane_at = peek().start;
+                lanes[i] = try parseConstLiteral();
+                try concretizeLiteral(&lanes[i], .f32, lane_at);
+            }
+            _ = try expect(.r_paren);
+        } else {
+            lanes[0] = try parseConstLiteral();
+        }
+        const ty = vec_ty orelse defaultTy(lanes[0].ty);
+        if (elem == null) elem = ty;
+        if (vec_ty == null) {
+            try concretizeLiteral(&lanes[0], elem.?, at);
+        } else if (elem.? != ty) {
+            return fail(at, .type_mismatch);
+        }
+        if (elem.? == .bool) return fail(at, .unsupported);
+        const size = @as(usize, 1) << elemShift(elem.?);
+        if (const_data_len + size > CONST_DATA_CAP) return fail(at, .unsupported);
+        @memset(const_data[const_data_len..][0..size], 0);
+        for (lanes[0..lane_count], 0..) |lit, i| {
+            const bits: u32 = if (elem.? == .f32 or vec_ty != null) @bitCast(@as(f32, @floatCast(lit.float_value))) else @truncate(@as(u64, @bitCast(lit.int_value)));
+            std.mem.writeInt(u32, const_data[const_data_len + 4 * i ..][0..4], bits, .little);
+        }
+        const_data_len += size;
+        count += 1;
+        if (peek().kind != .comma) break;
+        _ = advance();
+    }
+    _ = try expect(.r_paren);
+    _ = try expect(.semicolon);
+    if (count == 0 or (len != null and len.? != count)) return fail(array_tok.start, .type_mismatch);
+    const_arrays[const_array_count] = .{ .name = name, .elem = elem.?, .len = count, .offset = offset };
+    const_array_count += 1;
+}
+
 fn parseModuleConst() CompileError!void {
     const name = try expect(.ident);
     if (moduleNameTaken(name)) return fail(name.start, .name);
+    if (isWord(peekAt(1), "array") or (peek().kind == .colon and isWord(peekAt(1), "array"))) {
+        // Constant arrays need a stage entry's memory layout.
+        if (!stage_module) return fail(name.start, .unsupported);
+        var elem: ?Ty = null;
+        var len: ?u32 = null;
+        if (peek().kind == .colon) {
+            _ = advance();
+            _ = try expectWord("array");
+            elem = try parseArrayType(&len);
+        }
+        _ = try expect(.eq);
+        return parseConstArray(name, elem, len);
+    }
     if (const_count >= MAX_CONSTS) return fail(name.start, .unsupported);
     var declared: ?Ty = null;
     if (peek().kind == .colon) {
@@ -3932,8 +4624,24 @@ fn parseModuleConst() CompileError!void {
     const_count += 1;
 }
 
+// `var name: texture_2d<f32>;`, the fragment shader's input image.
+fn parseTextureVar() CompileError!void {
+    const name = try expect(.ident);
+    if (moduleNameTaken(name)) return fail(name.start, .name);
+    if (texture_name != null or kernel_count > 0) return fail(name.start, .unsupported);
+    _ = try expect(.colon);
+    const ty = try expect(.ident);
+    if (!isWord(ty, "texture_2d")) return fail(ty.start, .unsupported);
+    _ = try expect(.lt);
+    _ = try expectWord("f32");
+    _ = try expect(.gt);
+    _ = try expect(.semicolon);
+    texture_name = name;
+}
+
 fn parseBufferVar() CompileError!void {
     const open = peek();
+    if (open.kind == .ident and peekAt(1).kind == .colon and isWord(peekAt(2), "texture_2d")) return parseTextureVar();
     if (open.kind != .lt) return fail(open.start, .unsupported); // var<private> by default
     _ = advance();
     const space = try expect(.ident);
@@ -3951,7 +4659,7 @@ fn parseBufferVar() CompileError!void {
     _ = try expect(.gt);
     const name = try expect(.ident);
     if (moduleNameTaken(name)) return fail(name.start, .name);
-    if (kernel_count > 0) return fail(name.start, .unsupported); // pixel kernels own the tile
+    if (kernel_count > 0 or fragment_entry) return fail(name.start, .unsupported); // pixel kernels own the tile
     _ = try expect(.colon);
     const array_tok = try expect(.ident);
     if (!isWord(array_tok, "array")) return fail(array_tok.start, .unsupported);
@@ -3959,7 +4667,7 @@ fn parseBufferVar() CompileError!void {
     const elem_at = peek().start;
     const elem = try parseType();
     if (elem == .bool) return fail(elem_at, .type_mismatch);
-    if (elem == .vec2f or elem == .vec3f) return fail(elem_at, .unsupported);
+    if (elem == .vec2f or elem == .vec3f or isIVec(elem)) return fail(elem_at, .unsupported);
     if (peek().kind == .comma) return fail(peek().start, .unsupported); // fixed-size array
     _ = try expect(.gt);
     _ = try expect(.semicolon);
@@ -4001,6 +4709,8 @@ fn parseEntry(fn_tok: Token) CompileError!void {
     _ = try expect(.l_brace);
     block_len = 0;
     scope_len = 0;
+    param_count = 1;
+    return_ty = .void;
     try pushBlock(.{ .kind = .func, .scope_mark = 0 });
     while (block_len > 0) {
         if (peek().kind == .eof) return fail(peek().start, .syntax);
@@ -4036,6 +4746,8 @@ fn parseKernel(fn_tok: Token) CompileError!void {
     scope_len = 1;
     local_count = 0;
     body.len = 0;
+    param_count = 1;
+    return_ty = .vec4f;
     in_kernel = true;
     kernel_returned = false;
     kernel_halos[kernel_count] = 0;
@@ -4053,6 +4765,118 @@ fn parseKernel(fn_tok: Token) CompileError!void {
     kernel_count += 1;
 }
 
+// `@fragment fn name(@builtin(position) p: vec4f) -> @location(0) vec4f`
+// runs once per pixel of the input image and returns its colour.
+fn parseFragment(fn_tok: Token) CompileError!void {
+    if (have_entry or kernel_count > 0 or input_buffer.declared or output_buffer.declared) return fail(fn_tok.start, .unsupported);
+    have_entry = true;
+    fragment_entry = true;
+    _ = try expect(.ident);
+    _ = try expect(.l_paren);
+    var param: ?Token = null;
+    if (peek().kind != .r_paren) {
+        const param_attrs = try parseAttributes();
+        if (param_attrs.other_builtin) |at| return fail(at, .unsupported);
+        const name = try expect(.ident);
+        if (!param_attrs.builtin_position) return fail(name.start, .unsupported); // a varying input
+        if (moduleNameTaken(name)) return fail(name.start, .name);
+        _ = try expect(.colon);
+        const ty_at = peek().start;
+        if (try parseType() != .vec4f) return fail(ty_at, .type_mismatch);
+        if (peek().kind == .comma) {
+            _ = advance();
+            if (peek().kind != .r_paren) return fail(peek().start, .unsupported);
+        }
+        param = name;
+    }
+    _ = try expect(.r_paren);
+    _ = try expect(.arrow);
+    const result_attrs = try parseAttributes();
+    if (result_attrs.other_builtin) |at| return fail(at, .unsupported); // frag_depth
+    const result_at = peek().start;
+    if (!result_attrs.location0) return fail(result_at, .unsupported);
+    if (try parseType() != .vec4f) return fail(result_at, .type_mismatch);
+    _ = try expect(.l_brace);
+    block_len = 0;
+    try pushBlock(.{ .kind = .func, .scope_mark = 0 });
+    // The position is Wasm local 0 whether or not the shader names it.
+    scope_len = 0;
+    if (param) |name| {
+        scope[0] = .{ .name = name, .index = 0, .ty = .vec4f, .mutable = false };
+        scope_len = 1;
+    }
+    local_count = 0;
+    body.len = 0;
+    param_count = 1;
+    return_ty = .vec4f;
+    in_fragment = true;
+    kernel_returned = false;
+    while (block_len > 0) {
+        if (peek().kind == .eof) return fail(peek().start, .syntax);
+        try parseStatement();
+    }
+    in_fragment = false;
+    if (!kernel_returned) return fail(tokens[pos - 1].start, .unsupported);
+}
+
+// `fn name(a: T, ...) -> R { ... }` in a module with a stage entry: a helper
+// compiled to its own Wasm function. Helpers come before the entry, and each
+// calls only those above it, so there is no recursion, as WGSL requires.
+fn parseHelper(fn_tok: Token) CompileError!void {
+    if (have_entry) return fail(fn_tok.start, .unsupported); // after the entry
+    if (helper_count >= MAX_HELPERS) return fail(fn_tok.start, .unsupported);
+    const name = try expect(.ident);
+    if (moduleNameTaken(name) or lookupCallee(text(name)) != null) return fail(name.start, .name);
+    var h = Helper{ .name = name, .params = undefined, .param_count = 0, .ret = .void };
+    _ = try expect(.l_paren);
+    block_len = 0;
+    try pushBlock(.{ .kind = .func, .scope_mark = 0 });
+    scope_len = 0;
+    while (peek().kind != .r_paren) {
+        if (peek().kind == .at) return fail(peek().start, .unsupported); // a builtin or location
+        const param = try expect(.ident);
+        if (moduleNameTaken(param) or sameName(param, name)) return fail(param.start, .name);
+        for (scope[0..scope_len]) |local| if (sameName(local.name, param)) return fail(param.start, .name);
+        if (h.param_count >= MAX_PARAMS) return fail(param.start, .unsupported);
+        _ = try expect(.colon);
+        const ty = try parseType();
+        // WGSL parameters are immutable; parameter i is Wasm local i.
+        scope[scope_len] = .{ .name = param, .index = h.param_count, .ty = ty, .mutable = false };
+        scope_len += 1;
+        h.params[h.param_count] = ty;
+        h.param_count += 1;
+        if (peek().kind != .comma) break;
+        _ = advance();
+    }
+    _ = try expect(.r_paren);
+    if (peek().kind == .arrow) {
+        _ = advance();
+        if (peek().kind == .at) return fail(peek().start, .unsupported);
+        h.ret = try parseType();
+    }
+    _ = try expect(.l_brace);
+    local_count = 0;
+    body.len = 0;
+    param_count = h.param_count;
+    return_ty = h.ret;
+    kernel_returned = false;
+    // The vectorizer's IR records only the entry.
+    const ir_was_complete = ir_complete;
+    ir_complete = false;
+    while (block_len > 0) {
+        if (peek().kind == .eof) return fail(peek().start, .syntax);
+        try parseStatement();
+    }
+    ir_complete = ir_was_complete;
+    if (h.ret != .void and !kernel_returned) return fail(tokens[pos - 1].start, .unsupported);
+    try emitFunction(&helper_code);
+    helpers[helper_count] = h;
+    helper_count += 1;
+    body.len = 0;
+    local_count = 0;
+    scope_len = 0;
+}
+
 fn parseTopLevel() CompileError!void {
     const attrs = try parseAttributes();
     const t = advance();
@@ -4062,7 +4886,11 @@ fn parseTopLevel() CompileError!void {
     if (std.mem.eql(u8, word, "override")) return parseOverride();
     if (std.mem.eql(u8, word, "const")) return parseModuleConst();
     if (std.mem.eql(u8, word, "var")) return parseBufferVar();
-    if (std.mem.eql(u8, word, "fn")) return if (attrs.compute) parseEntry(t) else parseKernel(t);
+    if (std.mem.eql(u8, word, "fn")) {
+        if (attrs.fragment) return parseFragment(t);
+        if (attrs.compute) return parseEntry(t);
+        return if (stage_module) parseHelper(t) else parseKernel(t);
+    }
     const unsupported_words = [_][]const u8{ "struct", "alias", "enable", "requires", "diagnostic", "const_assert" };
     for (unsupported_words) |w| if (std.mem.eql(u8, word, w)) return fail(t.start, .unsupported);
     return fail(t.start, .syntax);
@@ -4157,6 +4985,418 @@ fn emitRender(w: *Buf) CompileError!void {
     w.endSize(at);
 }
 
+// A fragment module's `width` uniform and the derived height follow the
+// overrides.
+fn globalWidth() u32 {
+    return @intCast(GLOBAL_FIRST_OVERRIDE + override_count);
+}
+
+// Fragment render: one call of the entry per pixel, in row order, with the
+// pixel centre as the position. The `width` uniform gives the rows.
+fn emitFragmentRender(w: *Buf) CompileError!void {
+    const at = try w.beginSize();
+    // $x, $y and $p, then $result, then $width, and for derivative modules
+    // $lane, $px, $py, $k and $eq, then $v, then the loop bounds $rows,
+    // $cols and $slots.
+    if (uses_derivatives) {
+        try w.raw(&.{ 5, 3, 0x7f, 1, 0x7e, 6, 0x7f, 1, 0x7b, 3, 0x7f });
+    } else {
+        try w.raw(&.{ 3, 3, 0x7f, 1, 0x7e, 1, 0x7f });
+    }
+    try w.localGet(0);
+    try w.i32Const(@bitCast(RUN_BYTES_CAP));
+    try w.raw(&.{ 0x4b, 0x04, 0x40, 0x00, 0x0b }); // i32.gt_u if unreachable end
+    try w.raw(&.{ 0x02, 0x40 }); // block $done
+    // A partial pixel fails where it starts.
+    try w.localGet(0);
+    try w.i32Const(-16);
+    try w.byte(0x71); // i32.and
+    try emitFailResult(w);
+    try w.localGet(0);
+    try w.i32Const(15);
+    try w.raw(&.{ 0x71, 0x0d, 0x00 }); // i32.and br_if $done
+    try w.localGet(0);
+    try w.i32Const(4);
+    try w.byte(0x76); // i32.shr_u
+    try w.byte(0x24);
+    try w.uleb(GLOBAL_COUNT);
+    // Width 0 fails at offset 0. The guard on the local is the shape
+    // wasm-nontrapping-divides proves safe.
+    try w.i32Const(0);
+    try emitFailResult(w);
+    try w.byte(0x23);
+    try w.uleb(globalWidth());
+    try w.localTee(5);
+    try w.raw(&.{ 0x45, 0x0d, 0x00 }); // i32.eqz br_if $done
+    // A partial row fails where it starts.
+    try w.byte(0x23);
+    try w.uleb(GLOBAL_COUNT);
+    try w.localGet(5);
+    try w.byte(0x6e); // i32.div_u
+    try w.byte(0x24);
+    try w.uleb(globalWidth() + 1);
+    try w.byte(0x23);
+    try w.uleb(globalWidth() + 1);
+    try w.localGet(5);
+    try w.byte(0x6c); // i32.mul
+    try w.i32Const(4);
+    try w.byte(0x74); // i32.shl
+    try emitFailResult(w);
+    try w.byte(0x23);
+    try w.uleb(GLOBAL_COUNT);
+    try w.localGet(5);
+    try w.raw(&.{ 0x70, 0x0d, 0x00 }); // i32.rem_u br_if $done
+    if (uses_derivatives) return emitQuadLoops(w, at);
+    try w.i32Const(@bitCast(RUN_OUTPUT_PTR));
+    try w.localSet(3);
+    // for (y = 0; y < height; y++) for (x = 0; x < width; x++)
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.localGet(2);
+    try w.byte(0x23);
+    try w.uleb(globalWidth() + 1);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
+    try w.i32Const(0);
+    try w.localSet(1);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.localGet(1);
+    try w.byte(0x23);
+    try w.uleb(globalWidth());
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    try w.localGet(3);
+    // position = vec4f(x + 0.5, y + 0.5, 0.0, 1.0)
+    try w.simd(SIMD_CONST);
+    for ([_]f32{ 0.5, 0.5, 0.0, 1.0 }) |lane| {
+        const bits: u32 = @bitCast(lane);
+        try w.raw(&.{ @truncate(bits), @truncate(bits >> 8), @truncate(bits >> 16), @truncate(bits >> 24) });
+    }
+    for (0..2) |lane| {
+        try w.localGet(@intCast(1 + lane));
+        try w.byte(0xb3); // f32.convert_i32_u
+        try w.f32Const(0.5);
+        try w.byte(0x92);
+        try w.simdLane(SIMD_F32X4_REPLACE_LANE, @intCast(lane));
+    }
+    try w.byte(0x10);
+    try w.uleb(FN_MAIN);
+    try w.simd(SIMD_STORE);
+    try w.raw(&.{ 4, 0 });
+    try w.localGet(3);
+    try w.i32Const(16);
+    try w.byte(0x6a);
+    try w.localSet(3);
+    try w.localGet(1);
+    try w.i32Const(1);
+    try w.byte(0x6a);
+    try w.localSet(1);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    try w.localGet(2);
+    try w.i32Const(1);
+    try w.byte(0x6a);
+    try w.localSet(2);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    try w.localGet(0);
+    try w.byte(0xad); // i64.extend_i32_u
+    try w.byte(0x42);
+    try w.sleb(@as(i64, RUN_OUTPUT_PTR) << 32);
+    try w.byte(0x84);
+    try w.localSet(4);
+    try w.byte(0x0b); // end $done
+    // Each render starts from the authored uniform defaults and width 0.
+    try emitResetOverrides(w);
+    try w.i32Const(0);
+    try w.byte(0x24);
+    try w.uleb(globalWidth());
+    try w.localGet(4);
+    try w.byte(0x0b);
+    w.endSize(at);
+}
+
+// Pushes the position vec4f(px + 0.5, py + 0.5, 0, 1) from two i32 locals.
+fn emitPosition(w: *Buf, px: u32, py: u32) CompileError!void {
+    try w.simd(SIMD_CONST);
+    for ([_]f32{ 0.5, 0.5, 0.0, 1.0 }) |lane| {
+        const bits: u32 = @bitCast(lane);
+        try w.raw(&.{ @truncate(bits), @truncate(bits >> 8), @truncate(bits >> 16), @truncate(bits >> 24) });
+    }
+    for ([_]u32{ px, py }, 0..) |local, lane| {
+        try w.localGet(local);
+        try w.byte(0xb3); // f32.convert_i32_u
+        try w.f32Const(0.5);
+        try w.byte(0x92);
+        try w.simdLane(SIMD_F32X4_REPLACE_LANE, @intCast(lane));
+    }
+}
+
+// The rest of a derivative module's render, after the size checks. Pixels run
+// in 2x2 quads, lanes 0-3 being (0,0), (1,0), (0,1) and (1,1), with lanes
+// outside the image run as GPU helper invocations whose output is dropped.
+// WGSL requires derivatives in uniform control flow, so each lane makes the
+// same sequence of derivative calls. Each pass runs the four lanes in turn:
+// a call stores its argument in this pass's bank and returns the derivative
+// of the previous pass's values. A pass whose values match the previous
+// pass's has consistent derivatives, so its output stands; nested
+// derivatives take one more pass per level, up to DERIV_PASSES.
+fn emitQuadLoops(w: *Buf, at: usize) CompileError!void {
+    const qx = 1;
+    const qy = 2;
+    const pass = 3;
+    const lane = 6;
+    const px = 7;
+    const py = 8;
+    const k = 9;
+    const eq = 10;
+    const v = 11;
+    const rows = 12;
+    const cols = 13;
+    const slots = 14;
+    try w.i32Const(0);
+    try w.byte(0x24);
+    try w.uleb(derivGlobal(.overflow));
+    // wasm-bounded-loops wants each bound in a local.
+    try w.byte(0x23);
+    try w.uleb(globalWidth() + 1);
+    try w.raw(&.{ 0x41, 1, 0x6a, 0x41, 1, 0x76 }); // (height + 1) >> 1
+    try w.localSet(rows);
+    try w.localGet(5);
+    try w.raw(&.{ 0x41, 1, 0x6a, 0x41, 1, 0x76 });
+    try w.localSet(cols);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // rows of quads
+    try w.localGet(qy);
+    try w.localGet(rows);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    try w.i32Const(0);
+    try w.localSet(qx);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // quads in the row
+    try w.localGet(qx);
+    try w.localGet(cols);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    try w.i32Const(0);
+    try w.localSet(pass);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // passes
+    try w.localGet(pass);
+    try w.i32Const(DERIV_PASSES);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    try w.localGet(pass);
+    try w.byte(0x24);
+    try w.uleb(derivGlobal(.pass));
+    try w.i32Const(0);
+    try w.localSet(lane);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // lanes
+    try w.localGet(lane);
+    try w.i32Const(4);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    for ([_]DerivState{ .count, .discarded }) |state| {
+        try w.i32Const(0);
+        try w.byte(0x24);
+        try w.uleb(derivGlobal(state));
+    }
+    try w.localGet(lane);
+    try w.byte(0x24);
+    try w.uleb(derivGlobal(.lane));
+    // px = 2 * qx + (lane & 1), py = 2 * qy + (lane >> 1)
+    try w.localGet(qx);
+    try w.raw(&.{ 0x41, 1, 0x74 });
+    try w.localGet(lane);
+    try w.raw(&.{ 0x41, 1, 0x71, 0x6a });
+    try w.localSet(px);
+    try w.localGet(qy);
+    try w.raw(&.{ 0x41, 1, 0x74 });
+    try w.localGet(lane);
+    try w.raw(&.{ 0x41, 1, 0x76, 0x6a });
+    try w.localSet(py);
+    try emitPosition(w, px, py);
+    try w.byte(0x10);
+    try w.uleb(FN_MAIN);
+    try w.localSet(v);
+    // Store only pixels inside the image; the last pass's store stands.
+    try w.localGet(px);
+    try w.localGet(5);
+    try w.byte(0x49);
+    try w.localGet(py);
+    try w.byte(0x23);
+    try w.uleb(globalWidth() + 1);
+    try w.raw(&.{ 0x49, 0x71, 0x04, 0x40 }); // i32.lt_u i32.and if
+    try w.localGet(py);
+    try w.localGet(5);
+    try w.byte(0x6c);
+    try w.localGet(px);
+    try w.raw(&.{ 0x6a, 0x41, 4, 0x74 });
+    try w.localGet(v);
+    try w.simd(SIMD_STORE);
+    try w.byte(4);
+    try w.uleb(RUN_OUTPUT_PTR);
+    try w.byte(0x0b);
+    try w.localGet(lane);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.localSet(lane);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    // No derivative calls: the first pass is final.
+    try w.byte(0x23);
+    try w.uleb(derivGlobal(.count));
+    try w.raw(&.{ 0x45, 0x0d, 0x01 }); // i32.eqz br_if (end passes)
+    try w.localGet(pass);
+    try w.raw(&.{ 0x04, 0x40 }); // if a later pass
+    try w.i32Const(1);
+    try w.localSet(eq);
+    try w.i32Const(0);
+    try w.localSet(k);
+    try w.byte(0x23);
+    try w.uleb(derivGlobal(.count));
+    try w.raw(&.{ 0x41, 2, 0x74 }); // four lanes per call
+    try w.localSet(slots);
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.localGet(k);
+    try w.localGet(slots);
+    try w.raw(&.{ 0x4f, 0x0d, 0x01 });
+    for ([_]u32{ 0, DERIV_BANK }) |offset| {
+        try w.localGet(k);
+        try w.raw(&.{ 0x41, 4, 0x74 });
+        try w.simd(SIMD_LOAD);
+        try w.byte(4);
+        try w.uleb(offset);
+    }
+    try w.simd(SIMD_I32X4_EQ);
+    try w.simd(SIMD_I32X4_ALL_TRUE);
+    try w.localGet(eq);
+    try w.byte(0x71);
+    try w.localSet(eq);
+    try w.localGet(k);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.localSet(k);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    try w.localGet(eq);
+    try w.raw(&.{ 0x0d, 0x02, 0x0b }); // br_if (end passes) end
+    try w.localGet(pass);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.localSet(pass);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    try w.localGet(qx);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.localSet(qx);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    try w.localGet(qy);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.localSet(qy);
+    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b });
+    // More than DERIV_CALLS derivative calls per pixel fails at offset 0.
+    try w.localGet(0);
+    try w.byte(0xad);
+    try w.byte(0x42);
+    try w.sleb(@as(i64, RUN_OUTPUT_PTR) << 32);
+    try w.byte(0x84);
+    try w.localSet(4);
+    try w.i32Const(0);
+    try emitFailResultIf(w, derivGlobal(.overflow));
+    try w.byte(0x0b); // end $done
+    try emitResetOverrides(w);
+    try w.i32Const(0);
+    try w.byte(0x24);
+    try w.uleb(globalWidth());
+    try w.localGet(4);
+    try w.byte(0x0b);
+    w.endSize(at);
+}
+
+// Stack: [offset]. Sets the render result to a failure at that offset when
+// the global is nonzero.
+fn emitFailResultIf(w: *Buf, global: u32) CompileError!void {
+    try w.byte(0xad); // i64.extend_i32_u
+    try w.byte(0x42);
+    try w.sleb(std.math.minInt(i64));
+    try w.byte(0x84); // i64.or
+    try w.localGet(4);
+    try w.byte(0x23);
+    try w.uleb(global);
+    try w.byte(0x1b); // select
+    try w.localSet(4);
+}
+
+// FN_DERIV(v, kind): records v for this lane as the next derivative call, and
+// returns dpdx (kind 0), dpdy (1) or fwidth (2) of the previous pass's values.
+fn emitDerivFunction(w: *Buf) CompileError!void {
+    const at = try w.beginSize();
+    // $k, $cur, $prev and $lane, then $dx and $dy.
+    try w.raw(&.{ 2, 4, 0x7f, 2, 0x7b });
+    const k = 2;
+    const cur = 3;
+    const prev = 4;
+    const lane = 5;
+    const dx = 6;
+    const dy = 7;
+    try w.byte(0x23);
+    try w.uleb(derivGlobal(.count));
+    try w.localTee(k);
+    try w.i32Const(DERIV_CALLS);
+    try w.raw(&.{ 0x4f, 0x04, 0x40 }); // i32.ge_u if
+    try w.i32Const(1);
+    try w.byte(0x24);
+    try w.uleb(derivGlobal(.overflow));
+    try w.simd(SIMD_CONST);
+    try w.raw(&([_]u8{0} ** 16));
+    try w.raw(&.{ 0x0f, 0x0b }); // return end
+    try w.localGet(k);
+    try w.raw(&.{ 0x41, 1, 0x6a });
+    try w.byte(0x24);
+    try w.uleb(derivGlobal(.count));
+    try w.byte(0x23);
+    try w.uleb(derivGlobal(.lane));
+    try w.localSet(lane);
+    // cur = (pass & 1) * DERIV_BANK + k * 64; prev is the other bank.
+    try w.byte(0x23);
+    try w.uleb(derivGlobal(.pass));
+    try w.raw(&.{ 0x41, 1, 0x71 });
+    try w.i32Const(DERIV_BANK);
+    try w.byte(0x6c);
+    try w.localGet(k);
+    try w.raw(&.{ 0x41, 6, 0x74, 0x6a });
+    try w.localTee(cur);
+    try w.i32Const(DERIV_BANK);
+    try w.byte(0x73); // i32.xor
+    try w.localSet(prev);
+    try w.localGet(cur);
+    try w.localGet(lane);
+    try w.raw(&.{ 0x41, 4, 0x74, 0x6a });
+    try w.localGet(0);
+    try w.simd(SIMD_STORE);
+    try w.raw(&.{ 4, 0 });
+    // dx = prev[lane | 1] - prev[lane & 2]; dy = prev[lane | 2] - prev[lane & 1]
+    for ([_]struct { u8, u8, u32 }{ .{ 1, 2, dx }, .{ 2, 1, dy } }) |axis| {
+        for ([_]u8{ 0x72, 0x71 }, [_]u8{ axis[0], axis[1] }) |op, mask| {
+            try w.localGet(prev);
+            try w.localGet(lane);
+            try w.raw(&.{ 0x41, mask, op, 0x41, 4, 0x74, 0x6a }); // i32.or/and, shl 4, add
+            try w.simd(SIMD_LOAD);
+            try w.raw(&.{ 4, 0 });
+        }
+        try w.simd(SIMD_F32X4_SUB);
+        try w.localSet(axis[2]);
+    }
+    try w.localGet(dx);
+    try w.localGet(dy);
+    try w.localGet(dx);
+    try w.simd(SIMD_F32X4_ABS);
+    try w.localGet(dy);
+    try w.simd(SIMD_F32X4_ABS);
+    try w.simd(SIMD_F32X4_ADD);
+    try w.localGet(1);
+    try w.raw(&.{ 0x41, 1, 0x46 }); // kind == 1
+    try w.raw(&.{ 0x1c, 0x01, 0x7b }); // dy or fwidth
+    try w.localGet(1);
+    try w.byte(0x45); // kind == 0
+    try w.raw(&.{ 0x1c, 0x01, 0x7b });
+    try w.byte(0x0b);
+    w.endSize(at);
+}
+
+// Stack: [offset]. Sets the render result to a failure at that offset.
+fn emitFailResult(w: *Buf) CompileError!void {
+    try w.byte(0xad); // i64.extend_i32_u
+    try w.byte(0x42);
+    try w.sleb(std.math.minInt(i64));
+    try w.byte(0x84); // i64.or
+    try w.localSet(4);
+}
+
 // Writes the function in `body` with its locals as one code entry.
 fn emitFunction(w: *Buf) CompileError!void {
     const at = try w.beginSize();
@@ -4220,22 +5460,37 @@ fn emitModule() CompileError!usize {
     var w = Buf{ .bytes = &output_buf };
     try w.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
 
+    const extra: u32 = @intFromBool(fragment_entry); // the width uniform
+    const deriv: u32 = @intFromBool(uses_derivatives); // FN_DERIV
+    const first_setter: u32 = @intCast(FN_FIRST_SETTER + deriv + helper_count);
     try w.byte(1); // type section
     var at = try w.beginSize();
-    try w.uleb(6);
+    try w.uleb(6 + extra + deriv + helper_count);
     try w.raw(&.{ 0x60, 0, 1, 0x7f }); // 0: () -> i32
     try w.raw(&.{ 0x60, 1, 0x7f, 1, 0x7e }); // 1: (i32) -> i64
     try w.raw(&.{ 0x60, 1, 0x7f, 0 }); // 2: (i32) -> ()
     try w.raw(&.{ 0x60, 1, 0x7d, 1, 0x7d }); // 3: (f32) -> f32
     try w.raw(&.{ 0x60, 1, 0x7f, 1, 0x7f }); // 4: (i32) -> i32
     try w.raw(&.{ 0x60, 1, 0x7e, 1, 0x7e }); // 5: (i64) -> i64
+    if (fragment_entry) try w.raw(&.{ 0x60, 1, 0x7b, 1, 0x7b }); // 6: (v128) -> v128
+    if (uses_derivatives) try w.raw(&.{ 0x60, 2, 0x7b, 0x7f, 1, 0x7b }); // 7: (v128, i32) -> v128
+    // One type per helper, in order.
+    for (helpers[0..helper_count]) |h| {
+        try w.byte(0x60);
+        try w.uleb(h.param_count);
+        for (h.params[0..h.param_count]) |ty| try w.byte(valType(ty));
+        if (h.ret == .void) try w.byte(0) else try w.raw(&.{ 1, valType(h.ret) });
+    }
     w.endSize(at);
 
     try w.byte(3); // function section
     at = try w.beginSize();
-    try w.uleb(FN_FIRST_SETTER + override_count);
-    try w.raw(&.{ 0, 0, 0, 0, 1, 2 });
+    try w.uleb(first_setter + override_count + extra);
+    try w.raw(&.{ 0, 0, 0, 0, 1, if (fragment_entry) 6 else 2 });
+    if (uses_derivatives) try w.byte(7);
+    for (0..helper_count) |i| try w.uleb(6 + extra + deriv + i);
     for (overrides[0..override_count]) |o| try w.byte(setterType(o.ty));
+    if (fragment_entry) try w.byte(4);
     w.endSize(at);
 
     try w.byte(5); // memory section: fixed size
@@ -4247,18 +5502,20 @@ fn emitModule() CompileError!usize {
 
     try w.byte(6); // global section
     at = try w.beginSize();
-    try w.uleb(1 + override_count);
+    try w.uleb(1 + override_count + 2 * extra + 5 * deriv);
     try w.raw(&.{ 0x7f, 1, 0x41, 0, 0x0b }); // element count
     for (overrides[0..override_count]) |o| {
         try w.raw(&.{ valType(o.ty), 1 });
         try emitLiteral(&w, o.value);
         try w.byte(0x0b);
     }
+    // Fragment width and height.
+    for (0..2 * extra + 5 * deriv) |_| try w.raw(&.{ 0x7f, 1, 0x41, 0, 0x0b });
     w.endSize(at);
 
     try w.byte(7); // export section
     at = try w.beginSize();
-    try w.uleb(6 + override_count);
+    try w.uleb(6 + override_count + extra);
     try w.name("memory");
     try w.raw(&.{ 2, 0 });
     const getters = [_][]const u8{ "input_ptr", "input_bytes_cap", "output_bytes_cap", "failure_modes_per_input_offset", "render" };
@@ -4273,21 +5530,40 @@ fn emitModule() CompileError!usize {
         try w.raw(prefix);
         try w.raw(text(o.name));
         try w.byte(0);
-        try w.uleb(FN_FIRST_SETTER + i);
+        try w.uleb(first_setter + i);
+    }
+    if (fragment_entry) {
+        try w.name("uniform_set_width");
+        try w.byte(0);
+        try w.uleb(first_setter + override_count);
     }
     w.endSize(at);
 
     try w.byte(10); // code section
     at = try w.beginSize();
-    try w.uleb(FN_FIRST_SETTER + override_count);
+    try w.uleb(first_setter + override_count + extra);
     try emitGetter(&w, RUN_INPUT_PTR);
     try emitGetter(&w, RUN_BYTES_CAP);
     try emitGetter(&w, RUN_BYTES_CAP);
     try emitGetter(&w, 1);
-    try emitRender(&w);
+    if (fragment_entry) try emitFragmentRender(&w) else try emitRender(&w);
     if (!vectorized and scalar_code.len != 0) try w.raw(scalar_code.bytes[0..scalar_code.len]) else try emitFunction(&w);
+    if (uses_derivatives) try emitDerivFunction(&w);
+    try w.raw(helper_code.bytes[0..helper_code.len]);
     for (overrides[0..override_count], 0..) |o, i| try emitSetter(&w, @intCast(GLOBAL_FIRST_OVERRIDE + i), o.ty);
+    if (fragment_entry) try emitSetter(&w, globalWidth(), .u32);
     w.endSize(at);
+
+    if (const_data_len > 0) {
+        try w.byte(11); // data section: the constant arrays
+        at = try w.beginSize();
+        try w.raw(&.{ 1, 0 }); // one active segment in memory 0
+        try w.i32Const(@bitCast(CONST_DATA_PTR));
+        try w.byte(0x0b);
+        try w.uleb(const_data_len);
+        try w.raw(const_data[0..const_data_len]);
+        w.endSize(at);
+    }
 
     if (vectorized) {
         try w.byte(0);
@@ -4652,6 +5928,16 @@ fn compile(source: []const u8) CompileError!usize {
     output_buffer = .{ .name = undefined, .elem = .void };
     gid_name = null;
     have_entry = false;
+    fragment_entry = false;
+    in_fragment = false;
+    texture_name = null;
+    helper_count = 0;
+    helper_code.len = 0;
+    const_array_count = 0;
+    const_data_len = 0;
+    param_count = 1;
+    return_ty = .void;
+    allow_void_call = false;
     local_count = 0;
     scope_len = 0;
     block_len = 0;
@@ -4667,8 +5953,25 @@ fn compile(source: []const u8) CompileError!usize {
     vectorized = false;
     scalar_code.len = 0;
     try lex();
+    stage_module = false;
+    fragment_module = false;
+    uses_derivatives = false;
+    for (tokens[0..tok_count], tokens[1 .. tok_count + 1]) |at, word| {
+        if (at.kind == .at and (isWord(word, "compute") or isWord(word, "fragment"))) stage_module = true;
+        if (at.kind == .at and isWord(word, "fragment")) fragment_module = true;
+    }
+    if (fragment_module) for (tokens[0..tok_count], tokens[1 .. tok_count + 1]) |t, next| {
+        const callee = if (t.kind == .ident and next.kind == .l_paren) lookupCallee(text(t)) else null;
+        if (callee == .dpdx or callee == .dpdy or callee == .fwidth) uses_derivatives = true;
+    };
     while (peek().kind != .eof) try parseTopLevel();
+    if (texture_name) |t| if (!fragment_entry) return fail(t.start, .unsupported);
     if (kernel_count > 0) return emitTileModule();
+    if (fragment_entry) {
+        // `width` is the fragment module's own uniform.
+        for (overrides[0..override_count]) |o| if (isWord(o.name, "width")) return fail(o.name.start, .name);
+        return emitModule();
+    }
     if (!have_entry or !output_buffer.declared) return fail(@intCast(source.len), .unsupported);
     if (ir_complete and input_buffer.declared and invocationIndependent()) {
         // Keep the validated scalar function only for safe compilation fallback.
@@ -4770,10 +6073,10 @@ test "compiles a scaling shader to a Wasm module with a gain uniform" {
 test "rejects unsupported features at their offset" {
     const loop_shader =
         \\@group(0) @binding(0) var<storage, read_write> v: array<u32>;
-        \\@compute @workgroup_size(1) fn main() { for (var i = 0u; i < 4u; i++) {} }
+        \\@compute @workgroup_size(1) fn main() { while (true) {} }
     ;
-    try expectRejected(loop_shader, std.mem.indexOf(u8, loop_shader, "for").?, .unsupported);
-    const sample = "@fragment fn main() {}";
+    try expectRejected(loop_shader, std.mem.indexOf(u8, loop_shader, "while").?, .unsupported);
+    const sample = "@vertex fn main() {}";
     try expectRejected(sample, 1, .unsupported);
     try expectRejected("override Gain: f32 = 1.0;", 9, .unsupported);
 }
@@ -4939,6 +6242,60 @@ test "rejects sample offsets that are not constant or are too far" {
         \\@compute @workgroup_size(64) fn main() { v[0] = sample(0, 0); }
     ;
     try expectRejected(compute, std.mem.indexOf(u8, compute, "sample").?, .unsupported);
+}
+
+test "compiles a fragment shader with a texture and a width uniform" {
+    const shader =
+        \\override gain: f32 = 1.0;
+        \\@group(0) @binding(0) var src: texture_2d<f32>;
+        \\@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+        \\  let size = vec2f(textureDimensions(src));
+        \\  let p = vec2i(pos.xy) + vec2i(1, 0);
+        \\  if pos.x > size.x - 1.0 { discard; }
+        \\  return textureLoad(src, p, 0) * gain;
+        \\}
+    ;
+    const size = try compile(shader);
+    const module = output_buf[0..size];
+    try testing.expect(std.mem.indexOf(u8, module, "uniform_set_gain") != null);
+    try testing.expect(std.mem.indexOf(u8, module, "uniform_set_width") != null);
+    // Without a texture, the input still sets the image size.
+    _ = try compile("@fragment fn f() -> @location(0) vec4f { return vec4f(1.0); }");
+}
+
+test "rejects fragment shaders outside the subset" {
+    const no_return = "@fragment fn f(@builtin(position) p: vec4f) -> @location(0) vec4f { let a = 1.0; }";
+    try expectRejected(no_return, no_return.len - 1, .unsupported);
+    const location1 = "@fragment fn f() -> @location(1) vec4f { return vec4f(); }";
+    try expectRejected(location1, std.mem.indexOf(u8, location1, "1)").?, .unsupported);
+    const varying = "@fragment fn f(@location(0) uv: vec2f) -> @location(0) vec4f { return vec4f(); }";
+    try expectRejected(varying, std.mem.indexOf(u8, varying, "uv").?, .unsupported);
+    const width = "override width: u32 = 1; @fragment fn f() -> @location(0) vec4f { return vec4f(); }";
+    try expectRejected(width, 9, .name);
+    const buffer =
+        \\@group(0) @binding(0) var<storage, read> b: array<f32>;
+        \\@fragment fn f() -> @location(0) vec4f { return vec4f(); }
+    ;
+    try expectRejected(buffer, std.mem.indexOf(u8, buffer, "@fragment").? + 10, .unsupported);
+    const compute_texture =
+        \\@group(0) @binding(0) var t: texture_2d<f32>;
+        \\@group(0) @binding(1) var<storage, read_write> v: array<f32>;
+        \\@compute @workgroup_size(1) fn main() {}
+    ;
+    try expectRejected(compute_texture, std.mem.indexOf(u8, compute_texture, "t:").?, .unsupported);
+    const ivec_divide = "@fragment fn f() -> @location(0) vec4f { let a = vec2i(4, 2) / 2; return vec4f(); }";
+    try expectRejected(ivec_divide, std.mem.indexOf(u8, ivec_divide, "/").?, .unsupported);
+    const ivec3 = "@fragment fn f() -> @location(0) vec4f { let a = vec2i(4, 2).xyx; return vec4f(); }";
+    try expectRejected(ivec3, std.mem.indexOf(u8, ivec3, "xyx").?, .unsupported);
+    const mixed = "@fragment fn f() -> @location(0) vec4f { let a = vec2i(4, 2u); return vec4f(); }";
+    try expectRejected(mixed, std.mem.indexOf(u8, mixed, "vec2i").?, .type_mismatch);
+    const unknown = "@fragment fn f() -> @location(0) vec4f { return textureLoad(t, vec2i(), 0); }";
+    try expectRejected(unknown, std.mem.indexOf(u8, unknown, "t,").?, .name);
+    const discard_compute =
+        \\@group(0) @binding(0) var<storage, read_write> v: array<f32>;
+        \\@compute @workgroup_size(1) fn main() { discard; }
+    ;
+    try expectRejected(discard_compute, std.mem.indexOf(u8, discard_compute, "discard").?, .unsupported);
 }
 
 test "smoothstep rejects equal constant edges but permits runtime and reversed edges" {

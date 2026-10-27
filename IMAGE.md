@@ -77,7 +77,7 @@ If the module uses internal scratch buffers, allocate enough memory and place th
 ## Filters in WGSL
 
 A filter can be a WGSL pixel kernel instead of hand-written Wasm.
-`text/wgsl/wgsl-compute-to-wasm.wasm` compiles it to a module with the exports
+`text/wgsl/wgsl-to-wasm.wasm` compiles it to a module with the exports
 above, and each `override` becomes a uniform:
 
 ```wgsl

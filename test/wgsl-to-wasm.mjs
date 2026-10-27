@@ -9,7 +9,7 @@ import { createContext, runInContext, runInNewContext } from "node:vm";
 
 const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
-const compiler = join(process.cwd(), "text/wgsl/wgsl-compute-to-wasm.wasm");
+const compiler = join(process.cwd(), "text/wgsl/wgsl-to-wasm.wasm");
 const strictCheckers = [
   "application/wasm/wasm-strict-profile.wasm",
   "application/wasm/wasm-bounded-loops.wasm",
@@ -451,13 +451,367 @@ test("compiled shaders pass the strict profile, loop and division checkers", asy
   }
 });
 
+// A fragment shader: one invocation per pixel at its centre, reading the
+// input image as a texture. Shifts the image right by `shift`, discards the
+// bottom row, and writes the position into blue/alpha. Coordinates clamp as
+// Dawn does, min(u32(c), size - 1), so negative ones read the last column.
+const fragmentShader = `
+override shift: i32 = 1;
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = textureDimensions(src);
+  if u32(pos.y) == size.y - 1u { discard; }
+  let p = vec2i(pos.xy) - vec2i(shift, 0);
+  let c = textureLoad(src, p, 0);
+  return vec4f(c.rg, pos.x + f32(size.x) * pos.y, pos.w + pos.z);
+}
+`;
+
+test("fragment shader runs per pixel with textureLoad, textureDimensions and discard", async () => {
+  const module = await compile(fragmentShader);
+  const width = 3;
+  const height = 3;
+  const pixels = [];
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) pixels.push(x, y, 0, 0);
+  const input = f32Bytes(pixels);
+  const expected = (shift) => {
+    const out = [];
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      if (y === height - 1) out.push(0, 0, 0, 0);
+      else out.push(Math.min(width - 1, (x - shift) >>> 0), y, x + 0.5 + width * (y + 0.5), 1);
+    }
+    return out;
+  };
+  assert.deepEqual(f32Values(await run(module, input, [`width=${width}`])), expected(1));
+  assert.deepEqual(f32Values(await run(module, input, [`width=${width}`, "shift=-5"])), expected(-5));
+  // width is required and must divide the pixel count.
+  await assert.rejects(run(module, input), /rejected input at input offset 0\b/);
+  await assert.rejects(run(module, input, ["width=2"]), /rejected input at input offset 128\b/);
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+test("fragment shader converts and splats vec2i and vec2u", async () => {
+  const module = await compile(`
+@group(0) @binding(0) var src: texture_2d<f32>;
+@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let a = vec2u(vec2f(-1.5, 7.9)) + 2u;
+  let b = vec2<i32>(3) * vec2i(pos.yx);
+  let c = textureLoad(src, vec2u(9u, 0u), 1);
+  return vec4f(vec2f(a), f32(b.y), c.x + vec2f(b).yx.x);
+}
+`);
+  const out = f32Values(await run(module, f32Bytes([5, 5, 5, 5, 6, 6, 6, 6]), ["width=2"]));
+  assert.deepEqual(out, [2, 9, 0, 0, 2, 9, 3, 3]);
+});
+
+// Helpers: functions other than the entry compile to Wasm functions. They
+// take scalar and vector parameters, call earlier helpers, read overrides and
+// buffers, return early, and may return nothing.
+const helperShader = `
+override bias: f32 = 0.5;
+@group(0) @binding(0) var<storage, read> src: array<vec4f>;
+@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
+
+fn luma(c: vec3f) -> f32 {
+  return dot(c, vec3f(0.25, 0.5, 0.25));
+}
+
+fn tone(c: vec4f, k: f32) -> vec4f {
+  if k < 0.0 { return vec4f(0.0); }
+  let l = luma(c.rgb) * k + bias;
+  return vec4f(vec3f(l), c.a);
+}
+
+fn neighbour(i: u32, n: u32) -> vec4f {
+  return src[min(i + 1u, n - 1u)];
+}
+
+fn mark(i: u32) {
+  dst[i] = vec4f(-1.0);
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let n = arrayLength(&src);
+  if id.x >= n { return; }
+  if id.x == 3u { mark(id.x); return; }
+  dst[id.x] = tone(src[id.x], 2.0) + tone(neighbour(id.x, n), -1.0) + luma(vec3f(1.0)) * 0.0;
+}
+`;
+
+test("helper functions compile to Wasm functions in compute shaders", async () => {
+  const input = f32Bytes([0.2, 0.4, 0.8, 1, 0, 0, 0, 0.5, 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.1, 0.3, 0.5, 0.7]);
+  const f = Math.fround;
+  const expected = (bias) => {
+    const v = f32Values(input);
+    const out = [];
+    for (let i = 0; i < 5; i++) {
+      const [r, g, b, a] = v.slice(i * 4, i * 4 + 4);
+      if (i === 3) { out.push(-1, -1, -1, -1); continue; }
+      const l = f(f(f(f(f(r * 0.25) + f(g * 0.5)) + f(b * 0.25)) * 2) + bias);
+      out.push(l, l, l, a);
+    }
+    return out;
+  };
+  for (const vectorize of [0, 1]) {
+    const module = await compile(helperShader, [`vectorize_invocations=${vectorize}`]);
+    assert.deepEqual(f32Values(await run(module, input)), expected(f(0.5)));
+    assert.deepEqual(f32Values(await run(module, input, ["bias=0.25"])), expected(f(0.25)));
+    await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+  }
+});
+
+test("helper functions work in fragment shaders and read the texture", async () => {
+  const module = await compile(`
+@group(0) @binding(0) var src: texture_2d<f32>;
+fn at(p: vec2i, dx: i32) -> vec4f {
+  return textureLoad(src, p + vec2i(dx, 0), 0);
+}
+fn blur(p: vec2i) -> vec4f {
+  return (at(p, -1) + at(p, 0) + at(p, 1)) / 3.0;
+}
+@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  return blur(vec2i(pos.xy));
+}
+`);
+  // Out-of-range coordinates clamp as min(u32(c), size - 1), so x = -1 and
+  // x = 3 both read the last column.
+  const out = f32Values(await run(module, f32Bytes([3, 3, 3, 3, 6, 6, 6, 6, 9, 9, 9, 9]), ["width=3"]));
+  assert.deepEqual(out, [6, 6, 6, 6, 6, 6, 6, 6, 8, 8, 8, 8]);
+});
+
+test("compiler rejects helpers outside the subset", async () => {
+  const head = `@group(0) @binding(0) var<storage, read_write> v: array<f32>;\n`;
+  const entry = `@compute @workgroup_size(1) fn main() { v[0] = 1.0; }\n`;
+  const cases = [
+    // A helper after the entry, a call before its declaration (so recursion
+    // is impossible), and a missing final return.
+    [head + entry + `fn late() {}\n`, "fn late", 1],
+    [head + `fn a() -> f32 { return a(); }\n` + entry, "a();", 1],
+    [head + `fn a(x: f32) -> f32 { if x > 0.0 { return x; } }\n` + entry, "}\n@compute", 1],
+    // Wrong argument count and type, and a void result used as a value.
+    [head + `fn a(x: f32) -> f32 { return x; }\n@compute @workgroup_size(1) fn main() { v[0] = a(1.0, 2.0); }\n`, "a(1.0", 2],
+    [head + `fn a(x: f32) -> f32 { return x; }\n@compute @workgroup_size(1) fn main() { v[0] = a(1u); }\n`, "1u", 2],
+    [head + `fn a() {}\n@compute @workgroup_size(1) fn main() { v[0] = a(); }\n`, "a(); }", 2],
+    // Duplicate and builtin names.
+    [head + `fn a() {}\nfn b() {}\n`.replace("b", "a") + entry, "a() {}\n@", 3],
+    [head + `fn sin(x: f32) -> f32 { return x; }\n` + entry, "sin", 3],
+  ];
+  for (const [source, at, mode] of cases) {
+    const offset = source.indexOf(at);
+    await assert.rejects(compile(source), new RegExp(`rejected input at input offset ${offset} with mode ${mode}\\b`), source);
+  }
+});
+
+// Constant-bounded loops: counting up and down, steps other than 1, break
+// and continue from inside ifs and else-ifs, nested loops, and a loop in a
+// helper.
+const loopShader = `
+const N: i32 = 5;
+@group(0) @binding(0) var<storage, read> src: array<f32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<f32>;
+
+fn triangle(n: u32) -> u32 {
+  var t = 0u;
+  for (var k = 1u; k <= 10u; k = k + 1u) {
+    if k > n { break; }
+    t += k;
+  }
+  return t;
+}
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let limit = src[id.x];
+  var sum = 0.0;
+  for (var i = 0; i < N; i++) {
+    if f32(i) >= limit { break; }
+    if i == 1 { continue; } else if i == 3 { sum += 100.0; continue; }
+    sum += f32(i);
+  }
+  var down = 0;
+  for (var j: i32 = 10; j > -3; j -= 4) {
+    for (var m = 0u; m < 2u; m++) { down += j; }
+  }
+  dst[id.x] = sum + f32(down) * 1000.0 + f32(triangle(id.x)) * 1e6;
+}
+`;
+
+test("constant-bounded loops support steps, break, continue and nesting", async () => {
+  const limits = [0, 1, 2, 3.5, 4.5, 10];
+  const expected = limits.map((limit, x) => {
+    let sum = 0;
+    for (let i = 0; i < 5; i++) {
+      if (i >= limit) break;
+      if (i === 1) continue;
+      if (i === 3) { sum += 100; continue; }
+      sum += i;
+    }
+    let down = 0;
+    for (let j = 10; j > -3; j -= 4) down += 2 * j;
+    let t = 0;
+    for (let k = 1; k <= 10 && k <= x; k++) t += k;
+    return Math.fround(Math.fround(sum + down * 1000) + t * 1e6);
+  });
+  for (const vectorize of [0, 1]) {
+    const module = await compile(loopShader, [`vectorize_invocations=${vectorize}`]);
+    assert.deepEqual(f32Values(await run(module, f32Bytes(limits))), expected);
+    await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+  }
+});
+
+test("compiler rejects loops that are not constant-bounded", async () => {
+  const wrap = (loop) => `override n: i32 = 3;
+@group(0) @binding(0) var<storage, read_write> v: array<i32>;
+@compute @workgroup_size(1) fn main() { ${loop} }
+`;
+  const cases = [
+    // A runtime bound, a step against the comparison, a counter written in
+    // the body, a step that wraps past the bound, and break outside a loop.
+    ["for (var i = 0; i < n; i++) {}", "n; i++", 1],
+    ["for (var i = 0; i < 4; i--) {}", "--", 1],
+    ["for (var i = 0; i < 4; i++) { i = 2; }", "i = 2", 2],
+    ["for (var i = 0u; i <= 4294967295u; i++) {}", "++", 1],
+    ["for (var i = 0; i < 4; i += 0) {}", "+= 0", 1],
+    ["break;", "break", 1],
+    ["for (var i = 0.0; i < 4.0; i++) {}", "0.0", 2],
+  ];
+  for (const [loop, at, mode] of cases) {
+    const source = wrap(loop);
+    await assert.rejects(compile(source), new RegExp(`rejected input at input offset ${source.indexOf(at)} with mode ${mode}\\b`), loop);
+  }
+});
+
+// Derivatives in fragment shaders run each 2x2 quad together. f varies
+// differently in each row and column of a quad, so the fine derivatives
+// differ between them.
+const derivativeShader = `
+override mode: u32 = 0;
+fn f(p: vec2f) -> f32 {
+  let x = floor(p.x);
+  let y = floor(p.y);
+  return x * y * 2.0 + y * y + x * x * 3.0;
+}
+@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let v = f(pos.xy);
+  if mode == 1u {
+    // Nested: dpdy of dpdx needs a second pass of values.
+    return vec4f(dpdy(dpdx(v)), dpdxCoarse(dpdx(v)), 0.0, 1.0);
+  }
+  if mode == 2u {
+    // A demoted lane keeps supplying values to its neighbours.
+    if floor(pos.x) == 0.0 { discard; }
+    return vec4f(fwidth(v), 0.0, 0.0, 1.0);
+  }
+  var w = vec2f(0.0);
+  for (var i = 0; i < 2; i++) { w += vec2f(dpdxFine(v), dpdyFine(v)); }
+  return vec4f(w, fwidth(v) + fwidthCoarse(vec2f(v)).y, 1.0);
+}
+`;
+
+test("fragment derivatives use 2x2 quads with helper lanes at odd edges", async () => {
+  const module = await compile(derivativeShader);
+  const width = 5;
+  const height = 3;
+  const f = (x, y) => x * y * 2 + y * y + x * x * 3;
+  const dx = (x, y) => f(x | 1, y) - f(x & ~1, y);
+  const dy = (x, y) => f(x, y | 1) - f(x, y & ~1);
+  const input = f32Bytes(new Array(width * height * 4).fill(0));
+  const pixels = (fn) => {
+    const out = [];
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) out.push(...fn(x, y));
+    return out;
+  };
+  assert.deepEqual(
+    f32Values(await run(module, input, [`width=${width}`])),
+    pixels((x, y) => [2 * dx(x, y), 2 * dy(x, y), 2 * (Math.abs(dx(x, y)) + Math.abs(dy(x, y))), 1]),
+  );
+  assert.deepEqual(
+    f32Values(await run(module, input, [`width=${width}`, "mode=1"])),
+    pixels((x, y) => [dx(x, y | 1) - dx(x, y & ~1), 0, 0, 1]),
+  );
+  assert.deepEqual(
+    f32Values(await run(module, input, [`width=${width}`, "mode=2"])),
+    pixels((x, y) => x === 0 ? [0, 0, 0, 0] : [Math.abs(dx(x, y)) + Math.abs(dy(x, y)), 0, 0, 1]),
+  );
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+test("derivatives are rejected outside fragment shaders", async () => {
+  const compute = `@group(0) @binding(0) var<storage, read_write> v: array<f32>;
+@compute @workgroup_size(1) fn main() { v[0] = dpdx(v[0]); }
+`;
+  await assert.rejects(compile(compute), new RegExp(`offset ${compute.indexOf("dpdx")} with mode 1\\b`));
+  await assert.rejects(compile(`fn k(c: vec4f) -> vec4f { return fwidth(c); }`), /offset 33 with mode 1\b/);
+});
+
+// Constant arrays become a data segment: Paper's 4x4 Bayer matrix as a
+// table, a vec3f palette, and an i32 array with a runtime index that clamps
+// as Dawn does, min(u32(i), n - 1).
+const constArrayShader = `
+const BAYER4 = array<f32, 16>(0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+const PALETTE: array<vec3f, 3> = array(vec3f(1.0, 0.0, 0.0), vec3<f32>(0.0, 1.0, 0.0), vec3f(0.0, 0.0, -1.5));
+const STEPS = array(-1, 20, 300);
+@group(0) @binding(0) var src: texture_2d<f32>;
+@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let p = vec2u(pos.xy);
+  let t = BAYER4[(p.y % 4u) * 4u + p.x % 4u] / 16.0;
+  let c = PALETTE[p.x % 3u];
+  return vec4f(t, dot(c, vec3f(1.0, 2.0, 3.0)), f32(STEPS[i32(p.x) - 1]), f32(STEPS[7u]));
+}
+`;
+
+test("constant arrays index a data segment", async () => {
+  const width = 6;
+  const height = 4;
+  const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const palette = [1, 2, -4.5];
+  const steps = [-1, 20, 300];
+  const expected = [];
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    expected.push(bayer[(y % 4) * 4 + (x % 4)] / 16, palette[x % 3], steps[Math.min((x - 1) >>> 0, 2)], 300);
+  }
+  for (const vectorize of [0, 1]) {
+    const module = await compile(constArrayShader, [`vectorize_invocations=${vectorize}`]);
+    const out = f32Values(await run(module, f32Bytes(new Array(width * height * 4).fill(0)), [`width=${width}`]));
+    assert.deepEqual(out, expected);
+    await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+  }
+  // A compute shader reads them too, and vectorization keeps the scalar path.
+  const compute = await compile(`
+const K = array<u32, 3>(7u, 8u, 9u);
+@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) { dst[id.x] = K[src[id.x]]; }
+`, ["vectorize_invocations=1"]);
+  const input = Buffer.from(new Uint32Array([2, 0, 1, 99]).buffer);
+  const out = await run(compute, input);
+  assert.deepEqual(Array.from(new Uint32Array(out.buffer, out.byteOffset, 4)), [9, 7, 8, 9]);
+});
+
+test("compiler rejects constant arrays outside the subset", async () => {
+  const entry = "@fragment fn main() -> @location(0) vec4f { return vec4f(); }\n";
+  const cases = [
+    ["const A = array<f32, 2>(1.0);\n" + entry, "array<", 2],
+    ["const A = array(1.0, 2u);\n" + entry, "2u", 2],
+    ["const A = array<bool, 1>(true);\n" + entry, "bool", 1],
+    ["const A = array(1.0);\n@fragment fn main() -> @location(0) vec4f { let b = A; return vec4f(); }\n", "; return", 1],
+    ["const A = array(1.0);\nfn k(c: vec4f) -> vec4f { return c * A[0]; }\n", "A =", 1],
+  ];
+  for (const [source, at, mode] of cases) {
+    await assert.rejects(compile(source), new RegExp(`rejected input at input offset ${source.indexOf(at)} with mode ${mode}\\b`), source);
+  }
+});
+
 test("compiler rejects unsupported WGSL with offset and mode", async () => {
   const loop = `@group(0) @binding(0) var<storage, read_write> v: array<f32>;
-@compute @workgroup_size(1) fn main() { for (var i = 0u; i < 4u; i++) {} }
+@compute @workgroup_size(1) fn main() { while (true) {} }
 `;
   await assert.rejects(
     compile(loop),
-    new RegExp(`rejected input at input offset ${loop.indexOf("for")} with mode 1\\b`),
+    new RegExp(`rejected input at input offset ${loop.indexOf("while")} with mode 1\\b`),
   );
   const mismatch = `@group(0) @binding(0) var<storage, read_write> v: array<f32>;
 @compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) { v[id.x] = 1u; }
@@ -854,6 +1208,130 @@ test("demo Perlin shader matches 3D gradient noise and octave reference", async 
   const after = await render(["time=0.25001", "softness=1"]);
   assert.ok(before.every((v, i) => Math.abs(v - after[i]) < 0.0001), "continuous across a z lattice boundary");
   await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+async function paperShader(name) {
+  const page = await readFile("site/wgsl.md", "utf8");
+  const helpers = ["paperNeighbours", "simplexNoiseWgsl", "polygonWgsl", name]
+    .map((fn) => page.match(new RegExp(`function ${fn}\\([^)]*\\) \\{[\\s\\S]*?\\n\\}(?=\\n)`))?.[0]);
+  assert.ok(helpers.every(Boolean), `the demo contains ${name} and its helpers`);
+  return runInNewContext(helpers.join("\n") + `\n${name}()`);
+}
+
+function paperInput(width, height) {
+  return f32Bytes(Array.from({ length: width * height * 4 }, (_, i) =>
+    i % 4 === 3 ? 1 : (((i >> 2) * 37 + (i % 4) * 101) % 251) / 250));
+}
+
+test("demo Paper shaders stay in range and agree across vectorized paths", async () => {
+  for (const [name, uniformSets] of [
+    ["flutedGlassShader", [{}, { shape: 5, distortion_shape: 2, angle: 30 }, { shape: 3, distortion_shape: 3, stretch: 0.5 },
+      { shape: 2, distortion_shape: 4, shift: -0.5 }, { shape: 4, distortion_shape: 5, size: 0 }]],
+    ["wavesShader", [{}, { shape: 2.5, rotation: 45, softness: 0.3 }, { shape: 3, frequency: 0, spacing: 0 }]],
+    ["spiralShader", [{}, { noise: 0.5, noise_frequency: 0.5, distortion: 0.6, stroke_taper: 0.5, stroke_cap: 0.5, time: 3 }]],
+    ["swirlShader", [{}, { noise: 0, twist: 0, center: 0, softness: 0 },
+      { band_count: 0, noise: 0, softness: 0 }, { band_count: 15, noise: 1, noise_frequency: 1 }]],
+    ["meshGradientShader", [{}, { color_count: 1, time: 7 }, { distortion: 0, swirl: 1, color_count: 3 }]],
+    ["neuroNoiseShader", [{}, { brightness: 1, contrast: 1, time: 5 }, { brightness: 0, contrast: 0, scale: 0.1 }]],
+    ["dotGridShader", [{}, { shape: 1, size: 6, stroke_width: 3, size_range: 1, opacity_range: 1 },
+      { shape: 2, gap_x: 5, gap_y: 9, scale: 0.5 }, { shape: 3, size: 8, stroke_width: 2, size_range: 0.6, opacity_range: 0.5 }]],
+    ["voronoiShader", [{}, { glow: 1, color_count: 3, time: 3 }, { color_count: 1, distortion: 0, gap: 0 },
+      { color_count: 0, steps_per_color: 1, scale: 4 }]],
+    ["imageDitheringShader", [{}, { dither_type: 1 }, { dither_type: 2, size: 0.5 }, { dither_type: 3, color_steps: 7, inverted: 1 },
+      { original_colors: 1, color_steps: 3 }]],
+    ["simplexNoiseShader", [{}, { softness: 1, time: 5 }, { color_count: 2, steps_per_color: 1 }, { color_count: 1 }]],
+    ["staticMeshGradientShader", [{}, { positions: 40, mixing: 0 }, { wave_x: 0, wave_y: 0, rotation: 0, color_count: 1 }]],
+    ["staticRadialGradientShader", [{}, { focal_distance: 0, mixing: 0 }, { distortion: 1, distortion_shift: 0.3, falloff: -0.6 },
+      { color_count: 1, radius: 3, mixing: 1 }]],
+  ]) {
+    // The mesh distortion now uses a WGSL loop, which takes the scalar path.
+    const variants = await invocationVariants(await paperShader(name), name !== "meshGradientShader");
+    for (const [width, height] of [[1, 1], [7, 5], [37, 23]]) {
+      const input = paperInput(width, height);
+      for (const uniforms of uniformSets) {
+        variants.compare(input, { width, ...uniforms });
+        const output = f32Values(await run(variants.paths[0], input, Object.entries({ width, ...uniforms })
+          .map(([key, value]) => `${key}=${value}`)));
+        assert.ok(output.every((v) => v >= 0 && v <= 1), `${name} ${JSON.stringify(uniforms)} stays in [0, 1]`);
+      }
+    }
+    await execFileAsync(qip, ["run", "-i", variants.paths[1], "--", ...strictCheckers]);
+  }
+});
+
+test("demo Paper swirl accepts zero bands for ripples", async () => {
+  const module = await compile(await paperShader("swirlShader"));
+  const width = 33;
+  const input = paperInput(width, width);
+  const settings = [`width=${width}`, "noise=0", "softness=0"];
+  const output = f32Values(await run(module, input, [...settings, "band_count=0"]));
+  const angular = f32Values(await run(module, input, [...settings, "band_count=1"]));
+  assert.ok(output.every(Number.isFinite));
+  assert.notDeepEqual(output, angular, "zero bands removes the angular term");
+  assert.ok(new Set(output.filter((_, i) => i % 4 === 0)).size > 2, "ripples vary with radius");
+});
+
+test("demo Paper fluted glass without distortion passes the image through", async () => {
+  const module = await compile(await paperShader("flutedGlassShader"));
+  const [width, height] = [40, 30];
+  const input = f32Values(paperInput(width, height));
+  const output = f32Values(await run(module, f32Bytes(input),
+    [`width=${width}`, "distortion=0", "highlights=0", "shadows=0", "edges=0"]));
+  // Bilinear sampling at pixel centres returns each pixel, away from the frame's edge.
+  for (let y = 2; y < height - 2; y++) {
+    for (let x = 2; x < width - 2; x++) {
+      for (let c = 0; c < 4; c++) {
+        const i = (y * width + x) * 4 + c;
+        assert.ok(Math.abs(output[i] - input[i]) < 1e-4, `pixel ${x},${y} lane ${c}`);
+      }
+    }
+  }
+});
+
+test("demo Paper dot grid draws dots at cell centres", async () => {
+  const module = await compile(await paperShader("dotGridShader"));
+  const width = 64;
+  const output = f32Values(await run(module, paperInput(width, width), [`width=${width}`]));
+  const pixel = (x, y) => output.slice((y * width + x) * 4, (y * width + x) * 4 + 4);
+  // The image centre is a cell corner, so the 32-pixel cells are centred 16 pixels away.
+  for (const [x, y] of [[15, 15], [47, 15], [15, 47], [47, 47]]) {
+    assert.ok(pixel(x, y).slice(0, 3).every((v) => v > 0.9), `dot at ${x},${y}`);
+  }
+  for (const [x, y] of [[31, 31], [0, 0], [63, 63], [31, 15]]) {
+    assert.deepEqual(pixel(x, y), [0, 0, 0, 1], `background at ${x},${y}`);
+  }
+});
+
+test("demo Paper image dithering turns mid-grey into Bayer patterns", async () => {
+  const module = await compile(await paperShader("imageDitheringShader"));
+  const width = 32;
+  const grey = f32Bytes(Array.from({ length: width * width * 4 }, (_, i) => (i % 4 === 3 ? 1 : 0.5)));
+  for (const [type, size] of [[2, 2], [3, 4], [4, 8]]) {
+    const output = f32Values(await run(module, grey, [`width=${width}`, `dither_type=${type}`, "size=1", "color_steps=1"]));
+    // With one step, mid-grey lights the upper half of the Bayer thresholds.
+    const lit = (x, y) => output[(y * width + x) * 4 + 1] === Math.fround(1);
+    let count = 0;
+    for (let y = 0; y < width; y++) {
+      for (let x = 0; x < width; x++) {
+        assert.equal(lit(x, y), lit(x % size, y % size), `${size}x${size} pattern repeats at ${x},${y}`);
+        if (x < size && y < size && lit(x, y)) count++;
+      }
+    }
+    assert.equal(count, size * size / 2, `${size}x${size} lights half its cells`);
+  }
+});
+
+test("demo Paper waves without amplitude draw horizontal lines", async () => {
+  const module = await compile(await paperShader("wavesShader"));
+  const [width, height] = [24, 40];
+  const output = f32Values(await run(module, paperInput(width, height), [`width=${width}`, "amplitude=0", "softness=0.2"]));
+  const rows = new Set();
+  for (let y = 0; y < height; y++) {
+    const row = output.slice(y * width * 4, (y + 1) * width * 4);
+    for (let x = 1; x < width; x++) assert.deepEqual(row.slice(x * 4, x * 4 + 4), row.slice(0, 4), `row ${y} is uniform`);
+    rows.add(row[0]);
+  }
+  assert.ok(rows.size > 2, "rows alternate between colours");
 });
 
 async function compileExample(name) {

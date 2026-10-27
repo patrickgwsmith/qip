@@ -230,8 +230,8 @@ COMPONENT_ZIG_TARGETS := $(patsubst %.zig,%.wasm,$(COMPONENT_ZIG_FILES))
 COMPONENT_WGSL_FILES := $(shell find components -type f -name '*.wgsl')
 COMPONENT_WGSL_TARGETS := $(patsubst %.wgsl,%.wasm,$(COMPONENT_WGSL_FILES))
 
-$(COMPONENT_WGSL_TARGETS): %.wasm: %.wgsl text/wgsl/wgsl-compute-to-wasm.wasm | qip
-	$(QIP_BIN) run -i $< -o $@ text/wgsl/wgsl-compute-to-wasm.wasm
+$(COMPONENT_WGSL_TARGETS): %.wasm: %.wgsl text/wgsl/wgsl-to-wasm.wasm | qip
+	$(QIP_BIN) run -i $< -o $@ text/wgsl/wgsl-to-wasm.wasm
 
 define COMPONENT_WAT_RULE
 $(1)/%.wasm: $(1)/%.wat
@@ -638,7 +638,7 @@ application/dns-message/dns-message-to-text.wasm: ZIG_WASM_MAX_MEMORY = 34734080
 application/dns-message/dns-query-to-dns-message.wasm: ZIG_WASM_MAX_MEMORY = 1114112
 application/dns-message/dns-message-to-text.wasm application/dns-message/dns-query-to-dns-message.wasm: application/dns-message/lib/dns.zig
 # Fixed compute IR and packetization scratch require 36 Wasm pages.
-text/wgsl/wgsl-compute-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2359296
+text/wgsl/wgsl-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2490368
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -1412,7 +1412,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/zip-list-extract.mjs
 	node --test test/tzif-transitions-csv.mjs
 	node --test test/dns-message.mjs
-	node --test test/wgsl-compute-to-wasm.mjs
+	node --test test/wgsl-to-wasm.mjs
 	node --test test/wgsl-pixel-kernels.mjs
 	node --test test/bmp-png.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs

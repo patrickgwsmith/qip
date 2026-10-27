@@ -1,11 +1,11 @@
 # WGSL compute examples
 
-Shaders for `text/wgsl/wgsl-compute-to-wasm.wasm`. Each one compiles to a QIP
+Shaders for `text/wgsl/wgsl-to-wasm.wasm`. Each one compiles to a QIP
 Content component that runs once per input element, and its `override`s
-become uniforms. `test/wgsl-compute-to-wasm.mjs` checks every example.
+become uniforms. `test/wgsl-to-wasm.mjs` checks every example.
 
 ```bash
-qip run -i life.wgsl -o life.wasm ../wgsl-compute-to-wasm.wasm
+qip run -i life.wgsl -o life.wasm ../wgsl-to-wasm.wasm
 qip run -i board.u32 -o next.u32 life.wasm -u width=64
 ```
 
@@ -32,7 +32,7 @@ than on the generated shader component:
 
 ```bash
 qip run -i smooth3.wgsl -o smooth3-vector.wasm \
-  ../wgsl-compute-to-wasm.wasm -u vectorize_invocations=1
+  ../wgsl-to-wasm.wasm -u vectorize_invocations=1
 ```
 
 The option defaults to 0 and resets after each compilation. Existing SIMD
@@ -60,7 +60,7 @@ To compare Perlin with identical output in wazero and warmed V8, build the
 compiler and run the benchmark without competing CPU-heavy work:
 
 ```bash
-make -j text/wgsl/wgsl-compute-to-wasm.wasm
+make -j text/wgsl/wgsl-to-wasm.wasm
 node tools/benchmark-wgsl-invocations.mjs --runs 40
 ```
 

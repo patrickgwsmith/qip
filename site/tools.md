@@ -44,7 +44,7 @@ Browse the complete lists of [`text/*` components](/text), [`image/*` components
 - [CSS expression calculator](/css-expression-calculator) resolves viewport units, safe-area insets, and keyboard insets for editable mobile scenarios.
 - [IEEE 754 floating-point inspector](/ieee-754-floats) exposes the sign, exponent, and fraction bits of editable `f32` and `f64` values.
 - [WebAssembly module inspector](/wasm-inspector) measures module structure, memory, control flow, calls, SIMD, and potentially trapping instructions.
-- [WGSL compute shaders](/wgsl) runs image effects with WebGPU and as compiled WebAssembly, then compares the outputs bit for bit.
+- [WGSL shaders](/wgsl) runs compute and fragment image effects with WebGPU and as compiled WebAssembly, then compares the outputs bit for bit.
 - [QIP component debugger](/component-debugger) interprets a scalar QIP component one WebAssembly instruction at a time and shows its call stack, operand stack, memory activity, and loop counts as plain text.
 - [Shadow rendering comparison](/shadow-rendering) compares adjustable shadows across browsers, mobile platforms, Figma, and Photoshop.
 - [Encode SVG as data URI](/image/svg-data-uri) percent-encodes SVG bytes for HTML or CSS.

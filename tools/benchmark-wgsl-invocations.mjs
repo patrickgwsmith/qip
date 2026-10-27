@@ -33,7 +33,7 @@ const page = await readFile(join(root, "site/wgsl.md"), "utf8");
 const generator = page.match(/function perlinNoiseShader\(\) \{[\s\S]*?\n\}/)?.[0];
 assert.ok(generator, "Perlin generator is present in the demo");
 const originalSource = runInNewContext(generator + "\nperlinNoiseShader()");
-const compilerPath = join(root, "text/wgsl/wgsl-compute-to-wasm.wasm");
+const compilerPath = join(root, "text/wgsl/wgsl-to-wasm.wasm");
 const compilerBytes = await readFile(compilerPath);
 const compiler = new WebAssembly.Instance(new WebAssembly.Module(compilerBytes)).exports;
 const baselineBytes = options.baselineCompiler ? await readFile(options.baselineCompiler) : null;

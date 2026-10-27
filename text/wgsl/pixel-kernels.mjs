@@ -1,5 +1,5 @@
 // Plans pixel kernels: WGSL point kernels, each `fn name(c: vec4f) -> vec4f`,
-// as accepted by wgsl-compute-to-wasm.wasm.
+// as accepted by wgsl-to-wasm.wasm.
 //
 // fusePixelKernels() joins consecutive kernels into one kernel source. The
 // compiler turns it into one Tile component that applies them in order to

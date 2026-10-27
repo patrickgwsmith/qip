@@ -16,7 +16,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const qip = join(process.cwd(), "qip");
-const compiler = join(process.cwd(), "text/wgsl/wgsl-compute-to-wasm.wasm");
+const compiler = join(process.cwd(), "text/wgsl/wgsl-to-wasm.wasm");
 // The strict profile expects Content getters, so Tile components skip it.
 const tileCheckers = ["application/wasm/wasm-bounded-loops.wasm", "application/wasm/wasm-nontrapping-divides.wasm"].map(
   (path) => join(process.cwd(), path),
