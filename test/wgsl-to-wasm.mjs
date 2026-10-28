@@ -1270,6 +1270,99 @@ test("vgpu color ring matches its formula and ignores input colors", async () =>
   await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
 });
 
+async function photoBoothShader(name) {
+  const page = await readFile("site/wgsl.md", "utf8");
+  const source = page.match(new RegExp(`<script type="text/wgsl" data-name="${name} \\(Photo Booth\\)">([\\s\\S]*?)</script>`))?.[1];
+  assert.ok(source, `${name} is on the demo page`);
+  return compile(source);
+}
+
+// The demo's mirrored-edge bilinear sampler, in JS.
+function sampleMirrored(pixels, width, height, x, y) {
+  const mirror = (p, size) => {
+    const s = Math.max(size - 1, 1);
+    const f = 0.5 * (p - 0.5) / s;
+    return (1 - Math.abs(2 * (f - Math.floor(f)) - 1)) * s;
+  };
+  const qx = mirror(x, width), qy = mirror(y, height);
+  const ax = Math.min(Math.floor(qx), width - 1), ay = Math.min(Math.floor(qy), height - 1);
+  const bx = Math.min(ax + 1, width - 1), by = Math.min(ay + 1, height - 1);
+  const tx = qx - Math.floor(qx), ty = qy - Math.floor(qy);
+  const at = (px, py, c) => pixels[(py * width + px) * 4 + c];
+  return [0, 1, 2, 3].map((c) => {
+    const top = at(ax, ay, c) + (at(bx, ay, c) - at(ax, ay, c)) * tx;
+    const bottom = at(ax, by, c) + (at(bx, by, c) - at(ax, by, c)) * tx;
+    return top + (bottom - top) * ty;
+  });
+}
+
+test("demo Photo Booth distortions pass the image through when switched off", async () => {
+  const [width, height] = [31, 23];
+  const input = f32Values(paperInput(width, height));
+  for (const [name, settings] of [
+    ["Stretch", ["amplitude=0"]],
+    ["Twirl", ["angle=0"]],
+    ["Squeeze", ["scale=0"]],
+    // The circle covers the whole image.
+    ["Light tunnel", ["radius=1"]],
+  ]) {
+    const module = await photoBoothShader(name);
+    const output = f32Values(await run(module, f32Bytes(input), [`width=${width}`, ...settings]));
+    assert.equal(output.length, input.length);
+    output.forEach((v, i) => assert.ok(Math.abs(v - input[i]) < 1e-4, `${name} lane ${i}`));
+    await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+  }
+});
+
+test("demo Photo Booth fish eye follows its kernel with mirrored edges", async () => {
+  const module = await photoBoothShader("Fish eye");
+  const [width, height] = [31, 23];
+  const input = f32Values(paperInput(width, height));
+  // factor 1.3 reads up to 1.47 half-diagonals out, past every edge.
+  const output = f32Values(await run(module, f32Bytes(input), [`width=${width}`, "factor=1.3"]));
+  const [cx, cy] = [width / 2, height / 2];
+  const f = 1.3 * Math.hypot(cx, cy);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const [vx, vy] = [x + 0.5 - cx, y + 0.5 - cy];
+      const k = 0.6 / (1 - (vx * vx + vy * vy) / (f * f));
+      const expected = sampleMirrored(input, width, height, cx + vx * k, cy + vy * k);
+      expected.forEach((v, c) => assert.ok(Math.abs(output[(y * width + x) * 4 + c] - v) < 2e-3, `pixel ${x},${y} lane ${c}`));
+    }
+  }
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+test("demo Photo Booth distortions keep their centres and stay in range", async () => {
+  const width = 33;
+  const input = f32Values(paperInput(width, width));
+  const centre = input.slice((16 * width + 16) * 4, (16 * width + 16) * 4 + 4);
+  for (const name of ["Fish eye", "Stretch", "Twirl", "Squeeze", "Light tunnel"]) {
+    const module = await photoBoothShader(name);
+    const output = f32Values(await run(module, f32Bytes(input), [`width=${width}`]));
+    assert.ok(output.every((v) => v >= 0 && v <= 1), `${name} stays in [0, 1]`);
+    const pixel = output.slice((16 * width + 16) * 4, (16 * width + 16) * 4 + 4);
+    pixel.forEach((v, c) => assert.ok(Math.abs(v - centre[c]) < 1e-4, `${name} keeps the centre pixel, lane ${c}`));
+    assert.notDeepEqual(output, input, `${name} moves pixels by default`);
+  }
+});
+
+test("demo Photo Booth comic book inks black, keeps white and screens greys into dots", async () => {
+  const module = await photoBoothShader("Comic book");
+  const [width, height] = [24, 20];
+  const flat = (v) => f32Bytes(Array.from({ length: width * height * 4 }, (_, i) => (i % 4 === 3 ? 1 : v)));
+  const black = f32Values(await run(module, flat(0), [`width=${width}`]));
+  black.forEach((v, i) => assert.ok(i % 4 === 3 ? v === 1 : Math.abs(v) < 1e-4, `black lane ${i}`));
+  const white = f32Values(await run(module, flat(1), [`width=${width}`]));
+  white.forEach((v, i) => assert.ok(Math.abs(v - 1) < 1e-4, `white lane ${i}`));
+  // The screen leaves paper-colored dots on the posterized grey.
+  const grey = f32Values(await run(module, flat(0.35), [`width=${width}`, "dot_width=6"]));
+  assert.ok(grey.every((v) => v >= 0 && v <= 1), "grey stays in [0, 1]");
+  const reds = grey.filter((_, i) => i % 4 === 0);
+  assert.ok(Math.max(...reds) - Math.min(...reds) > 0.2, "dots stand out from the grey");
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
 function paperInput(width, height) {
   return f32Bytes(Array.from({ length: width * height * 4 }, (_, i) =>
     i % 4 === 3 ? 1 : (((i >> 2) * 37 + (i % 4) * 101) % 251) / 250));

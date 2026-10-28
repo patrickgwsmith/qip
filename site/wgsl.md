@@ -202,7 +202,10 @@ boundaries often sample a different flute. **Voronoi** hashes each cell with
 `fract` of products near 400, so GPU rounding moves cell centres slightly and
 pixels on cell edges can differ by a few 8-bit levels. **Image dithering**'s
 random type uses the same kind of hash, so a few pixels can switch color; its
-Bayer types use exact thresholds.
+Bayer types use exact thresholds. The **Photo Booth** distortions sample
+bilinearly, so a small error in a sample position only nudges the blend
+between neighbouring pixels. Twirl and Stretch use `sin` and `cos`, so they
+can differ a little more.
 **Mirror** and **Pop art** index with integers, so they should match bit for
 bit.
 
@@ -428,6 +431,55 @@ vgpu's WGSL `import`, and the size comes from the input texture in place of a
 `resolution` uniform, so the input image supplies only the canvas size.
 Colors are clamped to [0, 1], as vgpu's framebuffer does.
 
+**Fish eye**, **Stretch**, **Twirl**, **Squeeze** and **Light tunnel** are
+fragment shaders modelled on the distortions in macOS Photo Booth. They are
+centred on the image, sample it bilinearly, and reflect positions outside it
+back in.
+
+- **From Photo Booth's kernels:** Photo Booth ships three Core Image kernels
+  as source in its app bundle. We rewrote their formulas in WGSL rather than
+  copying them. Fish eye reads from `0.6·d / (1 − d²/f²)` along each ray, where
+  `factor` sets `f` in half-diagonals. At the default of 1.58 the corners stay
+  in place. Stretch is the fun-house kernel. It shifts pixels by a sine wave
+  that fades out by `radius` from the centre, and like the original, both
+  axes take their phase from `p − center.y`. All five shaders reflect
+  positions outside the image the way the mirror-edge kernel does.
+- **Like Core Image's filters:** Twirl, Squeeze and Light tunnel follow
+  `CITwirlDistortion`, `CIPinchDistortion` and `CICircleSplashDistortion`,
+  which Photo Booth uses. Apple ships those kernels only as compiled Metal, so
+  our falloff curves are approximations.
+
+Sizes are fractions of the image's shorter side.
+
+**Comic book (Photo Booth)** follows Photo Booth's Comic Book effect. Photo
+Booth builds it from three chains of Core Image filters, and the filter names
+and settings are in its app binary:
+
+- **Colors:** `CIHighlightShadowAdjust` lifts the shadows, `CIColorControls`
+  raises saturation and contrast, and `CIColorPosterize` cuts each channel to
+  12 levels.
+- **Halftone:** `CIColorMonochrome` and `CISpotColor` turn luma into three
+  ink tones, and `CIDotScreen` prints them as dots 10 pixels apart at −23°.
+  Change `dot_width` to resize the dots.
+- **Ink:** `CIUnsharpMask`, `CIColorControls` and `CISpotColor` turn the
+  darkest areas and the dark side of edges black.
+
+The colors show through the dots on white paper, multiplied by the ink overlaid
+on the colors. Like Core Image, the shader mixes in linear light. Apple
+doesn't publish how these filters work, so the shader approximates them,
+checked against Core Image's output on a grey ramp and two photos:
+
+- `CIHighlightShadowAdjust` compares each pixel with its surroundings. The
+  shader uses one fixed shadow curve, measured on flat greys.
+- The `CISpotColor` tones and the `CIColorControls` brightness are measured
+  curves and fits, not Apple's formulas.
+- The unsharp mask's blur is a 7×7 grid of samples 3 pixels apart.
+- The dot pattern is a product of cosines, so dots sit in different places
+  from Core Image's.
+
+On two stock macOS photos, pixels differ from Photo Booth's filters by about
+3.5% on average, and our ink lines are slightly thinner.
+
 <script type="text/wgsl" data-name="Edges">
 // Sobel edge detection on luma. A threshold of 0 shows the gradient strength.
 override width: u32 = 256;
@@ -465,45 +517,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var e = min(g, 1.0);
   if threshold > 0.0 { e = select(0.0, 1.0, g > threshold); }
   dst[id.x] = vec4f(e, e, e, 1.0);
-}
-</script>
-
-<script type="text/wgsl" data-name="Comic book">
-// Three flat tones with black Sobel outlines.
-override width: u32 = 256;
-override outline: f32 = 0.35; // 0..1
-
-@group(0) @binding(0) var<storage, read> src: array<vec4f>;
-@group(0) @binding(1) var<storage, read_write> dst: array<vec4f>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) id: vec3u) {
-  let n = arrayLength(&src);
-  if id.x >= n { return; }
-  let height = n / width;
-  let x = id.x % width;
-  let y = id.x / width;
-  let l = max(x, 1u) - 1u;
-  let r = min(x + 1u, width - 1u);
-  let u = (max(y, 1u) - 1u) * width;
-  let m = y * width;
-  let d = min(y + 1u, height - 1u) * width;
-  let k = vec3f(0.2126, 0.7152, 0.0722);
-  let tl = dot(src[u + l].rgb, k);
-  let tm = dot(src[u + x].rgb, k);
-  let tr = dot(src[u + r].rgb, k);
-  let ml = dot(src[m + l].rgb, k);
-  let mr = dot(src[m + r].rgb, k);
-  let bl = dot(src[d + l].rgb, k);
-  let bm = dot(src[d + x].rgb, k);
-  let br = dot(src[d + r].rgb, k);
-  let gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
-  let gy = (bl + 2.0 * bm + br) - (tl + 2.0 * tm + tr);
-  let c = src[id.x];
-  let tone = floor(clamp(dot(c.rgb, k), 0.0, 0.999) * 3.0) / 2.0;
-  var ink = mix(vec3f(0.15, 0.1, 0.35), vec3f(1.0, 0.95, 0.8), tone);
-  if gx * gx + gy * gy > outline * outline { ink = vec3f(0.0); }
-  dst[id.x] = vec4f(ink, 1.0);
 }
 </script>
 
@@ -638,6 +651,301 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let y = id.x / width;
   let mx = select(x, width - 1u - x, x >= width / 2u);
   dst[id.x] = src[y * width + mx];
+}
+</script>
+
+<script type="text/wgsl" data-name="Fish eye (Photo Booth)">
+// Photo Booth's fisheye.cikernel: the centre is magnified 1/0.6 times and
+// the edges are squashed. factor is in half-diagonals; at 1.58 the corners
+// stay in place.
+override factor: f32 = 1.58; // 1.05..3
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Photo Booth's mirroredge.cikernel: reflect coordinates outside the image
+// back into it, about the edge pixel centres.
+fn mirrorEdge(p: vec2f, size: vec2f) -> vec2f {
+  let s = max(size - 1.0, vec2f(1.0));
+  return (1.0 - abs(2.0 * fract(0.5 * (p - 0.5) / s) - 1.0)) * s + 0.5;
+}
+
+fn sampleImage(p: vec2f, size: vec2f) -> vec4f {
+  let q = mirrorEdge(p, size) - 0.5;
+  let edge = size - 1.0;
+  let a = clamp(floor(q), vec2f(0.0), edge);
+  let b = min(a + 1.0, edge);
+  let t = q - floor(q);
+  let top = mix(textureLoad(src, vec2i(a), 0), textureLoad(src, vec2i(vec2f(b.x, a.y)), 0), t.x);
+  let bottom = mix(textureLoad(src, vec2i(vec2f(a.x, b.y)), 0), textureLoad(src, vec2i(b), 0), t.x);
+  return mix(top, bottom, t.y);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let center = size * 0.5;
+  let v = pos.xy - center;
+  let f = factor * length(center);
+  // d' = 0.6·d / (1 − d²/f²), along v.
+  return sampleImage(center + v * (0.6 / (1.0 - dot(v, v) / (f * f))), size);
+}
+</script>
+
+<script type="text/wgsl" data-name="Stretch (Photo Booth)">
+// Photo Booth's stretch.cikernel, a fun-house mirror: a sine wave shifts
+// pixels, fading out by radius from the centre. Sizes are fractions of the
+// image's shorter side.
+override radius: f32 = 0.5; // 0.05..1
+override amplitude: f32 = 0.06; // 0..0.2
+override period: f32 = 0.08; // 0.01..0.3
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Photo Booth's mirroredge.cikernel: reflect coordinates outside the image
+// back into it, about the edge pixel centres.
+fn mirrorEdge(p: vec2f, size: vec2f) -> vec2f {
+  let s = max(size - 1.0, vec2f(1.0));
+  return (1.0 - abs(2.0 * fract(0.5 * (p - 0.5) / s) - 1.0)) * s + 0.5;
+}
+
+fn sampleImage(p: vec2f, size: vec2f) -> vec4f {
+  let q = mirrorEdge(p, size) - 0.5;
+  let edge = size - 1.0;
+  let a = clamp(floor(q), vec2f(0.0), edge);
+  let b = min(a + 1.0, edge);
+  let t = q - floor(q);
+  let top = mix(textureLoad(src, vec2i(a), 0), textureLoad(src, vec2i(vec2f(b.x, a.y)), 0), t.x);
+  let bottom = mix(textureLoad(src, vec2i(vec2f(a.x, b.y)), 0), textureLoad(src, vec2i(b), 0), t.x);
+  return mix(top, bottom, t.y);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let center = size * 0.5;
+  let unit = min(size.x, size.y);
+  let g = smoothstep(vec2f(0.0), vec2f(1.0), 1.0 - clamp(abs(pos.xy - center) / (radius * unit), vec2f(0.0), vec2f(1.0)));
+  // As in the kernel, both axes take their phase from p − center.y.
+  let f = amplitude * unit * sin((pos.xy - center.y) / (period * unit));
+  return sampleImage(pos.xy - f * g, size);
+}
+</script>
+
+<script type="text/wgsl" data-name="Twirl (Photo Booth)">
+// Like Core Image's CITwirlDistortion, which Photo Booth uses: pixels inside
+// radius turn about the centre, most at the centre and none at the edge.
+override angle: f32 = 180.0; // -720..720
+override radius: f32 = 0.5; // 0.05..1
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Photo Booth's mirroredge.cikernel: reflect coordinates outside the image
+// back into it, about the edge pixel centres.
+fn mirrorEdge(p: vec2f, size: vec2f) -> vec2f {
+  let s = max(size - 1.0, vec2f(1.0));
+  return (1.0 - abs(2.0 * fract(0.5 * (p - 0.5) / s) - 1.0)) * s + 0.5;
+}
+
+fn sampleImage(p: vec2f, size: vec2f) -> vec4f {
+  let q = mirrorEdge(p, size) - 0.5;
+  let edge = size - 1.0;
+  let a = clamp(floor(q), vec2f(0.0), edge);
+  let b = min(a + 1.0, edge);
+  let t = q - floor(q);
+  let top = mix(textureLoad(src, vec2i(a), 0), textureLoad(src, vec2i(vec2f(b.x, a.y)), 0), t.x);
+  let bottom = mix(textureLoad(src, vec2i(vec2f(a.x, b.y)), 0), textureLoad(src, vec2i(b), 0), t.x);
+  return mix(top, bottom, t.y);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let center = size * 0.5;
+  let v = pos.xy - center;
+  let u = 1.0 - clamp(length(v) / (radius * min(size.x, size.y)), 0.0, 1.0);
+  let turn = angle * 0.017453292 * u * u;
+  let c = cos(turn);
+  let s = sin(turn);
+  return sampleImage(center + vec2f(v.x * c - v.y * s, v.x * s + v.y * c), size);
+}
+</script>
+
+<script type="text/wgsl" data-name="Squeeze (Photo Booth)">
+// Like Core Image's CIPinchDistortion, which Photo Booth uses: the middle
+// is shrunk towards the centre, fading out at radius.
+override scale: f32 = 0.8; // 0..1
+override radius: f32 = 0.6; // 0.05..1
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Photo Booth's mirroredge.cikernel: reflect coordinates outside the image
+// back into it, about the edge pixel centres.
+fn mirrorEdge(p: vec2f, size: vec2f) -> vec2f {
+  let s = max(size - 1.0, vec2f(1.0));
+  return (1.0 - abs(2.0 * fract(0.5 * (p - 0.5) / s) - 1.0)) * s + 0.5;
+}
+
+fn sampleImage(p: vec2f, size: vec2f) -> vec4f {
+  let q = mirrorEdge(p, size) - 0.5;
+  let edge = size - 1.0;
+  let a = clamp(floor(q), vec2f(0.0), edge);
+  let b = min(a + 1.0, edge);
+  let t = q - floor(q);
+  let top = mix(textureLoad(src, vec2i(a), 0), textureLoad(src, vec2i(vec2f(b.x, a.y)), 0), t.x);
+  let bottom = mix(textureLoad(src, vec2i(vec2f(a.x, b.y)), 0), textureLoad(src, vec2i(b), 0), t.x);
+  return mix(top, bottom, t.y);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let center = size * 0.5;
+  let v = pos.xy - center;
+  let u = 1.0 - clamp(length(v) / (radius * min(size.x, size.y)), 0.0, 1.0);
+  // Read further out near the centre. Up to scale 1 the mapping stays in order.
+  return sampleImage(center + v * (1.0 + scale * u * u), size);
+}
+</script>
+
+<script type="text/wgsl" data-name="Light tunnel (Photo Booth)">
+// Like Core Image's CICircleSplashDistortion, which Photo Booth uses: the
+// circle is kept, and each pixel outside it repeats the circle's edge along
+// its ray from the centre.
+override radius: f32 = 0.3; // 0.05..1
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Photo Booth's mirroredge.cikernel: reflect coordinates outside the image
+// back into it, about the edge pixel centres.
+fn mirrorEdge(p: vec2f, size: vec2f) -> vec2f {
+  let s = max(size - 1.0, vec2f(1.0));
+  return (1.0 - abs(2.0 * fract(0.5 * (p - 0.5) / s) - 1.0)) * s + 0.5;
+}
+
+fn sampleImage(p: vec2f, size: vec2f) -> vec4f {
+  let q = mirrorEdge(p, size) - 0.5;
+  let edge = size - 1.0;
+  let a = clamp(floor(q), vec2f(0.0), edge);
+  let b = min(a + 1.0, edge);
+  let t = q - floor(q);
+  let top = mix(textureLoad(src, vec2i(a), 0), textureLoad(src, vec2i(vec2f(b.x, a.y)), 0), t.x);
+  let bottom = mix(textureLoad(src, vec2i(vec2f(a.x, b.y)), 0), textureLoad(src, vec2i(b), 0), t.x);
+  return mix(top, bottom, t.y);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let center = size * 0.5;
+  let v = pos.xy - center;
+  let d = length(v);
+  let r = radius * min(size.x, size.y);
+  // Inside the circle d ≤ r, so the scale is 1.
+  return sampleImage(center + v * (r / max(d, r)), size);
+}
+</script>
+
+<script type="text/wgsl" data-name="Comic book (Photo Booth)">
+// Photo Booth's Comic Book: the photo is posterized to bold colors, printed
+// through a halftone screen on white paper, and inked where it is darkest.
+// The filter settings come from Photo Booth; curves come from running its
+// Core Image filters on a grey ramp. Mixing happens in linear light, as Core
+// Image does.
+override dot_width: f32 = 10.0; // 4..30
+
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+// Tone curves at every 8th sRGB level, measured from Core Image. SHADOWS is
+// CIHighlightShadowAdjust (radius 19, shadows 1.5) on a flat image. SPOT is
+// CIColorMonochrome then CISpotColor, which Photo Booth uses to turn luma
+// into halftone ink: about 0.3 goes black, about 0.7 goes 80% grey.
+const SHADOWS = array<f32, 33>(0.0, 0.133, 0.188, 0.239, 0.29, 0.337, 0.384,
+  0.439, 0.486, 0.533, 0.573, 0.608, 0.639, 0.667, 0.694, 0.718, 0.737, 0.753,
+  0.769, 0.78, 0.796, 0.808, 0.816, 0.827, 0.843, 0.855, 0.871, 0.89, 0.914,
+  0.937, 0.965, 0.996, 1.0);
+const SPOT = array<f32, 33>(0.475, 0.463, 0.451, 0.435, 0.412, 0.376, 0.329,
+  0.302, 0.373, 0.439, 0.537, 0.667, 0.753, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8,
+  0.933, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+
+fn toLinear(c: f32) -> f32 {
+  let v = clamp(c, 0.0, 1.0);
+  return select(pow((v + 0.055) / 1.055, 2.4), v / 12.92, v <= 0.04045);
+}
+
+fn toSrgb(c: f32) -> f32 {
+  let v = clamp(c, 0.0, 1.0);
+  return select(1.055 * pow(v, 1.0 / 2.4) - 0.055, v * 12.92, v <= 0.0031308);
+}
+
+fn shadowCurve(s: f32) -> f32 {
+  let t = clamp(s, 0.0, 1.0) * 31.875;
+  let i = min(u32(t), 31u);
+  return mix(SHADOWS[i], SHADOWS[i + 1u], t - f32(i));
+}
+
+fn spotCurve(s: f32) -> f32 {
+  let t = clamp(s, 0.0, 1.0) * 31.875;
+  let i = min(u32(t), 31u);
+  return mix(SPOT[i], SPOT[i + 1u], t - f32(i));
+}
+
+fn lumaAt(p: vec2f, size: vec2f) -> f32 {
+  let q = clamp(p, vec2f(0.0), size - 1.0);
+  let c = textureLoad(src, vec2i(q), 0);
+  return dot(vec3f(toLinear(c.r), toLinear(c.g), toLinear(c.b)), vec3f(0.2126, 0.7152, 0.0722));
+}
+
+// Core Image's overlay: the background picks multiply or screen.
+fn overlay(top: f32, back: f32) -> f32 {
+  return select(1.0 - 2.0 * (1.0 - top) * (1.0 - back), 2.0 * top * back, back < 0.5);
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let c = textureLoad(src, vec2i(pos.xy), 0);
+  let lin = vec3f(toLinear(c.r), toLinear(c.g), toLinear(c.b));
+  let w = vec3f(0.2126, 0.7152, 0.0722);
+  let l = dot(lin, w);
+
+  // Colors: lift shadows, then CIColorControls (saturation 1.7, brightness
+  // 0.2, contrast 1.5, measured as 1.5x − 0.049 in linear light), then
+  // CIColorPosterize with 12 levels.
+  let lifted = lin * (toLinear(shadowCurve(toSrgb(l))) / max(l, 1e-4));
+  let saturated = mix(vec3f(dot(lifted, w)), lifted, 1.7);
+  let graded = clamp(saturated * 1.5 - 0.049, vec3f(0.0), vec3f(1.0));
+  let poster = floor(graded * 11.0 + 0.5) / 11.0;
+
+  // Halftone: CIDotScreen at -23°, with dots dot_width apart. The dots grow
+  // with the spot-colored luma; sharpness 0.7 leaves a soft edge.
+  let tone = toLinear(spotCurve(toSrgb(l)));
+  let q = vec2f(pos.x, size.y - pos.y) * (6.2831853 / dot_width);
+  let a = -0.40107666;
+  let r = vec2f(cos(a) * q.x + sin(a) * q.y, cos(a) * q.y - sin(a) * q.x);
+  let screen = 0.5 + 0.5 * cos(r.x) * cos(r.y);
+  let paper = smoothstep(-0.045, 0.045, tone - (1.0 - screen));
+
+  // Ink: CIUnsharpMask (radius 6.283) with a 7x7 Gaussian of taps 3 pixels
+  // apart, then CIColorControls and CISpotColor, which together turn luma
+  // under 0.032 black, under 0.238 99% white, and the rest white.
+  var blur = 0.0;
+  var total = 0.0;
+  for (var j = -3; j <= 3; j++) {
+    for (var i = -3; i <= 3; i++) {
+      let o = vec2f(f32(i), f32(j)) * 3.0;
+      let k = exp(-dot(o, o) / 78.95);
+      blur += k * lumaAt(pos.xy + o, size);
+      total += k;
+    }
+  }
+  let sharp = 2.0 * l - blur / total;
+  let ink = select(select(1.0, 0.99, sharp < 0.238), 0.0, sharp < 0.032);
+
+  // CIBlendWithMask puts the colors under the dots on white paper, then
+  // CIMultiplyCompositing with the ink overlaid on the colors.
+  let shade = vec3f(overlay(ink, poster.r), overlay(ink, poster.g), overlay(ink, poster.b));
+  let color = mix(poster, vec3f(1.0), paper) * shade;
+  return vec4f(toSrgb(color.r), toSrgb(color.g), toSrgb(color.b), c.a);
 }
 </script>
 
