@@ -8,7 +8,9 @@ with WebGPU, and as WebAssembly that it compiles in your browser with
 compares the two outputs float for float. Nothing is uploaded.
 
 <style>
-/* Wider than the text measure, so the panel and a 2×2 grid of 512 px images fit. */
+/* Wider than the text measure, so the panel and a 2×2 grid of 512 px images fit.
+   The input image sits at the bottom of the panel, below the uniforms, so the grid
+   holds the outputs and their difference. */
 .wgsl {
   --wgsl-width: min(90em, 100vw - 2em);
   box-sizing: border-box;
@@ -40,7 +42,8 @@ compares the two outputs float for float. Nothing is uploaded.
 .wgsl-controls:empty {
   display: none;
 }
-#wgsl-uniforms {
+#wgsl-uniforms,
+.wgsl-image {
   padding-top: 1rem;
   border-top: 1px solid color-mix(in srgb, currentColor 25%, transparent);
 }
@@ -103,10 +106,10 @@ compares the two outputs float for float. Nothing is uploaded.
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
 }
-.wgsl-outputs figure {
+.wgsl figure {
   margin: 0;
 }
-.wgsl-outputs canvas {
+.wgsl figure canvas {
   display: block;
   width: 100%;
   height: auto;
@@ -114,7 +117,7 @@ compares the two outputs float for float. Nothing is uploaded.
   border-radius: 0.35rem;
   background: repeating-conic-gradient(#8884 0 25%, transparent 0 50%) 0 0 / 16px 16px;
 }
-.wgsl-outputs figcaption {
+.wgsl figure figcaption {
   margin-top: 0.35rem;
   font-size: 0.85em;
   font-variant-numeric: tabular-nums;
@@ -153,15 +156,17 @@ compares the two outputs float for float. Nothing is uploaded.
   <div class="wgsl-panel">
     <div class="wgsl-controls">
       <label><span>Effect</span><select id="wgsl-shader"></select></label>
-      <label><span>Image</span><input id="wgsl-file" type="file" accept="image/*"></label>
-      <button id="wgsl-camera" type="button">Use camera</button>
       <label class="wgsl-check"><input id="wgsl-vectorize" type="checkbox">Vectorize Wasm invocations</label>
     </div>
     <div id="wgsl-uniforms" class="wgsl-controls"></div>
+    <div class="wgsl-controls wgsl-image">
+      <label><span>Image</span><input id="wgsl-file" type="file" accept="image/*"></label>
+      <button id="wgsl-camera" type="button">Use camera</button>
+    </div>
+    <figure><canvas id="wgsl-input"></canvas><figcaption id="wgsl-input-caption">Input</figcaption></figure>
   </div>
   <div class="wgsl-view">
     <div class="wgsl-outputs">
-      <figure><canvas id="wgsl-input"></canvas><figcaption id="wgsl-input-caption">Input</figcaption></figure>
       <figure><canvas id="wgsl-gpu"></canvas><figcaption id="wgsl-gpu-caption">WebGPU</figcaption></figure>
       <figure><canvas id="wgsl-wasm"></canvas><figcaption id="wgsl-wasm-caption">WebAssembly</figcaption></figure>
       <figure><canvas id="wgsl-diff" tabindex="0" aria-label="Difference image. Hover or focus to magnify small differences."></canvas><figcaption><span id="wgsl-diff-caption">Absolute difference ×65,536: black → red → yellow</span>. Hover or focus to magnify.</figcaption></figure>
@@ -196,7 +201,7 @@ GPU and the image. With the zigzag or pattern flutes, a few pixels on flute
 boundaries often sample a different flute. **Voronoi** hashes each cell with
 `fract` of products near 400, so GPU rounding moves cell centres slightly and
 pixels on cell edges can differ by a few 8-bit levels. **Image dithering**'s
-random type uses the same kind of hash, so a few pixels can switch colour; its
+random type uses the same kind of hash, so a few pixels can switch color; its
 Bayer types use exact thresholds.
 **Mirror** and **Pop art** index with integers, so they should match bit for
 bit.
@@ -217,7 +222,7 @@ without conversion to linear light.
 
 **Chromatic aberration** is a fragment shader instead. Its
 `@fragment fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f` runs
-once per pixel and returns that pixel's colour. It reads the image from a
+once per pixel and returns that pixel's color. It reads the image from a
 `texture_2d<f32>` with `textureLoad` and `textureDimensions`.
 
 - **WebGPU:** the page draws one triangle over an rgba32float texture cleared
@@ -276,10 +281,10 @@ Error resets at block edges, so the pattern can repeat every eight pixels.
 The page generates unrolled WGSL, written before the compiler supported
 loops. Adjust `threshold` to change the balance of black and white.
 
-**Perlin noise** generates a two-colour field from 3D gradient noise with
+**Perlin noise** generates a two-color field from 3D gradient noise with
 quintic interpolation and up to eight octaves. Like the
 [Paper Perlin noise example](https://shaders.paper.design/perlin-noise), it has
-controls for colour balance, edge softness, persistence, and lacunarity.
+controls for color balance, edge softness, persistence, and lacunarity.
 Move `time` to explore the third dimension. It ignores the input image except
 for its dimensions. This implementation uses an integer lattice hash, so its
 patterns differ from [Paper's GLSL shader](https://github.com/paper-design/shaders/blob/main/packages/shaders/src/shaders/perlin-noise.ts).
@@ -302,7 +307,7 @@ supported when it was ported:
 - The image is sampled nearest-neighbour.
 - Dot spacing is set in pixels, in place of Paper's `size`.
 - Only the classic dots are included. The gooey, holes and soft styles, original
-  colours, and grain are left out.
+  colors, and grain are left out.
 
 **Fluted glass**, **Waves**, **Spiral** and **Swirl** are ports of
 [Paper's Fluted Glass](https://shaders.paper.design/fluted-glass),
@@ -323,19 +328,19 @@ fit what the compiler supported when they were ported:
 - Each `fwidth(f)` becomes `|f(x + 1, y) − f(x, y)| + |f(x, y + 1) − f(x, y)|`,
   so the page generates the code that computes `f` three times. Fluted glass
   uses the undistorted pixel size at the image's edges.
-- Helper functions, including simplex noise, are inlined, and Swirl's colour
+- Helper functions, including simplex noise, are inlined, and Swirl's color
   loop is unrolled to three bands.
 - Pixels are measured in image pixels, with a device pixel ratio of 1. Fluted
   glass defaults to `size` 0.77 so that flutes on a 512-pixel image are about as
   wide as Paper's default on a full-size canvas.
-- Waves, Spiral and Swirl output opaque colours. Fluted glass keeps Paper's
+- Waves, Spiral and Swirl output opaque colors. Fluted glass keeps Paper's
   transparent background but outputs straight rather than premultiplied alpha.
 - Fluted glass leaves out the margins, blur and grain, and it samples the image
   bilinearly in the shader.
 - `pow` is kept defined: the contour glass takes `abs` before its even power,
   and Swirl clamps noise below 0. Swirl keeps its `smoothstep` edges apart,
   including when twist or softness is 0.
-- The colour-banding dither is left out, because it scales `sin` by 43,758 and
+- The color-banding dither is left out, because it scales `sin` by 43,758 and
   would turn GPU rounding into visible noise.
 
 **Mesh gradient**, **Neuro noise**, **Dot grid** and **Voronoi** are ports of
@@ -348,12 +353,12 @@ fit what the compiler supported when they were ported:
 [dot grid](https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/dot-grid.ts),
 [Voronoi](https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/voronoi.ts)),
 under the same licence. All four draw patterns, ignore the input image except
-for its dimensions, and output opaque colours. The defaults follow Paper's
+for its dimensions, and output opaque colors. The defaults follow Paper's
 default presets, with `time` at 0. We changed them to fit what the compiler supported when they were ported:
 
-- Mesh gradient now uses a WGSL loop for its two distortion passes. Its colour
+- Mesh gradient now uses a WGSL loop for its two distortion passes. Its color
   spots, neuro noise's 15 layers, and Voronoi's 3×3 and 5×5 cell searches remain
-  unrolled. Mesh gradient has up to four colours and Voronoi up to three, in place of Paper's
+  unrolled. Mesh gradient has up to four colors and Voronoi up to three, in place of Paper's
   ten and five.
 - Mesh gradient leaves out both grain effects.
 - Voronoi uses Paper's `hash22` in place of its noise texture, so its cells
@@ -361,7 +366,7 @@ default presets, with `time` at 0. We changed them to fit what the compiler supp
 - Dot grid's `fwidth` follows the Fluted glass approach, but it measures the
   neighbours from this pixel's cell so cell boundaries don't show.
 - Dot sizes and gaps are in image pixels, with a device pixel ratio of 1.
-- Colours are clamped to [0, 1], as Paper's framebuffer does: neuro noise
+- Colors are clamped to [0, 1], as Paper's framebuffer does: neuro noise
   reaches 1.4, Voronoi's glow can overshoot, and dot grid's opacity randomizer
   can exceed 1.
 - `pow` is kept defined: mesh gradient floors its distance before raising it
@@ -382,7 +387,7 @@ from the GLSL at the same commit
 under the same licence. Image dithering reduces the input image to a palette
 with random or 2×2, 4×4 or 8×8 Bayer dithering; set `original_colors` to 1 to
 keep the image's hues. The other three draw patterns and ignore the input image
-except for its dimensions. All four output opaque colours, apart from image
+except for its dimensions. All four output opaque colors, apart from image
 dithering's `original_colors` mode, which keeps Paper's alpha. The defaults
 follow Paper's default presets, with `time` at 0. We changed them to fit what the
 compiler supported when they were ported:
@@ -392,13 +397,13 @@ compiler supported when they were ported:
 - Image dithering fills the frame with the image, as Paper's `cover` fit does
   when the image and canvas match, samples it nearest-neighbour, and leaves out
   the frame fade, which is always 1 here.
-- Loops are unrolled: simplex noise has up to five colours, the static mesh
+- Loops are unrolled: simplex noise has up to five colors, the static mesh
   gradient up to four and the static radial gradient up to three, matching
   their default presets in place of Paper's ten.
 - Simplex noise and the static radial gradient emulate `fwidth` like Fluted
   glass, and keep their `smoothstep` edges and divisions apart where it is 0.
 - Both static gradients leave out grain, and simplex noise leaves out the
-  colour-banding dither, as Swirl does.
+  color-banding dither, as Swirl does.
 - `pow` is kept defined at 0 by flooring or selecting around its base.
 
 **Liquid Metal (shapes)** ports the built-in circle, daisy, diamond and
@@ -407,13 +412,21 @@ metaballs from [Paper's Liquid Metal](https://shaders.paper.design/liquid-metal)
 under the same licence. It draws a moving stripe pattern and uses the shape
 edge to bend it. The input image supplies only the canvas size. Choose the
 shape beside the control; adjust repetition, angle, contour, softness and
-colour dispersion to see how the edge changes the stripes.
+color dispersion to see how the edge changes the stripes.
 
 This port covers Paper's built-in shapes, including its five-step metaball
 loop. It omits uploaded-image masks, which Paper prepares with a Poisson
 solver before the shader runs. The background is opaque, and a simple
-procedural ripple replaces Paper's simplex noise and colour-banding dither.
+procedural ripple replaces Paper's simplex noise and color-banding dither.
 The shape edge and stripe antialiasing use fragment `fwidth` directly.
+
+**Color ring (vgpu)** is the `main.wgsl` and `color.wgsl` example from the
+[vgpu](https://vgpu.sh/) home page, a glowing ring tinted by a cosine palette.
+vgpu is © 2025 Vercel, Inc. and licensed under the
+[MIT License](/licenses/vgpu-LICENSE.txt). The palette is inlined in place of
+vgpu's WGSL `import`, and the size comes from the input texture in place of a
+`resolution` uniform, so the input image supplies only the canvas size.
+Colors are clamped to [0, 1], as vgpu's framebuffer does.
 
 <script type="text/wgsl" data-name="Edges">
 // Sobel edge detection on luma. A threshold of 0 shows the gradient strength.
@@ -527,7 +540,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 </script>
 
 <script type="text/wgsl" data-name="Pop art">
-// Four two-colour copies of the image, one per quadrant.
+// Four two-color copies of the image, one per quadrant.
 override width: u32 = 256;
 override threshold: f32 = 0.45; // 0..1
 
@@ -702,7 +715,7 @@ fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 </script>
 
 <script type="text/wgsl" data-name="Mesh gradient" data-generated="mesh-gradient">
-// Generated below: Paper's mesh gradient with four unrolled colour spots.
+// Generated below: Paper's mesh gradient with four unrolled color spots.
 </script>
 
 <script type="text/wgsl" data-name="Neuro noise" data-generated="neuro-noise">
@@ -726,7 +739,7 @@ fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 </script>
 
 <script type="text/wgsl" data-name="Static mesh gradient" data-generated="static-mesh-gradient">
-// Generated below: Paper's static mesh gradient with four unrolled colours.
+// Generated below: Paper's static mesh gradient with four unrolled colors.
 </script>
 
 <script type="text/wgsl" data-name="Static radial gradient" data-generated="static-radial-gradient">
@@ -736,7 +749,7 @@ fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 <script type="text/wgsl" data-name="Liquid metal (shapes)">
 // Built-in shapes and stripes ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/liquid-metal.ts
-// Changes are listed on qip.dev/wgsl. Input colours are unused.
+// Changes are listed on qip.dev/wgsl. Input colors are unused.
 override shape: u32 = 1; // 0..4
 override time: f32 = 0.0; // 0..10
 override repetition: f32 = 4.0; // 1..10
@@ -834,9 +847,38 @@ fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
   let red = stripeChannel(0.98, 0.1, red_phase, max(blur + fwidth(red_phase), 0.00001));
   let green = stripeChannel(0.98, 0.1, green_phase, max(blur + fwidth(green_phase), 0.00001));
   let blue = stripeChannel(1.0, 0.1, blue_phase, max(blur + fwidth(blue_phase), 0.00001));
-  let colour = vec3f(red, green, blue) * opacity +
+  let color = vec3f(red, green, blue) * opacity +
     vec3f(back_r, back_g, back_b) * (1.0 - opacity);
-  return vec4f(clamp(colour, vec3f(0.0), vec3f(1.0)), 1.0);
+  return vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), 1.0);
+}
+</script>
+
+<script type="text/wgsl" data-name="Color ring (vgpu)">
+// The main.wgsl and color.wgsl example from https://vgpu.sh/
+// Copyright (c) 2025 Vercel, Inc. MIT License: qip.dev/licenses/vgpu-LICENSE.txt
+// The palette is inlined and the size comes from the texture. Input colors are unused.
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+fn palette(t: f32) -> vec3f {
+  let phase = vec3f(0.0, 0.33, 0.67);
+  return 0.55 + 0.45 * cos(6.28318 * (t + phase));
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let resolution = vec2f(textureDimensions(src));
+  let uv = pos.xy / resolution;
+  let shortest = min(resolution.x, resolution.y);
+  let aspect = resolution / shortest;
+  let p = (uv - 0.5) * aspect;
+  let radius = length(p);
+  let angle = atan2(p.y, p.x) / 6.28318 + 0.5;
+  let ring = exp(-95.0 * pow(abs(radius - 0.31), 2.0));
+  let halo = exp(-18.0 * pow(abs(radius - 0.31), 2.0));
+  let bands = 0.82 + 0.18 * sin(angle * 25.13272 + radius * 42.0);
+  let color = palette(angle + radius * 0.65);
+  // The ring reaches about 2.2, so clamp like vgpu's framebuffer.
+  return vec4f(clamp(color * (ring * bands * 2.0 + halo * 0.22), vec3f(0.0), vec3f(1.0)), 1.0);
 }
 </script>
 
@@ -932,7 +974,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 // eight corners and eight octaves, as written before the compiler had loops.
 function perlinNoiseShader() {
   const lines = [`// 3D Perlin gradient noise, with an integer lattice hash.
-// Move time to explore a continuous third dimension. Input colours are unused.
+// Move time to explore a continuous third dimension. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override seed: u32 = 0; // 0..100
@@ -1280,7 +1322,7 @@ function wavesShader() {
   const lines = [`// Waves, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
 // shape: 0 zigzag, 1 sine, 2 and 3 irregular; fractions morph between them.
-// Input colours are unused.
+// Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 0.6; // 0.1..4
 override rotation: f32 = 0.0; // 0..360
@@ -1344,7 +1386,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 function spiralShader() {
   const lines = [`// Spiral, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to turn the spiral. Input colours are unused.
+// Move time to turn the spiral. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override time: f32 = 0.0; // 0..20
@@ -1409,11 +1451,11 @@ ${simplexNoiseWgsl(`nz${s}`, `vec2f(ux${s}, uy${s}) * (16.0 * pow(noise_frequenc
   return lines.join("\n");
 }
 
-// Port of Paper's swirl (Apache-2.0) with three band colours, unrolled.
+// Port of Paper's swirl (Apache-2.0) with three band colors, unrolled.
 function swirlShader() {
   const lines = [`// Swirl, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to turn the swirl. Input colours are unused.
+// Move time to turn the swirl. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override time: f32 = 0.0; // 0..20
@@ -1495,11 +1537,11 @@ ${simplexNoiseWgsl(`nz${s}`, `vec2f(ux${s}, uy${s}) * (15.0 * pow(noise_frequenc
   return lines.join("\n");
 }
 
-// Port of Paper's mesh gradient (Apache-2.0) with four colour spots.
+// Port of Paper's mesh gradient (Apache-2.0) with four color spots.
 function meshGradientShader() {
   const lines = [`// Mesh gradient, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to move the colour spots. Input colours are unused.
+// Move time to move the color spots. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override time: f32 = 0.0; // 0..20
@@ -1571,7 +1613,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 function neuroNoiseShader() {
   const lines = [`// Neuro noise, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to animate the web. Input colours are unused.
+// Move time to animate the web. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override time: f32 = 0.0; // 0..20
@@ -1657,7 +1699,7 @@ function polygonWgsl(out, px, py, sides, rotation) {
 function dotGridShader() {
   const lines = [`// Dot grid, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// shape: 0 circle, 1 diamond, 2 square, 3 triangle. Input colours are unused.
+// shape: 0 circle, 1 diamond, 2 square, 3 triangle. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override shape: u32 = 0; // 0..3
@@ -1746,7 +1788,7 @@ function voronoiShader() {
     let r = g + 0.5 + distortion * sin(t + TWO_PI * o0) - fp;`;
   const lines = [`// Voronoi, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to move the cells. Input colours are unused.
+// Move time to move the cells. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 0.5; // 0.1..4
 override time: f32 = 0.0; // 0..20
@@ -1832,7 +1874,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var cell_color = c1;
   if count > 1u { cell_color = mix(cell_color, c2, round(clamp(mixer, 0.0, 1.0) * steps) / steps); }
   if count > 2u { cell_color = mix(cell_color, c3, round(clamp(mixer - 1.0, 0.0, 1.0) * steps) / steps); }
-  // Wrap the ends of the gradient from the last colour back to the first.
+  // Wrap the ends of the gradient from the last color back to the first.
   if mixer < 0.0 || mixer > cn - 1.0 {
     var wrap = mixer + 1.0;
     if mixer > cn - 1.0 { wrap = mixer - (cn - 1.0); }
@@ -1929,26 +1971,26 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let fg = mix(vec3f(front_r, front_g, front_b), vec3f(highlight_r, highlight_g, highlight_b), lit);
     color = fg * quant + vec3f(back_r, back_g, back_b) * (1.0 - quant);
   }
-  // Original colours divide by luma, so clamp like Paper's framebuffer.
+  // Original colors divide by luma, so clamp like Paper's framebuffer.
   dst[id.x] = vec4f(clamp(color, vec3f(0.0), vec3f(1.0)), opacity);
 }`;
 }
 
-// Port of Paper's simplex noise (Apache-2.0) with five colours, unrolled.
-// fwidth of each colour's mix comes from the right and lower neighbours.
+// Port of Paper's simplex noise (Apache-2.0) with five colors, unrolled.
+// fwidth of each color's mix comes from the right and lower neighbours.
 function simplexNoiseShader() {
-  const colours = [[0.2666667, 0.2862745, 0.8117647], [1.0, 0.8196078, 0.8784314],
+  const colors = [[0.2666667, 0.2862745, 0.8117647], [1.0, 0.8196078, 0.8784314],
     [0.9764706, 0.2666667, 0.2745098], [1.0, 0.827451, 0.4196078], [1.0, 1.0, 1.0]];
   const lines = [`// Simplex noise, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move time to animate the noise. Input colours are unused.
+// Move time to animate the noise. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 0.6; // 0.1..4
 override time: f32 = 0.0; // 0..20
 override color_count: u32 = 5; // 1..5
 override steps_per_color: f32 = 2.0; // 1..10
 override softness: f32 = 0.0; // 0..1`];
-  colours.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
+  colors.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
     lines.push(`override color${i + 1}_${ch}: f32 = ${c[j].toFixed(7)};`)));
   lines.push(`
 @group(0) @binding(0) var<storage, read> src: array<vec4f>;
@@ -1993,18 +2035,18 @@ ${simplexNoiseWgsl(`nb${s}`, `2.0 * uv${s} + vec2f(0.0, 0.32 * t)`, `b${s}_`)}
   };
   lines.push(`  var gradient = vec3f(color1_r, color1_g, color1_b);
   var local_m = 0.0;`);
-  for (let i = 1; i < colours.length; i++) {
+  for (let i = 1; i < colors.length; i++) {
     lines.push(`  if count > ${i}u {
     ${stepped("local_m", (s) => `clamp(mixer${s} - ${i - 1}.0, 0.0, 1.0)`)}
     gradient = mix(gradient, vec3f(color${i + 1}_r, color${i + 1}_g, color${i + 1}_b), local_m);
   }`);
   }
-  lines.push(`  // Wrap the ends of the gradient from the last colour back to the first.
+  lines.push(`  // Wrap the ends of the gradient from the last color back to the first.
   if mixer < 0.0 || mixer > cn - 1.0 {
     let shift = select(1.0, 1.0 - cn, mixer > cn - 1.0);
     ${stepped("local_m", (s) => `(mixer${s} + shift)`)}
     var last = vec3f(color1_r, color1_g, color1_b);`);
-  for (let i = 2; i <= colours.length; i++) {
+  for (let i = 2; i <= colors.length; i++) {
     lines.push(`    if count == ${i}u { last = vec3f(color${i}_r, color${i}_g, color${i}_b); }`);
   }
   lines.push(`    gradient = mix(last, vec3f(color1_r, color1_g, color1_b), local_m);
@@ -2014,14 +2056,14 @@ ${simplexNoiseWgsl(`nb${s}`, `2.0 * uv${s} + vec2f(0.0, 0.32 * t)`, `b${s}_`)}
   return lines.join("\n");
 }
 
-// Port of Paper's static mesh gradient (Apache-2.0) with four colours and
+// Port of Paper's static mesh gradient (Apache-2.0) with four colors and
 // both wave passes unrolled. Grain is left out.
 function staticMeshGradientShader() {
-  const colours = [[1.0, 0.6784314, 0.0392157], [0.3843137, 0.0, 1.0],
+  const colors = [[1.0, 0.6784314, 0.0392157], [0.3843137, 0.0, 1.0],
     [0.8862745, 0.6392157, 1.0], [1.0, 0.6, 0.9921569]];
   const lines = [`// Static mesh gradient, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Move positions to rearrange the colour spots. Input colours are unused.
+// Move positions to rearrange the color spots. Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override rotation: f32 = 270.0; // 0..360
@@ -2032,7 +2074,7 @@ override wave_x_shift: f32 = 0.6; // 0..1
 override wave_y: f32 = 1.0; // 0..1
 override wave_y_shift: f32 = 0.21; // 0..1
 override mixing: f32 = 0.93; // 0..1`];
-  colours.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
+  colors.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
     lines.push(`override color${i + 1}_${ch}: f32 = ${c[j].toFixed(7)};`)));
   lines.push(`
 const PI: f32 = 3.14159265358979323846;
@@ -2066,7 +2108,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let power = mix(2.0, 1.0, mx);
   var color = vec3f(0.0);
   var total = 0.0;`);
-  for (let i = 0; i < colours.length; i++) {
+  for (let i = 0; i < colors.length; i++) {
     lines.push(`  if color_count > ${i}u {
     let pos = 0.5 + 0.5 * vec2f(sin(seed * ${(0.6 + (i % 3) * 0.3).toFixed(2)} + ${(i * 0.37).toFixed(2)}),
       cos(seed * ${(0.8 + ((i + 1) % 4) * 0.25).toFixed(2)} + ${(i * 0.37 * 1.5).toFixed(3)}));
@@ -2084,13 +2126,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   return lines.join("\n");
 }
 
-// Port of Paper's static radial gradient (Apache-2.0) with three colours.
+// Port of Paper's static radial gradient (Apache-2.0) with three colors.
 // The shape is computed at the right and lower neighbours for fwidth.
 function staticRadialGradientShader() {
-  const colours = [[0.0, 0.7333333, 1.0], [0.0, 1.0, 0.8823529], [1.0, 1.0, 1.0]];
+  const colors = [[0.0, 0.7333333, 1.0], [0.0, 1.0, 0.8823529], [1.0, 1.0, 1.0]];
   const lines = [`// Static radial gradient, ported from Paper Shaders (Apache-2.0):
 // https://github.com/paper-design/shaders. Changes are listed on qip.dev/wgsl.
-// Input colours are unused.
+// Input colors are unused.
 override width: u32 = 256;
 override scale: f32 = 1.0; // 0.1..4
 override color_count: u32 = 3; // 1..3
@@ -2105,7 +2147,7 @@ override distortion_freq: f32 = 12.0; // 0..20
 override back_r: f32 = 0.0;
 override back_g: f32 = 0.0;
 override back_b: f32 = 0.0;`];
-  colours.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
+  colors.forEach((c, i) => ["r", "g", "b"].forEach((ch, j) =>
     lines.push(`override color${i + 1}_${ch}: f32 = ${c[j].toFixed(7)};`)));
   lines.push(`
 const PI: f32 = 3.14159265358979323846;
@@ -2173,7 +2215,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let quad_blend = clamp((mixing - 0.5) * 2.0, 0.0, 1.0);
   var gradient = vec3f(color1_r, color1_g, color1_b);
   var outer_shape = 0.0;`);
-  for (let i = 1; i <= colours.length; i++) {
+  for (let i = 1; i <= colors.length; i++) {
     lines.push(`  if cn >= ${i}.0 {
     let ml = clamp(mixer - ${i - 1}.0, 0.0, 1.0);
     // A floor keeps the division defined when mixing is 0.
@@ -2272,8 +2314,8 @@ function renderUniformControls(overrides) {
   for (const o of overrides) {
     if (!uniformValues.has(o.name)) uniformValues.set(o.name, o.value);
   }
-  // Each f32 triple `<prefix>_r`, `_g` and `_b` gets a colour picker.
-  const colourUniforms = new Set();
+  // Each f32 triple `<prefix>_r`, `_g` and `_b` gets a color picker.
+  const colorUniforms = new Set();
   const titles = { back: "Background", front: "Foreground" };
   for (const o of overrides) {
     if (o.type !== "f32" || !o.name.endsWith("_r")) continue;
@@ -2290,12 +2332,12 @@ function renderUniformControls(overrides) {
       names.forEach((name, i) => uniformValues.set(name, Number.parseInt(input.value.slice(1 + i * 2, 3 + i * 2), 16) / 255));
       run();
     });
-    names.forEach((name) => colourUniforms.add(name));
+    names.forEach((name) => colorUniforms.add(name));
     label.append(controlName(title), input);
     uniformsBox.append(label);
   }
   for (const o of overrides) {
-    if (o.name === "width" || colourUniforms.has(o.name)) continue;
+    if (o.name === "width" || colorUniforms.has(o.name)) continue;
     const label = document.createElement("label");
     const input = document.createElement("input");
     const output = document.createElement("output");

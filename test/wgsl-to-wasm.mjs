@@ -1203,7 +1203,7 @@ test("demo Perlin shader matches 3D gradient noise and octave reference", async 
   assert.notDeepEqual(await render(["seed=1"]), original);
   assert.notDeepEqual(await render(["time=1"]), original);
   input.fill(1);
-  assert.deepEqual(await render([]), original, "noise does not depend on input colours");
+  assert.deepEqual(await render([]), original, "noise does not depend on input colors");
   const before = await render(["time=0.24999", "softness=1"]);
   const after = await render(["time=0.25001", "softness=1"]);
   assert.ok(before.every((v, i) => Math.abs(v - after[i]) < 0.0001), "continuous across a z lattice boundary");
@@ -1231,13 +1231,42 @@ test("Liquid metal built-in shapes render with fragment derivatives and a bounde
     const input = paperInput(23, 17);
     const output = f32Values(await run(module, input, ["width=23", `shape=${shape}`, "softness=0", "contour=0"]));
     assert.equal(output.length, 23 * 17 * 4);
-    assert.ok(output.every((v) => Number.isFinite(v) && v >= 0 && v <= 1), `shape ${shape} has finite colours`);
+    assert.ok(output.every((v) => Number.isFinite(v) && v >= 0 && v <= 1), `shape ${shape} has finite colors`);
     assert.ok(output.every((v, i) => i % 4 !== 3 || v === 1), `shape ${shape} is opaque`);
   }
   const input = paperInput(23, 17);
   const first = await run(module, input, ["width=23", "shape=4", "time=0"]);
   const moved = await run(module, input, ["width=23", "shape=4", "time=3"]);
   assert.notDeepEqual(first, moved, "metaballs move with time");
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+test("vgpu color ring matches its formula and ignores input colors", async () => {
+  const page = await readFile("site/wgsl.md", "utf8");
+  const source = page.match(/<script type="text\/wgsl" data-name="Color ring \(vgpu\)">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(source, "the vgpu color ring is on the demo page");
+  const module = await compile(source);
+  const [width, height] = [29, 17];
+  const output = f32Values(await run(module, paperInput(width, height), [`width=${width}`]));
+  assert.equal(output.length, width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const shortest = Math.min(width, height);
+    const px = ((i % width + 0.5) / width - 0.5) * (width / shortest);
+    const py = ((Math.floor(i / width) + 0.5) / height - 0.5) * (height / shortest);
+    const radius = Math.hypot(px, py);
+    const angle = Math.atan2(py, px) / 6.28318 + 0.5;
+    const ring = Math.exp(-95 * (radius - 0.31) ** 2);
+    const halo = Math.exp(-18 * (radius - 0.31) ** 2);
+    const bands = 0.82 + 0.18 * Math.sin(angle * 25.13272 + radius * 42);
+    for (const [c, phase] of [0, 0.33, 0.67].entries()) {
+      const color = 0.55 + 0.45 * Math.cos(6.28318 * (angle + radius * 0.65 + phase));
+      const expected = Math.min(1, Math.max(0, color * (ring * bands * 2 + halo * 0.22)));
+      assert.ok(Math.abs(output[i * 4 + c] - expected) < 0.0005, `pixel ${i}, channel ${c}`);
+    }
+    assert.equal(output[i * 4 + 3], 1);
+  }
+  const white = f32Values(await run(module, f32Bytes(new Array(width * height * 4).fill(1)), [`width=${width}`]));
+  assert.deepEqual(white, output, "the ring does not depend on input colors");
   await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
 });
 
@@ -1354,7 +1383,7 @@ test("demo Paper waves without amplitude draw horizontal lines", async () => {
     for (let x = 1; x < width; x++) assert.deepEqual(row.slice(x * 4, x * 4 + 4), row.slice(0, 4), `row ${y} is uniform`);
     rows.add(row[0]);
   }
-  assert.ok(rows.size > 2, "rows alternate between colours");
+  assert.ok(rows.size > 2, "rows alternate between colors");
 });
 
 async function compileExample(name) {
