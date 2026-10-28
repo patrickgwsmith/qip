@@ -103,6 +103,28 @@ Content files are discovered by walking the site root.
 
 These rules keep file paths portable and make route generation reviewable.
 
+## Content Filters
+
+`--include <path>` and `--exclude <path>` limit which content files the router routes. Both flags can be repeated. The `dev`, `get`, `head`, `kindred`, `list` and `warc` commands accept them, in both the Go and Node routers.
+
+```sh
+qip router warc ./site --exclude blog/drafts -o site.warc
+qip router dev ./site --include blog --include about.md
+```
+
+The routed files are the files under any include path, or every content file when there are no include paths, minus the files under any exclude path. The order of the flags does not change the result. A file inside an excluded path cannot be included again.
+
+- A path is relative to the content root. A leading `./` or `/` and a trailing `/` are ignored.
+- A path matches whole path segments. `blog` matches `blog/post.md` but not `blogroll.md`.
+- A path also matches the file whose path without its extension is the same. `blog/drafts` matches `blog/drafts.md`, so excluding a section also excludes its page.
+- A path must name a location inside the content root. `.`, `..` and paths that start with `../` are rejected.
+- When either flag is given, the router skips files that have a path segment starting with `.`, such as `.env` or `.DS_Store`. A dot segment is routed only if an include path names it, such as `--include .well-known`.
+- The filters do not apply to the project directories. Recipes, component assets and element modules load as usual.
+
+A content route outside the filters is not served, listed or archived. `get`, `head` and `dev` return `404 Not Found` for it, and `kindred` fails for it.
+
+A parent page outside the filters still supplies its [main layout](#main-layouts) and other context as a Kindred Route (see [Application WARC Recipes](#application-warc-recipes)). `kindred` lists it. `warc` adds it to the whole-site archive while the WARC recipes run, so that its layout applies in the same way as in dev mode, and then removes its record from the archive that it writes. Records that a recipe synthesizes, such as a sitemap, can still refer to that parent page.
+
 ## File To Route Mapping
 
 Every content file must receive a source route:
@@ -346,7 +368,7 @@ These rules give WARC recipes access to direct static dependencies without turni
 
 The target response must be selected from the transformed WARC by exact target URI.
 
-A whole-site export runs the WARC recipes once over every record, so a recipe can read routes that dev mode would not have given it, and a page can build differently from how it previews. `qip router warc --check-kindred` catches this. After the whole-site run, it reruns the WARC recipes for each content route with only that route's Kindred Routes, as dev mode does, and fails if any page's status, headers or body differ from its record in the whole-site archive. The error lists each differing page with the first byte that differs. Records that only a recipe synthesizes, such as a sitemap, are not checked. The archive written is the same with or without the flag. The check reuses content recipe output from the export and runs pages in parallel, reusing each WARC recipe instance between pages.
+A whole-site export runs the WARC recipes once over every record, so a recipe can read routes that dev mode would not have given it, and a page can build differently from how it previews. `qip router warc --check-kindred` and `npx qip-router warc --check-kindred` catch this. After the whole-site run, it reruns the WARC recipes for each content route with only that route's Kindred Routes, as dev mode does, and fails if any page's status, headers or body differ from its record in the whole-site archive. The error lists each differing page with the first byte that differs. Records that only a recipe synthesizes, such as a sitemap, are not checked. The archive written is the same with or without the flag. Both routers reuse content recipe output from the export, and check pages in parallel, one worker per CPU core, with each worker reusing its WARC recipe instances from page to page. The Go router uses goroutines and the Node router uses `worker_threads`. Each page's WARC recipes have 5 seconds. A page that runs longer stops the whole check: the command fails naming that page, and no further pages are checked. The Node router terminates every worker straight away. The Go router cancels the pages already running and starts no more.
 
 ## Route Listing
 

@@ -42,6 +42,20 @@ qip-router dev ./site \
   --elements ./elements
 ```
 
+Use `--include <path>` and `--exclude <path>` to route only part of the
+content. Both flags can be repeated, and every command accepts them. The router
+routes the files under any include path, or all files when there are none, and
+removes the files under any exclude path:
+
+```sh
+qip-router warc ./site --exclude blog/drafts -o site.warc
+qip-router dev ./site --include blog --include about.md
+```
+
+Either flag also skips dot paths such as `.env`, unless an include path names
+them. Parent pages outside the filters still supply their layouts. Details are
+in the [router specification](https://qip.dev/docs/router-spec#content-filters).
+
 The development server listens on `127.0.0.1:4000` by default. Existing
 content files are read for each request. A browser hard refresh reloads the
 route table and recipe modules, so newly added files and changed recipes take
@@ -66,8 +80,15 @@ HEAD headers such as `content-length`, but its `body` is an empty `Uint8Array`.
 `router.kindred(path)` lists the parent pages and direct `src` or eligible
 `<link href>` dependencies supplied as Kindred Route context for one path.
 `router.resolve(method, path)` is available when the method is
-dynamic.
+dynamic. The `include` and `exclude` options take arrays of paths and work like
+the command-line flags.
 `router.warc()` returns the transformed full-site WARC as a `Uint8Array`.
+`router.warc({ checkKindred: true })`, or `qip-router warc --check-kindred` on
+the command line, also reruns each page's WARC recipes with only its Kindred
+Routes, as dev does, and rejects if any page's output differs. Pages are
+checked in parallel on a pool of worker threads, one per CPU core. If one page's
+WARC recipes run longer than 5 seconds (`kindredPageTimeoutMs`), the check stops
+there and rejects, without checking the remaining pages.
 
 ```js
 app.all("/docs/*", async (c) => {

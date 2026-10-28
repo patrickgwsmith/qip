@@ -28,6 +28,8 @@ type InProcessHTTPResponse struct {
 type ContentRoute struct {
 	FilePath   string
 	SourceMIME string
+	// RelPath is the file's path relative to the content root.
+	RelPath string
 }
 
 type ContentRouteEntry struct {
@@ -366,6 +368,7 @@ func BuildContentRoutesFromEntries(entries []ContentRouteEntry, options RouteOpt
 		route := ContentRoute{
 			FilePath:   entry.FilePath,
 			SourceMIME: detectSourceMIME(entry.RelPath),
+			RelPath:    entry.RelPath,
 		}
 		for _, requestPath := range aliases {
 			if prev, exists := routes[requestPath]; exists && prev.FilePath != route.FilePath {

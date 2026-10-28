@@ -24,12 +24,18 @@ type RouterFileLayout struct {
 	ComponentsRoot string
 	ElementsRoot   string
 	ViewSource     bool
+	// ContentFilter limits which content files are routed.
+	ContentFilter qinternal.ContentPathFilter
 }
 
 // RouterFileState is a complete snapshot of the file-based router inputs.
 // It contains discovered source data, but no live WASM runtime resources.
 type RouterFileState struct {
-	contentRoutes         map[string]qinternal.ContentRoute
+	// contentRoutes are the routes the content filter allows.
+	contentRoutes map[string]qinternal.ContentRoute
+	// contextRoutes are all content routes. Parent pages outside the content
+	// filter still supply their layouts as Kindred Routes.
+	contextRoutes         map[string]qinternal.ContentRoute
 	contentRead           contentReadFunc
 	routeOptions          qinternal.RouteOptions
 	recipeFiles           recipeFileSet
@@ -78,10 +84,11 @@ func (slot *routerServerStateSlot) clear() *RouterServerState {
 }
 
 func loadRouterFileState(ctx context.Context, layout RouterFileLayout, routeOptions qinternal.RouteOptions) (*RouterFileState, error) {
-	contentRoutes, contentRead, err := loadContentRoutesAndReader(ctx, layout.ContentRoot, routeOptions)
+	contextRoutes, contentRead, err := loadContentRoutesAndReader(ctx, layout.ContentRoot, routeOptions)
 	if err != nil {
 		return nil, err
 	}
+	contentRoutes := qinternal.FilterContentRoutes(contextRoutes, layout.ContentFilter)
 	recipeFiles, recipeDigests, err := loadRecipeFileSet(layout.RecipesRoot)
 	if err != nil {
 		return nil, err
@@ -125,6 +132,7 @@ func loadRouterFileState(ctx context.Context, layout RouterFileLayout, routeOpti
 
 	return &RouterFileState{
 		contentRoutes:         contentRoutes,
+		contextRoutes:         contextRoutes,
 		contentRead:           contentRead,
 		routeOptions:          routeOptions,
 		recipeFiles:           recipeFiles,

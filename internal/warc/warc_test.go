@@ -98,3 +98,27 @@ func TestPayloadDigesterAcceptsBase32Digests(t *testing.T) {
 		t.Fatal("existing base32 digest was rewritten")
 	}
 }
+
+func TestRemoveResponseRecordsKeepsOtherRecords(t *testing.T) {
+	var archive []byte
+	for _, target := range []string{"http://qip.local/", "http://qip.local/blog", "http://qip.local/blog/post"} {
+		record, err := BuildHTTPResponseRecord(target, http.StatusOK, http.Header{"Content-Type": []string{"text/html"}}, []byte(target))
+		if err != nil {
+			t.Fatal(err)
+		}
+		archive = append(archive, record...)
+	}
+	out, err := RemoveResponseRecords(archive, map[string]struct{}{"http://qip.local/": {}, "http://qip.local/blog": {}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateArchive(out); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out, []byte("WARC-Target-URI: http://qip.local/blog\r\n")) || bytes.Contains(out, []byte("WARC-Target-URI: http://qip.local/\r\n")) {
+		t.Fatalf("expected removed records to be gone:\n%s", out)
+	}
+	if !bytes.Contains(out, []byte("WARC-Target-URI: http://qip.local/blog/post\r\n")) {
+		t.Fatalf("expected kept record:\n%s", out)
+	}
+}

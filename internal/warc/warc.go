@@ -356,3 +356,58 @@ func validateHTTPPayload(payload []byte) error {
 	}
 	return nil
 }
+
+// RemoveResponseRecords returns archive without the response records whose
+// WARC-Target-URI is in targetURIs. Other records are copied unchanged.
+func RemoveResponseRecords(archive []byte, targetURIs map[string]struct{}) ([]byte, error) {
+	if len(targetURIs) == 0 {
+		return archive, nil
+	}
+	out := make([]byte, 0, len(archive))
+	cursor := 0
+	recordNumber := 0
+	for cursor < len(archive) {
+		recordNumber++
+		headerEnd := bytes.Index(archive[cursor:], []byte("\r\n\r\n"))
+		if headerEnd < 0 {
+			return nil, fmt.Errorf("WARC record %d is missing its header terminator", recordNumber)
+		}
+		headerEnd += cursor
+		contentLength := -1
+		warcType := ""
+		targetURI := ""
+		for _, line := range bytes.Split(archive[cursor:headerEnd], []byte("\r\n"))[1:] {
+			colon := bytes.IndexByte(line, ':')
+			if colon <= 0 || line[0] == ' ' || line[0] == '\t' {
+				continue
+			}
+			name := strings.TrimSpace(string(line[:colon]))
+			value := strings.TrimSpace(string(line[colon+1:]))
+			switch {
+			case strings.EqualFold(name, "Content-Length"):
+				n, err := strconv.Atoi(value)
+				if err != nil || n < 0 {
+					return nil, fmt.Errorf("WARC record %d has invalid Content-Length %q", recordNumber, value)
+				}
+				contentLength = n
+			case strings.EqualFold(name, "WARC-Type"):
+				warcType = value
+			case strings.EqualFold(name, "WARC-Target-URI"):
+				targetURI = value
+			}
+		}
+		if contentLength < 0 {
+			return nil, fmt.Errorf("WARC record %d is missing content-length", recordNumber)
+		}
+		blockEnd := headerEnd + 4 + contentLength
+		if blockEnd > len(archive) {
+			return nil, fmt.Errorf("WARC record %d block exceeds the archive", recordNumber)
+		}
+		next := min(blockEnd+4, len(archive))
+		if _, remove := targetURIs[targetURI]; !remove || !strings.EqualFold(warcType, "response") {
+			out = append(out, archive[cursor:next]...)
+		}
+		cursor = next
+	}
+	return out, nil
+}

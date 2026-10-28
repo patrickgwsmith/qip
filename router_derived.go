@@ -190,6 +190,12 @@ func buildDevDerivedRoutes(
 	renderStart := time.Now()
 	renderTrace := &routeTraceRecorder{}
 	renderCtx := qinternal.WithPipelineTrace(ctx, renderTrace.Record)
+	contextPaths := make(map[string]struct{})
+	for _, requestPath := range filteredParentPaths(state, paths) {
+		contextPaths[requestPath] = struct{}{}
+		paths = append(paths, requestPath)
+	}
+	sort.Strings(paths)
 	var archive bytes.Buffer
 	inputPaths := make(map[string]struct{}, len(paths))
 	for _, requestPath := range paths {
@@ -199,6 +205,9 @@ func buildDevDerivedRoutes(
 		}
 		if !ok {
 			return nil, fmt.Errorf("full-site route %q disappeared during build", requestPath)
+		}
+		if _, ok := contextPaths[requestPath]; ok && !qinternal.IsKindredParentResponse(response) {
+			continue
 		}
 		record, err := buildMinimalWARCResponseRecord(buildWARCRequestURI("qip.local", requestPath), response)
 		if err != nil {

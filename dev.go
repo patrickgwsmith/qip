@@ -40,6 +40,8 @@ func devCmd(args []string) {
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
 	fs.BoolVar(&opts.viewSource, "view-source", false, "serve /view-source plus recipe source files from --recipes")
 	fs.IntVar(&port, "p", 4000, "port")
+	var filterFlags qinternal.ContentFilterFlags
+	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeDevArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(usageDev)
@@ -49,6 +51,10 @@ func devCmd(args []string) {
 	}
 
 	mode, err := parseRuntimeMode(modeRaw)
+	if err != nil {
+		gameOver("%v", err)
+	}
+	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		gameOver("%v", err)
 	}
@@ -82,6 +88,7 @@ func devCmd(args []string) {
 		ComponentsRoot: componentsRoot,
 		ElementsRoot:   projectConfig.ElementsRoot,
 		ViewSource:     opts.viewSource,
+		ContentFilter:  contentFilter,
 	}
 	qipRuntime := newQIPRuntime(opts)
 

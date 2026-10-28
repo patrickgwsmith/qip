@@ -4,8 +4,10 @@ import { createHash } from "node:crypto";
 import { createServer, STATUS_CODES } from "node:http";
 import { realpathSync } from "node:fs";
 import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { availableParallelism } from "node:os";
 import { extname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -111,7 +113,13 @@ async function loadStage(spec) {
   if (imports.length !== 0) {
     throw new Error(`${spec.label} imports ${imports[0].module}.${imports[0].name}`);
   }
-  const instance = await WebAssembly.instantiate(module);
+  return instantiateStage(spec, module);
+}
+
+// Instantiates a compiled stage. Kindred check workers call this with the
+// main thread's compiled modules, so each recipe compiles once per process.
+function instantiateStage(spec, module) {
+  const instance = new WebAssembly.Instance(module);
   const exports = instance.exports;
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new Error(`${spec.label} does not export memory`);
@@ -126,6 +134,7 @@ async function loadStage(spec) {
   exportedValue(exports, outputCapName);
   return {
     ...spec,
+    module,
     exports,
     inputType: declaredType(exports, "input"),
     outputType: declaredType(exports, "output"),
@@ -235,6 +244,57 @@ async function discoverContentRoutes(contentRoot) {
   return routes;
 }
 
+// Keep in sync with ContentPathFilter in internal/content_filter.go. The
+// routed files are the include paths, or every file when there are none, minus
+// the exclude paths. An active filter skips dot paths unless an include path
+// names them.
+export function createContentFilter({ include = [], exclude = [] } = {}) {
+  const normalize = (flag, values) => values.map((value) => {
+    let path = String(value).trim();
+    if (path.includes("\\")) throw new Error(`${flag} ${JSON.stringify(value)} must use / separators`);
+    path = path.replace(/^\/+|\/+$/g, "");
+    const parts = [];
+    for (const part of path.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (parts.length === 0) throw new Error(`${flag} ${JSON.stringify(value)} must not leave the content root`);
+        parts.pop();
+      } else parts.push(part);
+    }
+    if (parts.length === 0) throw new Error(`${flag} ${JSON.stringify(value)} must name a path inside the content root`);
+    return parts.join("/");
+  });
+  const includes = normalize("--include", include);
+  const excludes = normalize("--exclude", exclude);
+  const active = includes.length > 0 || excludes.length > 0;
+  // Matches whole segments, and the file whose path without its extension is
+  // the prefix. Returns the part of relPath below the prefix.
+  const match = (relPath, prefix) => {
+    const extension = extname(relPath);
+    if (relPath === prefix || (extension && relPath.slice(0, -extension.length) === prefix)) return "";
+    if (relPath.startsWith(`${prefix}/`)) return relPath.slice(prefix.length + 1);
+    return null;
+  };
+  const hasDotSegment = (relPath) => relPath.split("/").some((segment) => segment.startsWith("."));
+  return {
+    active,
+    allows(relPath) {
+      if (!active) return true;
+      if (excludes.some((prefix) => match(relPath, prefix) !== null)) return false;
+      if (includes.length === 0) return !hasDotSegment(relPath);
+      return includes.some((prefix) => {
+        const rest = match(relPath, prefix);
+        return rest !== null && !hasDotSegment(rest);
+      });
+    },
+  };
+}
+
+function filterContentRoutes(routes, filter) {
+  if (!filter.active) return routes;
+  return new Map([...routes].filter(([, route]) => filter.allows(route.relPath)));
+}
+
 async function discoverAssetRoutes(root, requestPrefix, accept) {
   const routes = new Map();
   try {
@@ -322,33 +382,149 @@ async function createRecipeRuntime(recipesRoot) {
       const chain = chains.get(sourceType);
       if (!chain) return Promise.reject(new Error(`no recipe for ${sourceType}`));
       const previous = queues.get(sourceType) ?? Promise.resolve();
-      const result = previous.then(() => {
-        let output = bytes(input);
-        let type = sourceType;
-        // Hash payloads natively so recipes can read WARC-Payload-Digest instead
-        // of hashing in wasm, and so a recipe that leaves a stale digest is named.
-        const digester = sourceType === "application/warc" ? createPayloadDigester() : null;
-        if (digester) output = digester.apply(output);
-        for (const stage of chain.stages) {
-          if (stage.inputType && stage.inputType !== type) {
-            throw new Error(`${stage.label} expects ${stage.inputType}, got ${type}`);
-          }
-          output = runStage(stage, output);
-          if (digester) {
-            try {
-              output = digester.apply(output);
-            } catch (error) {
-              throw new Error(`${stage.label}: ${error.message}`);
-            }
-          }
-          if (stage.outputType) type = stage.outputType;
-          else if (stage.clearsContentType) type = "";
-        }
-        return { bytes: output, contentType: type };
-      });
+      const result = previous.then(() => renderChain(chain.stages, sourceType, input));
       queues.set(sourceType, result.catch(() => {}));
       return result;
     },
+    // The compiled modules of a chain, for instantiating it in a worker.
+    stageSpecs(sourceType) {
+      return (chains.get(sourceType)?.stages ?? []).map(({ sourceType, order, label, module }) => ({ sourceType, order, label, module }));
+    },
+  });
+}
+
+function renderChain(stages, sourceType, input) {
+  let output = bytes(input);
+  let type = sourceType;
+  // Hash payloads natively so recipes can read WARC-Payload-Digest instead
+  // of hashing in wasm, and so a recipe that leaves a stale digest is named.
+  const digester = sourceType === "application/warc" ? createPayloadDigester() : null;
+  if (digester) output = digester.apply(output);
+  for (const stage of stages) {
+    if (stage.inputType && stage.inputType !== type) {
+      throw new Error(`${stage.label} expects ${stage.inputType}, got ${type}`);
+    }
+    output = runStage(stage, output);
+    if (digester) {
+      try {
+        output = digester.apply(output);
+      } catch (error) {
+        throw new Error(`${stage.label}: ${error.message}`);
+      }
+    }
+    if (stage.outputType) type = stage.outputType;
+    else if (stage.clearsContentType) type = "";
+  }
+  return { bytes: output, contentType: type };
+}
+
+// A pool of worker threads that each keep one instance of every
+// application/warc recipe step and reuse it for page after page, so a
+// recipe's large starting memory is set up once per worker, not per page.
+// A page that runs longer than timeoutMs fails the whole check: every worker
+// is terminated, which also stops running Wasm, and no page is retried.
+function createKindredPool(stageSpecs, size, timeoutMs) {
+  const workers = [];
+  const idle = [];
+  const queue = [];
+  let nextID = 0;
+  let failure = null;
+
+  function dispatch() {
+    while (!failure && idle.length && queue.length) {
+      const entry = idle.pop();
+      const task = queue.shift();
+      entry.task = task;
+      entry.worker.postMessage({ id: task.id, targetURI: task.targetURI, archive: task.archive }, [task.archive.buffer]);
+      entry.timer = setTimeout(() => {
+        fail(new Error(`Kindred Routes check stopped: ${task.pathname}: WARC recipes did not finish within ${timeoutMs}ms`));
+      }, timeoutMs);
+    }
+  }
+
+  function fail(error) {
+    if (failure) return;
+    failure = error;
+    for (const entry of workers) {
+      clearTimeout(entry.timer);
+      entry.task?.reject(failure);
+      entry.task = null;
+      entry.worker.terminate();
+    }
+    for (const task of queue.splice(0)) task.reject(failure);
+  }
+
+  for (let index = 0; index < size; index += 1) {
+    const worker = new Worker(new URL(import.meta.url), {
+      workerData: { qipRouterKindredWorker: true, stageSpecs },
+    });
+    const entry = { worker, task: null, timer: null };
+    worker.on("message", (message) => {
+      if (failure) return;
+      // Instantiating every step can take a while, so a worker only takes
+      // pages, and their timers only start, once it is ready.
+      if (message.ready) {
+        idle.push(entry);
+        dispatch();
+        return;
+      }
+      clearTimeout(entry.timer);
+      const task = entry.task;
+      entry.task = null;
+      idle.push(entry);
+      if (message.response) {
+        const { status, headers, body } = message.response;
+        task.resolve({ response: { status, headers: new Headers(headers), body } });
+      } else {
+        task.resolve(message);
+      }
+      dispatch();
+    });
+    worker.on("error", fail);
+    worker.on("exit", (code) => {
+      if (code !== 0) fail(new Error(`kindred check worker exited with code ${code}`));
+    });
+    workers.push(entry);
+  }
+
+  return {
+    size,
+    // Resolves to { response } for the record at targetURI, { missing: true }
+    // when the recipes dropped it, or { error } when they failed. Rejects if
+    // any page timed out or a worker died.
+    run(pathname, targetURI, archive) {
+      if (failure) return Promise.reject(failure);
+      return new Promise((resolveTask, rejectTask) => {
+        queue.push({ id: nextID++, pathname, targetURI, archive, resolve: resolveTask, reject: rejectTask });
+        dispatch();
+      });
+    },
+    close() {
+      return Promise.all(workers.map((entry) => entry.worker.terminate()));
+    },
+  };
+}
+
+function runKindredWorker({ stageSpecs }) {
+  const instantiate = () => stageSpecs.map((spec) => instantiateStage(spec, spec.module));
+  let stages = instantiate();
+  parentPort.postMessage({ ready: true });
+  parentPort.on("message", ({ id, targetURI, archive }) => {
+    let reply;
+    try {
+      const rendered = renderChain(stages, "application/warc", archive);
+      const record = parseWarcResponses(rendered.bytes).find((item) => item.targetURI === targetURI);
+      if (!record) reply = { id, missing: true };
+      else {
+        const { status, headers, body } = record.response;
+        reply = { id, response: { status, headers: [...headers], body } };
+      }
+    } catch (error) {
+      reply = { id, error: error.message ?? String(error) };
+      // A trap can leave an instance's memory half-written, so start over.
+      stages = instantiate();
+    }
+    parentPort.postMessage(reply, reply.response ? [reply.response.body.buffer] : []);
   });
 }
 
@@ -761,6 +937,7 @@ function parseWarcResponses(archive) {
   while (cursor < archive.byteLength) {
     while (archive[cursor] === 13 || archive[cursor] === 10) cursor += 1;
     if (cursor >= archive.byteLength) break;
+    const recordStart = cursor;
     const headerEnd = findHeaderEnd(archive, cursor);
     if (headerEnd < 0) throw new Error("WARC header terminator not found");
     const warcHeader = parseHeaderBlock(archive, cursor, headerEnd);
@@ -780,11 +957,30 @@ function parseWarcResponses(archive) {
       responses.push({
         targetURI: warcHeader.headers.get("warc-target-uri") ?? "",
         response: { status, headers: httpHeader.headers, body },
+        recordStart,
+        recordEnd: Math.min(payloadEnd + 4, archive.byteLength),
       });
     }
     cursor = payloadEnd + 4;
   }
   return responses;
+}
+
+function removeWarcResponses(archive, targetURIs) {
+  if (targetURIs.size === 0) return archive;
+  const parts = [];
+  let copied = 0;
+  for (const record of parseWarcResponses(archive)) {
+    if (!targetURIs.has(record.targetURI)) continue;
+    parts.push(archive.subarray(copied, record.recordStart));
+    copied = record.recordEnd;
+  }
+  parts.push(archive.subarray(copied));
+  return concat(parts);
+}
+
+function isKindredParentResponse(response) {
+  return response?.status === 200 && Boolean(response.headers.get("content-type")?.startsWith("text/html"));
 }
 
 async function existingDirectory(path, label) {
@@ -803,18 +999,22 @@ export async function createQIPRouter(options = {}) {
   const recipesRoot = resolve(options.recipesRoot ?? join(contentRoot, "_recipes"));
   const componentsRoot = resolve(options.componentsRoot ?? join(contentRoot, "_components"));
   const elementsRoot = resolve(options.elementsRoot ?? join(contentRoot, "_elements"));
+  const contentFilter = createContentFilter({ include: options.include, exclude: options.exclude });
   let generation;
 
   async function loadGeneration() {
-    const [routes, components, elements, recipes] = await Promise.all([
+    const [contextRoutes, components, elements, recipes] = await Promise.all([
       discoverContentRoutes(contentRoot),
       discoverAssetRoutes(componentsRoot, "", (path) => path.endsWith(".wasm")),
       discoverAssetRoutes(elementsRoot, "/elements", (path) => path.endsWith(".js")),
       createRecipeRuntime(recipesRoot),
     ]);
-    const current = { routes, components, elements, recipes, derived: null };
+    // routes are the routes the content filter allows. contextRoutes are all
+    // content routes: parent pages outside the filter still supply layouts.
+    const routes = filterContentRoutes(contextRoutes, contentFilter);
+    const current = { routes, contextRoutes, components, elements, recipes, derived: null };
     if (recipes.has("application/warc")) {
-      const home = await baseResponseForGeneration("/", current);
+      const home = await baseResponseForGeneration("/", current, { parent: true });
       if (home) {
         const probe = buildWarcRecord("http://qip.local/", home);
         const rendered = await recipes.render("application/warc", probe);
@@ -834,7 +1034,7 @@ export async function createQIPRouter(options = {}) {
 
   generation = await loadGeneration();
 
-  async function baseResponseForGeneration(pathname, current) {
+  async function baseResponseForGeneration(pathname, current, { parent = false } = {}) {
     const component = current.components.get(pathname);
     if (component) return makeResponse(200, "application/wasm", await readFile(component.filePath), {}, false);
 
@@ -852,7 +1052,7 @@ export async function createQIPRouter(options = {}) {
       return makeResponse(200, type, body, {}, renderedElement);
     }
 
-    const route = current.routes.get(pathname);
+    const route = (parent ? current.contextRoutes : current.routes).get(pathname);
     if (!route) return null;
     let body = new Uint8Array(await readFile(route.filePath));
     let type = route.sourceType;
@@ -864,8 +1064,47 @@ export async function createQIPRouter(options = {}) {
     return makeResponse(200, type, body);
   }
 
-  async function baseResponse(pathname, current = generation) {
-    return baseResponseForGeneration(pathname, current);
+  async function baseResponse(pathname, current = generation, resolveOptions) {
+    return baseResponseForGeneration(pathname, current, resolveOptions);
+  }
+
+  // Lists the parent pages of paths that exist but that the content filter
+  // leaves out. A whole-site WARC includes them while the WARC recipes run,
+  // so their layouts apply as they do in dev. Keep in sync with
+  // filteredParentPaths in router_kindred.go.
+  function filteredParentPaths(current, paths) {
+    if (current.routes === current.contextRoutes) return [];
+    const out = new Set();
+    for (const pathname of paths) {
+      for (const parent of parentPaths(pathname)) {
+        if (parent !== pathname && !current.routes.has(parent) && current.contextRoutes.has(parent)) out.add(parent);
+      }
+    }
+    return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  }
+
+  async function wholeSiteRecords(current, resolveBase) {
+    const paths = archivePaths(current);
+    const contextPaths = new Set(filteredParentPaths(current, paths));
+    const records = [];
+    const inputPaths = new Set();
+    const contextURIs = new Set();
+    let missing;
+    for (const pathname of [...paths, ...contextPaths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const isContext = contextPaths.has(pathname);
+      const response = await resolveBase(pathname, isContext ? { parent: true } : undefined);
+      if (!response) {
+        if (!isContext) missing ??= pathname;
+        continue;
+      }
+      if (isContext) {
+        if (!isKindredParentResponse(response)) continue;
+        contextURIs.add(`http://qip.local${pathname}`);
+      }
+      inputPaths.add(pathname);
+      records.push(buildWarcRecord(`http://qip.local${pathname}`, response));
+    }
+    return { archive: concat(records), inputPaths, contextURIs, missing };
   }
 
   function archivePaths(current) {
@@ -876,22 +1115,17 @@ export async function createQIPRouter(options = {}) {
     return [...paths].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
-  function startDerivedBuild(current) {
+  function startDerivedBuild(current, resolveBase = (pathname, resolveOptions) => baseResponseForGeneration(pathname, current, resolveOptions)) {
     if (!current.derived || current.derived.buildPromise) return current.derived?.buildPromise;
     current.derived.buildPromise = (async () => {
-      const records = [];
-      const inputPaths = archivePaths(current);
-      for (const pathname of inputPaths) {
-        const response = await baseResponseForGeneration(pathname, current);
-        if (!response) throw new Error(`full-site route ${pathname} disappeared during build`);
-        records.push(buildWarcRecord(`http://qip.local${pathname}`, response));
-      }
-      const rendered = await current.recipes.render("application/warc", concat(records));
+      const { archive, inputPaths, contextURIs, missing } = await wholeSiteRecords(current, resolveBase);
+      if (missing) throw new Error(`full-site route ${missing} disappeared during build`);
+      const rendered = await current.recipes.render("application/warc", archive);
       current.derived.archive = rendered.bytes;
-      const inputSet = new Set(inputPaths);
+      current.derived.contextURIs = contextURIs;
       for (const record of parseWarcResponses(rendered.bytes)) {
         const url = new URL(record.targetURI);
-        if (url.host !== "qip.local" || url.search || url.hash || inputSet.has(url.pathname)) continue;
+        if (url.host !== "qip.local" || url.search || url.hash || inputPaths.has(url.pathname)) continue;
         current.derived.responses.set(url.pathname, record.response);
       }
       return current.derived.responses;
@@ -899,13 +1133,13 @@ export async function createQIPRouter(options = {}) {
     return current.derived.buildPromise;
   }
 
-  async function kindredArchive(pathname, target, current) {
+  async function kindredArchive(pathname, target, current, resolveBase = (path, resolveOptions) => baseResponse(path, current, resolveOptions)) {
     const records = [];
     const seen = new Set([pathname]);
     for (const parent of parentPaths(pathname)) {
       if (seen.has(parent)) continue;
       seen.add(parent);
-      const response = await baseResponse(parent, current);
+      const response = await resolveBase(parent, { parent: true });
       if (response?.status === 200 && response.headers.get("content-type")?.startsWith("text/html")) {
         records.push(buildWarcRecord(`http://qip.local${parent}`, response));
       }
@@ -914,7 +1148,7 @@ export async function createQIPRouter(options = {}) {
       for (const sourcePath of htmlDependencyPaths(target.body, pathname)) {
         if (seen.has(sourcePath)) continue;
         seen.add(sourcePath);
-        const response = await baseResponse(sourcePath, current);
+        const response = await resolveBase(sourcePath);
         if (response?.status === 200 && !response.headers.get("content-type")?.startsWith("text/html")) {
           records.push(buildWarcRecord(`http://qip.local${sourcePath}`, response));
         }
@@ -925,7 +1159,7 @@ export async function createQIPRouter(options = {}) {
       const name = filename.endsWith(".js") ? filename.slice(0, -3) : "";
       if (!isCustomElementName(name) || elementPath.slice("/elements/".length).includes("/")) continue;
       if (seen.has(elementPath)) continue;
-      const response = await baseResponse(elementPath, current);
+      const response = await resolveBase(elementPath);
       if (response) records.push(buildWarcRecord(`http://qip.local${elementPath}`, response));
     }
     records.push(buildWarcRecord(`http://qip.local${pathname}`, target));
@@ -964,6 +1198,62 @@ export async function createQIPRouter(options = {}) {
     return method === "HEAD" ? headResponse(response) : response;
   }
 
+  // Reruns the application/warc recipes for each page with only that page's
+  // Kindred Routes, as dev does, and throws if any page differs from its record
+  // in the whole-site archive. A difference means a recipe read a record that
+  // dev would not have given it. Keep in sync with checkKindredWARC in
+  // router_check_kindred.go.
+  async function checkKindredWarc(current, fullArchive, resolveBase, pageTimeoutMs) {
+    const fullByURI = new Map();
+    for (const record of parseWarcResponses(fullArchive)) {
+      if (!fullByURI.has(record.targetURI)) fullByURI.set(record.targetURI, record.response);
+    }
+    const pagePaths = [...new Set([...current.routes.keys()].map(canonicalPath))]
+      .filter((pathname) => !current.components.has(pathname) && !current.elements.has(pathname))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+    const details = new Array(pagePaths.length).fill("");
+    const pool = createKindredPool(
+      current.recipes.stageSpecs("application/warc"),
+      Math.min(availableParallelism(), pagePaths.length),
+      pageTimeoutMs,
+    );
+    try {
+      // Build archives on this thread a few pages ahead of the workers, so
+      // they stay busy without every page's archive being held at once.
+      let next = 0;
+      const feed = async () => {
+        while (next < pagePaths.length) {
+          const index = next++;
+          const pathname = pagePaths[index];
+          const response = await resolveBase(pathname);
+          if (!response) continue;
+          const archive = await kindredArchive(pathname, response, current, resolveBase);
+          const targetURI = `http://qip.local${pathname}`;
+          const result = await pool.run(pathname, targetURI, archive);
+          const want = fullByURI.get(targetURI);
+          if (result.error !== undefined) details[index] = `WARC recipes failed with only Kindred Routes: ${result.error}`;
+          else if (result.missing) details[index] = "WARC recipes with only Kindred Routes returned no record";
+          else if (!want) details[index] = "whole-site WARC has no record for this page";
+          else details[index] = describeResponseDifference(want, result.response);
+        }
+      };
+      await Promise.all(Array.from({ length: pool.size * 2 }, feed));
+    } finally {
+      await pool.close();
+    }
+    const mismatches = details.flatMap((detail, index) => (detail ? [`${pagePaths[index]}: ${detail}`] : []));
+    if (mismatches.length === 0) return;
+    let message = `${mismatches.length} of ${pagePaths.length} pages differ when WARC recipes see only their Kindred Routes:`;
+    for (const [index, mismatch] of mismatches.entries()) {
+      if (index === maxReportedKindredMismatches) {
+        message += `\n  … and ${mismatches.length - index} more`;
+        break;
+      }
+      message += `\n  ${mismatch}`;
+    }
+    throw new Error(message);
+  }
+
   const api = {
     contentRoot,
     recipesRoot,
@@ -993,7 +1283,7 @@ export async function createQIPRouter(options = {}) {
       for (const parent of parentPaths(canonical)) {
         if (seen.has(parent)) continue;
         seen.add(parent);
-        const response = await baseResponseForGeneration(parent, current);
+        const response = await baseResponseForGeneration(parent, current, { parent: true });
         if (response?.status === 200 && response.headers.get("content-type")?.startsWith("text/html")) {
           entries.push({ method: "GET", path: parent });
         }
@@ -1028,20 +1318,37 @@ export async function createQIPRouter(options = {}) {
           { method: "HEAD", path, contentType: type },
         ]);
     },
-    async warc() {
+    async warc({ checkKindred = false, kindredPageTimeoutMs = defaultKindredPageTimeoutMs } = {}) {
       const current = generation;
+      // The check reuses content recipe output from the export, so each route's
+      // content recipes run once however many pages list it as a Kindred Route.
+      // A filtered-out parent resolves from contextRoutes, so it caches under
+      // its own key.
+      const cached = new Map();
+      const resolveBase = (pathname, resolveOptions) => {
+        if (!checkKindred) return baseResponseForGeneration(pathname, current, resolveOptions);
+        const key = `${resolveOptions?.parent ? "parent" : "route"} ${pathname}`;
+        if (!cached.has(key)) cached.set(key, baseResponseForGeneration(pathname, current, resolveOptions));
+        return cached.get(key);
+      };
+      let archive;
+      let contextURIs;
       if (current.derived) {
-        await startDerivedBuild(current);
-        return current.derived.archive.slice();
+        await startDerivedBuild(current, resolveBase);
+        archive = current.derived.archive.slice();
+        contextURIs = current.derived.contextURIs;
+      } else {
+        const records = await wholeSiteRecords(current, resolveBase);
+        archive = records.archive;
+        contextURIs = records.contextURIs;
+        if (current.recipes.has("application/warc")) {
+          archive = (await current.recipes.render("application/warc", archive)).bytes;
+        }
       }
-      const records = [];
-      for (const pathname of archivePaths(current)) {
-        const response = await baseResponseForGeneration(pathname, current);
-        if (response) records.push(buildWarcRecord(`http://qip.local${pathname}`, response));
+      if (checkKindred && current.recipes.has("application/warc")) {
+        await checkKindredWarc(current, archive, resolveBase, kindredPageTimeoutMs);
       }
-      const archive = concat(records);
-      if (!current.recipes.has("application/warc")) return archive;
-      return (await current.recipes.render("application/warc", archive)).bytes;
+      return removeWarcResponses(archive, contextURIs);
     },
     async fetch(request) {
       const cacheControl = request.headers.get("cache-control")?.toLowerCase() ?? "";
@@ -1092,6 +1399,39 @@ export async function createQIPRouter(options = {}) {
   return Object.freeze(api);
 }
 
+const maxReportedKindredMismatches = 20;
+// Matches defaultRouteWARCTransformTimeout in the Go router.
+const defaultKindredPageTimeoutMs = 5000;
+
+// Returns "" when both responses are the same, otherwise a one-line
+// description of the first difference.
+function describeResponseDifference(want, got) {
+  if (want.status !== got.status) {
+    return `status ${want.status} in whole-site WARC, ${got.status} with only Kindred Routes`;
+  }
+  if (Buffer.compare(want.body, got.body) !== 0) {
+    let offset = 0;
+    while (offset < want.body.byteLength && offset < got.body.byteLength && want.body[offset] === got.body[offset]) offset += 1;
+    return `body differs from byte ${offset}: whole-site WARC has ${bodySnippet(want.body, offset)}, ` +
+      `only Kindred Routes has ${bodySnippet(got.body, offset)} (${want.body.byteLength} vs ${got.body.byteLength} bytes)`;
+  }
+  const names = [...new Set([...want.headers.keys(), ...got.headers.keys()])].sort();
+  for (const name of names) {
+    // Content-Length follows the body, which has already been compared.
+    if (name === "content-length") continue;
+    if (want.headers.get(name) !== got.headers.get(name)) {
+      return `header ${name} is ${JSON.stringify(want.headers.get(name))} in whole-site WARC, ` +
+        `${JSON.stringify(got.headers.get(name))} with only Kindred Routes`;
+    }
+  }
+  return "";
+}
+
+function bodySnippet(body, offset) {
+  if (offset >= body.byteLength) return "end of body";
+  return JSON.stringify(decoder.decode(body.subarray(offset, offset + 48)));
+}
+
 function usage() {
   return `Usage: qip-router <command> <content-directory> [options]\n\n` +
     `Commands:\n` +
@@ -1101,13 +1441,22 @@ function usage() {
     `  kindred  List Kindred Route context for one path\n` +
     `  list     List routed paths\n` +
     `  warc  Write the transformed site WARC\n\n` +
+    `Options:\n` +
+    `  --include <path>  Route only content under this path. Repeatable\n` +
+    `  --exclude <path>  Do not route content under this path. Repeatable.\n` +
+    `                    Routed content is the include paths, or everything,\n` +
+    `                    minus the exclude paths. Either flag skips dot paths\n` +
+    `                    unless an include path names them\n` +
+    `  --check-kindred  With warc, rerun each page's WARC recipes with only its\n` +
+    `                   Kindred Routes and fail if any output differs. A page\n` +
+    `                   that takes over 5s stops the check and fails it\n\n` +
     `Documentation: https://qip.dev/docs/router\n`;
 }
 
 function parseCLI(argv) {
   const [command, contentRoot, ...rest] = argv;
   if (!command || !contentRoot) throw new Error(usage());
-  const options = { contentRoot };
+  const options = { contentRoot, include: [], exclude: [] };
   const positional = [];
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
@@ -1117,6 +1466,12 @@ function parseCLI(argv) {
     else if (arg === "--host") options.hostname = rest[++index];
     else if (arg === "--port") options.port = Number(rest[++index]);
     else if (arg === "-o" || arg === "--output") options.output = rest[++index];
+    else if (arg === "--check-kindred") options.checkKindred = true;
+    else if (arg === "--include" || arg === "--exclude") {
+      const value = rest[++index];
+      if (value === undefined) throw new Error(`${arg} requires a path`);
+      options[arg.slice(2)].push(value);
+    }
     else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}`);
     else positional.push(arg);
   }
@@ -1137,7 +1492,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   if (command === "warc") {
-    const archive = await router.warc();
+    const archive = await router.warc({ checkKindred: options.checkKindred });
     if (!options.output || options.output === "-") process.stdout.write(archive);
     else await writeFile(options.output, archive);
     return;
@@ -1170,7 +1525,9 @@ export async function main(argv = process.argv.slice(2)) {
 
 const invokedPath = process.argv[1] ? realpathSync(resolve(process.argv[1])) : "";
 const modulePath = realpathSync(fileURLToPath(import.meta.url));
-if (invokedPath === modulePath) {
+if (!isMainThread && workerData?.qipRouterKindredWorker) {
+  runKindredWorker(workerData);
+} else if (isMainThread && invokedPath === modulePath) {
   main().catch((error) => {
     console.error(error.message ?? error);
     process.exitCode = 1;

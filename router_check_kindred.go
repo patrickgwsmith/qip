@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -51,7 +52,9 @@ func memoKindredResolver(resolve qinternal.KindredRouteResolver) qinternal.Kindr
 // checkKindredWARC reruns the application/warc recipes for each page with only
 // that page's Kindred Routes, as qip router dev does, and reports pages whose
 // response differs from the one in the whole-site archive. A difference means
-// a recipe read a record that dev mode would not have given it.
+// a recipe read a record that dev mode would not have given it. A page whose
+// recipes exceed timeout stops the whole check: pages already running are
+// canceled and no further pages are started.
 func checkKindredWARC(
 	ctx context.Context,
 	pipeline *qinternal.Pipeline,
@@ -75,9 +78,13 @@ func checkKindredWARC(
 		}
 	}
 
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+
 	resolveStatic = memoKindredResolver(resolveStatic)
 	resolveElement = memoKindredResolver(resolveElement)
 
+	errTimedOut := errors.New("timed out")
 	checkPage := func(requestPath string) (string, error) {
 		response, ok, err := resolveBase(requestPath)
 		if err != nil {
@@ -94,6 +101,9 @@ func checkKindredWARC(
 		defer cancel()
 		transformed, err := processApplicationWARCArchive(execCtx, pipeline, archive, 0)
 		if err != nil {
+			if ctx.Err() == nil && execCtx.Err() == context.DeadlineExceeded {
+				return "", errTimedOut
+			}
 			return fmt.Sprintf("WARC recipes failed with only Kindred Routes: %v", err), nil
 		}
 		requestURI := origin + requestPath
@@ -112,33 +122,54 @@ func checkKindredWARC(
 	jobs := make(chan string)
 	var mu sync.Mutex
 	var mismatches []kindredMismatch
-	var firstErr error
+	var firstErr, timeoutErr error
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for requestPath := range jobs {
+				if ctx.Err() != nil {
+					continue
+				}
 				detail, err := checkPage(requestPath)
 				mu.Lock()
-				if err != nil && firstErr == nil {
-					firstErr = fmt.Errorf("failed to check Kindred Routes for %q: %w", requestPath, err)
-				}
-				if detail != "" {
-					mismatches = append(mismatches, kindredMismatch{requestPath: requestPath, detail: detail})
+				if errors.Is(err, errTimedOut) {
+					if timeoutErr == nil {
+						timeoutErr = fmt.Errorf("Kindred Routes check stopped: %s: WARC recipes did not finish within %dms", requestPath, timeout.Milliseconds())
+						stop()
+					}
+				} else if ctx.Err() == nil {
+					if err != nil && firstErr == nil {
+						firstErr = fmt.Errorf("failed to check Kindred Routes for %q: %w", requestPath, err)
+					}
+					if detail != "" {
+						mismatches = append(mismatches, kindredMismatch{requestPath: requestPath, detail: detail})
+					}
 				}
 				mu.Unlock()
 			}
 		}()
 	}
+dispatch:
 	for _, requestPath := range requestPaths {
-		jobs <- requestPath
+		select {
+		case jobs <- requestPath:
+		case <-ctx.Done():
+			break dispatch
+		}
 	}
 	close(jobs)
 	wg.Wait()
 
+	if timeoutErr != nil {
+		return timeoutErr
+	}
 	if firstErr != nil {
 		return firstErr
+	}
+	if err := ctx.Err(); err != nil {
+		return err
 	}
 	if len(mismatches) == 0 {
 		return nil

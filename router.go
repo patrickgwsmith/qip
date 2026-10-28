@@ -118,6 +118,8 @@ func routePathCmd(args []string, method string, usage string, logPrefix string) 
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var filterFlags qinternal.ContentFilterFlags
+	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(usage)
@@ -127,6 +129,10 @@ func routePathCmd(args []string, method string, usage string, logPrefix string) 
 	}
 
 	mode, err := parseRuntimeMode(modeRaw)
+	if err != nil {
+		gameOver("%v", err)
+	}
+	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		gameOver("%v", err)
 	}
@@ -160,6 +166,7 @@ func routePathCmd(args []string, method string, usage string, logPrefix string) 
 		RecipesRoot:    recipesRoot,
 		ComponentsRoot: componentsRoot,
 		ElementsRoot:   projectConfig.ElementsRoot,
+		ContentFilter:  contentFilter,
 	}, newQIPRuntime(opts), routeOptions)
 	if err != nil {
 		gameOver("%v", err)
@@ -225,6 +232,9 @@ func routeKindredCmd(args []string) {
 		if redirect {
 			requestPath = canonical
 		}
+		if _, ok := qinternal.ResolveContentRoute(state.contentRoutes, requestPath, routeOptions); !ok {
+			return fmt.Errorf("route not found: %s", requestPath)
+		}
 		response, ok, err := resolveRouterBaseResponse(ctx, state, requestPath, 0, timeouts)
 		if err != nil {
 			return err
@@ -266,6 +276,8 @@ func routePathCmdWithState(args []string, usage string, run func(context.Context
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var filterFlags qinternal.ContentFilterFlags
+	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(usage)
@@ -275,6 +287,10 @@ func routePathCmdWithState(args []string, usage string, run func(context.Context
 	}
 
 	mode, err := parseRuntimeMode(modeRaw)
+	if err != nil {
+		gameOver("%v", err)
+	}
+	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		gameOver("%v", err)
 	}
@@ -308,6 +324,7 @@ func routePathCmdWithState(args []string, usage string, run func(context.Context
 		RecipesRoot:    projectConfig.RecipesRoot,
 		ComponentsRoot: projectConfig.ComponentsRoot,
 		ElementsRoot:   projectConfig.ElementsRoot,
+		ContentFilter:  contentFilter,
 	}, newQIPRuntime(opts), routeOptions)
 	if err != nil {
 		gameOver("%v", err)
@@ -334,6 +351,8 @@ func routeListCmd(args []string) {
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var filterFlags qinternal.ContentFilterFlags
+	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(usageRouteList)
@@ -343,6 +362,10 @@ func routeListCmd(args []string) {
 	}
 
 	mode, err := parseRuntimeMode(modeRaw)
+	if err != nil {
+		gameOver("%v", err)
+	}
+	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		gameOver("%v", err)
 	}
@@ -372,6 +395,7 @@ func routeListCmd(args []string) {
 		RecipesRoot:    recipesRoot,
 		ComponentsRoot: componentsRoot,
 		ElementsRoot:   projectConfig.ElementsRoot,
+		ContentFilter:  contentFilter,
 	}, newQIPRuntime(opts), routeOptions)
 	if err != nil {
 		gameOver("%v", err)
@@ -559,6 +583,7 @@ func routerCmd(args []string) {
 			ComponentsRoot: projectConfig.ComponentsRoot,
 			ElementsRoot:   projectConfig.ElementsRoot,
 			ViewSource:     request.ViewSource,
+			ContentFilter:  request.ContentFilter,
 		}, newQIPRuntime(opts), routeOptions)
 		if err != nil {
 			return nil, err
@@ -610,6 +635,13 @@ func routerCmd(args []string) {
 			}
 			sort.Strings(paths)
 			return paths, nil
+		},
+		ListWARCContextPaths: func(ctx context.Context, request qcmd.RouteWARCRequest, paths []string) ([]string, error) {
+			loaded, err := ensureRuntime(ctx, request)
+			if err != nil {
+				return nil, err
+			}
+			return filteredParentPaths(loaded.state, paths), nil
 		},
 		ResolveWARC: func(ctx context.Context, request qcmd.RouteWARCRequest) (qinternal.InProcessHTTPResponse, error) {
 			loaded, err := ensureRuntime(ctx, request)

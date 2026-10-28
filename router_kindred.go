@@ -7,16 +7,20 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 
 	qinternal "github.com/royalicing/qip/internal"
 )
 
+// resolveRouterBaseResponse renders a content route before the WARC recipes.
+// It also resolves routes outside the content filter, because they can be
+// parent pages of routes inside it.
 func resolveRouterBaseResponse(ctx context.Context, current *RouterServerState, requestPath string, requestID uint64, timeouts RouterServerTimeouts) (qinternal.InProcessHTTPResponse, bool, error) {
 	if current == nil {
 		return qinternal.InProcessHTTPResponse{}, false, errors.New("runtime state is unavailable")
 	}
-	route, ok := qinternal.ResolveContentRoute(current.contentRoutes, requestPath, current.routeOptions)
+	route, ok := qinternal.ResolveContentRoute(current.allContentRoutes(), requestPath, current.routeOptions)
 	if !ok {
 		return qinternal.InProcessHTTPResponse{}, false, nil
 	}
@@ -85,6 +89,40 @@ func resolveElementAssetResponse(ctx context.Context, current *RouterServerState
 		Header:     http.Header{"Content-Type": []string{contentType}},
 		Body:       body,
 	}, true, nil
+}
+
+func (state *RouterFileState) allContentRoutes() map[string]qinternal.ContentRoute {
+	if state.contextRoutes != nil {
+		return state.contextRoutes
+	}
+	return state.contentRoutes
+}
+
+// filteredParentPaths lists the parent pages of requestPaths that exist but
+// that the content filter leaves out. A whole-site WARC includes them while
+// the WARC recipes run, so their layouts apply as they do in dev mode.
+func filteredParentPaths(state *RouterServerState, requestPaths []string) []string {
+	if state.contextRoutes == nil || len(state.contextRoutes) == len(state.contentRoutes) {
+		return nil
+	}
+	seen := make(map[string]struct{})
+	var out []string
+	for _, requestPath := range requestPaths {
+		for _, parentPath := range qinternal.KindredParentPaths(requestPath) {
+			if _, ok := seen[parentPath]; ok {
+				continue
+			}
+			seen[parentPath] = struct{}{}
+			if _, ok := qinternal.ResolveContentRoute(state.contentRoutes, parentPath, state.routeOptions); ok {
+				continue
+			}
+			if _, ok := qinternal.ResolveContentRoute(state.contextRoutes, parentPath, state.routeOptions); ok {
+				out = append(out, parentPath)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func resolveKindredStaticRoute(ctx context.Context, current *RouterServerState, requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {

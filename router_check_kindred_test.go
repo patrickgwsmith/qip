@@ -46,7 +46,33 @@ func (s stampRecordCountStage) Process(_ context.Context, input qinternal.Conten
 
 func (stampRecordCountStage) Close(context.Context) error { return nil }
 
+// blockOnSharedArchiveStage passes through archives with one record and
+// blocks until canceled on any larger archive, like a recipe stuck in a loop.
+type blockOnSharedArchiveStage struct{}
+
+func (blockOnSharedArchiveStage) Process(ctx context.Context, input qinternal.Content, _ uint64) (qinternal.Content, error) {
+	_, raw, err := ensureRawContent(input)
+	if err != nil {
+		return nil, err
+	}
+	records, err := parseWARCResponseRecords(raw)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) > 1 {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	return input, nil
+}
+
+func (blockOnSharedArchiveStage) Close(context.Context) error { return nil }
+
 func runKindredCheckFixture(t *testing.T, stamp bool) error {
+	return runKindredCheckFixtureWith(t, stamp, nil, time.Minute)
+}
+
+func runKindredCheckFixtureWith(t *testing.T, stamp bool, stage qinternal.Stage, timeout time.Duration) error {
 	t.Helper()
 	pages := map[string]string{
 		"/":      "<h1>Home</h1>",
@@ -85,7 +111,10 @@ func runKindredCheckFixture(t *testing.T, stamp bool) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return checkKindredWARC(context.Background(), pipeline, origin, requestPaths, transformed, resolveBase, resolveNone, nil, resolveNone, time.Minute)
+	if stage != nil {
+		pipeline = &qinternal.Pipeline{Stages: []qinternal.Stage{stage}}
+	}
+	return checkKindredWARC(context.Background(), pipeline, origin, requestPaths, transformed, resolveBase, resolveNone, nil, resolveNone, timeout)
 }
 
 func TestCheckKindredWARCPassesWhenPagesOnlyUseKindredRoutes(t *testing.T) {
@@ -111,6 +140,22 @@ func TestCheckKindredWARCReportsPagesThatReadOtherRoutes(t *testing.T) {
 		if !strings.Contains(message, want) {
 			t.Errorf("error is missing %q:\n%s", want, message)
 		}
+	}
+}
+
+func TestCheckKindredWARCStopsOnTimeout(t *testing.T) {
+	// "/" sees only itself and passes. "/a", "/b" and "/b/one" each see more
+	// than one record and block until their timeout.
+	err := runKindredCheckFixtureWith(t, false, blockOnSharedArchiveStage{}, 50*time.Millisecond)
+	if err == nil {
+		t.Fatal("checkKindredWARC succeeded, want a timeout")
+	}
+	message := err.Error()
+	if !strings.HasPrefix(message, "Kindred Routes check stopped: /") || !strings.HasSuffix(message, ": WARC recipes did not finish within 50ms") {
+		t.Fatalf("error = %q, want a Kindred Routes timeout", message)
+	}
+	if strings.Contains(message, "differ") {
+		t.Fatalf("error = %q, want only the timeout, not a list of differing pages", message)
 	}
 }
 

@@ -28,6 +28,7 @@ type RouteWARCRequest struct {
 	Verbose        bool
 	ViewSource     bool
 	CheckKindred   bool
+	ContentFilter  qinternal.ContentPathFilter
 }
 
 type RouteConfig struct {
@@ -35,11 +36,15 @@ type RouteConfig struct {
 	UsageRouteWarc string
 	DefaultMode    string
 	ListWARCPaths  func(context.Context, RouteWARCRequest) ([]string, error)
-	ResolveWARC    func(context.Context, RouteWARCRequest) (qinternal.InProcessHTTPResponse, error)
-	TransformWARC  func(context.Context, RouteWARCRequest, []byte) ([]byte, error)
-	Stdout         io.Writer
-	WriteFile      func(string, []byte, os.FileMode) error
-	Verbosef       func(format string, args ...any)
+	// ListWARCContextPaths lists parent pages that the content filter leaves
+	// out but whose layouts apply to archived pages. They are archived for
+	// the WARC recipes and removed from the final archive.
+	ListWARCContextPaths func(context.Context, RouteWARCRequest, []string) ([]string, error)
+	ResolveWARC          func(context.Context, RouteWARCRequest) (qinternal.InProcessHTTPResponse, error)
+	TransformWARC        func(context.Context, RouteWARCRequest, []byte) ([]byte, error)
+	Stdout               io.Writer
+	WriteFile            func(string, []byte, os.FileMode) error
+	Verbosef             func(format string, args ...any)
 }
 
 func RunRoute(args []string, config RouteConfig) error {
@@ -78,6 +83,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	outputPath := "-"
 	viewSource := false
 	checkKindred := false
+	var filterFlags qinternal.ContentFilterFlags
 
 	fs := flag.NewFlagSet("route warc", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -92,6 +98,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	fs.StringVar(&outputPath, "output", "-", "output WARC path ('-' for stdout)")
 	fs.BoolVar(&viewSource, "view-source", false, "include /view-source plus recipe source files from --recipes")
 	fs.BoolVar(&checkKindred, "check-kindred", false, "rerun each page's WARC recipes with only its Kindred Routes and fail if any output differs")
+	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteWarcArgs(args)); err != nil {
 		if err == flag.ErrHelp {
 			fmt.Println(config.UsageRouteWarc)
@@ -101,6 +108,10 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	}
 
 	host, err := parseRouteWARCHost(hostRaw)
+	if err != nil {
+		return err
+	}
+	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		return err
 	}
@@ -133,6 +144,7 @@ func runRouteWARC(args []string, config RouteConfig) error {
 		Verbose:        verbose,
 		ViewSource:     viewSource,
 		CheckKindred:   checkKindred,
+		ContentFilter:  contentFilter,
 	}
 
 	paths, err := config.ListWARCPaths(context.Background(), baseRequest)
@@ -143,16 +155,37 @@ func runRouteWARC(args []string, config RouteConfig) error {
 		return errors.New("no route paths found to archive")
 	}
 	sort.Strings(paths)
-	baseRequest.RouteCount = len(paths)
+
+	var contextPaths []string
+	if config.ListWARCContextPaths != nil {
+		contextPaths, err = config.ListWARCContextPaths(context.Background(), baseRequest, paths)
+		if err != nil {
+			return err
+		}
+	}
+	contextPathSet := make(map[string]struct{}, len(contextPaths))
+	for _, requestPath := range contextPaths {
+		contextPathSet[requestPath] = struct{}{}
+	}
+	archivePaths := append(append([]string(nil), paths...), contextPaths...)
+	sort.Strings(archivePaths)
+	baseRequest.RouteCount = len(archivePaths)
 
 	var warcBytes bytes.Buffer
-	for _, requestPath := range paths {
+	contextURIs := make(map[string]struct{}, len(contextPaths))
+	for _, requestPath := range archivePaths {
 		request := baseRequest
 		request.RequestPath = requestPath
 
 		response, err := config.ResolveWARC(context.Background(), request)
 		if err != nil {
 			return fmt.Errorf("failed to resolve path %q: %w", requestPath, err)
+		}
+		if _, ok := contextPathSet[requestPath]; ok {
+			if !qinternal.IsKindredParentResponse(response) {
+				continue
+			}
+			contextURIs[buildRouteWARCRequestURI(host, requestPath)] = struct{}{}
 		}
 
 		requestURI := buildRouteWARCRequestURI(host, requestPath)
@@ -182,6 +215,10 @@ func runRouteWARC(args []string, config RouteConfig) error {
 			return fmt.Errorf("failed to transform warc archive: %w", err)
 		}
 		warcOutput = transformed
+	}
+	warcOutput, err = qwarc.RemoveResponseRecords(warcOutput, contextURIs)
+	if err != nil {
+		return fmt.Errorf("failed to remove filtered parent pages from warc archive: %w", err)
 	}
 	if err := qwarc.ValidateArchive(warcOutput); err != nil {
 		return fmt.Errorf("invalid final WARC archive: %w", err)
@@ -252,6 +289,9 @@ func normalizeRouteWarcArgs(args []string) []string {
 		"--host":       {},
 		"-o":           {},
 		"--output":     {},
+	}
+	for _, name := range qinternal.ContentFilterFlagNames {
+		flagsWithValue[name] = struct{}{}
 	}
 	return qinternal.NormalizeFlagArgs(args, flagsWithValue)
 }
