@@ -401,6 +401,20 @@ compiler supported when they were ported:
   colour-banding dither, as Swirl does.
 - `pow` is kept defined at 0 by flooring or selecting around its base.
 
+**Liquid Metal (shapes)** ports the built-in circle, daisy, diamond and
+metaballs from [Paper's Liquid Metal](https://shaders.paper.design/liquid-metal)
+([pinned GLSL source](https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/liquid-metal.ts))
+under the same licence. It draws a moving stripe pattern and uses the shape
+edge to bend it. The input image supplies only the canvas size. Choose the
+shape beside the control; adjust repetition, angle, contour, softness and
+colour dispersion to see how the edge changes the stripes.
+
+This port covers Paper's built-in shapes, including its five-step metaball
+loop. It omits uploaded-image masks, which Paper prepares with a Poisson
+solver before the shader runs. The background is opaque, and a simple
+procedural ripple replaces Paper's simplex noise and colour-banding dither.
+The shape edge and stripe antialiasing use fragment `fwidth` directly.
+
 <script type="text/wgsl" data-name="Edges">
 // Sobel edge detection on luma. A threshold of 0 shows the gradient strength.
 override width: u32 = 256;
@@ -717,6 +731,113 @@ fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 
 <script type="text/wgsl" data-name="Static radial gradient" data-generated="static-radial-gradient">
 // Generated below: Paper's static radial gradient, with neighbour samples for fwidth.
+</script>
+
+<script type="text/wgsl" data-name="Liquid metal (shapes)">
+// Built-in shapes and stripes ported from Paper Shaders (Apache-2.0):
+// https://github.com/paper-design/shaders/blob/1923e9f536ea079e2a95d23291cbfacfd69d37f6/packages/shaders/src/shaders/liquid-metal.ts
+// Changes are listed on qip.dev/wgsl. Input colours are unused.
+override shape: u32 = 1; // 0..4
+override time: f32 = 0.0; // 0..10
+override repetition: f32 = 4.0; // 1..10
+override softness: f32 = 0.25; // 0..1
+override contour: f32 = 0.5; // 0..1
+override distortion: f32 = 0.25; // 0..1
+override angle: f32 = 0.0; // 0..360
+override shift_red: f32 = 0.3; // -1..1
+override shift_blue: f32 = 0.3; // -1..1
+override back_r: f32 = 0.08;
+override back_g: f32 = 0.08;
+override back_b: f32 = 0.1;
+
+const PI: f32 = 3.14159265358979323846;
+@group(0) @binding(0) var src: texture_2d<f32>;
+
+fn edgeAt(uv: vec2f, t: f32) -> f32 {
+  let p = uv - vec2f(0.5);
+  if shape == 0u {
+    let m = min(uv, vec2f(1.0) - uv);
+    return 1.0 - pow(smoothstep(0.0, 0.14, m.x) * smoothstep(0.0, 0.14, m.y), 0.25);
+  }
+  if shape == 1u {
+    return pow(clamp(2.01 * length(p), 0.0, 1.0), 18.0);
+  }
+  if shape == 2u {
+    let q = p * 1.68;
+    let a = atan2(q.y, q.x) + 0.2;
+    let r = length(q) * 2.0 * (1.0 + 0.05 * sin(3.0 * a + 2.0 * t));
+    let e = smoothstep(abs(cos(3.0 * a)), abs(cos(3.0 * a)) + 0.7, r);
+    return e * e;
+  }
+  if shape == 3u {
+    let q = vec2f(p.x - p.y, p.x + p.y) * 1.0041 + vec2f(0.5);
+    let m = min(q, vec2f(1.0) - q);
+    return 1.0 - pow(smoothstep(0.0, 0.15, m.x) * smoothstep(0.0, 0.15, m.y), 0.25);
+  }
+  var sum = 0.0;
+  for (var i = 0; i < 5; i++) {
+    let fi = f32(i);
+    let speed = 1.5 + (2.0 / 3.0) * sin(fi * 12.345);
+    let a = -fi * 1.5;
+    let d1 = vec2f(cos(a), sin(a));
+    let d2 = vec2f(cos(a + 1.57), sin(a + 1.0));
+    let traj = 0.4 * (d1 * sin(t * speed + fi * 1.23) +
+      d2 * cos(t * speed * 0.7 + fi * 2.17));
+    sum += pow(1.0 - clamp(length(p * 1.3 + traj), 0.0, 1.0), 4.0);
+  }
+  return pow(1.0 - smoothstep(0.65, 0.9, sum), 4.0);
+}
+
+fn stripeChannel(c1: f32, c2: f32, phase: f32, blur: f32) -> f32 {
+  let thin1 = 0.12;
+  let thin2 = 0.07;
+  var c = mix(c2, c1, smoothstep(0.0, 2.0 * blur, phase));
+  c = mix(c, c2, smoothstep(thin1, thin1 + 2.0 * blur, phase));
+  c = mix(c, c1, smoothstep(thin1 + 0.18, thin1 + 0.18 + 2.0 * blur, phase));
+  c = mix(c, c2, smoothstep(thin1 + thin2 + 0.22, thin1 + thin2 + 0.22 + 2.0 * blur, phase));
+  let gradient = mix(c1, c2, smoothstep(0.0, 1.0, (phase - thin1 - thin2) / 0.81));
+  return mix(c, gradient, smoothstep(thin1 + thin2, thin1 + thin2 + blur, phase));
+}
+
+@fragment
+fn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+  let size = vec2f(textureDimensions(src));
+  let uv = pos.xy / size;
+  let t = 0.3 * (time + 2.8);
+  let raw_edge = edgeAt(uv, t);
+  let edge_aa = max(fwidth(raw_edge), 0.00001);
+  let edge = mix(1.0 - smoothstep(0.9 - 2.0 * edge_aa, 0.9, raw_edge),
+    raw_edge, smoothstep(0.0, 0.4, contour));
+  let opacity = 1.0 - smoothstep(0.9 - 2.0 * edge_aa, 0.9, raw_edge);
+  let a = (70.0 - angle) * PI / 180.0;
+  let p = uv - vec2f(0.5);
+  let rotated = vec2f(p.x * cos(a) - p.y * sin(a),
+    p.x * sin(a) + p.y * cos(a)) + vec2f(0.5);
+  let diagonal = rotated.x - rotated.y;
+  let noise = sin(uv.x * 31.0 + t) * cos(uv.y * 27.0 - t) * 0.5;
+  let distance = length(p + vec2f(0.0, 0.2 * diagonal));
+  let bump = (1.0 - pow(max(1.8 * distance, 0.00001), 1.2)) *
+    pow(max(uv.y, 0.00001), 0.3);
+  let bend = smoothstep(0.0, 1.0, edge);
+  var direction = p.x * cos(0.25 * PI - 0.2 * diagonal) -
+    p.y * sin(0.25 * PI - 0.2 * diagonal) + diagonal;
+  direction -= 2.0 * noise * diagonal * bend * (1.0 - bend);
+  direction *= mix(1.0, 1.0 - edge, smoothstep(0.5, 1.0, contour));
+  direction -= 1.7 * edge * smoothstep(0.5, 1.0, contour);
+  direction *= (0.1 + (1.1 - edge) * bump) * repetition;
+  direction += distortion * noise;
+  direction -= t;
+  let red_phase = fract(direction + shift_red * (1.0 - bump) / 20.0);
+  let green_phase = fract(direction);
+  let blue_phase = fract(direction - shift_blue * (1.0 - bump) / 20.0);
+  let blur = softness / 15.0;
+  let red = stripeChannel(0.98, 0.1, red_phase, max(blur + fwidth(red_phase), 0.00001));
+  let green = stripeChannel(0.98, 0.1, green_phase, max(blur + fwidth(green_phase), 0.00001));
+  let blue = stripeChannel(1.0, 0.1, blue_phase, max(blur + fwidth(blue_phase), 0.00001));
+  let colour = vec3f(red, green, blue) * opacity +
+    vec3f(back_r, back_g, back_b) * (1.0 - opacity);
+  return vec4f(clamp(colour, vec3f(0.0), vec3f(1.0)), 1.0);
+}
 </script>
 
 <script type="module">
@@ -2146,6 +2267,7 @@ function renderUniformControls(overrides) {
     Waves: { shape: "0 zigzag · 1 sine · 2–3 irregular; fractions blend shapes" },
     "Dot grid": { shape: "0 circle · 1 diamond · 2 square · 3 triangle" },
     "Image dithering": { dither_type: "1 random · 2 2×2 Bayer · 3 4×4 Bayer · 4 8×8 Bayer" },
+    "Liquid metal (shapes)": { shape: "0 canvas · 1 circle · 2 daisy · 3 diamond · 4 metaballs" },
   };
   for (const o of overrides) {
     if (!uniformValues.has(o.name)) uniformValues.set(o.name, o.value);

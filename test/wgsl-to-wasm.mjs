@@ -1218,6 +1218,29 @@ async function paperShader(name) {
   return runInNewContext(helpers.join("\n") + `\n${name}()`);
 }
 
+async function liquidMetalShader() {
+  const page = await readFile("site/wgsl.md", "utf8");
+  const source = page.match(/<script type="text\/wgsl" data-name="Liquid metal \(shapes\)">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(source, "the Liquid metal shader is on the demo page");
+  return source;
+}
+
+test("Liquid metal built-in shapes render with fragment derivatives and a bounded loop", async () => {
+  const module = await compile(await liquidMetalShader());
+  for (const shape of [0, 1, 2, 3, 4]) {
+    const input = paperInput(23, 17);
+    const output = f32Values(await run(module, input, ["width=23", `shape=${shape}`, "softness=0", "contour=0"]));
+    assert.equal(output.length, 23 * 17 * 4);
+    assert.ok(output.every((v) => Number.isFinite(v) && v >= 0 && v <= 1), `shape ${shape} has finite colours`);
+    assert.ok(output.every((v, i) => i % 4 !== 3 || v === 1), `shape ${shape} is opaque`);
+  }
+  const input = paperInput(23, 17);
+  const first = await run(module, input, ["width=23", "shape=4", "time=0"]);
+  const moved = await run(module, input, ["width=23", "shape=4", "time=3"]);
+  assert.notDeepEqual(first, moved, "metaballs move with time");
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
 function paperInput(width, height) {
   return f32Bytes(Array.from({ length: width * height * 4 }, (_, i) =>
     i % 4 === 3 ? 1 : (((i >> 2) * 37 + (i % 4) * 101) % 251) / 250));
