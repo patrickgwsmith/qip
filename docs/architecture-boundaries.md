@@ -46,7 +46,7 @@ Without additional imports, a component cannot directly:
 ```text
 ambient design:    code ──→ reaches into process and platform state
 
-QIP design:        host ──→ bytes, uniforms, time, events ──→ component
+QIP design:        host ──→ bytes, uniforms, Time, Events ──→ component
                      ↑                                            │
                      └───────────── declared output ──────────────┘
 ```
@@ -59,7 +59,7 @@ also limit resource use, and explicit capabilities make a component easier to
 run in another host.
 
 Content components receive input bytes and uniforms. A host can add the Time
-and Events capability for retained state. Compliance oracles receive only the
+and Events capabilities for retained state. Compliance oracles receive only the
 small bridge used to declare cases. A new capability should name the data or
 operation that the host is granting.
 
@@ -155,12 +155,9 @@ one response. It can then package every routed response as WARC and run
 whole-site components.
 
 ```text
-source bytes → response recipe → routed response
-                                      │
-all routed responses ─────────────────┘
-              │
-              ▼
-            WARC → check links → add routes → static output
+source → recipe → response ─┐
+source → recipe → response ─┼→ WARC → check links → add routes → static output
+source → recipe → response ─┘
 ```
 
 Keep filesystem discovery and HTTP delivery in the router. Keep byte-level
@@ -319,7 +316,7 @@ with a different trust or lifecycle, or enable reuse across hosts.
 Before adding a component, answer these questions:
 
 1. What precise operation moves behind the boundary?
-2. Which bytes, MIME type, uniforms, time, or events does it receive?
+2. Which bytes, MIME type, uniforms, Time, or Events does it receive?
 3. Which output and failure states can it produce?
 4. What remains in the host?
 5. Where is untrusted input validated?
