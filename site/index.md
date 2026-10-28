@@ -45,29 +45,6 @@ qip-edit source { display: none }
     border: 0;
     background: white;
 }
-
-.macintosh-1bit-comparison {
-    display: flex;
-    flex-wrap: nowrap;
-    gap: 24px;
-    max-width: 100%;
-    overflow-x: auto;
-    padding-bottom: 0.5lh;
-}
-
-.macintosh-1bit-comparison figure {
-    flex: 0 0 512px;
-    margin: 0;
-}
-
-.macintosh-1bit-comparison qip-play {
-    cursor: none;
-    image-rendering: pixelated;
-}
-
-.macintosh-1bit-comparison figcaption {
-    margin-top: 0.25lh;
-}
 </style>
 
 <h1>Components that are<br> <em>Quick</em> to make/maintain/run, <em>Isolated</em> from net/disk/deps, <em>Portable</em> to web/server/native.</h1>
@@ -249,75 +226,17 @@ Vertical touch gestures remain available for page scrolling.
 
 ---
 
-The same component can keep its working display in the original Macintosh
-512×342 one-bit format, then expand it only when QIP asks for output. Drag its
-window or disk, or open a menu. Each bitmap pixel is one CSS pixel; Retina
-displays expand it to device pixels without smoothing.
+A component can also keep state between frames. This port of the Mac OS X
+Flurry screensaver keeps 3,600 smoke particles and its last frame in memory.
+Every 20 ms it fades the previous frame and draws the new smoke on top, as the
+original OpenGL version does.
 
-<div class="macintosh-1bit-comparison" aria-label="One-bit Macintosh SDR, pink, orange, and yellow comparison">
-  <figure>
-    <qip-play canvas-width="512px" canvas-height="342px">
-      <qip-step name="desktop">
-        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
-      </qip-step>
-    </qip-play>
-    <figcaption>RGBA8 sRGB</figcaption>
-  </figure>
-  <figure>
-    <qip-play debug canvas-width="512px" canvas-height="342px">
-      <qip-step name="desktop">
-        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
-      </qip-step>
-      <qip-step name="duotone">
-        <source
-          src="/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm"
-          type="application/wasm"
-        />
-      </qip-step>
-    </qip-play>
-    <figcaption>HDR pink · RGBA32F display-p3-linear</figcaption>
-  </figure>
-  <figure>
-    <qip-play canvas-width="512px" canvas-height="342px">
-      <qip-step name="desktop">
-        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
-      </qip-step>
-      <qip-step name="duotone">
-        <source
-          src="/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm"
-          type="application/wasm"
-          data-uniform-highlight_r="2.4"
-          data-uniform-highlight_g="0.42"
-          data-uniform-highlight_b="0.015"
-        />
-      </qip-step>
-    </qip-play>
-    <figcaption>HDR orange · RGBA32F display-p3-linear</figcaption>
-  </figure>
-  <figure>
-    <qip-play canvas-width="512px" canvas-height="342px">
-      <qip-step name="desktop">
-        <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
-      </qip-step>
-      <qip-step name="duotone">
-        <source
-          src="/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm"
-          type="application/wasm"
-          data-uniform-highlight_r="2.4"
-          data-uniform-highlight_g="1.65"
-          data-uniform-highlight_b="0.04"
-        />
-      </qip-step>
-    </qip-play>
-    <figcaption>HDR yellow · RGBA32F display-p3-linear</figcaption>
-  </figure>
-</div>
+<qip-play canvas-width="min(640px, 100%)" canvas-height="auto">
+  <source src="/gui/flurry.wasm" type="application/wasm" />
+</qip-play>
 
-Every desktop instance draws into a packed 21,888-byte bitplane and emits the
-same RGBA8 sRGB frame. The color pipelines then give that ordinary frame to the
-same finite Content component. Uniforms map black to near-black ink and white
-to HDR pink, orange, or yellow in linear Display P3. Debug metrics on the pink
-example break out the cost and memory of each `<qip-step>`.
+See [`/flurry`](/flurry) for how it works, and a stateless WGSL version that
+runs on both WebGPU and WebAssembly.
 
 ---
 

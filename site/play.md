@@ -20,6 +20,7 @@ More interactive pages:
 - [Klondike solitaire](/play-klondike)
 - [Mandelbrot](/play-mandelbrot)
 - [Perlin Noise](/play-perlin-noise)
+- [Flurry (looped WGSL vs persistent state)](/flurry)
 - [Peon Gold Loop](/play-peon-gold)
 - [Paint](/play-paint)
 - [SVG Path Editor](/play-svg-path-editor)

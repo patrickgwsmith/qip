@@ -1556,3 +1556,38 @@ test("example shaders pass the strict profile, loop and division checkers", asyn
     await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
   }
 });
+
+async function flurryShader(id) {
+  const page = await readFile("site/flurry.md", "utf8");
+  const source = page.match(new RegExp(`<script type="text/wgsl" id="${id}">([\\s\\S]*?)</script>`))?.[1];
+  assert.ok(source, `the Flurry page has the ${id} shader`);
+  return source;
+}
+
+test("Flurry looped shaders compute ribbon points and draw them additively", async () => {
+  const points = await compile(await flurryShader("flurry-points"));
+  const ribbons = await compile(await flurryShader("flurry-ribbons"));
+  const width = 160;
+  const height = 100;
+  const data = f32Values(await run(points, f32Bytes(new Array(width * height * 4).fill(0)), [`width=${width}`, "time=140"]));
+  for (let row = 0; row < 10; row++) {
+    for (let k = 0; k <= 40; k++) {
+      const texel = data.slice((row * width + k) * 4, (row * width + k) * 4 + 4);
+      assert.ok(texel.every(Number.isFinite), `point (${k}, ${row}) is finite`);
+      if (row < 5) assert.ok(texel[2] >= 1 && (texel[3] === 0 || texel[3] === 1), `point (${k}, ${row}) has a radius and a flag`);
+      else assert.ok(texel.slice(0, 3).every((c) => c >= 0), `segment color (${k}, ${row}) is not negative`);
+    }
+  }
+  assert.ok(data.slice((10 * width) * 4).every((v) => v === 0), "pixels past the 41×10 corner stay black");
+  const output = f32Values(await run(ribbons, f32Bytes(data), [`width=${width}`]));
+  let lit = 0;
+  for (let p = 0; p < width * height; p++) {
+    const pixel = output.slice(p * 4, p * 4 + 4);
+    assert.ok(pixel.every((c) => c >= 0 && c <= 1), "colors are clamped");
+    assert.equal(pixel[3], 1);
+    if (pixel[0] + pixel[1] + pixel[2] > 0.1) lit++;
+  }
+  assert.ok(lit > 100 && lit < width * height / 2, `some but not most pixels are lit (${lit})`);
+  const dark = f32Values(await run(ribbons, f32Bytes(data), [`width=${width}`, "gain=0"]));
+  assert.ok(dark.every((v, i) => (i % 4 === 3 ? v === 1 : v === 0)), "gain 0 draws nothing");
+});
