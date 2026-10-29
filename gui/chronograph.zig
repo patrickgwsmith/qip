@@ -19,16 +19,44 @@ const TILT_RADIANS_PER_PIXEL: f32 = 0.25 * std.math.pi / 180.0;
 const CX: i32 = @intCast(RENDER_W / 2);
 const CY: i32 = @intCast(RENDER_H / 2);
 const Color = [4]u8;
+// sRGB-encoded channels in 0...1, used while shading before quantizing.
+const Rgb = [3]f32;
 
-const C_DIAL: Color = .{ 0xD9, 0xDE, 0xE1, 0xFF };
-const C_INK: Color = .{ 0x08, 0x27, 0x45, 0xFF };
-const C_TICK: Color = .{ 0x16, 0x3A, 0x5B, 0xFF };
-const C_ACCENT: Color = .{ 0x00, 0x72, 0xAD, 0xFF };
-const C_ACCENT_DARK: Color = .{ 0x00, 0x38, 0x68, 0xFF };
-const C_SHADOW: Color = .{ 0x0A, 0x1D, 0x2D, 0x4A };
-const CHROME_GRADIENT = makeChromeGradient();
+const C_PRINT: Color = .{ 0xF6, 0xEA, 0xD4, 0xFF };
+const C_SHADOW: Color = .{ 0x01, 0x05, 0x14, 0x80 };
+const GOLD_DEEP: Rgb = .{ 0.34, 0.15, 0.13 };
+const GOLD_MID: Rgb = .{ 0.86, 0.57, 0.50 };
+const GOLD_LIGHT: Rgb = .{ 1.0, 0.88, 0.82 };
+const GOLD_GLINT: Rgb = .{ 1.0, 0.97, 0.93 };
+const ENAMEL_CENTER: Rgb = .{ 0.09, 0.29, 0.70 };
+const ENAMEL_EDGE: Rgb = .{ 0.02, 0.06, 0.21 };
+const ENAMEL_SHEEN: Rgb = .{ 0.50, 0.74, 1.0 };
+const LUME: Rgb = .{ 0.80, 1.0, 0.70 };
+
+// Emission marks pixels which should exceed diffuse white on HDR output.
+// 255 scales the linear colour by 1 + HDR_EMISSION_GAIN, eight times SDR
+// white for the brightest glints. SDR output ignores it.
+const HDR_EMISSION_GAIN: f32 = 7.0;
+const HDR_SATURATION: f32 = 1.2;
 
 var output_buf: [HDR_OUTPUT_BYTES]u8 align(16) = undefined;
+var emission_buf: [PIXEL_COUNT]u8 = undefined;
+var paint_emission: u8 = 0;
+
+// The face-on dial below the hand never changes, so cache it after the first
+// face-on frame and copy it for each later tick.
+var static_pixels: [SDR_PIXEL_BYTES]u8 = undefined;
+var static_emission: [PIXEL_COUNT]u8 = undefined;
+var static_cached: bool = false;
+
+// Key light from the upper left. Yaw swings it so reflections travel across
+// the gold and enamel as the watch is tilted.
+var light_x: f32 = 0;
+var light_y: f32 = 0;
+var light_z: f32 = 1;
+var half_x: f32 = 0;
+var half_y: f32 = 0;
+var half_z: f32 = 1;
 
 const Phase = enum { initializing, ready, updating };
 var phase: Phase = .initializing;
@@ -268,7 +296,7 @@ noinline fn expandToHDR() usize {
         const g = ktx_hdr.SRGB8_TO_LINEAR[output[source_index + 1]];
         const b = ktx_hdr.SRGB8_TO_LINEAR[output[source_index + 2]];
         const a = @as(f32, @floatFromInt(output[source_index + 3])) / 255.0;
-        const hdr_rgb = expandHighlight(r, g, b, a);
+        const hdr_rgb = expandHighlight(r, g, b, emission_buf[pixel_index]);
         const destination_index = ktx_hdr.HEADER_SIZE + pixel_index * 16;
         writeF32(output, destination_index, hdr_rgb[0]);
         writeF32(output, destination_index + 4, hdr_rgb[1]);
@@ -278,21 +306,17 @@ noinline fn expandToHDR() usize {
     return ktx_hdr.writeHeader(output, RENDER_W, RENDER_H) orelse @trap();
 }
 
-fn expandHighlight(r: f32, g: f32, b: f32, alpha: f32) [3]f32 {
-    if (alpha <= 0.0) return .{ 0.0, 0.0, 0.0 };
-
-    // Raise neutral silver reflections above diffuse white. Saturated blue
-    // receives a smaller lift so the hand catches an HDR display without
-    // changing the authored hue on SDR fallback paths.
+fn expandHighlight(r: f32, g: f32, b: f32, emission: u8) [3]f32 {
+    // The authored sRGB values are reinterpreted as Display P3 primaries,
+    // then pushed further from grey so the enamel blue, rose gold and lume
+    // reach colours an sRGB display cannot show. Emissive pixels scale in
+    // linear light, which keeps their hue while lifting them past white.
     const luma = r * 0.22897 + g * 0.69174 + b * 0.07929;
-    const neutral = 1.0 - std.math.clamp((@max(r, @max(g, b)) - @min(r, @min(g, b))) * 4.0, 0.0, 1.0);
-    const reflection = std.math.clamp((luma - 0.68) / 0.32, 0.0, 1.0) * neutral * alpha;
-    const reflection_scale = 1.0 + 1.5 * reflection;
-    const blue_lift = std.math.clamp(b - r - 0.12, 0.0, 1.0) * alpha;
+    const gain = 1.0 + @as(f32, @floatFromInt(emission)) * (HDR_EMISSION_GAIN / 255.0);
     return .{
-        r * reflection_scale,
-        g * reflection_scale + blue_lift * 0.18,
-        b * reflection_scale + blue_lift * 1.35,
+        @max(0.0, luma + (r - luma) * HDR_SATURATION) * gain,
+        @max(0.0, luma + (g - luma) * HDR_SATURATION) * gain,
+        @max(0.0, luma + (b - luma) * HDR_SATURATION) * gain,
     };
 }
 
@@ -310,28 +334,132 @@ fn drawChronograph(seconds: f32) void {
         render_tilt_inverse_x = 1.0 / render_tilt_scale_x;
         render_tilt_sine = std.math.sin(tilt_angle);
     }
+    updateLight();
     drawStaticDial();
     drawHand(seconds);
     drawGlassReflection();
 }
 
-fn drawStaticDial() void {
-    drawBackground();
-    drawCaseAndDial();
-    drawDialGlow();
-    drawBezelReflection();
-    drawChapterRing();
-    drawLabels();
+fn updateLight() void {
+    const angle = -0.75 * std.math.pi + render_tilt_sine * 2.2;
+    const planar: f32 = 0.74;
+    light_x = std.math.cos(angle) * planar;
+    light_y = std.math.sin(angle) * planar;
+    light_z = std.math.sqrt(1.0 - planar * planar);
+    const half_length = std.math.sqrt(light_x * light_x + light_y * light_y + (light_z + 1.0) * (light_z + 1.0));
+    half_x = light_x / half_length;
+    half_y = light_y / half_length;
+    half_z = (light_z + 1.0) / half_length;
 }
 
-fn drawCaseAndDial() void {
-    // The rear case and raised bezel use the same continuous chrome profile
-    // at different depths. Their offset reveals a rounded sidewall under yaw
-    // instead of exposing the edges of stacked flat-color discs.
+fn drawStaticDial() void {
+    const face_on = !isTilted();
+    if (face_on and static_cached) {
+        @memcpy(pixels(), &static_pixels);
+        @memcpy(&emission_buf, &static_emission);
+        return;
+    }
+    drawBackground();
+    drawCase();
+    drawDialSurface();
+    drawBezelReflection();
+    drawChapterRing();
+    drawIndices();
+    drawLabels();
+    if (face_on) {
+        @memcpy(&static_pixels, pixels());
+        @memcpy(&static_emission, &emission_buf);
+        static_cached = true;
+    }
+}
+
+fn drawCase() void {
+    // The rear case and raised bezel use the same continuous rose-gold
+    // profile at different depths. Their offset reveals a rounded sidewall
+    // under yaw instead of exposing the edges of stacked flat-color discs.
     drawMetalAnnulus(scale(143), scale(164), scaleF(1));
     drawMetalAnnulus(scale(143), scale(160), scaleF(7));
     render_layer_offset_x = 0;
-    fillCircle(CX, CY, scale(144), C_DIAL);
+}
+
+const Shade = struct { color: Rgb, emission: f32 };
+
+// Polished rose gold: a warm diffuse ramp plus a tight specular lobe that
+// carries most of the HDR emission.
+fn shadeGold(nx_in: f32, ny_in: f32, nz_in: f32) Shade {
+    const inverse_length = 1.0 / std.math.sqrt(nx_in * nx_in + ny_in * ny_in + nz_in * nz_in);
+    const nx = nx_in * inverse_length;
+    const ny = ny_in * inverse_length;
+    const nz = nz_in * inverse_length;
+    const diffuse = std.math.clamp(nx * light_x + ny * light_y + nz * light_z, 0.0, 1.0);
+    var specular = std.math.clamp(nx * half_x + ny * half_y + nz * half_z, 0.0, 1.0);
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    var color = mixRgb(GOLD_DEEP, GOLD_MID, smoothStep(diffuse * 1.3));
+    color = mixRgb(color, GOLD_LIGHT, smoothStep((diffuse - 0.62) / 0.38) * 0.75);
+    color = mixRgb(color, GOLD_GLINT, specular);
+    return .{ .color = color, .emission = specular * 255.0 };
+}
+
+fn mixRgb(a: Rgb, b: Rgb, amount: f32) Rgb {
+    return .{
+        a[0] + (b[0] - a[0]) * amount,
+        a[1] + (b[1] - a[1]) * amount,
+        a[2] + (b[2] - a[2]) * amount,
+    };
+}
+
+fn toColor(rgb: Rgb, alpha: u8) Color {
+    return .{
+        @intFromFloat(@round(std.math.clamp(rgb[0], 0.0, 1.0) * 255.0)),
+        @intFromFloat(@round(std.math.clamp(rgb[1], 0.0, 1.0) * 255.0)),
+        @intFromFloat(@round(std.math.clamp(rgb[2], 0.0, 1.0) * 255.0)),
+        alpha,
+    };
+}
+
+fn toEmission(value: f32) u8 {
+    return @intFromFloat(@round(std.math.clamp(value, 0.0, 255.0)));
+}
+
+fn blendEmissive(x: i32, y: i32, color: Color, coverage: f32, emission: f32) void {
+    paint_emission = toEmission(emission);
+    defer paint_emission = 0;
+    blendPixelCoverage(x, y, color, coverage);
+}
+
+fn blendShade(x: i32, y: i32, shade: Shade, coverage: f32) void {
+    blendEmissive(x, y, toColor(shade.color, 0xFF), coverage, shade.emission);
+}
+
+// Local-space antialiasing width. Yaw compresses x, so a local unit spans
+// less than a screen pixel; averaging both axes keeps edges crisp enough.
+inline fn edgeScale() f32 {
+    return 2.0 / (1.0 + render_tilt_scale_x);
+}
+
+const ScreenBounds = struct { min_x: i32, max_x: i32, min_y: i32, max_y: i32 };
+
+fn screenBounds(min_local_x: f32, max_local_x: f32, min_local_y: f32, max_local_y: f32) ScreenBounds {
+    const center_x: f32 = @floatFromInt(CX);
+    const center_y: f32 = @floatFromInt(CY);
+    return .{
+        .min_x = @as(i32, @intFromFloat(@floor(projectedX(center_x + min_local_x)))) - 1,
+        .max_x = @as(i32, @intFromFloat(@ceil(projectedX(center_x + max_local_x)))) + 1,
+        .min_y = @as(i32, @intFromFloat(@floor(center_y + min_local_y))) - 1,
+        .max_y = @as(i32, @intFromFloat(@ceil(center_y + max_local_y))) + 1,
+    };
+}
+
+inline fn localX(x: i32) f32 {
+    return inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) - @as(f32, @floatFromInt(CX));
+}
+
+inline fn localY(y: i32) f32 {
+    return @as(f32, @floatFromInt(y - CY)) + 0.5;
 }
 
 fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
@@ -371,7 +499,7 @@ fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
             const coverage = std.math.clamp(0.5 - signed_distance / gradient, 0.0, 1.0);
             if (coverage <= 0.0) continue;
             const radial = std.math.clamp((distance - inner) / (outer - inner), 0.0, 1.0);
-            blendPixelCoverage(x, y, chromeGradient(radial), coverage);
+            blendShade(x, y, shadeBezel(radial, normal_x, normal_y), coverage);
         }
     }
 }
@@ -410,54 +538,40 @@ fn drawFaceOnMetalSpan(y: i32, min_x: i32, max_x: i32, inner: f32, outer: f32) v
         const coverage = std.math.clamp(0.5 - signed_distance, 0.0, 1.0);
         if (coverage <= 0.0) continue;
         const radial = std.math.clamp((distance - inner) / (outer - inner), 0.0, 1.0);
-        blendPixelCoverage(x, y, chromeGradient(radial), coverage);
+        blendShade(x, y, shadeBezel(radial, local_x / distance, local_y / distance), coverage);
     }
 }
 
-fn chromeGradient(radial: f32) Color {
-    const gradient_index: usize = @intFromFloat(@round(std.math.clamp(radial, 0.0, 1.0) * 63.0));
-    return CHROME_GRADIENT[gradient_index];
-}
-
-fn makeChromeGradient() [64]Color {
-    var gradient: [64]Color = undefined;
-    for (&gradient, 0..) |*color, index| {
-        color.* = chromeBaseColor(@as(f32, @floatFromInt(index)) / 63.0);
-    }
-    return gradient;
-}
-
-fn chromeBaseColor(radial: f32) Color {
-    const crest: f32 = 0.44;
-    if (radial < crest) {
-        return mixColor(
-            .{ 0x48, 0x58, 0x64, 0xFF },
-            .{ 0xF4, 0xF8, 0xFA, 0xFF },
-            smoothStep(radial / crest),
-        );
-    }
-    return mixColor(
-        .{ 0xF4, 0xF8, 0xFA, 0xFF },
-        .{ 0x58, 0x68, 0x72, 0xFF },
-        smoothStep((radial - crest) / (1.0 - crest)),
-    );
+// The bezel is a rounded rose-gold profile. Its normal leans toward the
+// centre on the inner slope and away on the outer slope, so the key light
+// draws a bright arc on the upper-left outside and the lower-right inside.
+fn shadeBezel(radial: f32, normal_x: f32, normal_y: f32) Shade {
+    const crest: f32 = 0.42;
+    const slope = std.math.clamp((radial - crest) * 1.5, -0.95, 0.95);
+    const nx = normal_x * slope;
+    const ny = normal_y * slope;
+    const nz = std.math.sqrt(1.0 - slope * slope);
+    var shade = shadeGold(nx, ny, nz);
+    // Polished metal mirrors its surroundings: a broad sheen around the
+    // glint, and a dark horizon band on the inner slope.
+    var broad = std.math.clamp(nx * half_x + ny * half_y + nz * half_z, 0.0, 1.0);
+    broad *= broad;
+    broad *= broad;
+    broad *= broad;
+    shade.color = mixRgb(shade.color, GOLD_LIGHT, broad * 0.45);
+    shade.emission += broad * 45.0;
+    const horizon = std.math.clamp(1.0 - @abs(slope + 0.32) / 0.2, 0.0, 1.0);
+    shade.color = mixRgb(shade.color, GOLD_DEEP, horizon * 0.5);
+    // A narrow polished bevel where the bezel meets the crystal.
+    const bevel = std.math.clamp(1.0 - radial / 0.07, 0.0, 1.0);
+    shade.color = mixRgb(shade.color, GOLD_LIGHT, bevel * 0.55);
+    shade.emission += bevel * 70.0;
+    return shade;
 }
 
 fn smoothStep(value: f32) f32 {
     const clamped = std.math.clamp(value, 0.0, 1.0);
     return clamped * clamped * (3.0 - 2.0 * clamped);
-}
-
-fn mixColor(a: Color, b: Color, amount: f32) Color {
-    var mixed: Color = undefined;
-    var channel: usize = 0;
-    while (channel < 4) : (channel += 1) {
-        mixed[channel] = @intFromFloat(@round(
-            @as(f32, @floatFromInt(a[channel])) +
-                (@as(f32, @floatFromInt(b[channel])) - @as(f32, @floatFromInt(a[channel]))) * amount,
-        ));
-    }
-    return mixed;
 }
 
 fn drawBezelReflection() void {
@@ -484,77 +598,255 @@ fn drawBezelReflection() void {
             const near = normal_x * direction;
             const broad = std.math.clamp(1.0 - @abs(near - 0.58) / 0.34, 0.0, 1.0) * tilt_strength;
             if (broad > 0.0) {
-                blendPixelCoverage(x, y, .{ 0xF1, 0xF8, 0xFC, 0x82 }, broad);
+                blendEmissive(x, y, .{ 0xFF, 0xD9, 0xC4, 0x82 }, broad, 90);
             }
             const sharp = std.math.clamp(1.0 - @abs(near - 0.64) / 0.055, 0.0, 1.0) * tilt_strength;
             if (sharp > 0.0) {
-                blendPixelCoverage(x, y, .{ 0xFF, 0xFF, 0xFF, 0xD0 }, sharp);
+                blendEmissive(x, y, .{ 0xFF, 0xF6, 0xEE, 0xD0 }, sharp, 255);
             }
             const shade = std.math.clamp(1.0 - @abs(near + 0.48) / 0.42, 0.0, 1.0) * tilt_strength;
             if (shade > 0.0) {
-                blendPixelCoverage(x, y, .{ 0x0C, 0x2A, 0x40, 0x58 }, shade);
+                blendPixelCoverage(x, y, .{ 0x2A, 0x0C, 0x06, 0x60 }, shade);
             }
         }
     }
 }
 
 fn drawChapterRing() void {
-    drawRing(CX, CY, scale(140), scale(1), C_INK);
-    drawRing(CX, CY, scale(117), scale(1), .{ 0x08, 0x27, 0x45, 0x98 });
+    drawRing(CX, CY, scale(140), scale(1), .{ 0xF6, 0xEA, 0xD4, 0xC8 });
+    drawRing(CX, CY, scale(118), scale(1), .{ 0xF6, 0xEA, 0xD4, 0x90 });
+    drawRing(CX, CY, scale(92), scale(1), .{ 0xF6, 0xEA, 0xD4, 0x50 });
 
+    // Five divisions per second for an 18,000 vph movement. Float endpoints
+    // keep every tick the same length instead of snapping to the pixel grid.
     var tick: u32 = 0;
     while (tick < 300) : (tick += 1) {
         const second_tick = tick % 5 == 0;
         const major = tick % 25 == 0;
-        const cardinal = tick % 75 == 0;
-        const outer_radius: f32 = scaleF(136);
-        const inner_radius: f32 = if (cardinal) scaleF(119) else if (major) scaleF(123) else if (second_tick) scaleF(129) else scaleF(133);
+        const outer_radius: f32 = scaleF(138);
+        const inner_radius: f32 = if (major) scaleF(126) else if (second_tick) scaleF(131) else scaleF(134.5);
         const angle = @as(f32, @floatFromInt(tick)) * std.math.tau / 300.0;
-        const x0 = CX + @as(i32, @intFromFloat(@round(std.math.sin(angle) * inner_radius)));
-        const y0 = CY - @as(i32, @intFromFloat(@round(std.math.cos(angle) * inner_radius)));
-        const x1 = CX + @as(i32, @intFromFloat(@round(std.math.sin(angle) * outer_radius)));
-        const y1 = CY - @as(i32, @intFromFloat(@round(std.math.cos(angle) * outer_radius)));
+        const sine = std.math.sin(angle);
+        const cosine = std.math.cos(angle);
+        const center_x: f32 = @floatFromInt(CX);
+        const center_y: f32 = @floatFromInt(CY);
         drawLine(
-            x0,
-            y0,
-            x1,
-            y1,
-            if (cardinal) scale(3) else if (major) scale(2) else scale(1),
-            if (cardinal) C_INK else if (second_tick) C_TICK else .{ 0x16, 0x3A, 0x5B, 0x8C },
+            center_x + sine * inner_radius,
+            center_y - cosine * inner_radius,
+            center_x + sine * outer_radius,
+            center_y - cosine * outer_radius,
+            if (major) scaleF(2.2) else if (second_tick) scaleF(1.4) else scaleF(0.9),
+            if (major) C_PRINT else if (second_tick) .{ 0xF6, 0xEA, 0xD4, 0xE0 } else .{ 0xF6, 0xEA, 0xD4, 0x88 },
         );
     }
 }
 
-fn drawLabels() void {
-    drawCenteredText("60", CX, CY - scale(105), C_INK);
-    drawCenteredText("15", CX + scale(104), CY, C_INK);
-    drawCenteredText("30", CX, CY + scale(105), C_INK);
-    drawCenteredText("45", CX - scale(104), CY, C_INK);
+fn drawIndices() void {
+    // Applied rose-gold batons at the eight hours without a numeral.
+    var hour: u32 = 0;
+    while (hour < 12) : (hour += 1) {
+        if (hour % 3 == 0) continue;
+        const angle = @as(f32, @floatFromInt(hour)) * std.math.tau / 12.0;
+        drawAppliedBaton(angle, scaleF(95), scaleF(116), scaleF(3.9));
+    }
+}
 
-    drawRing(CX, CY, scale(92), scale(1), .{ 0x4B, 0x62, 0x75, 0x66 });
-    drawRing(CX, CY, scale(6), scale(1), C_ACCENT_DARK);
+fn batonDistance(along: f32, across: f32, middle: f32, half_length: f32, half_width: f32) f32 {
+    return @max(@abs(across) - half_width, @abs(along - middle) - half_length);
+}
+
+fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
+    defer render_layer_offset_x = 0;
+    const dir_x = std.math.sin(angle);
+    const dir_y = -std.math.cos(angle);
+    const middle = (inner + outer) * 0.5;
+    const half_length = (outer - inner) * 0.5;
+    const pad = half_width + 5.0;
+    const min_lx = @min(dir_x * inner, dir_x * outer) - pad;
+    const max_lx = @max(dir_x * inner, dir_x * outer) + pad;
+    const min_ly = @min(dir_y * inner, dir_y * outer) - pad;
+    const max_ly = @max(dir_y * inner, dir_y * outer) + pad;
+    const aa = edgeScale();
+
+    // A soft drop shadow on the dial sells the applied height.
+    setRenderLayerDepth(scaleF(1));
+    var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y) - 2.2;
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x) - 1.4;
+            const distance = batonDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x, middle, half_length, half_width);
+            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / 1.8, 0.0, 1.0));
+        }
+    }
+
+    setRenderLayerDepth(scaleF(3));
+    bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y);
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x);
+            const along = lx * dir_x + ly * dir_y;
+            const across = lx * -dir_y + ly * dir_x;
+            const distance = batonDistance(along, across, middle, half_length, half_width);
+            const coverage = std.math.clamp(0.5 - distance * aa, 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+            // Two long facets meet at a centre ridge; the ends are bevelled.
+            const facet = std.math.clamp(across * 1.6, -1.0, 1.0) * 0.62;
+            const end_offset = along - middle;
+            const end = std.math.clamp((@abs(end_offset) - (half_length - 1.6)) / 1.6, 0.0, 1.0) *
+                std.math.sign(end_offset) * 0.62;
+            const nx = -dir_y * facet + dir_x * end;
+            const ny = dir_x * facet + dir_y * end;
+            blendShade(x, y, shadeGold(nx, ny, 0.78), coverage);
+        }
+    }
+}
+
+fn drawLabels() void {
+    drawAppliedNumeral("60", CX, CY - scale(104));
+    drawAppliedNumeral("15", CX + scale(103), CY);
+    drawAppliedNumeral("30", CX, CY + scale(104));
+    drawAppliedNumeral("45", CX - scale(103), CY);
+}
+
+fn drawAppliedNumeral(text: []const u8, center_x: i32, center_y: i32) void {
+    // Shadow, lit upper-left rim, then the body: three passes of the same
+    // glyph read as raised, polished metal.
+    drawCenteredText(text, center_x + 1, center_y + 2, C_SHADOW);
+    paint_emission = 150;
+    drawCenteredText(text, center_x - 1, center_y - 1, toColor(GOLD_LIGHT, 0xFF));
+    paint_emission = 0;
+    drawCenteredText(text, center_x, center_y, toColor(.{ 0.80, 0.50, 0.39 }, 0xFF));
+}
+
+const HAND_TIP: f32 = 132.0;
+const HAND_TAIL: f32 = -31.0;
+const HAND_LOLLIPOP: f32 = 101.0;
+const HAND_LOLLIPOP_RADIUS: f32 = 6.6;
+const HAND_LUME_RADIUS: f32 = 4.5;
+const HAND_WEIGHT: f32 = -23.0;
+const HAND_WEIGHT_RADIUS: f32 = 5.8;
+const HAND_CAP_RADIUS: f32 = 7.5;
+
+fn handDistance(along: f32, across: f32) f32 {
+    const taper = std.math.clamp(along / HAND_TIP, 0.0, 1.0);
+    const half_width: f32 = if (along < 0.0) 2.2 else 2.9 - 1.9 * taper;
+    const shaft = @max(@abs(across) - half_width, @max(HAND_TAIL - along, along - HAND_TIP));
+    const lollipop = std.math.hypot(along - HAND_LOLLIPOP, across) - HAND_LOLLIPOP_RADIUS;
+    const weight = std.math.hypot(along - HAND_WEIGHT, across) - HAND_WEIGHT_RADIUS;
+    return @min(shaft, @min(lollipop, weight));
 }
 
 fn drawHand(seconds: f32) void {
     defer render_layer_offset_x = 0;
     const hand_angle = seconds * std.math.tau / 60.0;
-    const hand_x = CX + @as(i32, @intFromFloat(@round(std.math.sin(hand_angle) * scaleF(114))));
-    const hand_y = CY - @as(i32, @intFromFloat(@round(std.math.cos(hand_angle) * scaleF(114))));
-    const tail_x = CX - @as(i32, @intFromFloat(@round(std.math.sin(hand_angle) * scaleF(27))));
-    const tail_y = CY + @as(i32, @intFromFloat(@round(std.math.cos(hand_angle) * scaleF(27))));
+    const dir_x = std.math.sin(hand_angle);
+    const dir_y = -std.math.cos(hand_angle);
+    const pad: f32 = HAND_WEIGHT_RADIUS + 6.0;
+    const min_lx = @min(dir_x * HAND_TAIL, dir_x * HAND_TIP) - pad;
+    const max_lx = @max(dir_x * HAND_TAIL, dir_x * HAND_TIP) + pad;
+    const min_ly = @min(dir_y * HAND_TAIL, dir_y * HAND_TIP) - pad;
+    const max_ly = @max(dir_y * HAND_TAIL, dir_y * HAND_TIP) + pad;
+    const aa = edgeScale();
+
     // Separate the shadow, hand, and cap into shallow depth planes. Yaw moves
     // each plane by a different amount, which gives the hand parallax without
     // allocating or compositing an intermediate image.
     setRenderLayerDepth(scaleF(1));
-    drawLine(tail_x + scale(3), tail_y + scale(4), hand_x + scale(3), hand_y + scale(4), scale(5), C_SHADOW);
-    setRenderLayerDepth(scaleF(5));
-    drawLine(tail_x, tail_y, hand_x, hand_y, scale(4), C_ACCENT_DARK);
-    setRenderLayerDepth(scaleF(7));
-    drawLine(CX, CY, hand_x, hand_y, scale(2), C_ACCENT);
+    var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y) - 4.0;
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x) - 3.0;
+            const distance = handDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x);
+            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / 2.4, 0.0, 1.0));
+        }
+    }
+
     setRenderLayerDepth(scaleF(6));
-    fillCircle(CX, CY, scale(8), C_ACCENT_DARK);
+    bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y);
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x);
+            const along = lx * dir_x + ly * dir_y;
+            const across = lx * -dir_y + ly * dir_x;
+            const distance = handDistance(along, across);
+            const coverage = std.math.clamp(0.5 - distance * aa, 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+            blendShade(x, y, shadeHand(along, across, dir_x, dir_y), coverage);
+        }
+    }
+
+    // Domed centre cap with a dark pinion at its heart.
     setRenderLayerDepth(scaleF(9));
-    fillCircle(CX, CY, scale(4), .{ 0xB9, 0xD3, 0xE2, 0xFF });
+    const cap = HAND_CAP_RADIUS + 1.0;
+    bounds = screenBounds(-cap, cap, -cap, cap);
+    y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y);
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x);
+            const radius = std.math.sqrt(lx * lx + ly * ly);
+            const coverage = std.math.clamp(0.5 - (radius - HAND_CAP_RADIUS) * aa, 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+            var shade = shadeGold(lx / HAND_CAP_RADIUS * 0.85, ly / HAND_CAP_RADIUS * 0.85, 0.75);
+            const pinion = std.math.clamp(1.6 - radius, 0.0, 1.0);
+            shade.color = mixRgb(shade.color, GOLD_DEEP, pinion * 0.9);
+            shade.emission *= 1.0 - pinion;
+            blendShade(x, y, shade, coverage);
+        }
+    }
+}
+
+fn shadeHand(along: f32, across: f32, dir_x: f32, dir_y: f32) Shade {
+    const lollipop_along = along - HAND_LOLLIPOP;
+    const lollipop_radius = std.math.hypot(lollipop_along, across);
+    if (lollipop_radius < HAND_LOLLIPOP_RADIUS + 0.5) {
+        if (lollipop_radius < HAND_LUME_RADIUS) {
+            // Lume glows well past diffuse white on HDR displays.
+            const fade = std.math.clamp(HAND_LUME_RADIUS - lollipop_radius, 0.0, 1.0);
+            var shade = shadeGold(0, 0, 1);
+            shade.color = mixRgb(shade.color, LUME, fade);
+            shade.emission = 165.0 * fade;
+            return shade;
+        }
+        // The lume frame is a rounded bezel.
+        const slope = std.math.clamp((lollipop_radius - (HAND_LUME_RADIUS + HAND_LOLLIPOP_RADIUS) * 0.5) * 0.55, -0.7, 0.7);
+        return shadeLocalNormal(lollipop_along / lollipop_radius * slope, across / lollipop_radius * slope, dir_x, dir_y);
+    }
+    const weight_along = along - HAND_WEIGHT;
+    const weight_radius = std.math.hypot(weight_along, across);
+    if (weight_radius < HAND_WEIGHT_RADIUS + 0.5) {
+        // Domed counterweight with an engraved ring.
+        const dome = std.math.clamp(weight_radius / HAND_WEIGHT_RADIUS, 0.0, 1.0) * 0.8;
+        const inverse = 1.0 / @max(weight_radius, 0.001);
+        var shade = shadeLocalNormal(weight_along * inverse * dome, across * inverse * dome, dir_x, dir_y);
+        const groove = std.math.clamp(1.0 - @abs(weight_radius - 3.4) / 0.7, 0.0, 1.0);
+        shade.color = mixRgb(shade.color, GOLD_DEEP, groove * 0.75);
+        shade.emission *= 1.0 - groove;
+        return shade;
+    }
+    // Two facets meet along the centre of the shaft, one lit, one shaded.
+    return shadeLocalNormal(0, std.math.clamp(across * 1.8, -1.0, 1.0) * 0.7, dir_x, dir_y);
+}
+
+fn shadeLocalNormal(normal_along: f32, normal_across: f32, dir_x: f32, dir_y: f32) Shade {
+    return shadeGold(
+        dir_x * normal_along - dir_y * normal_across,
+        dir_y * normal_along + dir_x * normal_across,
+        std.math.sqrt(@max(0.05, 1.0 - normal_along * normal_along - normal_across * normal_across)),
+    );
 }
 
 fn drawGlassReflection() void {
@@ -603,17 +895,17 @@ fn drawGlassReflection() void {
                 ((along - scaleF(4)) * (along - scaleF(4))) / (scaleF(116) * scaleF(116)) +
                 ((across + scaleF(83)) * (across + scaleF(83))) / (scaleF(52) * scaleF(52));
             const wash = std.math.clamp((1.0 - wash_ellipse) / 0.72, 0.0, 1.0);
-            if (wash > 0.0) blendPixelCoverage(x, y, .{ 0xF4, 0xFA, 0xFF, 0x2A }, wash);
+            if (wash > 0.0) blendEmissive(x, y, .{ 0xF0, 0xF2, 0xFF, 0x26 }, wash, 40);
 
             const broad = std.math.clamp((scaleF(27) - curve_distance) / scaleF(20), 0.0, 1.0) * end_fade;
-            if (broad > 0.0) blendPixelCoverage(x, y, .{ 0xF7, 0xFB, 0xFF, 0x34 }, broad);
+            if (broad > 0.0) blendEmissive(x, y, .{ 0xF6, 0xF6, 0xFF, 0x38 }, broad, 90);
 
             const sharp = std.math.clamp(1.0 - curve_distance / scaleF(2), 0.0, 1.0) * end_fade;
-            if (sharp > 0.0) blendPixelCoverage(x, y, .{ 0xFF, 0xFF, 0xFF, 0xA8 }, sharp);
+            if (sharp > 0.0) blendEmissive(x, y, .{ 0xFF, 0xFF, 0xFF, 0x90 }, sharp, 230);
 
             const echo_distance = @abs(across - (curve + scaleF(21)));
             const echo = std.math.clamp(1.0 - echo_distance / scaleF(4), 0.0, 1.0) * end_fade;
-            if (echo > 0.0) blendPixelCoverage(x, y, .{ 0xE8, 0xF4, 0xFF, 0x3C }, echo);
+            if (echo > 0.0) blendEmissive(x, y, .{ 0xD8, 0xD0, 0xFF, 0x44 }, echo, 110);
         }
     }
 }
@@ -661,7 +953,7 @@ fn drawTiltedGlassReflection() void {
                 ) * side * tilt_strength
             else
                 0.0;
-            if (edge > 0.0) blendPixelCoverage(x, y, .{ 0xF7, 0xFC, 0xFF, 0x82 }, edge);
+            if (edge > 0.0) blendEmissive(x, y, .{ 0xF4, 0xF0, 0xFF, 0x82 }, edge, 120);
 
             if (along < -scaleF(132) or along > scaleF(120) or
                 across < -scaleF(136) or across > -scaleF(30)) continue;
@@ -676,129 +968,131 @@ fn drawTiltedGlassReflection() void {
                 ((along - scaleF(4)) * (along - scaleF(4))) / (scaleF(116) * scaleF(116)) +
                 ((across + scaleF(83)) * (across + scaleF(83))) / (scaleF(52) * scaleF(52));
             const wash = std.math.clamp((1.0 - wash_ellipse) / 0.72, 0.0, 1.0);
-            if (wash > 0.0) blendPixelCoverage(x, y, .{ 0xF4, 0xFA, 0xFF, 0x2A }, wash);
+            if (wash > 0.0) blendEmissive(x, y, .{ 0xF0, 0xF2, 0xFF, 0x26 }, wash, 40);
 
             const broad = std.math.clamp((scaleF(27) - curve_distance) / scaleF(20), 0.0, 1.0) * end_fade;
-            if (broad > 0.0) blendPixelCoverage(x, y, .{ 0xF7, 0xFB, 0xFF, 0x34 }, broad);
+            if (broad > 0.0) blendEmissive(x, y, .{ 0xF6, 0xF6, 0xFF, 0x38 }, broad, 90);
             const sharp = std.math.clamp(1.0 - curve_distance / scaleF(2), 0.0, 1.0) * end_fade;
-            if (sharp > 0.0) blendPixelCoverage(x, y, .{ 0xFF, 0xFF, 0xFF, 0xA8 }, sharp);
+            if (sharp > 0.0) blendEmissive(x, y, .{ 0xFF, 0xFF, 0xFF, 0x90 }, sharp, 230);
             const echo_distance = @abs(across - (curve + scaleF(21)));
             const echo = std.math.clamp(1.0 - echo_distance / scaleF(4), 0.0, 1.0) * end_fade;
-            if (echo > 0.0) blendPixelCoverage(x, y, .{ 0xE8, 0xF4, 0xFF, 0x3C }, echo);
+            if (echo > 0.0) blendEmissive(x, y, .{ 0xD8, 0xD0, 0xFF, 0x44 }, echo, 110);
         }
     }
 }
 
 fn drawBackground() void {
     @memset(pixels(), 0);
+    @memset(&emission_buf, 0);
 }
 
-fn drawDialGlow() void {
-    if (isTilted()) {
-        drawTiltedDialGlow();
-        return;
-    }
-    var y: i32 = CY - scale(143);
-    while (y <= CY + scale(143)) : (y += 1) {
-        var x: i32 = CX - scale(143);
-        while (x <= CX + scale(143)) : (x += 1) {
-            const dx = x - CX;
-            const dy = y - CY;
-            if (dx * dx + dy * dy > scale(143) * scale(143)) continue;
-            const light = @max(0, 12 - @divTrunc(@abs(dx + dy), @as(u32, @intCast(scale(18)))));
-            if (light > 0) blendPixel(x, y, .{ 0xFF, 0xFF, 0xFF, @intCast(light) });
+fn drawDialSurface() void {
+    // Deep blue enamel shading from a bright centre to a smoked edge. The
+    // centre is engine-turned in a clous de Paris hobnail, the middle ring is
+    // snailed with concentric grooves, and the chapter ring is flat. A radial
+    // sunburst sheen follows the key light, so it sweeps as the watch tilts.
+    const radius: f32 = scaleF(144);
+    const bounds = screenBounds(-radius - 1.0, radius + 1.0, -radius - 1.0, radius + 1.0);
+    const sheen_gain = 0.7 + std.math.clamp(@abs(render_tilt_sine) * 2.5, 0.0, 0.6);
+    const planar_inverse = 1.0 / std.math.sqrt(light_x * light_x + light_y * light_y);
+    const light_dir_x = light_x * planar_inverse;
+    const light_dir_y = light_y * planar_inverse;
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        const ly = localY(y);
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const lx = localX(x);
+            const distance_squared = lx * lx + ly * ly;
+            if (distance_squared >= (radius + 1.0) * (radius + 1.0)) continue;
+            const distance = std.math.sqrt(distance_squared);
+            const coverage = std.math.clamp(radius + 0.5 - distance, 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+            const normalized = distance / radius;
+            var color = mixRgb(ENAMEL_CENTER, ENAMEL_EDGE, smoothStep(normalized * 1.08));
 
-            // Fine deterministic grain gives the silver dial a blasted finish.
-            const grain = @mod(x * 37 + y * 19, 17);
-            if (grain == 0) {
-                blendPixel(x, y, .{ 0xFF, 0xFF, 0xFF, 0x15 });
-            } else if (grain == 1) {
-                blendPixel(x, y, .{ 0x3D, 0x52, 0x62, 0x0C });
-            }
+            const inverse = 1.0 / @max(distance, 0.5);
+            const facing = (lx * light_dir_x + ly * light_dir_y) * inverse;
+            const facing_squared = facing * facing;
+            var sheen = facing_squared * facing_squared;
+            sheen *= sheen * sheen_gain;
 
-            // Cut the concentric finish into the same dial pass. Computing one
-            // distance per inner-dial pixel is cheaper than scanning the dial
-            // again for every ring.
-            const distance_squared = dx * dx + dy * dy;
-            if (distance_squared >= scale(19) * scale(19) and distance_squared <= scale(93) * scale(93)) {
-                const distance = std.math.sqrt(@as(f32, @floatFromInt(distance_squared)));
-                const ring_index = @round((distance - scaleF(20)) / scaleF(4));
-                const ring_radius = scaleF(20) + ring_index * scaleF(4) - 0.5;
-                const coverage = std.math.clamp(1.0 - @abs(distance - ring_radius), 0.0, 1.0);
-                blendPixelCoverage(x, y, .{ 0x3D, 0x52, 0x62, 0x12 }, coverage);
+            var light: f32 = 0;
+            var emission: f32 = 0;
+            if (distance < scaleF(90)) {
+                const facet = shadeHobnail(lx, ly);
+                light = facet.light + sheen * 0.16;
+                emission = facet.glint * (25.0 + 110.0 * sheen) + sheen * 30.0;
+                color = mixRgb(color, ENAMEL_EDGE, facet.groove * 0.65);
+            } else if (distance < scaleF(92)) {
+                // A polished border frames the engine-turned centre.
+                light = 0.08 + sheen * 0.45;
+                emission = sheen * 60.0;
+            } else if (distance < scaleF(118)) {
+                const groove = std.math.sin(distance * (std.math.tau / 3.0));
+                light = 0.05 * groove * facing + sheen * 0.24;
+                emission = sheen * 40.0;
+                color = mixRgb(color, ENAMEL_EDGE, 0.12);
+            } else {
+                light = sheen * 0.14;
+                emission = sheen * 18.0;
+                color = mixRgb(color, ENAMEL_EDGE, 0.28);
             }
+            color = .{
+                color[0] + light * ENAMEL_SHEEN[0],
+                color[1] + light * ENAMEL_SHEEN[1],
+                color[2] + light * ENAMEL_SHEEN[2],
+            };
+            blendEmissive(x, y, toColor(color, 0xFF), coverage, emission);
         }
     }
 }
 
-fn drawTiltedDialGlow() void {
-    const radius = scale(143);
-    const radius_f: f32 = @floatFromInt(radius);
-    const min_x = projectedFloor(CX - radius) - 1;
-    const max_x = projectedCeil(CX + radius) + 1;
-    const tilt_strength = std.math.clamp(@abs(render_tilt_sine) * 3.0, 0.0, 1.0);
-    const direction = std.math.sign(render_tilt_sine);
-    var y: i32 = CY - radius;
-    while (y <= CY + radius) : (y += 1) {
-        const local_y = y - CY;
-        const local_y_f: f32 = @floatFromInt(local_y);
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_x_f = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) - @as(f32, @floatFromInt(CX));
-            const distance_squared = local_x_f * local_x_f + local_y_f * local_y_f;
-            if (distance_squared > radius_f * radius_f) continue;
-            const local_x: i32 = @intFromFloat(@floor(local_x_f));
-            const light: i32 = @max(0, 12 - @as(i32, @intFromFloat(@floor(@abs(local_x_f + local_y_f) / scaleF(18)))));
-            if (light > 0) blendPixel(x, y, .{ 0xFF, 0xFF, 0xFF, @intCast(light) });
+const HOBNAIL_PERIOD: f32 = 7.0;
+const Hobnail = struct { light: f32, glint: f32, groove: f32 };
 
-            const grain = @mod((local_x + CX) * 37 + y * 19, 17);
-            if (grain == 0) {
-                blendPixel(x, y, .{ 0xFF, 0xFF, 0xFF, 0x15 });
-            } else if (grain == 1) {
-                blendPixel(x, y, .{ 0x3D, 0x52, 0x62, 0x0C });
-            }
-
-            if (distance_squared >= scaleF(19) * scaleF(19) and distance_squared <= scaleF(93) * scaleF(93)) {
-                const distance = std.math.sqrt(distance_squared);
-                const ring_index = @round((distance - scaleF(20)) / scaleF(4));
-                const ring_radius = scaleF(20) + ring_index * scaleF(4) - 0.5;
-                const groove_offset = distance - ring_radius;
-                const coverage = std.math.clamp(1.0 - @abs(groove_offset), 0.0, 1.0);
-                if (coverage <= 0.0) continue;
-                blendPixelCoverage(x, y, .{ 0x3D, 0x52, 0x62, 0x12 }, coverage);
-
-                // Azurage is a cut circular texture, not printed rings. Let
-                // opposite slopes of each groove catch and lose light as the
-                // dial yaws. The response also changes around the circle
-                // because the groove normal faces the light differently.
-                const incidence = local_x_f / distance * direction;
-                const lit_slope = std.math.clamp(0.55 + groove_offset * direction, 0.0, 1.0);
-                const broad = std.math.clamp(1.0 - @abs(incidence - 0.48) / 0.48, 0.0, 1.0) *
-                    coverage * lit_slope * tilt_strength;
-                if (broad > 0.0) {
-                    blendPixelCoverage(x, y, .{ 0xF5, 0xFA, 0xFD, 0x4A }, broad);
-                }
-                const sharp = std.math.clamp(1.0 - @abs(incidence - 0.62) / 0.10, 0.0, 1.0) *
-                    coverage * lit_slope * tilt_strength;
-                if (sharp > 0.0) {
-                    blendPixelCoverage(x, y, .{ 0xFF, 0xFF, 0xFF, 0x78 }, sharp);
-                }
-                const shade = std.math.clamp(1.0 - @abs(incidence + 0.46) / 0.42, 0.0, 1.0) *
-                    coverage * (1.0 - lit_slope * 0.5) * tilt_strength;
-                if (shade > 0.0) {
-                    blendPixelCoverage(x, y, .{ 0x20, 0x3E, 0x54, 0x28 }, shade);
-                }
-            }
-        }
+// Clous de Paris: a grid of small pyramids cut on the diagonal. Each pixel
+// takes the normal of the pyramid face it lies on, so faces turned toward
+// the light glitter while their opposites fall dark.
+fn shadeHobnail(lx: f32, ly: f32) Hobnail {
+    const u = (lx + ly) * (std.math.sqrt1_2 / HOBNAIL_PERIOD);
+    const v = (lx - ly) * (std.math.sqrt1_2 / HOBNAIL_PERIOD);
+    const fu = u - @floor(u) - 0.5;
+    const fv = v - @floor(v) - 0.5;
+    const slope: f32 = 0.42;
+    var nx: f32 = 0;
+    var ny: f32 = 0;
+    // The u axis points along (1, 1) and v along (1, -1) in dial space.
+    if (@abs(fu) > @abs(fv)) {
+        const sign = std.math.sign(fu) * slope * std.math.sqrt1_2;
+        nx = sign;
+        ny = sign;
+    } else {
+        const sign = std.math.sign(fv) * slope * std.math.sqrt1_2;
+        nx = sign;
+        ny = -sign;
     }
+    const nz = std.math.sqrt(1.0 - slope * slope);
+    const diffuse = nx * light_x + ny * light_y + nz * light_z - light_z;
+    var glint = std.math.clamp(nx * half_x + ny * half_y + nz * half_z, 0.0, 1.0);
+    glint *= glint;
+    glint *= glint;
+    glint *= glint;
+    glint *= glint;
+    const groove = std.math.clamp((@max(@abs(fu), @abs(fv)) - 0.44) / 0.06, 0.0, 1.0);
+    return .{
+        .light = (diffuse * 0.32 + glint * 0.30) * (1.0 - groove),
+        .glint = glint * (1.0 - groove),
+        .groove = groove,
+    };
 }
 
 fn scale(value: i32) i32 {
     return value * DRAW_SCALE;
 }
 
-fn scaleF(value: comptime_int) f32 {
-    return @floatFromInt(value * DRAW_SCALE);
+fn scaleF(comptime value: f32) f32 {
+    return value * @as(f32, @floatFromInt(DRAW_SCALE));
 }
 
 inline fn isTilted() bool {
@@ -891,32 +1185,34 @@ fn drawGlyph(character: u8, origin_x: i32, origin_y: i32, color: Color) void {
     }
 }
 
-fn drawLine(x0_in: i32, y0_in: i32, x1: i32, y1: i32, thickness: i32, color: Color) void {
-    const projected_x0: f32 = if (isTilted()) projectedX(@floatFromInt(x0_in)) else @floatFromInt(x0_in);
-    const projected_x1: f32 = if (isTilted()) projectedX(@floatFromInt(x1)) else @floatFromInt(x1);
+fn drawLine(x0: f32, y0: f32, x1: f32, y1: f32, thickness: f32, color: Color) void {
+    const projected_x0: f32 = if (isTilted()) projectedX(x0) else x0;
+    const projected_x1: f32 = if (isTilted()) projectedX(x1) else x1;
     const ax = projected_x0;
-    const ay: f32 = @floatFromInt(y0_in);
-    const vx: f32 = projected_x1 - projected_x0;
-    const vy: f32 = @floatFromInt(y1 - y0_in);
+    const ay = y0;
+    const vx = projected_x1 - projected_x0;
+    const vy = y1 - y0;
     const length_squared = vx * vx + vy * vy;
-    const local_vx: f32 = @floatFromInt(x1 - x0_in);
-    const local_vy: f32 = @floatFromInt(y1 - y0_in);
+    const local_vx = x1 - x0;
+    const local_vy = y1 - y0;
     const local_length = std.math.sqrt(local_vx * local_vx + local_vy * local_vy);
     const normal_scale = if (!isTilted() or local_length == 0)
         1.0
     else
         std.math.sqrt((local_vy / local_length * render_tilt_scale_x) * (local_vy / local_length * render_tilt_scale_x) +
             (local_vx / local_length) * (local_vx / local_length));
-    const half_width = @as(f32, @floatFromInt(@max(1, thickness))) * 0.5 * normal_scale;
-    const padding = @as(i32, @intFromFloat(@ceil(half_width))) + 1;
+    const half_width = @max(0.5, thickness * 0.5) * normal_scale;
+    const padding: f32 = @ceil(half_width) + 1.0;
 
-    const x0_screen: i32 = @intFromFloat(@floor(projected_x0));
-    const x1_screen: i32 = @intFromFloat(@floor(projected_x1));
+    const min_x: i32 = @intFromFloat(@floor(@min(projected_x0, projected_x1) - padding));
+    const max_x: i32 = @intFromFloat(@ceil(@max(projected_x0, projected_x1) + padding));
+    const min_y: i32 = @intFromFloat(@floor(@min(y0, y1) - padding));
+    const max_y: i32 = @intFromFloat(@ceil(@max(y0, y1) + padding));
 
-    var y = @min(y0_in, y1) - padding;
-    while (y <= @max(y0_in, y1) + padding) : (y += 1) {
-        var x = @min(x0_screen, x1_screen) - padding;
-        while (x <= @max(x0_screen, x1_screen) + padding) : (x += 1) {
+    var y = min_y;
+    while (y <= max_y) : (y += 1) {
+        var x = min_x;
+        while (x <= max_x) : (x += 1) {
             const px = @as(f32, @floatFromInt(x)) + 0.5;
             const py = @as(f32, @floatFromInt(y)) + 0.5;
             const t = if (length_squared == 0)
@@ -1087,8 +1383,10 @@ fn blendPixelCoverage(x: i32, y: i32, color: Color, coverage: f32) void {
 
 fn setPixel(x: i32, y: i32, color: Color) void {
     if (x < 0 or y < 0 or x >= @as(i32, @intCast(RENDER_W)) or y >= @as(i32, @intCast(RENDER_H))) return;
-    const index = (@as(usize, @intCast(y)) * RENDER_W + @as(usize, @intCast(x))) * 4;
+    const pixel_index = @as(usize, @intCast(y)) * RENDER_W + @as(usize, @intCast(x));
+    const index = pixel_index * 4;
     @memcpy(pixels()[index .. index + 4], &color);
+    emission_buf[pixel_index] = paint_emission;
 }
 
 fn blendPixel(x: i32, y: i32, source: Color) void {
@@ -1097,7 +1395,8 @@ fn blendPixel(x: i32, y: i32, source: Color) void {
         setPixel(x, y, source);
         return;
     }
-    const index = (@as(usize, @intCast(y)) * RENDER_W + @as(usize, @intCast(x))) * 4;
+    const pixel_index = @as(usize, @intCast(y)) * RENDER_W + @as(usize, @intCast(x));
+    const index = pixel_index * 4;
     const source_alpha: u32 = source[3];
     const destination_alpha: u32 = pixels()[index + 3];
     if (destination_alpha == 0) {
@@ -1105,6 +1404,10 @@ fn blendPixel(x: i32, y: i32, source: Color) void {
         return;
     }
     const inverse: u32 = 255 - source_alpha;
+    emission_buf[pixel_index] = @intCast(@divTrunc(
+        @as(u32, paint_emission) * source_alpha + @as(u32, emission_buf[pixel_index]) * inverse + 127,
+        255,
+    ));
     if (destination_alpha == 255) {
         var channel: usize = 0;
         while (channel < 3) : (channel += 1) {
@@ -1120,7 +1423,8 @@ fn blendPixel(x: i32, y: i32, source: Color) void {
     while (channel < 3) : (channel += 1) {
         const source_term = @as(u32, source[channel]) * source_alpha;
         const destination_term = @divTrunc(@as(u32, pixels()[index + channel]) * destination_alpha * inverse + 127, 255);
-        pixels()[index + channel] = @intCast(@divTrunc(source_term + destination_term + output_alpha / 2, output_alpha));
+        // Rounding both terms can land one step above 255 on bright edges.
+        pixels()[index + channel] = @intCast(@min(255, @divTrunc(source_term + destination_term + output_alpha / 2, output_alpha)));
     }
     pixels()[index + 3] = @intCast(output_alpha);
 }
@@ -1228,5 +1532,6 @@ fn resetForTest() void {
     render_tilt_inverse_x = 1;
     render_tilt_sine = 0;
     render_layer_offset_x = 0;
+    static_cached = false;
     resetUniform();
 }
