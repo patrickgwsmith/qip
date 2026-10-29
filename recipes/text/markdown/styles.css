@@ -8,14 +8,21 @@
     --dark: 1;
     --invert: 0;
 
-    --text-light: #0f1115;
-    --text-dark: #e6e6e6;
-    --bg-light: #e6e6e6;
-    --bg-dark: #0f1115;
-    --link-light: #0051dc;
-    --link-dark: #009bca;
-    --link-dark: #0eafe0;
-    --output-tint: rgb(146, 211, 255);
+    /* Warm brown palette from calculated_world. Light values are the dark ones
+       swapped, with a deeper orange so links keep their contrast on cream. */
+    --text-light: oklch(19.18% 0.0102 52.85);
+    --text-dark: oklch(91.55% 0.0391 68.55);
+    --bg-light: oklch(91.55% 0.0391 68.55);
+    --bg-dark: oklch(19.18% 0.0102 52.85);
+    --link-light: oklch(52% 0.16 45);
+    --link-dark: oklch(73% 0.18 50);
+    --link-hover-light: oklch(42% 0.13 45);
+    --link-hover-dark: oklch(82% 0.1 50);
+    --muted-light: oklch(45% 0.04 55);
+    --muted-dark: oklch(74.69% 0.0521 60.98);
+    --line-light: oklch(78% 0.035 60);
+    --line-dark: oklch(35.45% 0.0375 49.72);
+    --output-tint: oklch(73% 0.18 50);
 }
 @media (prefers-color-scheme: dark) {
     :root {
@@ -50,6 +57,21 @@ output {
         in srgb,
         var(--link-light) calc((1 - var(--light-dark-ratio)) * 100%),
         var(--link-dark) calc(var(--light-dark-ratio) * 100%)
+    );
+    --link-hover: color-mix(
+        in srgb,
+        var(--link-hover-light) calc((1 - var(--light-dark-ratio)) * 100%),
+        var(--link-hover-dark) calc(var(--light-dark-ratio) * 100%)
+    );
+    --muted: color-mix(
+        in srgb,
+        var(--muted-light) calc((1 - var(--light-dark-ratio)) * 100%),
+        var(--muted-dark) calc(var(--light-dark-ratio) * 100%)
+    );
+    --line: color-mix(
+        in srgb,
+        var(--line-light) calc((1 - var(--light-dark-ratio)) * 100%),
+        var(--line-dark) calc(var(--light-dark-ratio) * 100%)
     );
 
     color: var(--text);
@@ -86,12 +108,14 @@ body {
 }
 a {
     color: var(--link);
+
+    &:hover {
+        color: var(--link-hover);
+    }
 }
 hr {
-    color: inherit;
-    opacity: 25%;
     border: none;
-    border-top: 1px solid currentColor;
+    border-top: 1px solid var(--line);
 }
 
 header[role="banner"],
@@ -134,7 +158,7 @@ qip-search input[type="search"] {
     padding: 0.0lh 0.5em;
     color: var(--text);
     background: var(--bg);
-    border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    border: 1px solid var(--line);
     border-radius: 0;
 
     &:focus {
@@ -199,7 +223,12 @@ main {
     }
     h1 {
         font-size: 3rem;
+        font-weight: 400;
         line-height: 3rlh;
+
+        em {
+            color: var(--link-hover-dark);
+        }
     }
     h2 {
         font-size: 2rem;
@@ -207,11 +236,11 @@ main {
     }
     .heading-anchor {
         display: var(--heading-anchor-display, inline-block);
-        opacity: 55%;
+        color: var(--muted);
         text-decoration: none;
 
         &:hover {
-            opacity: 100%;
+            color: var(--link-hover);
             text-decoration: underline;
         }
     }
@@ -238,8 +267,7 @@ main {
             padding: 0.5lh 0.75em;
             text-align: left;
             vertical-align: top;
-            border-bottom: 1px solid
-                color-mix(in srgb, currentColor 25%, transparent);
+            border-bottom: 1px solid var(--line);
         }
 
         th {
@@ -247,7 +275,7 @@ main {
         }
 
         thead th {
-            border-bottom-color: currentColor;
+            border-bottom-color: var(--muted);
         }
 
         tbody tr:last-child td {
@@ -302,7 +330,7 @@ qip-main-layout:has(> nav:first-child + article) > nav:first-child {
     ol ol {
         margin-bottom: 0.75rlh;
         padding-left: 1em;
-        border-left: 1px solid currentColor;
+        border-left: 1px solid var(--line);
     }
 
     .docs-section {
@@ -392,7 +420,7 @@ form {
         &::after {
             text-align: center;
             font-size: 85%;
-            opacity: 50%;
+            color: var(--muted);
             content: "wasm " attr(data-wasm-size) " | memory "
                 attr(data-memory-size) " | render " attr(data-render-time);
         }
@@ -407,10 +435,9 @@ select {
     max-width: 100%;
     width: 100%;
     padding: 0.25lh 0.5em;
-    background: color-mix(in srgb, var(--bg) 90%, white 10%);
+    background: color-mix(in srgb, var(--bg) 90%, var(--text) 10%);
     color: var(--text);
-    border: 1px solid white;
-    border-color: color-mix(in srgb, var(--bg) 70%, white 30%);
+    border: 1px solid var(--line);
 }
 select {
     appearance: none;
