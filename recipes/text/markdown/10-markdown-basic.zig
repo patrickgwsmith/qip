@@ -1,7 +1,7 @@
 const std = @import("std");
 
-const INPUT_CAP: u32 = 0x20000;
-const OUTPUT_CAP: u32 = 0x40000;
+const INPUT_CAP: u32 = 0x100000;
+const OUTPUT_CAP: u32 = 0x200000;
 const INPUT_CONTENT_TYPE = "text/markdown";
 const OUTPUT_CONTENT_TYPE = "text/html";
 
