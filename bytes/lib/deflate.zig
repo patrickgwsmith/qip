@@ -864,6 +864,21 @@ pub fn compressRawWithOptions(input: []const u8, output: []u8, tokens: []u32, op
     return compressDynamic(input, output, tokens, options, 0);
 }
 
+/// Compresses `input` as one non-final DEFLATE block followed by an empty
+/// stored block, as zlib's Z_SYNC_FLUSH does. The output ends on a byte
+/// boundary, so callers can write the blocks before and after it, such as a
+/// PNG encoder that encodes runs of blank rows itself. Matches refer only to
+/// bytes inside `input`.
+pub fn compressRawSyncFlushWithOptions(input: []const u8, output: []u8, tokens: []u32, options: CompressionOptions) ?usize {
+    var writer = BitWriter.init(output, 0);
+    emitDynamicBlock(input, tokens, options, &writer, false, true) orelse return null;
+    if (!writer.writeBits(0, 3)) return null;
+    if (!writer.flush()) return null;
+    if (writer.out_i + 4 > output.len) return null;
+    output[writer.out_i..][0..4].* = .{ 0x00, 0x00, 0xff, 0xff };
+    return writer.out_i + 4;
+}
+
 const INCOMPRESSIBLE_SAMPLE_SIZE: usize = 8 * 1024;
 const INCOMPRESSIBLE_MATCH_PERCENT: usize = 2;
 

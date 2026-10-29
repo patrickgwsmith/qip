@@ -644,6 +644,9 @@ text/wgsl/wgsl-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2490368
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+application/warc/warc-add-open-graph-image-inter-png.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+application/warc/warc-add-open-graph-image-inter-png.wasm: application/warc/warc-add-open-graph-image-inter-png.zig application/warc/lib/warc.zig bytes/lib/deflate.zig text/lib/inter_display_latin_packed_paths.zig text/lib/inter_display_bold_latin_packed_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate --dep inter_regular --dep inter_bold -Mroot=$< -Mdeflate=bytes/lib/deflate.zig -Minter_regular=text/lib/inter_display_latin_packed_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_packed_paths.zig -femit-bin=$@
 application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-extract-broken-links.wasm application/warc/warc-text-uri-list-to-redirect.wasm: application/warc/lib/warc.zig
 recipes/application/warc/15-add-html-data-path.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 recipes/application/warc/20-apply-main-layout.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -656,7 +659,7 @@ recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-
 # Site WARC recipes scan whole archives. SIMD lets indexOfScalarPos test 16 bytes
 # per loop iteration, and wazero's timeout check (WithCloseOnContextDone) costs a
 # call on every iteration, so this makes `qip router warc` several times faster.
-application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/40-add-wasm-anchor-type.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
+application/warc/warc-add-open-graph-image-meta.wasm application/warc/warc-add-open-graph-image-inter-png.wasm application/warc/warc-add-custom-element-scripts.wasm application/warc/warc-text-uri-list-to-redirect.wasm recipes/application/warc/15-add-html-data-path.wasm recipes/application/warc/20-apply-main-layout.wasm recipes/application/warc/25-add-content-size.wasm recipes/application/warc/30-add-sitemap-xml.wasm recipes/application/warc/35-add-search-index.wasm recipes/application/warc/40-add-wasm-anchor-type.wasm recipes/application/warc/45-add-components-atom.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
 image/gif/gifsicle-optimize.wasm: ZIG_WASM_MAX_MEMORY = 167772160
 image/bmp/bmp-rgb-metrics.wasm: ZIG_WASM_MAX_MEMORY = 142606336
 multipart/form-data/form-data-to-tar.wasm: ZIG_WASM_MAX_MEMORY = 142606336
@@ -1173,9 +1176,9 @@ recipes/text/html/65-add-wasm-anchor-type.wasm: recipes/text/markdown/65-add-was
 	@mkdir -p $(dir $@)
 	ln -sf ../markdown/65-add-wasm-anchor-type.wasm $@
 
-recipes/application/warc/10-add-open-graph-image-meta.wasm: application/warc/warc-add-open-graph-image-meta.wasm
+recipes/application/warc/10-add-open-graph-image-inter-png.wasm: application/warc/warc-add-open-graph-image-inter-png.wasm
 	@mkdir -p $(dir $@)
-	ln -sf ../../../application/warc/warc-add-open-graph-image-meta.wasm $@
+	ln -sf ../../../application/warc/warc-add-open-graph-image-inter-png.wasm $@
 
 recipes/application/warc/05-text-uri-list-to-redirect.wasm: application/warc/warc-text-uri-list-to-redirect.wasm
 	@mkdir -p $(dir $@)
@@ -1198,7 +1201,7 @@ components-rust-wasm: application/wasm/wasm-validate-core-2.0.wasm image/jxl/jxl
 recipes: $(patsubst recipes/text/markdown/%.zig,recipes/text/markdown/%.wasm,$(wildcard recipes/text/markdown/*.zig))
 recipes: $(patsubst recipes/application/warc/%.zig,recipes/application/warc/%.wasm,$(wildcard recipes/application/warc/*.zig))
 recipes: recipes/application/warc/05-text-uri-list-to-redirect.wasm
-recipes: recipes/application/warc/10-add-open-graph-image-meta.wasm
+recipes: recipes/application/warc/10-add-open-graph-image-inter-png.wasm
 recipes: recipes/application/warc/99-add-custom-element-scripts.wasm
 recipes: recipes/text/markdown/17-html-code-syntax-highlight-go.wasm
 recipes: recipes/text/markdown/18-html-code-syntax-highlight-ruby.wasm
@@ -1402,6 +1405,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/text-to-og-image-font8x8.mjs
 	node --test test/text-to-og-image-svg.mjs
 	node --test test/text-to-og-image-svg-inter.mjs
+	node --test test/warc-add-open-graph-image-inter-png.mjs
 	node --test test/text-to-svg-inter.mjs
 	node --test test/text-to-svg-jetbrains-mono-v2.304.mjs
 	node --test test/jp2-bmp.mjs
@@ -1625,6 +1629,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep polyline_smoothing -Mroot="$$f" -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig || status=1; \
 		elif [ "$$f" = "application/x-tar/tar-to-zip.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig || status=1; \
+		elif [ "$$f" = "application/warc/warc-add-open-graph-image-inter-png.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate --dep inter_regular --dep inter_bold -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig -Minter_regular=text/lib/inter_display_latin_packed_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_packed_paths.zig || status=1; \
 		elif [ "$$f" = "application/x-tar/recipes-tar-to-csv.zig" ] || [ "$$f" = "application/x-tar/recipes-tar-to-node-tar.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot="$$f" -Mwasm_reader=application/wasm/lib/wasm-reader.zig || status=1; \
 		elif [ "$$f" = "application/zip/zip-to-tar.zig" ]; then \
@@ -1684,33 +1690,6 @@ test-go:
 site/favicon.ico: qip-logo.svg
 	$(QIP_BIN) run -i qip-logo.svg -- image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-double.wasm image/bmp/bmp-double.wasm image/bmp/bmp-to-ico.wasm > $@
 
-OG_MD_SOURCES := $(shell find site docs -type f -name '*.md' | sort)
-OG_IMAGE_MODULES := text/markdown/extract-title-text.wasm text/text-to-path-svg-dejavu-sans-mono-bold.wasm image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm image/bmp/bmp-to-png.wasm
-
-OG_PNG_TARGETS := $(sort $(patsubst site/_og/%/index.png,site/_og/%.png,$(patsubst docs/%.md,site/_og/docs/%.png,$(patsubst site/%.md,site/_og/%.png,$(OG_MD_SOURCES)))))
-
-site/_og: $(OG_PNG_TARGETS)
-
-define OG_RENDER_PNG_RECIPE
-	@mkdir -p $(dir $@)
-	$(QIP_BIN) run -i "$<" -o "$@" -- text/markdown/extract-title-text.wasm text/text-to-path-svg-dejavu-sans-mono-bold.wasm '?width=1200&height=630&font_size=72' image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm '?background_color_rgba=0xeecc33ff' image/bmp/bmp-to-png.wasm
-endef
-
-site/_og/%.png: site/%.md $(OG_IMAGE_MODULES)
-	$(OG_RENDER_PNG_RECIPE)
-
-site/_og/%.png: site/%/index.md $(OG_IMAGE_MODULES)
-	$(OG_RENDER_PNG_RECIPE)
-
-site/_og/docs/%.png: docs/%.md $(OG_IMAGE_MODULES)
-	$(OG_RENDER_PNG_RECIPE)
-
-site/_og/docs/%.png: docs/%/index.md $(OG_IMAGE_MODULES)
-	$(OG_RENDER_PNG_RECIPE)
-
-site/_og/docs.png: docs/index.md $(OG_IMAGE_MODULES)
-	$(OG_RENDER_PNG_RECIPE)
-
 install:
 	go install github.com/royalicing/qip@latest
 
@@ -1768,8 +1747,6 @@ site-static: qip # $(SITE_HTML_VALIDATORS)
 		failed=$$((failed + validator_failed)); \
 	done; \
 	test "$$failed" -eq 0
-
-site-static-with-og: site/_og recipes/application/warc/10-add-open-graph-image-meta.wasm site-static
 
 site-checks: site-static
 	$(QIP_BIN) router get site / | $(QIP_BIN) run text/html/html-wcag-contrast-aa.wasm
