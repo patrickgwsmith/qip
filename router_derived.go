@@ -8,7 +8,9 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,6 +24,7 @@ type devDerivedRouteSet struct {
 	started   bool
 	done      chan struct{}
 	err       error
+	duration  time.Duration
 	build     func(context.Context) (map[string]qinternal.InProcessHTTPResponse, error)
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -115,6 +118,7 @@ func (routes *devDerivedRouteSet) start() {
 			routes.responses = responses
 		}
 		routes.err = err
+		routes.duration = duration
 		close(routes.done)
 		logf := routes.logf
 		routes.mu.Unlock()
@@ -166,6 +170,62 @@ func (routes *devDerivedRouteSet) resolve(ctx context.Context, requestPath strin
 		return qinternal.InProcessHTTPResponse{}, true, fmt.Errorf("full-site WARC did not produce discovered route %q", requestPath)
 	}
 	return response, true, nil
+}
+
+// resolveMissing handles a request that matched no other route. If the path is
+// in a directory that the full-site WARC writes to, such as /_og/, it waits for
+// the build and serves the result, so routes that home-page discovery did not
+// see still load. Otherwise it returns false and the caller sends its usual 404.
+func (routes *devDerivedRouteSet) resolveMissing(ctx context.Context, requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
+	if routes == nil || !routes.coversDirectory(requestPath) {
+		return qinternal.InProcessHTTPResponse{}, false, nil
+	}
+	routes.start()
+	routes.mu.Lock()
+	done := routes.done
+	routes.mu.Unlock()
+
+	select {
+	case <-ctx.Done():
+		return qinternal.InProcessHTTPResponse{}, true, ctx.Err()
+	case <-done:
+	}
+
+	routes.mu.Lock()
+	defer routes.mu.Unlock()
+	if response, ok := routes.responses[requestPath]; ok {
+		return response, true, nil
+	}
+	var status string
+	if routes.err != nil {
+		status = fmt.Sprintf("full-site WARC build failed after %dms: %v", routes.duration.Milliseconds(), routes.err)
+	} else {
+		status = fmt.Sprintf("full-site WARC build finished in %dms without producing %s (%d derived routes)", routes.duration.Milliseconds(), requestPath, len(routes.responses))
+	}
+	return qinternal.InProcessHTTPResponse{
+		StatusCode: http.StatusNotFound,
+		Header:     http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},
+		Body:       []byte("404 page not found\n\n" + status + "\n"),
+	}, true, nil
+}
+
+func (routes *devDerivedRouteSet) coversDirectory(requestPath string) bool {
+	dir := path.Dir(requestPath)
+	if dir == "/" {
+		return false
+	}
+	routes.mu.Lock()
+	defer routes.mu.Unlock()
+	for known := range routes.known {
+		knownDir := path.Dir(known)
+		if knownDir == "/" {
+			continue
+		}
+		if dir == knownDir || strings.HasPrefix(dir, knownDir+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func (routes *devDerivedRouteSet) close() {

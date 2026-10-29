@@ -222,3 +222,93 @@ func TestLogSlowestRenderRecipesAggregatesAndRanksStages(t *testing.T) {
 		t.Fatalf("second log=%q", lines[1])
 	}
 }
+
+func TestDevDerivedRoutesWaitForUndiscoveredSiblingPaths(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	release := make(chan struct{})
+	routes := &devDerivedRouteSet{
+		known:     map[string]struct{}{"/_og/index.png": {}},
+		responses: map[string]qinternal.InProcessHTTPResponse{},
+		done:      make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
+		logf:      func(string, ...any) {},
+		build: func(context.Context) (map[string]qinternal.InProcessHTTPResponse, error) {
+			<-release
+			return map[string]qinternal.InProcessHTTPResponse{
+				"/_og/index.png":    {StatusCode: 200, Body: []byte("index")},
+				"/_og/docs/qip.png": {StatusCode: 200, Body: []byte("nested")},
+			}, nil
+		},
+	}
+	t.Cleanup(routes.close)
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(release)
+	}()
+	response, handled, err := routes.resolveMissing(context.Background(), "/_og/docs/qip.png")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if string(response.Body) != "nested" {
+		t.Fatalf("body=%q", response.Body)
+	}
+
+	response, handled, err = routes.resolveMissing(context.Background(), "/_og/missing.png")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if response.StatusCode != 404 || !strings.Contains(string(response.Body), "finished in") {
+		t.Fatalf("status=%d body=%q", response.StatusCode, response.Body)
+	}
+}
+
+func TestDevDerivedRoutesMissingPathsReportBuildFailure(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	routes := &devDerivedRouteSet{
+		known:     map[string]struct{}{"/_og/index.png": {}},
+		responses: map[string]qinternal.InProcessHTTPResponse{},
+		done:      make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
+		logf:      func(string, ...any) {},
+		build: func(context.Context) (map[string]qinternal.InProcessHTTPResponse, error) {
+			return nil, fmt.Errorf("index overflow")
+		},
+	}
+	t.Cleanup(routes.close)
+
+	response, handled, err := routes.resolveMissing(context.Background(), "/_og/docs.png")
+	if err != nil || !handled {
+		t.Fatalf("handled=%v err=%v", handled, err)
+	}
+	if response.StatusCode != 404 || !strings.Contains(string(response.Body), "full-site WARC build failed after") || !strings.Contains(string(response.Body), "index overflow") {
+		t.Fatalf("status=%d body=%q", response.StatusCode, response.Body)
+	}
+}
+
+func TestDevDerivedRoutesDoNotWaitForUnrelatedMissingPaths(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	routes := &devDerivedRouteSet{
+		known:     map[string]struct{}{"/_og/index.png": {}, "/feed.xml": {}},
+		responses: map[string]qinternal.InProcessHTTPResponse{},
+		done:      make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
+		build: func(context.Context) (map[string]qinternal.InProcessHTTPResponse, error) {
+			return nil, fmt.Errorf("should not run")
+		},
+	}
+
+	for _, requestPath := range []string{"/typo", "/_ogx/a.png", "/docs/missing"} {
+		_, handled, err := routes.resolveMissing(context.Background(), requestPath)
+		if err != nil || handled {
+			t.Fatalf("%s: handled=%v err=%v", requestPath, handled, err)
+		}
+	}
+	if routes.started {
+		t.Fatal("unrelated missing path started the full-site build")
+	}
+}

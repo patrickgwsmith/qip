@@ -80,7 +80,22 @@ func newRouterRequestHandler(logPrefix string, stateSlot *routerServerStateSlot,
 
 			route, ok := qinternal.ResolveContentRoute(current.contentRoutes, r.URL.Path, current.routeOptions)
 			if !ok {
+				response, handled, err := current.derivedRoutes.resolveMissing(r.Context(), r.URL.Path)
 				stateSlot.mu.RUnlock()
+				if err != nil {
+					return qinternal.RoutedResponse{}, err
+				}
+				if handled {
+					headers := response.Header.Clone()
+					headers.Del("Content-Length")
+					return qinternal.RoutedResponse{
+						StatusCode:             response.StatusCode,
+						Header:                 headers,
+						Body:                   response.Body,
+						ModuleDurations:        []time.Duration{},
+						InstantiationDurations: []time.Duration{},
+					}, nil
+				}
 				return qinternal.RoutedResponse{
 					StatusCode: http.StatusNotFound,
 					Header:     http.Header{"Content-Type": []string{"text/plain; charset=utf-8"}},

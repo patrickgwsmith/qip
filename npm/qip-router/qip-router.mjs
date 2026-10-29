@@ -5,7 +5,7 @@ import { createServer, STATUS_CODES } from "node:http";
 import { realpathSync } from "node:fs";
 import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
-import { extname, join, resolve } from "node:path";
+import { extname, join, posix, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 
@@ -1117,6 +1117,7 @@ export async function createQIPRouter(options = {}) {
 
   function startDerivedBuild(current, resolveBase = (pathname, resolveOptions) => baseResponseForGeneration(pathname, current, resolveOptions)) {
     if (!current.derived || current.derived.buildPromise) return current.derived?.buildPromise;
+    const startedAt = performance.now();
     current.derived.buildPromise = (async () => {
       const { archive, inputPaths, contextURIs, missing } = await wholeSiteRecords(current, resolveBase);
       if (missing) throw new Error(`full-site route ${missing} disappeared during build`);
@@ -1130,7 +1131,45 @@ export async function createQIPRouter(options = {}) {
       }
       return current.derived.responses;
     })();
+    // Requests that do not wait for the build still start it, so record the
+    // result here rather than leave a failure unhandled.
+    current.derived.buildPromise.then(
+      () => { current.derived.durationMs = performance.now() - startedAt; },
+      (error) => {
+        current.derived.durationMs = performance.now() - startedAt;
+        current.derived.error = error;
+      },
+    );
     return current.derived.buildPromise;
+  }
+
+  // Handles a request that matched no other route. If the path is in a
+  // directory that the full-site WARC writes to, such as /_og/, it waits for
+  // the build and serves the result, so routes that home-page discovery did not
+  // see still load. Otherwise it returns null and the caller sends its usual
+  // 404. Keep in sync with resolveMissing in router_derived.go.
+  async function resolveMissing(current, pathname) {
+    if (!current.derived || !derivedCoversDirectory(current.derived, pathname)) return null;
+    await startDerivedBuild(current).catch(() => {});
+    const derived = current.derived;
+    const response = derived.responses.get(pathname);
+    if (response) return response;
+    const ms = Math.round(derived.durationMs);
+    const status = derived.error
+      ? `full-site WARC build failed after ${ms}ms: ${derived.error.message}`
+      : `full-site WARC build finished in ${ms}ms without producing ${pathname} (${derived.responses.size} derived routes)`;
+    return makeResponse(404, "text/plain", `404 page not found\n\n${status}\n`);
+  }
+
+  function derivedCoversDirectory(derived, pathname) {
+    const dir = posix.dirname(pathname);
+    if (dir === "/") return false;
+    for (const known of derived.known) {
+      const knownDir = posix.dirname(known);
+      if (knownDir === "/") continue;
+      if (dir === knownDir || dir.startsWith(`${knownDir}/`)) return true;
+    }
+    return false;
   }
 
   async function kindredArchive(pathname, target, current, resolveBase = (path, resolveOptions) => baseResponse(path, current, resolveOptions)) {
@@ -1186,7 +1225,11 @@ export async function createQIPRouter(options = {}) {
       }
     }
     let response = await baseResponse(canonical, current);
-    if (!response) return makeResponse(404, "text/plain", "404 page not found\n");
+    if (!response) {
+      const missing = await resolveMissing(current, canonical);
+      if (missing) return method === "HEAD" ? headResponse(missing) : missing;
+      return makeResponse(404, "text/plain", "404 page not found\n");
+    }
     if (current.recipes.has("application/warc") && !current.components.has(canonical) && !current.elements.has(canonical)) {
       const archive = await kindredArchive(canonical, response, current);
       const rendered = await current.recipes.render("application/warc", archive);

@@ -256,6 +256,31 @@ test("Node and Go routers produce identical page and full-site WARC bytes", asyn
   assertSameArchive(Buffer.from(nodeWarc), goWarc.stdout);
 });
 
+test("Node router waits for the full-site WARC build for missing paths in derived directories", async () => {
+  const router = await createQIPRouter({ contentRoot: "site", recipesRoot: "recipes" });
+  // /_og/index.png is found from the home page. /_og/docs.png is not, but is
+  // in the same directory, so it waits for the full-site build.
+  const docs = await router.resolve("GET", "/_og/docs.png");
+  assert.equal(docs.status, 200);
+  assert.equal(docs.headers.get("content-type"), "image/png");
+  assert.deepEqual([...docs.body.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+  const nested = await router.resolve("HEAD", "/_og/docs/comply.png");
+  assert.equal(nested.status, 200);
+  assert.equal(nested.body.byteLength, 0);
+
+  const missing = await router.resolve("GET", "/_og/nope.png");
+  assert.equal(missing.status, 404);
+  assert.match(
+    new TextDecoder().decode(missing.body),
+    /^404 page not found\n\nfull-site WARC build finished in \d+ms without producing \/_og\/nope\.png \(\d+ derived routes\)\n$/,
+  );
+
+  const typo = await router.resolve("GET", "/typo");
+  assert.equal(typo.status, 404);
+  assert.equal(new TextDecoder().decode(typo.body), "404 page not found\n");
+});
+
 test("content filter routes include paths minus exclude paths and skips dot paths", () => {
   const filter = createContentFilter({ include: ["blog", "./docs/"], exclude: ["blog/drafts"] });
   const cases = {
