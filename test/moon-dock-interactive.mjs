@@ -6,7 +6,6 @@ import test from "node:test";
 
 const paths = {
   moon: "gui/moon-phases.wasm",
-  cover: "gui/cover-flow-lofi.wasm",
   dock: "gui/dock-magnification.wasm",
 };
 
@@ -75,25 +74,6 @@ test("moon phases combines initial source input with later navigation updates", 
   assert.throws(() => qipRenderSize(moon, replacementSize), WebAssembly.RuntimeError);
 });
 
-test("cover flow lofi publishes animation only when rendered", () => {
-  const cover = instantiate(wasm.cover);
-  assertUpdateABI(cover, 0);
-
-  const size = qipRenderSize(cover, 0);
-  assert.equal(size, 224 + 720 * 480 * 4);
-  const initial = digestOutput(cover, size);
-
-  cover.begin_update_at(1n);
-  assert.equal(cover.key_event(0xff53, 1), 1);
-  assert.equal(cover.finish_update(), 17n);
-  assert.equal(digestOutput(cover, size), initial);
-
-  cover.begin_update_at(17n);
-  assert.equal(cover.finish_update(), 33n);
-  assert.equal(qipRenderSize(cover, 0), size);
-  assert.notEqual(digestOutput(cover, size), initial);
-});
-
 test("dock hover animation updates independently of output publication", () => {
   const dock = instantiate(wasm.dock);
   assertUpdateABI(dock, 0);
@@ -113,8 +93,8 @@ test("dock hover animation updates independently of output publication", () => {
   assert.notEqual(digestOutput(dock, size), initial);
 });
 
-test("all three components trap on update misuse", () => {
-  for (const name of ["moon", "cover", "dock"]) {
+test("both components trap on update misuse", () => {
+  for (const name of ["moon", "dock"]) {
     const exports = instantiate(wasm[name]);
     const inputSize = name === "moon" ? writeInput(exports, "2026-05-31") : 0;
     qipRenderSize(exports, inputSize);

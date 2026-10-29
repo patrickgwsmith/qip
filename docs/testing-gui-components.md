@@ -118,18 +118,16 @@ These tests check event times inherited from `begin_update_at`, renderless
 output retention, deterministic reset, scheduled wakes, and a jump to the
 largest valid update time without an unbounded catch-up loop.
 
-Moon Phases, Cover Flow Lofi, and Dock Magnification cover source input and two
-more animation shapes:
+Moon Phases and Dock Magnification cover source input and hover animation:
 
 ```sh
-make -j gui/moon-phases.wasm gui/cover-flow-lofi.wasm gui/dock-magnification.wasm
-node --test test/moon-cover-lofi-dock-interactive.mjs
+make -j gui/moon-phases.wasm gui/dock-magnification.wasm
+node --test test/moon-dock-interactive.mjs
 ```
 
 The Moon Phases test passes an exact date slice to `render` and then changes
-the date through a renderless event update. The Cover Flow and Dock tests
-check that inertia and hover animation can advance without replacing the last
-published KTX2 output.
+the date through a renderless event update. The Dock test checks that
+hover animation can advance without replacing the last published KTX2 output.
 
 Layout Systems, Browser Security, and Graph Calculator cover event-driven
 components which do not schedule future work:

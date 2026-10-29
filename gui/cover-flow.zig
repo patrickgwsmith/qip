@@ -1,6 +1,7 @@
 const std = @import("std");
 const ktx = @import("ktx2_rgba8_srgb");
-const ui_font = @import("assets/dejavu_sans_mono_56_ascii_subset.zig");
+const inter_regular = @import("inter_regular");
+const inter_bold = @import("inter_bold");
 
 const DISPLAY_W: usize = 720;
 const DISPLAY_H: usize = 480;
@@ -24,8 +25,26 @@ const COVER_TEX_SIZE: usize = 256;
 const COVER_TEX_SHIFT: usize = 8;
 const COVER_TEX_COORD_MAX: i32 = @as(i32, @intCast(COVER_TEX_SIZE - 1));
 const COVER_TEXELS_PER_ALBUM: usize = COVER_TEX_SIZE * COVER_TEX_SIZE;
-const FLOOR_Y: i32 = 282 * RETINA_SCALE;
 const CENTER_X: i32 = @divTrunc(@as(i32, @intCast(RENDER_W)), 2);
+
+// Geometry in display px, after the 2006-era iTunes/iPod layout: one cover
+// faces the viewer, and the rest stand in two tight stacks turned ~70 degrees
+// towards the center, all at the same depth.
+const RETINA_F: f32 = @as(f32, @floatFromInt(RETINA_SCALE));
+const COVER_CENTER_Y: f32 = 168.0 * RETINA_F;
+const FOCAL: f32 = 780.0 * RETINA_F;
+const SIDE_YAW: f32 = 1.22;
+const SIDE_OFFSET: f32 = 165.0 * RETINA_F;
+const SIDE_SPACING: f32 = 34.0 * RETINA_F;
+const SIDE_DEPTH: f32 = 120.0 * RETINA_F;
+const CENTER_SLIDE: f32 = 60.0 * RETINA_F;
+const SIDE_DARKEN_MAX: f32 = 90.0;
+// Each cover is mirrored in a black glossy floor. The mirror image starts
+// REFLECTION_ALPHA/255 bright at the cover's bottom edge and fades linearly
+// to black over REFLECTION_SPAN of the cover's height.
+const REFLECTION_GAP: f32 = 2.0 * RETINA_F;
+const REFLECTION_SPAN: f32 = 0.55;
+const REFLECTION_ALPHA: f32 = 92.0;
 const MAX_ALBUMS: usize = 10;
 const ROW_CLIP_NONE: u8 = 0xFF;
 
@@ -111,14 +130,12 @@ const FrameCover = struct {
     index: i32,
     q: Quad,
     reflection_q: Quad,
-    dist: i32,
     side_dark: i32,
-    light_boost: i32,
-    reflection_alpha: u8,
 };
 
 const CoverPose = struct {
     q: Quad,
+    reflection_q: Quad,
     normal: Vec3,
 };
 
@@ -135,16 +152,16 @@ const Matrix3 = struct {
 };
 
 const albums = [_]Album{
-    .{ .title = "MIDNIGHT RUN", .artist = "THE ARCADES", .a = .{ 0x13, 0x29, 0x5B, 0xFF }, .b = .{ 0xE7, 0x46, 0x8A, 0xFF }, .c = .{ 0x42, 0xDF, 0xE7, 0xFF }, .motif = 0 },
-    .{ .title = "GLASS HOUSES", .artist = "NORTH PIER", .a = .{ 0xD9, 0xE8, 0xF0, 0xFF }, .b = .{ 0x1E, 0x73, 0x8F, 0xFF }, .c = .{ 0x0F, 0x21, 0x2C, 0xFF }, .motif = 1 },
-    .{ .title = "LOW SUN", .artist = "JUNE ATLAS", .a = .{ 0xF1, 0xB1, 0x49, 0xFF }, .b = .{ 0xD8, 0x42, 0x3B, 0xFF }, .c = .{ 0x39, 0x20, 0x45, 0xFF }, .motif = 2 },
-    .{ .title = "TAPE ECHO", .artist = "MONO FIELD", .a = .{ 0x21, 0x24, 0x26, 0xFF }, .b = .{ 0xDB, 0xD2, 0xB4, 0xFF }, .c = .{ 0x9B, 0xE2, 0x80, 0xFF }, .motif = 3 },
-    .{ .title = "OCEAN STATIC", .artist = "THE SIGNALS", .a = .{ 0x04, 0x3B, 0x53, 0xFF }, .b = .{ 0x11, 0xA6, 0xC7, 0xFF }, .c = .{ 0xEE, 0xF6, 0xFF, 0xFF }, .motif = 4 },
-    .{ .title = "RED LINE", .artist = "CITY INDEX", .a = .{ 0x24, 0x11, 0x16, 0xFF }, .b = .{ 0xB9, 0x1F, 0x36, 0xFF }, .c = .{ 0xF6, 0xE5, 0xB7, 0xFF }, .motif = 5 },
-    .{ .title = "SOFT CIRCUITS", .artist = "ADA VIEW", .a = .{ 0x61, 0x78, 0x8A, 0xFF }, .b = .{ 0xE7, 0xE0, 0xC4, 0xFF }, .c = .{ 0x1C, 0x32, 0x45, 0xFF }, .motif = 6 },
-    .{ .title = "LATE CHECKOUT", .artist = "HOTEL MIRROR", .a = .{ 0x12, 0x16, 0x1C, 0xFF }, .b = .{ 0xC4, 0xA0, 0x5E, 0xFF }, .c = .{ 0x79, 0xD3, 0xFF, 0xFF }, .motif = 7 },
-    .{ .title = "BLUEPRINTS", .artist = "PAPER TIGER", .a = .{ 0xF8, 0xF6, 0xED, 0xFF }, .b = .{ 0x2D, 0x5D, 0x8F, 0xFF }, .c = .{ 0xE2, 0x51, 0x43, 0xFF }, .motif = 8 },
-    .{ .title = "AFTER HOURS", .artist = "BLACK RAIN", .a = .{ 0x08, 0x08, 0x0D, 0xFF }, .b = .{ 0x5E, 0x44, 0x8F, 0xFF }, .c = .{ 0xF1, 0x5A, 0x7B, 0xFF }, .motif = 9 },
+    .{ .title = "Midnight Run", .artist = "The Arcades", .a = .{ 0x13, 0x29, 0x5B, 0xFF }, .b = .{ 0xE7, 0x46, 0x8A, 0xFF }, .c = .{ 0x42, 0xDF, 0xE7, 0xFF }, .motif = 0 },
+    .{ .title = "Glass Houses", .artist = "North Pier", .a = .{ 0xD9, 0xE8, 0xF0, 0xFF }, .b = .{ 0x1E, 0x73, 0x8F, 0xFF }, .c = .{ 0x0F, 0x21, 0x2C, 0xFF }, .motif = 1 },
+    .{ .title = "Low Sun", .artist = "June Atlas", .a = .{ 0xF1, 0xB1, 0x49, 0xFF }, .b = .{ 0xD8, 0x42, 0x3B, 0xFF }, .c = .{ 0x39, 0x20, 0x45, 0xFF }, .motif = 2 },
+    .{ .title = "Tape Echo", .artist = "Mono Field", .a = .{ 0x21, 0x24, 0x26, 0xFF }, .b = .{ 0xDB, 0xD2, 0xB4, 0xFF }, .c = .{ 0x9B, 0xE2, 0x80, 0xFF }, .motif = 3 },
+    .{ .title = "Ocean Static", .artist = "The Signals", .a = .{ 0x04, 0x3B, 0x53, 0xFF }, .b = .{ 0x11, 0xA6, 0xC7, 0xFF }, .c = .{ 0xEE, 0xF6, 0xFF, 0xFF }, .motif = 4 },
+    .{ .title = "Red Line", .artist = "City Index", .a = .{ 0x24, 0x11, 0x16, 0xFF }, .b = .{ 0xB9, 0x1F, 0x36, 0xFF }, .c = .{ 0xF6, 0xE5, 0xB7, 0xFF }, .motif = 5 },
+    .{ .title = "Soft Circuits", .artist = "Ada View", .a = .{ 0x61, 0x78, 0x8A, 0xFF }, .b = .{ 0xE7, 0xE0, 0xC4, 0xFF }, .c = .{ 0x1C, 0x32, 0x45, 0xFF }, .motif = 6 },
+    .{ .title = "Late Checkout", .artist = "Hotel Mirror", .a = .{ 0x12, 0x16, 0x1C, 0xFF }, .b = .{ 0xC4, 0xA0, 0x5E, 0xFF }, .c = .{ 0x79, 0xD3, 0xFF, 0xFF }, .motif = 7 },
+    .{ .title = "Blueprints", .artist = "Paper Tiger", .a = .{ 0xF8, 0xF6, 0xED, 0xFF }, .b = .{ 0x2D, 0x5D, 0x8F, 0xFF }, .c = .{ 0xE2, 0x51, 0x43, 0xFF }, .motif = 8 },
+    .{ .title = "After Hours", .artist = "Black Rain", .a = .{ 0x08, 0x08, 0x0D, 0xFF }, .b = .{ 0x5E, 0x44, 0x8F, 0xFF }, .c = .{ 0xF1, 0x5A, 0x7B, 0xFF }, .motif = 9 },
 };
 
 var output_buf: [OUTPUT_BYTES]u8 = undefined;
@@ -162,8 +179,11 @@ var press_x: i32 = 0;
 var last_x: i32 = 0;
 var last_dx: i32 = 0;
 var press_selected_q8: i32 = 0;
+var scrub_active = false;
+var scrub_grab_dx: i32 = 0;
 var feature_mask: u32 = FEATURE_RENDERING | FEATURE_ALL;
 var cover_edges: [MAX_ALBUMS]QuadEdges = undefined;
+var reflection_edges: [MAX_ALBUMS]QuadEdges = undefined;
 var cover_clip_neighbor: [MAX_ALBUMS]u8 = undefined;
 var cover_clip_side: [MAX_ALBUMS]i8 = undefined;
 var project_u_f: [RENDER_W]f32 = undefined;
@@ -229,8 +249,20 @@ export fn pointer_event(button_mask: i32, x_px: i32, y_px: i32) i32 {
     advanceTransactionTime();
     const down = (button_mask & BTN_PRIMARY) != 0;
     const was_down = primary_down;
+    const was_selected_q8 = selected_q8;
 
-    if (down and !primary_down) {
+    if (down and !primary_down and scrollBarHit(x_px, y_px)) {
+        const thumb = scrollThumb();
+        scrub_active = true;
+        scrub_grab_dx = if (x_px >= thumb.x and x_px < thumb.x + thumb.w) x_px - thumb.x else @divTrunc(thumb.w, 2);
+        scrubTo(x_px);
+    } else if (down and primary_down and scrub_active) {
+        scrubTo(x_px);
+    } else if (!down and primary_down and scrub_active) {
+        scrub_active = false;
+        target_q8 = nearestIndex() * 256;
+        needs_redraw = true;
+    } else if (down and !primary_down) {
         press_x = x_px;
         last_x = x_px;
         last_dx = 0;
@@ -255,7 +287,8 @@ export fn pointer_event(button_mask: i32, x_px: i32, y_px: i32) i32 {
         needs_redraw = true;
     }
     primary_down = down;
-    return if (was_down != down or (down and was_down)) 1 else 0;
+    // A held pointer that hasn't moved the covers leaves the frame unchanged.
+    return if (was_down != down or selected_q8 != was_selected_q8) 1 else 0;
 }
 
 fn eventPhaseIsValid() bool {
@@ -266,7 +299,7 @@ fn eventPhaseIsValid() bool {
 fn advanceTransactionTime() void {
     if (time_advanced) return;
     time_advanced = true;
-    var active = primary_down;
+    var active = false;
     if (!primary_down) {
         if (velocity_q8 != 0) {
             selected_q8 = clampSelected(selected_q8 + velocity_q8, true);
@@ -338,7 +371,9 @@ export fn render(input_size: u32) packed struct(u64) {
 export fn finish_update() i64 {
     if (phase != .updating) @trap();
     advanceTransactionTime();
-    const active = primary_down or velocity_q8 != 0 or absI32(target_q8 - selected_q8) > 1 or absI32(spring_velocity_q8) > 2;
+    // Nothing animates while the pointer is held; pointer events drive the
+    // frames instead, so a still press needs no wake.
+    const active = !primary_down and (velocity_q8 != 0 or absI32(target_q8 - selected_q8) > 1 or absI32(spring_velocity_q8) > 2);
     next_wake_at_ms = if (active and begun_at_ms <= std.math.maxInt(i64) - 16) begun_at_ms + 16 else begun_at_ms;
     committed_at_ms = begun_at_ms;
     const wake = next_wake_at_ms;
@@ -435,7 +470,10 @@ fn buildCoverRowVisibility(nearest: i32, covers: *const [MAX_ALBUMS]FrameCover, 
 
     var i: usize = 0;
     while (i < MAX_ALBUMS) : (i += 1) {
-        if (valid[i]) cover_edges[i] = makeQuadEdges(covers[i].q);
+        if (valid[i]) {
+            cover_edges[i] = makeQuadEdges(covers[i].q);
+            reflection_edges[i] = makeQuadEdges(covers[i].reflection_q);
+        }
     }
 
     var pass: i32 = 1;
@@ -459,13 +497,15 @@ fn buildCoverRowVisibility(nearest: i32, covers: *const [MAX_ALBUMS]FrameCover, 
     }
 }
 
-inline fn clipCoverRowToVisibleX(album_idx: usize, y: i32, row_min_x: *i32, row_max_x: *i32) void {
+// Reflections stack the same way as their covers, so both use this.
+inline fn clipCoverRowToVisibleX(comptime reflection: bool, album_idx: usize, y: i32, row_min_x: *i32, row_max_x: *i32) void {
     const side = cover_clip_side[album_idx];
     if (side == 0) return;
     const neighbor = cover_clip_neighbor[album_idx];
     if (neighbor == ROW_CLIP_NONE) return;
 
-    const span = rowFullCoverageSpan(cover_edges[neighbor], y, 0, @as(i32, @intCast(RENDER_W)) - 1);
+    const neighbor_edges = if (reflection) reflection_edges[neighbor] else cover_edges[neighbor];
+    const span = rowFullCoverageSpan(neighbor_edges, y, 0, @as(i32, @intCast(RENDER_W)) - 1);
     if (span.min_x > span.max_x) return;
 
     if (side < 0) {
@@ -480,48 +520,10 @@ inline fn clipCoverRowToVisibleX(album_idx: usize, y: i32, row_min_x: *i32, row_
 }
 
 fn drawBackground() void {
-    var y: i32 = 0;
-    while (y < @as(i32, @intCast(RENDER_H))) : (y += 1) {
-        const t = @divTrunc(y * 255, @as(i32, @intCast(RENDER_H - 1)));
-        const floor_fade = if (y >= FLOOR_Y) clampI32(170 - @divTrunc((y - FLOOR_Y) * 2, RETINA_SCALE), 0, 170) else 0;
-        var x: i32 = 0;
-        var out_idx = (@as(usize, @intCast(y)) * RENDER_W) * 4;
-        while (x < @as(i32, @intCast(RENDER_W))) : (x += 1) {
-            const cx = absI32(x - CENTER_X);
-            const vignette = clampI32(@divTrunc(cx * 85, CENTER_X) + @divTrunc(absI32(y - 198 * RETINA_SCALE) * 34, 240 * RETINA_SCALE), 0, 105);
-            const glow = clampI32(78 - @divTrunc(cx, 6 * RETINA_SCALE) - @divTrunc(absI32(y - 156 * RETINA_SCALE), 5 * RETINA_SCALE), 0, 78);
-            var r = clampI32(6 + @divTrunc(t, 18) + @divTrunc(glow, 5) - @divTrunc(vignette, 6), 0, 255);
-            var g = clampI32(7 + @divTrunc(t, 20) + @divTrunc(glow, 4) - @divTrunc(vignette, 6), 0, 255);
-            var b = clampI32(10 + @divTrunc(t, 12) + @divTrunc(glow, 2) - @divTrunc(vignette, 4), 0, 255);
-            if (floor_fade > 0) {
-                const keep = 255 - floor_fade;
-                r = @divTrunc(r * keep, 255);
-                g = @divTrunc(g * keep, 255);
-                b = @divTrunc(b * keep, 255);
-            }
-            pixel_buf[out_idx + 0] = @as(u8, @intCast(r));
-            pixel_buf[out_idx + 1] = @as(u8, @intCast(g));
-            pixel_buf[out_idx + 2] = @as(u8, @intCast(b));
-            pixel_buf[out_idx + 3] = 0xFF;
-            out_idx += 4;
-        }
-    }
-
-    blendRect(0, FLOOR_Y - RETINA_SCALE, @as(i32, @intCast(RENDER_W)), RETINA_SCALE, .{ 0xC6, 0xD6, 0xEA, 0x30 });
-    drawFloorShine();
-}
-
-fn drawFloorShine() void {
-    var y: i32 = FLOOR_Y;
-    while (y < FLOOR_Y + 64 * RETINA_SCALE) : (y += 1) {
-        const row_alpha = clampI32(42 - @divTrunc(y - FLOOR_Y, RETINA_SCALE), 0, 42);
-        var x: i32 = 63 * RETINA_SCALE;
-        while (x < @as(i32, @intCast(RENDER_W)) - 63 * RETINA_SCALE) : (x += 1) {
-            const dx = absI32(x - CENTER_X);
-            const a = clampI32(row_alpha - @divTrunc(dx, 15 * RETINA_SCALE), 0, 42);
-            if (a > 0) blendPixelUnchecked(x, y, .{ 0xD8, 0xE9, 0xFF, @as(u8, @intCast(a)) });
-        }
-    }
+    // The original stage is pure black: no floor line, glow or vignette.
+    // The floor only shows through the covers' reflections.
+    clear(.{ 0x00, 0x00, 0x00, 0xFF });
+    drawScrollTrack();
 }
 
 fn buildFrameCovers(nearest: i32, covers: *[MAX_ALBUMS]FrameCover, valid: *[MAX_ALBUMS]bool) void {
@@ -537,66 +539,52 @@ fn buildFrameCovers(nearest: i32, covers: *[MAX_ALBUMS]FrameCover, valid: *[MAX_
 
 fn buildFrameCover(index: i32) FrameCover {
     const pose = coverPose(index);
-    const q = pose.q;
-    const delta_q8 = index * 256 - selected_q8;
-    const dist = absI32(delta_q8);
     return .{
         .index = index,
-        .q = q,
-        .reflection_q = reflectQuad(q),
-        .dist = dist,
-        .side_dark = clampI32(@divTrunc(dist, 9), 0, 72),
-        .light_boost = if (!featureEnabled(FEATURE_LIGHTING)) 0 else lightingBoost(pose.normal),
-        .reflection_alpha = @as(u8, @intCast(clampI32(88 - @divTrunc(dist, 12), 14, 84))),
+        .q = pose.q,
+        .reflection_q = pose.reflection_q,
+        .side_dark = if (featureEnabled(FEATURE_LIGHTING)) sideDarken(pose.normal) else 0,
     };
 }
 
+// Reflections are written opaque (a faded copy over a black floor), so they
+// are drawn back to front like the covers and nearer ones hide farther ones.
 fn drawReflections(nearest: i32, covers: *const [MAX_ALBUMS]FrameCover, valid: *const [MAX_ALBUMS]bool) void {
-    var pass: i32 = 5;
-    while (pass >= -5) : (pass -= 1) {
-        const idx = nearest + pass;
-        if (idx < 0 or idx >= @as(i32, @intCast(albums.len))) continue;
-        const slot = @as(usize, @intCast(idx));
-        if (valid[slot]) drawAlbumPrepared(true, covers[slot]);
-    }
+    drawBackToFront(true, nearest, covers, valid);
 }
 
 fn drawAlbums(nearest: i32, covers: *const [MAX_ALBUMS]FrameCover, valid: *const [MAX_ALBUMS]bool) void {
+    drawBackToFront(false, nearest, covers, valid);
+}
+
+fn drawBackToFront(comptime reflection: bool, nearest: i32, covers: *const [MAX_ALBUMS]FrameCover, valid: *const [MAX_ALBUMS]bool) void {
     var pass: i32 = 5;
     while (pass >= 1) : (pass -= 1) {
         const left = nearest - pass;
         if (left >= 0) {
             const slot = @as(usize, @intCast(left));
-            if (valid[slot]) drawAlbumPrepared(false, covers[slot]);
+            if (valid[slot]) drawAlbumPrepared(reflection, covers[slot]);
         }
         const right = nearest + pass;
         if (right < @as(i32, @intCast(albums.len))) {
             const slot = @as(usize, @intCast(right));
-            if (valid[slot]) drawAlbumPrepared(false, covers[slot]);
+            if (valid[slot]) drawAlbumPrepared(reflection, covers[slot]);
         }
     }
     if (nearest >= 0 and nearest < @as(i32, @intCast(albums.len))) {
         const slot = @as(usize, @intCast(nearest));
-        if (valid[slot]) drawAlbumPrepared(false, covers[slot]);
+        if (valid[slot]) drawAlbumPrepared(reflection, covers[slot]);
     }
 }
 
 fn drawAlbumPrepared(comptime reflection: bool, cover: FrameCover) void {
     const q = if (reflection) cover.reflection_q else cover.q;
-    const light_boost = if (reflection) 0 else cover.light_boost;
-    const alpha: u8 = if (reflection) cover.reflection_alpha else 0xFF;
-    if (!reflection) {
-        drawSoftShadow(q);
-    }
-    drawTexturedQuad(reflection, q, @as(usize, @intCast(cover.index)), cover.side_dark, light_boost, alpha);
-    if (!reflection) {
-        drawSpecular(q, cover.dist);
-    }
+    drawTexturedQuad(reflection, q, @as(usize, @intCast(cover.index)), cover.side_dark);
 }
 
 fn coverQuad(comptime reflection: bool, index: i32) Quad {
-    const q = coverPose(index).q;
-    return if (reflection) reflectQuad(q) else q;
+    const pose = coverPose(index);
+    return if (reflection) pose.reflection_q else pose.q;
 }
 
 fn coverPose(index: i32) CoverPose {
@@ -604,60 +592,59 @@ fn coverPose(index: i32) CoverPose {
     const rel = @as(f32, @floatFromInt(d_q8)) / 256.0;
     const ad = absF32(rel);
     const sign: f32 = if (rel < 0) -1.0 else 1.0;
-    const turn = smoothstep(0.18, 0.82, ad);
-    const yaw = sign * (turn * 1.08 + (1.0 - turn) * rel * 0.18);
+    const turn = smoothstep(0.1, 0.9, ad);
+    // Side covers turn to face the center, so their inner edges tuck behind
+    // their neighbors and only the nearer, outer edges show.
+    const yaw = sign * turn * SIDE_YAW;
     const cos_y = @cos(yaw);
     const sin_y = @sin(yaw);
-    const center_push = rel * 60.0 * @as(f32, @floatFromInt(RETINA_SCALE));
-    const side_push = sign * (126.0 + (ad - 1.0) * 86.0) * @as(f32, @floatFromInt(RETINA_SCALE));
-    const x_push = lerpF32(center_push, side_push, turn);
-    const x_world = clampF32(x_push, -500.0 * @as(f32, @floatFromInt(RETINA_SCALE)), 500.0 * @as(f32, @floatFromInt(RETINA_SCALE)));
-    const z_world = clampF32(ad * 51.0 * @as(f32, @floatFromInt(RETINA_SCALE)), 0.0, 270.0 * @as(f32, @floatFromInt(RETINA_SCALE)));
-    const y_center = 171.0 * @as(f32, @floatFromInt(RETINA_SCALE)) + clampF32(ad * 6.0 * @as(f32, @floatFromInt(RETINA_SCALE)), 0.0, 36.0 * @as(f32, @floatFromInt(RETINA_SCALE)));
-    const half = @as(f32, @floatFromInt(COVER)) * (1.0 - clampF32(ad * 0.025, 0.0, 0.12)) * 0.5;
+    const side_x = sign * (SIDE_OFFSET + (ad - 1.0) * SIDE_SPACING);
+    const x_world = lerpF32(rel * CENTER_SLIDE, side_x, turn);
+    const z_world = turn * SIDE_DEPTH;
+    const half = @as(f32, @floatFromInt(COVER)) * 0.5;
+    // The reflection is the cover mirrored in the floor plane at its bottom
+    // edge, trimmed to the part that is still visible before it fades out.
+    const mirror_top = half + REFLECTION_GAP;
+    const mirror_bottom = mirror_top + 2.0 * half * REFLECTION_SPAN;
     return .{
         .q = .{
-            .tl = projectCoverCorner(-half, -half, x_world, y_center, z_world, cos_y, sin_y),
-            .tr = projectCoverCorner(half, -half, x_world, y_center, z_world, cos_y, sin_y),
-            .br = projectCoverCorner(half, half, x_world, y_center, z_world, cos_y, sin_y),
-            .bl = projectCoverCorner(-half, half, x_world, y_center, z_world, cos_y, sin_y),
+            .tl = projectCoverCorner(-half, -half, x_world, z_world, cos_y, sin_y),
+            .tr = projectCoverCorner(half, -half, x_world, z_world, cos_y, sin_y),
+            .br = projectCoverCorner(half, half, x_world, z_world, cos_y, sin_y),
+            .bl = projectCoverCorner(-half, half, x_world, z_world, cos_y, sin_y),
+        },
+        .reflection_q = .{
+            .tl = projectCoverCorner(-half, mirror_top, x_world, z_world, cos_y, sin_y),
+            .tr = projectCoverCorner(half, mirror_top, x_world, z_world, cos_y, sin_y),
+            .br = projectCoverCorner(half, mirror_bottom, x_world, z_world, cos_y, sin_y),
+            .bl = projectCoverCorner(-half, mirror_bottom, x_world, z_world, cos_y, sin_y),
         },
         .normal = .{ .x = sin_y, .y = 0.0, .z = cos_y },
     };
 }
 
-fn projectCoverCorner(local_x: f32, local_y: f32, x_world: f32, y_center: f32, z_world: f32, cos_y: f32, sin_y: f32) Point {
+fn projectCoverCorner(local_x: f32, local_y: f32, x_world: f32, z_world: f32, cos_y: f32, sin_y: f32) Point {
     const rotated_x = local_x * cos_y;
     const rotated_z = -local_x * sin_y;
     const z = z_world + rotated_z;
-    const perspective = (780.0 * @as(f32, @floatFromInt(RETINA_SCALE))) / (780.0 * @as(f32, @floatFromInt(RETINA_SCALE)) + z);
+    const perspective = FOCAL / (FOCAL + z);
     return .{
         .x = @as(i32, @intFromFloat(@round(@as(f32, @floatFromInt(CENTER_X)) + (x_world + rotated_x) * perspective))),
-        .y = @as(i32, @intFromFloat(@round(y_center + local_y * perspective))),
+        .y = @as(i32, @intFromFloat(@round(COVER_CENTER_Y + local_y * perspective))),
     };
 }
 
-fn reflectQuad(q: Quad) Quad {
-    const gap = 4 * RETINA_SCALE;
-    return .{
-        .tl = .{ .x = q.bl.x, .y = FLOOR_Y + gap },
-        .tr = .{ .x = q.br.x, .y = FLOOR_Y + gap },
-        .br = .{ .x = q.tr.x, .y = FLOOR_Y + gap + @divTrunc((q.br.y - q.tr.y) * 3, 4) },
-        .bl = .{ .x = q.tl.x, .y = FLOOR_Y + gap + @divTrunc((q.bl.y - q.tl.y) * 3, 4) },
-    };
-}
-
-noinline fn drawTexturedQuad(comptime reflection: bool, q: Quad, album_idx: usize, darken: i32, light_boost: i32, alpha: u8) void {
+noinline fn drawTexturedQuad(comptime reflection: bool, q: Quad, album_idx: usize, darken: i32) void {
     switch (feature_mask & (FEATURE_BILINEAR | FEATURE_ANTIALIAS)) {
-        0 => drawTexturedQuadMode(reflection, false, false, q, album_idx, darken, light_boost, alpha),
-        FEATURE_BILINEAR => drawTexturedQuadMode(reflection, true, false, q, album_idx, darken, light_boost, alpha),
-        FEATURE_ANTIALIAS => drawTexturedQuadMode(reflection, false, true, q, album_idx, darken, light_boost, alpha),
-        FEATURE_BILINEAR | FEATURE_ANTIALIAS => drawTexturedQuadMode(reflection, true, true, q, album_idx, darken, light_boost, alpha),
+        0 => drawTexturedQuadMode(reflection, false, false, q, album_idx, darken),
+        FEATURE_BILINEAR => drawTexturedQuadMode(reflection, true, false, q, album_idx, darken),
+        FEATURE_ANTIALIAS => drawTexturedQuadMode(reflection, false, true, q, album_idx, darken),
+        FEATURE_BILINEAR | FEATURE_ANTIALIAS => drawTexturedQuadMode(reflection, true, true, q, album_idx, darken),
         else => unreachable,
     }
 }
 
-fn drawTexturedQuadMode(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, q: Quad, album_idx: usize, darken: i32, light_boost: i32, alpha: u8) void {
+fn drawTexturedQuadMode(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, q: Quad, album_idx: usize, darken: i32) void {
     const inv = inverseHomography(q) orelse return;
     const edges: QuadEdges = if (use_bilinear and use_antialias) makeQuadEdges(q) else undefined;
     const min_x = clampI32(min4(q.tl.x, q.tr.x, q.br.x, q.bl.x), 0, @as(i32, @intCast(RENDER_W)) - 1);
@@ -671,14 +658,10 @@ fn drawTexturedQuadMode(comptime reflection: bool, comptime use_bilinear: bool, 
         const row_u_y = inv.m01 * yf;
         const row_v_y = inv.m11 * yf;
         const row_d_y = inv.m21 * yf;
-        const row_fade = if (reflection) clampI32(@as(i32, alpha) - @divTrunc((y - FLOOR_Y) * 3, 2), 0, @as(i32, alpha)) else 0;
-        if (reflection and row_fade <= 0) continue;
         var row_min_x = min_x;
         var row_max_x = max_x;
-        if (!reflection) {
-            clipCoverRowToVisibleX(album_idx, y, &row_min_x, &row_max_x);
-            if (row_min_x > row_max_x) continue;
-        }
+        clipCoverRowToVisibleX(reflection, album_idx, y, &row_min_x, &row_max_x);
+        if (row_min_x > row_max_x) continue;
         var x = row_min_x;
         if (use_bilinear and use_antialias) {
             const full_span = rowFullCoverageSpan(edges, y, row_min_x, row_max_x);
@@ -686,26 +669,26 @@ fn drawTexturedQuadMode(comptime reflection: bool, comptime use_bilinear: bool, 
             const full_end = lastBatchXAtOrBefore(row_min_x, @min(full_span.max_x - 3, row_max_x - 3));
 
             while (x + 3 <= row_max_x and x < full_start) : (x += 4) {
-                drawTexturedQuadBatch4BilinearAA(reflection, edges, inv, row_u_y, row_v_y, row_d_y, x, y, album_idx, darken, light_boost, alpha, row_fade);
+                drawTexturedQuadBatch4BilinearAA(reflection, edges, inv, row_u_y, row_v_y, row_d_y, x, y, album_idx, darken);
             }
             while (x <= full_end) : (x += 4) {
-                drawTexturedQuadBatch4BilinearFullCached(reflection, inv, row_v_y, x, y, album_idx, darken, light_boost, row_fade);
+                drawTexturedQuadBatch4BilinearFullCached(reflection, inv, row_v_y, x, y, album_idx, darken);
             }
             while (x + 3 <= row_max_x) : (x += 4) {
-                drawTexturedQuadBatch4BilinearAA(reflection, edges, inv, row_u_y, row_v_y, row_d_y, x, y, album_idx, darken, light_boost, alpha, row_fade);
+                drawTexturedQuadBatch4BilinearAA(reflection, edges, inv, row_u_y, row_v_y, row_d_y, x, y, album_idx, darken);
             }
         } else {
             while (x + 3 <= row_max_x) : (x += 4) {
-                if (!reflection and use_bilinear and !use_antialias and alpha == 0xFF) {
-                    drawTexturedQuadBatch4OpaqueNoAA(use_bilinear, inv, x, y, album_idx, darken, light_boost);
+                if (!reflection and use_bilinear and !use_antialias) {
+                    drawTexturedQuadBatch4OpaqueNoAA(use_bilinear, inv, x, y, album_idx, darken);
                 } else {
-                    drawTexturedQuadBatch4(reflection, use_bilinear, use_antialias, inv, x, y, album_idx, darken, light_boost, alpha);
+                    drawTexturedQuadBatch4(reflection, use_bilinear, use_antialias, inv, x, y, album_idx, darken);
                 }
             }
         }
         while (x <= row_max_x) : (x += 1) {
             const uv = mapPoint(inv, @as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5) orelse continue;
-            drawTexturedQuadMappedPixel(reflection, use_bilinear, use_antialias, inv, x, y, uv, album_idx, darken, light_boost, alpha);
+            drawTexturedQuadMappedPixel(reflection, use_bilinear, use_antialias, inv, x, y, uv, album_idx, darken);
         }
     }
 }
@@ -735,7 +718,27 @@ inline fn lastBatchXAtOrBefore(min_x: i32, upper: i32) i32 {
     return min_x + @divTrunc(upper - min_x, 4) * 4;
 }
 
-inline fn drawTexturedQuadBatch4OpaqueNoAA(comptime use_bilinear: bool, inv: Matrix3, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32) void {
+// A reflection quad's v runs from 0 at the cover's bottom edge to 1 where the
+// fade reaches black, so it samples the bottom REFLECTION_SPAN of the cover,
+// flipped.
+inline fn reflectionTexV(v_clamped: f32) f32 {
+    return 255.0 - v_clamped * (255.0 * REFLECTION_SPAN);
+}
+
+inline fn reflectionFade(v_clamped: f32) i32 {
+    return @as(i32, @intFromFloat(@round(REFLECTION_ALPHA * (1.0 - v_clamped))));
+}
+
+inline fn coverTexVBatch4(comptime reflection: bool, v_clamped: Vec4f) Vec4f {
+    if (reflection) return @as(Vec4f, @splat(255.0)) - v_clamped * @as(Vec4f, @splat(255.0 * REFLECTION_SPAN));
+    return v_clamped * @as(Vec4f, @splat(255.0));
+}
+
+inline fn reflectionFadeBatch4(v_clamped: Vec4f) Vec4i {
+    return @intFromFloat(@round(@as(Vec4f, @splat(REFLECTION_ALPHA)) * (@as(Vec4f, @splat(1.0)) - v_clamped)));
+}
+
+inline fn drawTexturedQuadBatch4OpaqueNoAA(comptime use_bilinear: bool, inv: Matrix3, x: i32, y: i32, album_idx: usize, darken: i32) void {
     const xf: f32 = @as(f32, @floatFromInt(x)) + 0.5;
     const yf: f32 = @as(f32, @floatFromInt(y)) + 0.5;
     const xs: Vec4f = .{ xf, xf + 1.0, xf + 2.0, xf + 3.0 };
@@ -752,7 +755,7 @@ inline fn drawTexturedQuadBatch4OpaqueNoAA(comptime use_bilinear: bool, inv: Mat
         }
     }
     if (!all_valid) {
-        drawTexturedQuadBatch4(false, use_bilinear, false, inv, x, y, album_idx, darken, light_boost, 0xFF);
+        drawTexturedQuadBatch4(false, use_bilinear, false, inv, x, y, album_idx, darken);
         return;
     }
 
@@ -772,43 +775,18 @@ inline fn drawTexturedQuadBatch4OpaqueNoAA(comptime use_bilinear: bool, inv: Mat
                 @as(u8, @intCast(colors.b[lane])),
                 0xFF,
             };
-            out[lane] = shadeAndBrightenOpaque(c, u_mid[lane], darken, light_boost);
+            out[lane] = shadeOpaque(c, u_mid[lane], darken);
         }
     } else {
         inline for (0..4) |lane| {
             const c = sampleCoverNearest(album_idx, u_f[lane], v_f[lane]);
-            out[lane] = shadeAndBrightenOpaque(c, u_mid[lane], darken, light_boost);
+            out[lane] = shadeOpaque(c, u_mid[lane], darken);
         }
     }
     setPixel4OpaqueUnchecked(x, y, out);
 }
 
-inline fn drawTexturedQuadBatch4BilinearFull(comptime reflection: bool, inv: Matrix3, row_u_y: f32, row_v_y: f32, row_d_y: f32, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32, row_fade: i32) void {
-    const xf: f32 = @as(f32, @floatFromInt(x)) + 0.5;
-    const xs: Vec4f = .{ xf, xf + 1.0, xf + 2.0, xf + 3.0 };
-    const denom = (@as(Vec4f, @splat(inv.m20)) * xs + @as(Vec4f, @splat(row_d_y))) + @as(Vec4f, @splat(inv.m22));
-    const us = ((@as(Vec4f, @splat(inv.m00)) * xs + @as(Vec4f, @splat(row_u_y))) + @as(Vec4f, @splat(inv.m02))) / denom;
-    const vs = ((@as(Vec4f, @splat(inv.m10)) * xs + @as(Vec4f, @splat(row_v_y))) + @as(Vec4f, @splat(inv.m12))) / denom;
-    const zero: Vec4f = @splat(0.0);
-    const one: Vec4f = @splat(1.0);
-    const tex_max: Vec4f = @splat(255.0);
-    const u_f = @min(@max(us, zero), one) * tex_max;
-    const v_f_raw = @min(@max(vs, zero), one) * tex_max;
-    const v_f = if (reflection) tex_max - v_f_raw else v_f_raw;
-    const colors = sampleCoverBilinearBatch4(album_idx, u_f, v_f);
-    const u_mid: Vec4i = @intFromFloat(@round(u_f));
-
-    if (reflection) {
-        const fade = row_fade;
-        if (fade <= 0) return;
-        blendReflectionPackedBatch4(x, y, colors, u_mid, darken, fade);
-    } else {
-        const out = shadeAndBrightenPackedOpaqueBatch4(colors, u_mid, darken, light_boost);
-        setPixel4PackedOpaqueUnchecked(x, y, out);
-    }
-}
-
-inline fn drawTexturedQuadBatch4BilinearFullCached(comptime reflection: bool, inv: Matrix3, row_v_y: f32, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32, row_fade: i32) void {
+inline fn drawTexturedQuadBatch4BilinearFullCached(comptime reflection: bool, inv: Matrix3, row_v_y: f32, x: i32, y: i32, album_idx: usize, darken: i32) void {
     const idx = @as(usize, @intCast(x));
     const u_f: Vec4f = .{
         project_u_f[idx],
@@ -829,12 +807,8 @@ inline fn drawTexturedQuadBatch4BilinearFullCached(comptime reflection: bool, in
         project_inv_d[idx + 3],
     };
     const vs = ((v_x + @as(Vec4f, @splat(row_v_y))) + @as(Vec4f, @splat(inv.m12))) * inv_d;
-    const zero: Vec4f = @splat(0.0);
-    const one: Vec4f = @splat(1.0);
-    const tex_max: Vec4f = @splat(255.0);
-    const v_f_raw = @min(@max(vs, zero), one) * tex_max;
-    const v_f = if (reflection) tex_max - v_f_raw else v_f_raw;
-    const colors = sampleCoverBilinearBatch4(album_idx, u_f, v_f);
+    const v_clamped = @min(@max(vs, @as(Vec4f, @splat(0.0))), @as(Vec4f, @splat(1.0)));
+    const colors = sampleCoverBilinearBatch4(album_idx, u_f, coverTexVBatch4(reflection, v_clamped));
     const u_mid: Vec4i = .{
         project_u_mid[idx],
         project_u_mid[idx + 1],
@@ -842,17 +816,14 @@ inline fn drawTexturedQuadBatch4BilinearFullCached(comptime reflection: bool, in
         project_u_mid[idx + 3],
     };
 
-    if (reflection) {
-        const fade = row_fade;
-        if (fade <= 0) return;
-        blendReflectionPackedBatch4(x, y, colors, u_mid, darken, fade);
-    } else {
-        const out = shadeAndBrightenPackedOpaqueBatch4(colors, u_mid, darken, light_boost);
-        setPixel4PackedOpaqueUnchecked(x, y, out);
-    }
+    const out = if (reflection)
+        shadePackedOpaqueBatch4(colors, u_mid, darken, reflectionFadeBatch4(v_clamped))
+    else
+        shadePackedOpaqueBatch4(colors, u_mid, darken, @splat(255));
+    setPixel4PackedOpaqueUnchecked(x, y, out);
 }
 
-inline fn drawTexturedQuadBatch4BilinearAA(comptime reflection: bool, edges: QuadEdges, inv: Matrix3, row_u_y: f32, row_v_y: f32, row_d_y: f32, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32, alpha: u8, row_fade: i32) void {
+inline fn drawTexturedQuadBatch4BilinearAA(comptime reflection: bool, edges: QuadEdges, inv: Matrix3, row_u_y: f32, row_v_y: f32, row_d_y: f32, x: i32, y: i32, album_idx: usize, darken: i32) void {
     const full_coverage = quadCoverageBatch4EdgesAllFull(edges, x, y);
     const coverage: Vec4i = if (full_coverage) @splat(4) else quadCoverageBatch4Edges(edges, x, y);
     if (coverage[0] == 0 and coverage[1] == 0 and coverage[2] == 0 and coverage[3] == 0) return;
@@ -866,21 +837,13 @@ inline fn drawTexturedQuadBatch4BilinearAA(comptime reflection: bool, edges: Qua
     const one: Vec4f = @splat(1.0);
     const tex_max: Vec4f = @splat(255.0);
     const u_f = @min(@max(us, zero), one) * tex_max;
-    const v_f_raw = @min(@max(vs, zero), one) * tex_max;
-    const v_f = if (reflection) tex_max - v_f_raw else v_f_raw;
-    const colors = sampleCoverBilinearBatch4(album_idx, u_f, v_f);
+    const v_clamped = @min(@max(vs, zero), one);
+    const colors = sampleCoverBilinearBatch4(album_idx, u_f, coverTexVBatch4(reflection, v_clamped));
     const u_mid: Vec4i = @intFromFloat(@round(u_f));
+    const strength: Vec4i = if (reflection) reflectionFadeBatch4(v_clamped) else @splat(255);
 
-    if (reflection and coverage[0] == 4 and coverage[1] == 4 and coverage[2] == 4 and coverage[3] == 4) {
-        const fade = row_fade;
-        if (fade <= 0) return;
-        blendReflectionPackedBatch4(x, y, colors, u_mid, darken, fade);
-        return;
-    }
-
-    if (!reflection and alpha == 0xFF and coverage[0] == 4 and coverage[1] == 4 and coverage[2] == 4 and coverage[3] == 4) {
-        const out = shadeAndBrightenPackedOpaqueBatch4(colors, u_mid, darken, light_boost);
-        setPixel4PackedOpaqueUnchecked(x, y, out);
+    if (coverage[0] == 4 and coverage[1] == 4 and coverage[2] == 4 and coverage[3] == 4) {
+        setPixel4PackedOpaqueUnchecked(x, y, shadePackedOpaqueBatch4(colors, u_mid, darken, strength));
         return;
     }
 
@@ -895,12 +858,12 @@ inline fn drawTexturedQuadBatch4BilinearAA(comptime reflection: bool, edges: Qua
                 @as(u8, @intCast(colors.b[lane])),
                 0xFF,
             };
-            drawSampledPixelInsideKnownCoverage(reflection, x + @as(i32, @intCast(lane)), y, c, u_mid[lane], darken, light_boost, alpha, coverage[lane]);
+            drawSampledPixelInsideKnownCoverage(x + @as(i32, @intCast(lane)), y, c, u_mid[lane], darken, strength[lane], coverage[lane]);
         }
     }
 }
 
-inline fn drawTexturedQuadBatch4(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, inv: Matrix3, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32, alpha: u8) void {
+inline fn drawTexturedQuadBatch4(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, inv: Matrix3, x: i32, y: i32, album_idx: usize, darken: i32) void {
     const xf: f32 = @as(f32, @floatFromInt(x)) + 0.5;
     const yf: f32 = @as(f32, @floatFromInt(y)) + 0.5;
     const xs: Vec4f = .{ xf, xf + 1.0, xf + 2.0, xf + 3.0 };
@@ -913,61 +876,40 @@ inline fn drawTexturedQuadBatch4(comptime reflection: bool, comptime use_bilinea
         const d = denom[lane];
         if (absF32(d) >= 0.0001) {
             const uv = PointF{ .x = us[lane], .y = vs[lane] };
-            drawTexturedQuadMappedPixel(reflection, use_bilinear, use_antialias, inv, x + @as(i32, @intCast(lane)), y, uv, album_idx, darken, light_boost, alpha);
+            drawTexturedQuadMappedPixel(reflection, use_bilinear, use_antialias, inv, x + @as(i32, @intCast(lane)), y, uv, album_idx, darken);
         }
     }
 }
 
-inline fn drawTexturedQuadMappedPixel(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, inv: Matrix3, x: i32, y: i32, uv: PointF, album_idx: usize, darken: i32, light_boost: i32, alpha: u8) void {
+inline fn drawTexturedQuadMappedPixel(comptime reflection: bool, comptime use_bilinear: bool, comptime use_antialias: bool, inv: Matrix3, x: i32, y: i32, uv: PointF, album_idx: usize, darken: i32) void {
     if (uv.x < -0.002 or uv.x > 1.002 or uv.y < -0.002 or uv.y > 1.002) return;
     const coverage = if (use_antialias) quadCoverage(inv, x, y) else 4;
-    drawTexturedQuadMappedPixelInsideKnownCoverage(reflection, use_bilinear, x, y, uv, album_idx, darken, light_boost, alpha, coverage);
-}
-
-inline fn drawTexturedQuadMappedPixelInsideKnownCoverage(comptime reflection: bool, comptime use_bilinear: bool, x: i32, y: i32, uv: PointF, album_idx: usize, darken: i32, light_boost: i32, alpha: u8, coverage: i32) void {
     if (coverage <= 0) return;
     const u_f = clampF32(uv.x, 0.0, 1.0) * 255.0;
-    const v_f_raw = clampF32(uv.y, 0.0, 1.0) * 255.0;
-    const v_f = if (reflection) 255.0 - v_f_raw else v_f_raw;
+    const v_clamped = clampF32(uv.y, 0.0, 1.0);
+    const v_f = if (reflection) reflectionTexV(v_clamped) else v_clamped * 255.0;
     const c = if (use_bilinear)
         sampleCoverBilinear(album_idx, u_f, v_f)
     else
         sampleCoverNearest(album_idx, u_f, v_f);
     const u_mid = @as(i32, @intFromFloat(@round(u_f)));
-    drawSampledPixelInsideKnownCoverage(reflection, x, y, c, u_mid, darken, light_boost, alpha, coverage);
+    const strength = if (reflection) reflectionFade(v_clamped) else 255;
+    drawSampledPixelInsideKnownCoverage(x, y, c, u_mid, darken, strength, coverage);
 }
 
-inline fn drawTexturedQuadPixelBilinearAA(comptime reflection: bool, edges: QuadEdges, inv: Matrix3, x: i32, y: i32, album_idx: usize, darken: i32, light_boost: i32, alpha: u8) void {
-    const uv = mapPoint(inv, @as(f32, @floatFromInt(x)) + 0.5, @as(f32, @floatFromInt(y)) + 0.5) orelse return;
-    if (uv.x < -0.002 or uv.x > 1.002 or uv.y < -0.002 or uv.y > 1.002) return;
-    const coverage = quadCoverageEdges(edges, x, y);
-    if (coverage <= 0) return;
-    const u_f = clampF32(uv.x, 0.0, 1.0) * 255.0;
-    const v_f_raw = clampF32(uv.y, 0.0, 1.0) * 255.0;
-    const v_f = if (reflection) 255.0 - v_f_raw else v_f_raw;
-    const c = sampleCoverBilinear(album_idx, u_f, v_f);
-    const u_mid = @as(i32, @intFromFloat(@round(u_f)));
-    drawSampledPixelInsideKnownCoverage(reflection, x, y, c, u_mid, darken, light_boost, alpha, coverage);
-}
-
-inline fn shadeAndBrightenOpaque(c_in: Color, u_mid: i32, darken: i32, light_boost: i32) Color {
-    return brightenColor(shadeOpaque(c_in, u_mid, darken), light_boost);
-}
-
-inline fn shadeAndBrightenPackedOpaqueBatch4(colors: ColorBatch, u_mid: Vec4i, darken: i32, light_boost: i32) [4]u32 {
+// Shades a batch and scales it by strength/255 towards black. Covers use 255;
+// reflections use their fade, which over the black floor is the same as
+// blending, but stays opaque so nearer reflections hide farther ones.
+inline fn shadePackedOpaqueBatch4(colors: ColorBatch, u_mid: Vec4i, darken: i32, strength: Vec4i) [4]u32 {
     const zero: Vec4i = @splat(0);
     const mid: Vec4i = @splat(128);
     const centered = u_mid - mid;
     const abs_mid = @select(i32, centered < zero, -centered, centered);
     const shade = @as(Vec4i, @splat(darken)) + div11PositiveVec(abs_mid);
-    const factor = @as(Vec4i, @splat(255)) - shade;
-    var r = div255PositiveVec(colors.r * factor);
-    var g = div255PositiveVec(colors.g * factor);
-    var b = div255PositiveVec(colors.b * factor);
-    const boost: Vec4i = @splat(light_boost);
-    r += div100PositiveVec((@as(Vec4i, @splat(255)) - r) * boost);
-    g += div100PositiveVec((@as(Vec4i, @splat(255)) - g) * boost);
-    b += div100PositiveVec((@as(Vec4i, @splat(255)) - b) * boost);
+    const factor = div255PositiveVec((@as(Vec4i, @splat(255)) - shade) * strength);
+    const r = div255PositiveVec(colors.r * factor);
+    const g = div255PositiveVec(colors.g * factor);
+    const b = div255PositiveVec(colors.b * factor);
 
     var out: [4]u32 = undefined;
     inline for (0..4) |lane| {
@@ -976,51 +918,9 @@ inline fn shadeAndBrightenPackedOpaqueBatch4(colors: ColorBatch, u_mid: Vec4i, d
     return out;
 }
 
-inline fn blendReflectionPackedBatch4(x: i32, y: i32, colors: ColorBatch, u_mid: Vec4i, darken: i32, fade: i32) void {
-    const zero: Vec4i = @splat(0);
-    const mid: Vec4i = @splat(128);
-    const centered = u_mid - mid;
-    const abs_mid = @select(i32, centered < zero, -centered, centered);
-    const shade = @as(Vec4i, @splat(darken)) + div11PositiveVec(abs_mid);
-    const factor = @as(Vec4i, @splat(255)) - shade;
-    var src_r = div255PositiveVec(colors.r * factor);
-    var src_g = div255PositiveVec(colors.g * factor);
-    var src_b = div255PositiveVec(colors.b * factor);
-    src_r = div255PositiveVec(src_r * @as(Vec4i, @splat(207)));
-    src_g = div255PositiveVec(src_g * @as(Vec4i, @splat(207)));
-    src_b = div255PositiveVec(src_b * @as(Vec4i, @splat(207)));
-
-    var dst_r: Vec4i = undefined;
-    var dst_g: Vec4i = undefined;
-    var dst_b: Vec4i = undefined;
-    const idx = (@as(usize, @intCast(y)) * RENDER_W + @as(usize, @intCast(x))) * 4;
-    inline for (0..4) |lane| {
-        const p = std.mem.readInt(u32, pixel_buf[idx + lane * 4 ..][0..4], .little);
-        dst_r[lane] = @intCast(p & 0xFF);
-        dst_g[lane] = @intCast((p >> 8) & 0xFF);
-        dst_b[lane] = @intCast((p >> 16) & 0xFF);
-    }
-
-    const fade_v: Vec4i = @splat(fade);
-    const inv_v: Vec4i = @splat(255 - fade);
-    const out_r = div255PositiveVec(dst_r * inv_v + src_r * fade_v);
-    const out_g = div255PositiveVec(dst_g * inv_v + src_g * fade_v);
-    const out_b = div255PositiveVec(dst_b * inv_v + src_b * fade_v);
-
-    var out: [4]u32 = undefined;
-    inline for (0..4) |lane| {
-        out[lane] = packRGB(@intCast(out_r[lane]), @intCast(out_g[lane]), @intCast(out_b[lane]));
-    }
-    setPixel4PackedOpaqueUnchecked(x, y, out);
-}
-
 inline fn div255PositiveVec(v: Vec4i) Vec4i {
     const scaled = (v + @as(Vec4i, @splat(1))) * @as(Vec4i, @splat(257));
     return scaled >> @as(@Vector(4, u5), @splat(16));
-}
-
-inline fn div100PositiveVec(v: Vec4i) Vec4i {
-    return (v * @as(Vec4i, @splat(5243))) >> @as(@Vector(4, u5), @splat(19));
 }
 
 inline fn div11PositiveVec(v: Vec4i) Vec4i {
@@ -1032,22 +932,15 @@ inline fn shadeOpaque(c_in: Color, u_mid: i32, darken: i32) Color {
     return shadeColor(c_in, shade);
 }
 
-inline fn drawSampledPixelInsideKnownCoverage(comptime reflection: bool, x: i32, y: i32, c_in: Color, u_mid: i32, darken: i32, light_boost: i32, alpha: u8, coverage: i32) void {
+inline fn drawSampledPixelInsideKnownCoverage(x: i32, y: i32, c_in: Color, u_mid: i32, darken: i32, strength: i32, coverage: i32) void {
     if (coverage <= 0) return;
-    if (reflection) {
-        var c = shadeOpaque(c_in, u_mid, darken);
-        const fade = clampI32(@as(i32, alpha) - @divTrunc((y - FLOOR_Y) * 3, 2), 0, @as(i32, alpha));
-        c[3] = @as(u8, @intCast(@divTrunc(fade * coverage, 4)));
-        c = shadeColor(c, 48);
-        blendPixelUnchecked(x, y, c);
+    var c = shadeOpaque(c_in, u_mid, darken);
+    if (strength < 255) c = shadeColor(c, 255 - strength);
+    if (coverage == 4) {
+        setPixelOpaqueUnchecked(x, y, c);
     } else {
-        var c = shadeAndBrightenOpaque(c_in, u_mid, darken, light_boost);
-        if (alpha == 0xFF and coverage == 4) {
-            setPixelOpaqueUnchecked(x, y, c);
-        } else {
-            c[3] = @as(u8, @intCast(@divTrunc(@as(i32, alpha) * coverage, 4)));
-            blendPixelUnchecked(x, y, c);
-        }
+        c[3] = @as(u8, @intCast(coverage * 63));
+        blendPixelUnchecked(x, y, c);
     }
 }
 
@@ -1473,76 +1366,127 @@ inline fn sampleAlbumStatic(comptime album_idx: usize, u: i32, v: i32) Color {
     }
 
     if (u < 8 or u > 247 or v < 8 or v > 247) base = shadeColor(base, 58);
-    if (v < 62 and u > 18 and u < 237) base = mixColor(base, .{ 0xFF, 0xFF, 0xFF, 0xFF }, @divTrunc((62 - v) * 90, 62));
     return base;
 }
 
-fn lightingBoost(normal: Vec3) i32 {
-    const light = normalize3(.{ .x = -0.42, .y = -0.22, .z = 0.88 });
-    const facing = clampF32(dot3(normal, .{ .x = 0.0, .y = 0.0, .z = 1.0 }), 0.0, 1.0);
-    const diffuse = clampF32(dot3(normal, light), 0.0, 1.0);
-    const rim = clampF32(1.0 - facing, 0.0, 1.0);
-    return @as(i32, @intFromFloat(@round(diffuse * 34.0 + rim * 18.0)));
-}
-
-fn drawSoftShadow(q: Quad) void {
-    const x0 = min4(q.tl.x, q.tr.x, q.br.x, q.bl.x);
-    const x1 = max4(q.tl.x, q.tr.x, q.br.x, q.bl.x);
-    const y = FLOOR_Y - 1;
-    var yy: i32 = y - 10 * RETINA_SCALE;
-    while (yy <= y + 10 * RETINA_SCALE) : (yy += 1) {
-        var x: i32 = x0 - 12 * RETINA_SCALE;
-        while (x <= x1 + 12 * RETINA_SCALE) : (x += 1) {
-            const cx = if (x < x0) x0 - x else if (x > x1) x - x1 else 0;
-            const cy = absI32(yy - y);
-            const a = clampI32(42 - @divTrunc(cx * 2, RETINA_SCALE) - @divTrunc(cy * 4, RETINA_SCALE), 0, 42);
-            if (a > 0) blendPixel(x, yy, .{ 0, 0, 0, @as(u8, @intCast(a)) });
-        }
-    }
-}
-
-fn drawSpecular(q: Quad, dist: i32) void {
-    const a = @as(u8, @intCast(clampI32(84 - @divTrunc(dist, 5), 18, 84)));
-    const y0 = lerpI32(q.tl.y, q.bl.y, 38);
-    const y1 = lerpI32(q.tr.y, q.br.y, 38);
-    drawLine(q.tl.x + 8 * RETINA_SCALE, y0, q.tr.x - 8 * RETINA_SCALE, y1, .{ 0xFF, 0xFF, 0xFF, a });
-    drawLine(q.tl.x + 8 * RETINA_SCALE, y0 + 1, q.tr.x - 8 * RETINA_SCALE, y1 + 1, .{ 0xFF, 0xFF, 0xFF, @as(u8, @intCast(@divTrunc(@as(i32, a), 2))) });
+// With lighting on, side covers darken as they turn away from the viewer.
+fn sideDarken(normal: Vec3) i32 {
+    const facing = clampF32(normal.z, 0.0, 1.0);
+    return @as(i32, @intFromFloat(@round((1.0 - facing) * SIDE_DARKEN_MAX)));
 }
 
 fn drawChrome() void {
-    blendRectUnchecked(0, 0, @as(i32, @intCast(RENDER_W)), 42 * RETINA_SCALE, .{ 0x00, 0x00, 0x00, 0x8F });
-    drawText(27 * RETINA_SCALE, 15 * RETINA_SCALE, "COVER FLOW", .{ 0xEA, 0xF3, 0xFF, 0xFF }, 3);
-    drawText(@as(i32, @intCast(RENDER_W)) - 213 * RETINA_SCALE, 18 * RETINA_SCALE, "DRAG OR ARROWS", .{ 0xA7, 0xB7, 0xC8, 0xFF }, 2);
     drawFeatureFlags();
 
     const idx = @as(usize, @intCast(targetIndex()));
     const album = albums[idx];
-    const title_w = textWidth(album.title, 3);
-    const artist_w = textWidth(album.artist, 2);
-    drawText(CENTER_X - @divTrunc(title_w, 2), 378 * RETINA_SCALE, album.title, .{ 0xF8, 0xFA, 0xFF, 0xFF }, 3);
-    drawText(CENTER_X - @divTrunc(artist_w, 2), 411 * RETINA_SCALE, album.artist, .{ 0xA9, 0xB5, 0xC3, 0xFF }, 2);
+    drawTextCentered(inter_bold, CENTER_X, TITLE_BASELINE, album.title, TITLE_SIZE, .{ 0xFF, 0xFF, 0xFF, 0xFF });
+    drawTextCentered(inter_regular, CENTER_X, ARTIST_BASELINE, album.artist, ARTIST_SIZE, .{ 0x9A, 0x9A, 0x9A, 0xFF });
+    drawScrollBar();
+}
 
-    const dots_w = @as(i32, @intCast(albums.len)) * 15 * RETINA_SCALE - 6 * RETINA_SCALE;
-    var i: usize = 0;
-    while (i < albums.len) : (i += 1) {
-        const x = CENTER_X - @divTrunc(dots_w, 2) + @as(i32, @intCast(i)) * 15 * RETINA_SCALE;
-        const active = i == idx;
-        const radius: i32 = if (active) 5 * RETINA_SCALE else 3 * RETINA_SCALE;
-        fillCircle(x, 447 * RETINA_SCALE, radius, if (active) .{ 0xF5, 0xF7, 0xFF, 0xFF } else .{ 0x78, 0x84, 0x92, 0xC8 });
-    }
+// The iTunes-style scroll bar: a dark rounded track, cached with the
+// background, and a lighter thumb that follows the animated position, not
+// just the selected album. Dragging the thumb scrubs through the covers, and
+// pressing the track jumps the thumb to the pointer.
+const SCROLL_TRACK_W: i32 = 300 * RETINA_SCALE;
+const SCROLL_TRACK_H: i32 = 12 * RETINA_SCALE;
+const SCROLL_TRACK_X: i32 = CENTER_X - @divTrunc(SCROLL_TRACK_W, 2);
+const SCROLL_TRACK_Y: i32 = 442 * RETINA_SCALE;
+// Presses this far above or below the track still grab it.
+const SCROLL_HIT_SLOP: i32 = 8 * RETINA_SCALE;
+
+const ScrollThumb = struct {
+    x: i32,
+    w: i32,
+};
+
+fn scrollThumbWidth() i32 {
+    return @max(SCROLL_TRACK_H * 3, @divTrunc(SCROLL_TRACK_W * 2, @as(i32, @intCast(albums.len))));
+}
+
+fn scrollThumb() ScrollThumb {
+    const thumb_w = scrollThumbWidth();
+    const max_q8 = (@as(i32, @intCast(albums.len)) - 1) * 256;
+    const pos_q8 = clampI32(selected_q8, 0, max_q8);
+    return .{
+        .x = SCROLL_TRACK_X + @divTrunc((SCROLL_TRACK_W - thumb_w) * pos_q8, @max(1, max_q8)),
+        .w = thumb_w,
+    };
+}
+
+fn scrollBarHit(x: i32, y: i32) bool {
+    return x >= SCROLL_TRACK_X - SCROLL_HIT_SLOP and x < SCROLL_TRACK_X + SCROLL_TRACK_W + SCROLL_HIT_SLOP and
+        y >= SCROLL_TRACK_Y - SCROLL_HIT_SLOP and y < SCROLL_TRACK_Y + SCROLL_TRACK_H + SCROLL_HIT_SLOP;
+}
+
+// Places the thumb's left edge at x - scrub_grab_dx and moves the covers to
+// match, without snapping to an album until the pointer is released.
+fn scrubTo(x: i32) void {
+    const max_q8 = (@as(i32, @intCast(albums.len)) - 1) * 256;
+    const travel = @max(1, SCROLL_TRACK_W - scrollThumbWidth());
+    const offset = clampI32(x - scrub_grab_dx - SCROLL_TRACK_X, 0, travel);
+    selected_q8 = @divTrunc(offset * max_q8 + @divTrunc(travel, 2), travel);
+    target_q8 = selected_q8;
+    velocity_q8 = 0;
+    spring_velocity_q8 = 0;
+    needs_redraw = true;
+}
+
+fn drawScrollTrack() void {
+    const track_w = SCROLL_TRACK_W;
+    const track_h = SCROLL_TRACK_H;
+    const track_x = SCROLL_TRACK_X;
+    const track_y = SCROLL_TRACK_Y;
+    fillCapsule(track_x, track_y, track_w, track_h, .{ 0x50, 0x50, 0x50, 0xFF }, .{ 0x3A, 0x3A, 0x3A, 0xFF });
+    fillCapsule(track_x + RETINA_SCALE, track_y + RETINA_SCALE, track_w - 2 * RETINA_SCALE, track_h - 2 * RETINA_SCALE, .{ 0x0C, 0x0C, 0x0C, 0xFF }, .{ 0x1E, 0x1E, 0x1E, 0xFF });
+}
+
+fn drawScrollBar() void {
+    const track_h = SCROLL_TRACK_H;
+    const track_y = SCROLL_TRACK_Y;
+
+    const thumb = scrollThumb();
+    // The thumb brightens while it is held.
+    const lift: i32 = if (scrub_active) 0x1C else 0;
+    fillCapsule(thumb.x, track_y, thumb.w, track_h, addColor(.{ 0xB4, 0xB4, 0xB4, 0xFF }, lift), addColor(.{ 0x70, 0x70, 0x70, 0xFF }, lift));
+    fillCapsule(thumb.x + RETINA_SCALE, track_y + RETINA_SCALE, thumb.w - 2 * RETINA_SCALE, track_h - 2 * RETINA_SCALE, addColor(.{ 0x8C, 0x8C, 0x8C, 0xFF }, lift), addColor(.{ 0x50, 0x50, 0x50, 0xFF }, lift));
 }
 
 fn drawFeatureFlags() void {
-    drawFlagLabel(28 * RETINA_SCALE, 54 * RETINA_SCALE, "L LIGHT", featureEnabled(FEATURE_LIGHTING));
-    drawFlagLabel(126 * RETINA_SCALE, 54 * RETINA_SCALE, "S SPRING", featureEnabled(FEATURE_SPRING));
+    const x = 16.0 * RETINA_F;
+    drawFlagLabel(x, "L LIGHT", featureEnabled(FEATURE_LIGHTING));
+    drawFlagLabel(x + textWidth(inter_regular, "L LIGHT", FLAG_SIZE) + 14.0 * RETINA_F, "S SPRING", featureEnabled(FEATURE_SPRING));
 }
 
-fn drawFlagLabel(x: i32, y: i32, label: []const u8, enabled: bool) void {
-    const w = textWidth(label, 2) + 12 * RETINA_SCALE;
-    const h = 18 * RETINA_SCALE;
-    blendRect(x, y, w, h, if (enabled) .{ 0xE8, 0xF1, 0xFF, 0x22 } else .{ 0x00, 0x00, 0x00, 0x32 });
-    drawRect(x, y, w, h, if (enabled) .{ 0xD8, 0xE8, 0xFF, 0x92 } else .{ 0x7A, 0x86, 0x95, 0x72 });
-    drawText(x + 6 * RETINA_SCALE, y + 5 * RETINA_SCALE, label, if (enabled) .{ 0xF2, 0xF7, 0xFF, 0xFF } else .{ 0x7D, 0x89, 0x97, 0xFF }, 2);
+fn drawFlagLabel(x: f32, label: []const u8, enabled: bool) void {
+    drawText(inter_regular, x, FLAG_BASELINE, label, FLAG_SIZE, if (enabled) .{ 0x8A, 0x8A, 0x8A, 0xFF } else .{ 0x40, 0x40, 0x40, 0xFF });
+}
+
+// Horizontal capsule with a vertical top-to-bottom gradient and an
+// antialiased edge.
+fn fillCapsule(x: i32, y: i32, w: i32, h: i32, top: Color, bottom: Color) void {
+    if (w <= 0 or h <= 0) return;
+    const r = @as(f32, @floatFromInt(h)) * 0.5;
+    const cy = @as(f32, @floatFromInt(y)) + r;
+    const left = @as(f32, @floatFromInt(x)) + r;
+    const right = @as(f32, @floatFromInt(x + w)) - r;
+    var yy = y;
+    while (yy < y + h) : (yy += 1) {
+        var c = lerpColorF32(top, bottom, (@as(f32, @floatFromInt(yy - y)) + 0.5) / @as(f32, @floatFromInt(h)));
+        const py = @as(f32, @floatFromInt(yy)) + 0.5;
+        var xx = x;
+        while (xx < x + w) : (xx += 1) {
+            const px = @as(f32, @floatFromInt(xx)) + 0.5;
+            const nx = clampF32(px, left, @max(left, right));
+            const dx = px - nx;
+            const dy = py - cy;
+            const coverage = clampF32(r - @sqrt(dx * dx + dy * dy) + 0.5, 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+            c[3] = @as(u8, @intFromFloat(@round(coverage * 255.0)));
+            blendPixel(xx, yy, c);
+        }
+    }
 }
 
 fn clear(c: Color) void {
@@ -1644,145 +1588,214 @@ fn blendPixelAtIndexAlphaUnchecked(idx: usize, c: Color, a: i32, inv_a: i32) voi
     pixel_buf[idx + 3] = 0xFF;
 }
 
-fn blendRect(x: i32, y: i32, w: i32, h: i32, c: Color) void {
-    var yy: i32 = 0;
-    while (yy < h) : (yy += 1) {
-        var xx: i32 = 0;
-        while (xx < w) : (xx += 1) blendPixel(x + xx, y + yy, c);
-    }
+// Text is drawn from Inter Display's outlines with its pair kerning, as the
+// Open Graph image component does. Sizes and baselines are in render px.
+const TITLE_SIZE: f32 = 17.0 * RETINA_F;
+const TITLE_BASELINE: f32 = 394.0 * RETINA_F;
+const ARTIST_SIZE: f32 = 13.0 * RETINA_F;
+const ARTIST_BASELINE: f32 = 416.0 * RETINA_F;
+const FLAG_SIZE: f32 = 10.0 * RETINA_F;
+const FLAG_BASELINE: f32 = 24.0 * RETINA_F;
+
+// One line of text at a time is accumulated as signed area into this strip,
+// in the manner of font-rs, then blended into the frame.
+const TEXT_STRIP_H: usize = 40 * RETINA_SCALE_USIZE;
+const TEXT_MAX_CURVE_SEGMENTS: usize = 16;
+var text_cells: [RENDER_W * TEXT_STRIP_H]f32 = @splat(0);
+var text_dirty_x0: usize = RENDER_W;
+var text_dirty_x1: usize = 0;
+
+fn textScale(comptime font: type, size_px: f32) f32 {
+    return size_px / font.UNITS_PER_EM;
 }
 
-fn blendRectUnchecked(x: i32, y: i32, w: i32, h: i32, c: Color) void {
-    var yy: i32 = 0;
-    while (yy < h) : (yy += 1) {
-        var out_idx = (@as(usize, @intCast(y + yy)) * RENDER_W + @as(usize, @intCast(x))) * 4;
-        var xx: i32 = 0;
-        while (xx < w) : (xx += 1) {
-            blendPixelAtIndexUnchecked(out_idx, c);
-            out_idx += 4;
+fn textWidth(comptime font: type, text: []const u8, size_px: f32) f32 {
+    var units: i32 = 0;
+    var previous: ?usize = null;
+    for (text) |ch| {
+        const glyph = font.glyphIndex(ch) orelse continue;
+        if (previous) |left| units += font.kerning(left, glyph);
+        units += font.advances[glyph];
+        previous = glyph;
+    }
+    return @as(f32, @floatFromInt(units)) * textScale(font, size_px);
+}
+
+fn drawTextCentered(comptime font: type, center_x: i32, baseline: f32, text: []const u8, size_px: f32, c: Color) void {
+    const w = textWidth(font, text, size_px);
+    drawText(font, @round(@as(f32, @floatFromInt(center_x)) - w * 0.5), baseline, text, size_px, c);
+}
+
+fn drawText(comptime font: type, x: f32, baseline: f32, text: []const u8, size_px: f32, c: Color) void {
+    const scale = textScale(font, size_px);
+    const strip_top = @floor(baseline - font.ASCENDER * scale) - 1.0;
+    const strip_baseline = baseline - strip_top;
+    var units: i32 = 0;
+    var previous: ?usize = null;
+    for (text) |ch| {
+        const glyph = font.glyphIndex(ch) orelse continue;
+        if (previous) |left| units += font.kerning(left, glyph);
+        drawGlyphOutline(font, glyph, x + @as(f32, @floatFromInt(units)) * scale, strip_baseline, scale);
+        units += font.advances[glyph];
+        previous = glyph;
+    }
+    blendTextStrip(@as(i32, @intFromFloat(strip_top)), c);
+}
+
+// Turns the strip's accumulated area into coverage, blends it into the frame
+// and clears the strip. Each closed outline sums to zero across a row, so a
+// row's running sum is 0 again right of the dirty cells.
+fn blendTextStrip(top: i32, c: Color) void {
+    if (text_dirty_x0 < text_dirty_x1) {
+        var row_index: usize = 0;
+        while (row_index < TEXT_STRIP_H) : (row_index += 1) {
+            const row = text_cells[row_index * RENDER_W ..][text_dirty_x0..text_dirty_x1];
+            const y = top + @as(i32, @intCast(row_index));
+            var sum: f32 = 0;
+            for (row, 0..) |*cell, i| {
+                sum += cell.*;
+                cell.* = 0;
+                const coverage = @min(@abs(sum), 1.0);
+                if (coverage <= 0.0) continue;
+                var cc = c;
+                cc[3] = @as(u8, @intFromFloat(@round(coverage * @as(f32, @floatFromInt(c[3])))));
+                blendPixel(@as(i32, @intCast(text_dirty_x0 + i)), y, cc);
+            }
         }
     }
+    text_dirty_x0 = RENDER_W;
+    text_dirty_x1 = 0;
 }
 
-fn drawRect(x: i32, y: i32, w: i32, h: i32, c: Color) void {
-    blendRect(x, y, w, 1, c);
-    blendRect(x, y + h - 1, w, 1, c);
-    blendRect(x, y, 1, h, c);
-    blendRect(x + w - 1, y, 1, h, c);
+fn clampTextX(x: f32) f32 {
+    return clampF32(x, 0, @as(f32, @floatFromInt(RENDER_W - 2)));
 }
 
-fn drawLine(x0_in: i32, y0_in: i32, x1_in: i32, y1_in: i32, c: Color) void {
-    var x0 = x0_in;
-    var y0 = y0_in;
-    const x1 = x1_in;
-    const y1 = y1_in;
-    const dx = absI32(x1 - x0);
-    const sx: i32 = if (x0 < x1) 1 else -1;
-    const dy = -absI32(y1 - y0);
-    const sy: i32 = if (y0 < y1) 1 else -1;
-    var err = dx + dy;
-    while (true) {
-        blendPixel(x0, y0, c);
-        if (x0 == x1 and y0 == y1) break;
-        const e2 = 2 * err;
-        if (e2 >= dy) {
-            err += dy;
-            x0 += sx;
+// Adds the signed area a line contributes to each cell of the strip: a
+// pixel's coverage is the running sum of its row up to it.
+fn accumulateTextLine(a: PointF, b: PointF) void {
+    if (a.y == b.y) return;
+    const dir: f32 = if (a.y < b.y) 1 else -1;
+    const p0 = if (a.y < b.y) a else b;
+    const p1 = if (a.y < b.y) b else a;
+    const height_f: f32 = @floatFromInt(TEXT_STRIP_H);
+    if (p1.y <= 0 or p0.y >= height_f) return;
+    const dxdy = (p1.x - p0.x) / (p1.y - p0.y);
+    var x = p0.x;
+    if (p0.y < 0) x -= p0.y * dxdy;
+    const y_start: usize = @intFromFloat(@max(0, @floor(p0.y)));
+    const y_end: usize = @intFromFloat(@min(height_f, @ceil(p1.y)));
+    text_dirty_x0 = @min(text_dirty_x0, @as(usize, @intFromFloat(@floor(clampTextX(@min(p0.x, p1.x))))));
+    // A line on a cell boundary also writes the cell to its right.
+    text_dirty_x1 = @max(text_dirty_x1, @min(RENDER_W, @as(usize, @intFromFloat(@ceil(clampTextX(@max(p0.x, p1.x))))) + 2));
+    for (y_start..y_end) |y| {
+        const row = text_cells[y * RENDER_W ..][0..RENDER_W];
+        const y_f: f32 = @floatFromInt(y);
+        const dy = @min(y_f + 1, p1.y) - @max(y_f, p0.y);
+        const x_next = x + dxdy * dy;
+        const d = dy * dir;
+        const x0 = clampTextX(@min(x, x_next));
+        const x1 = clampTextX(@max(x, x_next));
+        const x0_floor = @floor(x0);
+        const x0i: usize = @intFromFloat(x0_floor);
+        const x1_ceil = @ceil(x1);
+        const x1i: usize = @intFromFloat(x1_ceil);
+        if (x1i <= x0i + 1) {
+            const xmf = 0.5 * (x0 + x1) - x0_floor;
+            row[x0i] += d - d * xmf;
+            row[x0i + 1] += d * xmf;
+        } else {
+            const s = 1 / (x1 - x0);
+            const x0f = x0 - x0_floor;
+            const a0 = 0.5 * s * (1 - x0f) * (1 - x0f);
+            const x1f = x1 - x1_ceil + 1;
+            const am = 0.5 * s * x1f * x1f;
+            row[x0i] += d * a0;
+            if (x1i == x0i + 2) {
+                row[x0i + 1] += d * (1 - a0 - am);
+            } else {
+                const a1 = s * (1.5 - x0f);
+                row[x0i + 1] += d * (a1 - a0);
+                for (x0i + 2..x1i - 1) |xi| row[xi] += d * s;
+                const a2 = a1 + @as(f32, @floatFromInt(x1i - x0i - 3)) * s;
+                row[x1i - 1] += d * (1 - a2 - am);
+            }
+            row[x1i] += d * am;
         }
-        if (e2 <= dx) {
-            err += dx;
-            y0 += sy;
+        x = x_next;
+    }
+}
+
+// Flattens a quadratic curve into lines no more than about a third of a
+// pixel from it.
+fn accumulateTextQuad(p0: PointF, p1: PointF, p2: PointF) void {
+    const ddx = p0.x - 2 * p1.x + p2.x;
+    const ddy = p0.y - 2 * p1.y + p2.y;
+    const deviation2 = ddx * ddx + ddy * ddy;
+    if (deviation2 < 0.333) {
+        accumulateTextLine(p0, p2);
+        return;
+    }
+    const steps_f = @min(@floor(@sqrt(@sqrt(3 * deviation2))), @as(f32, TEXT_MAX_CURVE_SEGMENTS - 1));
+    const steps: usize = 1 + @as(usize, @intFromFloat(steps_f));
+    const steps_inv = 1 / @as(f32, @floatFromInt(steps));
+    var previous = p0;
+    for (1..steps) |i| {
+        const t = @as(f32, @floatFromInt(i)) * steps_inv;
+        const mt = 1 - t;
+        const point = PointF{
+            .x = mt * mt * p0.x + 2 * t * mt * p1.x + t * t * p2.x,
+            .y = mt * mt * p0.y + 2 * t * mt * p1.y + t * t * p2.y,
+        };
+        accumulateTextLine(previous, point);
+        previous = point;
+    }
+    accumulateTextLine(previous, p2);
+}
+
+// Packed glyph coordinates are half font units with y pointing down.
+fn drawGlyphOutline(comptime font: type, glyph_index: usize, origin_x: f32, baseline_y: f32, scale: f32) void {
+    const commands = font.glyph_commands[font.glyph_command_offsets[glyph_index]..font.glyph_command_offsets[glyph_index + 1]];
+    const coords = font.glyph_coords;
+    var coord_index: usize = font.glyph_coord_offsets[glyph_index];
+    const half_scale = scale * 0.5;
+    const point = struct {
+        fn at(cs: []const i16, i: usize, ox: f32, oy: f32, s: f32) PointF {
+            return .{ .x = ox + @as(f32, @floatFromInt(cs[i])) * s, .y = oy + @as(f32, @floatFromInt(cs[i + 1])) * s };
+        }
+    }.at;
+    var start = PointF{ .x = origin_x, .y = baseline_y };
+    var current = start;
+    for (commands) |command| {
+        switch (command) {
+            'M' => {
+                // A fill closes any open subpath.
+                accumulateTextLine(current, start);
+                start = point(&coords, coord_index, origin_x, baseline_y, half_scale);
+                current = start;
+                coord_index += 2;
+            },
+            'L' => {
+                const next = point(&coords, coord_index, origin_x, baseline_y, half_scale);
+                accumulateTextLine(current, next);
+                current = next;
+                coord_index += 2;
+            },
+            'Q' => {
+                const control = point(&coords, coord_index, origin_x, baseline_y, half_scale);
+                const next = point(&coords, coord_index + 2, origin_x, baseline_y, half_scale);
+                accumulateTextQuad(current, control, next);
+                current = next;
+                coord_index += 4;
+            },
+            'Z' => {
+                accumulateTextLine(current, start);
+                current = start;
+            },
+            else => unreachable,
         }
     }
-}
-
-fn drawText(x: i32, y: i32, text: []const u8, c: Color, scale: i32) void {
-    const size_px = textSizeForScale(scale);
-    var cursor_x = x;
-    var i: usize = 0;
-    while (i < text.len) : (i += 1) {
-        drawFontChar(cursor_x, y, text[i], c, size_px);
-        cursor_x += fontAdvance(size_px);
-    }
-}
-
-fn textWidth(text: []const u8, scale: i32) i32 {
-    return @as(i32, @intCast(text.len)) * fontAdvance(textSizeForScale(scale));
-}
-
-fn textSizeForScale(scale: i32) i32 {
-    return switch (scale) {
-        3 => 22 * RETINA_SCALE,
-        2 => 14 * RETINA_SCALE,
-        else => 10 * RETINA_SCALE,
-    };
-}
-
-fn fontAdvance(size_px: i32) i32 {
-    return @max(1, @as(i32, @intFromFloat(@ceil(@as(f32, @floatFromInt(ui_font.GLYPH_W)) * fontScale(size_px)))));
-}
-
-fn fontScale(size_px: i32) f32 {
-    return @as(f32, @floatFromInt(size_px)) / @as(f32, @floatFromInt(ui_font.GLYPH_H));
-}
-
-fn drawFontChar(x: i32, y: i32, ch: u8, c: Color, size_px: i32) void {
-    const glyph_index = glyphIndexForByte(ch) orelse return;
-    const scale = fontScale(size_px);
-    const w = fontAdvance(size_px);
-    const h = size_px;
-    var dy: i32 = 0;
-    while (dy < h) : (dy += 1) {
-        var dx: i32 = 0;
-        while (dx < w) : (dx += 1) {
-            const coverage = fontCoverage(glyph_index, dx, dy, scale);
-            if (coverage == 0) continue;
-            var cc = c;
-            cc[3] = @as(u8, @intCast(@divTrunc(@as(i32, c[3]) * coverage, 4)));
-            blendPixel(x + dx, y + dy, cc);
-        }
-    }
-}
-
-fn glyphIndexForByte(ch: u8) ?usize {
-    if (ch >= ui_font.ASCII_START and ch <= ui_font.ASCII_END) {
-        return @as(usize, @intCast(ch - ui_font.ASCII_START));
-    }
-    return null;
-}
-
-fn fontCoverage(glyph_index: usize, dx: i32, dy: i32, scale: f32) i32 {
-    const offsets = [_]PointF{
-        .{ .x = 0.25, .y = 0.25 },
-        .{ .x = 0.75, .y = 0.25 },
-        .{ .x = 0.25, .y = 0.75 },
-        .{ .x = 0.75, .y = 0.75 },
-    };
-    var covered: i32 = 0;
-    for (offsets) |off| {
-        const sx = @as(i32, @intFromFloat(@floor((@as(f32, @floatFromInt(dx)) + off.x) / scale)));
-        const sy = @as(i32, @intFromFloat(@floor((@as(f32, @floatFromInt(dy)) + off.y) / scale)));
-        if (fontBit(glyph_index, sx, sy)) covered += 1;
-    }
-    return covered;
-}
-
-fn fontBit(glyph_index: usize, sx: i32, sy: i32) bool {
-    if (sx < 0 or sy < 0 or sx >= @as(i32, @intCast(ui_font.GLYPH_W)) or sy >= @as(i32, @intCast(ui_font.GLYPH_H))) return false;
-    const row = ui_font.glyph_rows[glyph_index][@as(usize, @intCast(sy))];
-    return ((row >> @as(u6, @intCast(sx))) & 1) != 0;
-}
-
-fn fillCircle(cx: i32, cy: i32, radius: i32, c: Color) void {
-    var y = cy - radius;
-    while (y <= cy + radius) : (y += 1) {
-        var x = cx - radius;
-        while (x <= cx + radius) : (x += 1) {
-            const dx = x - cx;
-            const dy = y - cy;
-            if (dx * dx + dy * dy <= radius * radius) blendPixel(x, y, c);
-        }
-    }
+    accumulateTextLine(current, start);
 }
 
 fn circle(u: i32, v: i32, cx: i32, cy: i32, r: i32) bool {
@@ -1834,15 +1847,6 @@ fn shadeColor(c: Color, darken: i32) Color {
     };
 }
 
-fn brightenColor(c: Color, boost: i32) Color {
-    return .{
-        clampU8(@as(i32, c[0]) + @divTrunc((255 - @as(i32, c[0])) * boost, 100)),
-        clampU8(@as(i32, c[1]) + @divTrunc((255 - @as(i32, c[1])) * boost, 100)),
-        clampU8(@as(i32, c[2]) + @divTrunc((255 - @as(i32, c[2])) * boost, 100)),
-        c[3],
-    };
-}
-
 fn lerpI32(a: i32, b: i32, t: i32) i32 {
     return a + @divTrunc((b - a) * clampI32(t, 0, 255), 255);
 }
@@ -1854,16 +1858,6 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) f32 {
 
 fn lerpF32(a: f32, b: f32, t: f32) f32 {
     return a + (b - a) * clampF32(t, 0.0, 1.0);
-}
-
-fn dot3(a: Vec3, b: Vec3) f32 {
-    return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-fn normalize3(v: Vec3) Vec3 {
-    const len = @sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-    if (len <= 0.0001) return .{ .x = 0.0, .y = 0.0, .z = 1.0 };
-    return .{ .x = v.x / len, .y = v.y / len, .z = v.z / len };
 }
 
 fn clampF32(v: f32, lo: f32, hi: f32) f32 {

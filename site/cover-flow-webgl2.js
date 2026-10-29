@@ -1,35 +1,80 @@
-const RENDER_W = 720;
-const RENDER_H = 480;
-const COVER = 190;
+const DISPLAY_W = 720;
+const DISPLAY_H = 480;
+// Renders at 2x like gui/cover-flow.wasm, and is displayed at DISPLAY_W.
+const SCALE = 2;
+const RENDER_W = DISPLAY_W * SCALE;
+const RENDER_H = DISPLAY_H * SCALE;
+const COVER = 190 * SCALE;
 const TEX_SIZE = 256;
-const FLOOR_Y = 282;
 const CENTER_X = RENDER_W / 2;
-const MAX_ALBUMS = 10;
 const FEATURE_LIGHTING = 1 << 2;
 const FEATURE_SPRING = 1 << 3;
 const MODULE_URL = import.meta.url;
-const MODULE_BYTES_FALLBACK = 36576;
+const MODULE_BYTES_FALLBACK = 35572;
+
+// Geometry after the 2006-era iTunes/iPod layout, matching gui/cover-flow.zig:
+// one cover faces the viewer, and the rest stand in two tight stacks turned
+// ~70 degrees towards the center, all at the same depth.
+const COVER_CENTER_Y = 168 * SCALE;
+const FOCAL = 780 * SCALE;
+const SIDE_YAW = 1.22;
+const SIDE_OFFSET = 165 * SCALE;
+const SIDE_SPACING = 34 * SCALE;
+const SIDE_DEPTH = 120 * SCALE;
+const CENTER_SLIDE = 60 * SCALE;
+const SIDE_DARKEN_MAX = 90;
+// Each cover is mirrored in a black glossy floor. The mirror image starts
+// REFLECTION_ALPHA/255 bright at the cover's bottom edge and fades linearly
+// to black over REFLECTION_SPAN of the cover's height.
+const REFLECTION_GAP = 2 * SCALE;
+const REFLECTION_SPAN = 0.55;
+const REFLECTION_ALPHA = 92;
+
+// Text is set in Inter Display, the same font the Wasm component rasterizes.
+const FONT_FAMILY = "Cover Flow Inter Display";
+const TITLE_SIZE = 17 * SCALE;
+const TITLE_BASELINE = 394 * SCALE;
+const ARTIST_SIZE = 13 * SCALE;
+const ARTIST_BASELINE = 416 * SCALE;
+const FLAG_SIZE = 10 * SCALE;
+const FLAG_BASELINE = 24 * SCALE;
+
+// The iTunes-style scroll bar. Dragging the thumb scrubs through the covers,
+// and pressing the track jumps the thumb to the pointer.
+const SCROLL_TRACK_W = 300 * SCALE;
+const SCROLL_TRACK_H = 12 * SCALE;
+const SCROLL_TRACK_X = CENTER_X - SCROLL_TRACK_W / 2;
+const SCROLL_TRACK_Y = 442 * SCALE;
+// Presses this far above or below the track still grab it.
+const SCROLL_HIT_SLOP = 8 * SCALE;
 
 const albums = [
-  { title: "MIDNIGHT RUN", artist: "THE ARCADES", a: [0x13, 0x29, 0x5b, 0xff], b: [0xe7, 0x46, 0x8a, 0xff], c: [0x42, 0xdf, 0xe7, 0xff], motif: 0 },
-  { title: "GLASS HOUSES", artist: "NORTH PIER", a: [0xd9, 0xe8, 0xf0, 0xff], b: [0x1e, 0x73, 0x8f, 0xff], c: [0x0f, 0x21, 0x2c, 0xff], motif: 1 },
-  { title: "LOW SUN", artist: "JUNE ATLAS", a: [0xf1, 0xb1, 0x49, 0xff], b: [0xd8, 0x42, 0x3b, 0xff], c: [0x39, 0x20, 0x45, 0xff], motif: 2 },
-  { title: "TAPE ECHO", artist: "MONO FIELD", a: [0x21, 0x24, 0x26, 0xff], b: [0xdb, 0xd2, 0xb4, 0xff], c: [0x9b, 0xe2, 0x80, 0xff], motif: 3 },
-  { title: "OCEAN STATIC", artist: "THE SIGNALS", a: [0x04, 0x3b, 0x53, 0xff], b: [0x11, 0xa6, 0xc7, 0xff], c: [0xee, 0xf6, 0xff, 0xff], motif: 4 },
-  { title: "RED LINE", artist: "CITY INDEX", a: [0x24, 0x11, 0x16, 0xff], b: [0xb9, 0x1f, 0x36, 0xff], c: [0xf6, 0xe5, 0xb7, 0xff], motif: 5 },
-  { title: "SOFT CIRCUITS", artist: "ADA VIEW", a: [0x61, 0x78, 0x8a, 0xff], b: [0xe7, 0xe0, 0xc4, 0xff], c: [0x1c, 0x32, 0x45, 0xff], motif: 6 },
-  { title: "LATE CHECKOUT", artist: "HOTEL MIRROR", a: [0x12, 0x16, 0x1c, 0xff], b: [0xc4, 0xa0, 0x5e, 0xff], c: [0x79, 0xd3, 0xff, 0xff], motif: 7 },
-  { title: "BLUEPRINTS", artist: "PAPER TIGER", a: [0xf8, 0xf6, 0xed, 0xff], b: [0x2d, 0x5d, 0x8f, 0xff], c: [0xe2, 0x51, 0x43, 0xff], motif: 8 },
-  { title: "AFTER HOURS", artist: "BLACK RAIN", a: [0x08, 0x08, 0x0d, 0xff], b: [0x5e, 0x44, 0x8f, 0xff], c: [0xf1, 0x5a, 0x7b, 0xff], motif: 9 },
+  { title: "Midnight Run", artist: "The Arcades", a: [0x13, 0x29, 0x5b, 0xff], b: [0xe7, 0x46, 0x8a, 0xff], c: [0x42, 0xdf, 0xe7, 0xff], motif: 0 },
+  { title: "Glass Houses", artist: "North Pier", a: [0xd9, 0xe8, 0xf0, 0xff], b: [0x1e, 0x73, 0x8f, 0xff], c: [0x0f, 0x21, 0x2c, 0xff], motif: 1 },
+  { title: "Low Sun", artist: "June Atlas", a: [0xf1, 0xb1, 0x49, 0xff], b: [0xd8, 0x42, 0x3b, 0xff], c: [0x39, 0x20, 0x45, 0xff], motif: 2 },
+  { title: "Tape Echo", artist: "Mono Field", a: [0x21, 0x24, 0x26, 0xff], b: [0xdb, 0xd2, 0xb4, 0xff], c: [0x9b, 0xe2, 0x80, 0xff], motif: 3 },
+  { title: "Ocean Static", artist: "The Signals", a: [0x04, 0x3b, 0x53, 0xff], b: [0x11, 0xa6, 0xc7, 0xff], c: [0xee, 0xf6, 0xff, 0xff], motif: 4 },
+  { title: "Red Line", artist: "City Index", a: [0x24, 0x11, 0x16, 0xff], b: [0xb9, 0x1f, 0x36, 0xff], c: [0xf6, 0xe5, 0xb7, 0xff], motif: 5 },
+  { title: "Soft Circuits", artist: "Ada View", a: [0x61, 0x78, 0x8a, 0xff], b: [0xe7, 0xe0, 0xc4, 0xff], c: [0x1c, 0x32, 0x45, 0xff], motif: 6 },
+  { title: "Late Checkout", artist: "Hotel Mirror", a: [0x12, 0x16, 0x1c, 0xff], b: [0xc4, 0xa0, 0x5e, 0xff], c: [0x79, 0xd3, 0xff, 0xff], motif: 7 },
+  { title: "Blueprints", artist: "Paper Tiger", a: [0xf8, 0xf6, 0xed, 0xff], b: [0x2d, 0x5d, 0x8f, 0xff], c: [0xe2, 0x51, 0x43, 0xff], motif: 8 },
+  { title: "After Hours", artist: "Black Rain", a: [0x08, 0x08, 0x0d, 0xff], b: [0x5e, 0x44, 0x8f, 0xff], c: [0xf1, 0x5a, 0x7b, 0xff], motif: 9 },
 ];
+
+const fontsReady = typeof FontFace === "undefined"
+  ? Promise.resolve()
+  : Promise.all([
+    new FontFace(FONT_FAMILY, "url(/fonts/InterDisplay-Regular.ttf)", { weight: "400" }),
+    new FontFace(FONT_FAMILY, "url(/fonts/InterDisplay-Bold.ttf)", { weight: "700" }),
+  ].map((face) => face.load().then((loaded) => document.fonts.add(loaded))));
 
 const quadVS = `#version 300 es
 layout(location=0) in vec2 a_pos;
 uniform vec4 u_rect;
-out vec2 v_pos;
+out vec2 v_uv;
 void main() {
   vec2 p = mix(u_rect.xy, u_rect.zw, a_pos);
-  v_pos = p;
+  v_uv = a_pos;
   gl_Position = vec4((p.x / float(${RENDER_W})) * 2.0 - 1.0, 1.0 - (p.y / float(${RENDER_H})) * 2.0, 0.0, 1.0);
 }`;
 
@@ -44,8 +89,6 @@ uniform vec3 u_bottom;
 uniform vec3 u_left;
 uniform int u_reflection;
 uniform int u_darken;
-uniform int u_light_boost;
-uniform int u_alpha;
 out vec4 out_color;
 
 bool edgeInside(vec3 e, float x, float y) {
@@ -91,11 +134,6 @@ vec3 shade(vec3 c, float u_mid, int darken) {
   return floor(c * factor / 255.0);
 }
 
-vec3 brighten(vec3 c, int boost) {
-  float b = float(boost);
-  return floor(c + floor((vec3(255.0) - c) * b / 100.0));
-}
-
 void main() {
   float px = floor(gl_FragCoord.x);
   float py = floor(float(${RENDER_H}) - gl_FragCoord.y);
@@ -111,81 +149,47 @@ void main() {
   if (u < -0.002 || u > 1.002 || v < -0.002 || v > 1.002) discard;
 
   float uf = clamp(u, 0.0, 1.0) * 255.0;
-  float vf = clamp(v, 0.0, 1.0) * 255.0;
-  if (u_reflection != 0) vf = 255.0 - vf;
-  vec3 c = bilinear(uf, vf);
-  c = shade(c, floor(uf + 0.5), u_darken);
-
-  float alpha = float(u_alpha * cov) / 4.0;
-  if (u_reflection != 0) {
-    int fade = clamp(u_alpha - int((py - float(${FLOOR_Y})) * 1.5), 0, u_alpha);
-    alpha = float(fade * cov) / 4.0;
-    c = shade(c, 0.0, 48);
-  } else {
-    c = brighten(c, u_light_boost);
-  }
+  float vc = clamp(v, 0.0, 1.0);
+  // A reflection quad's v runs from 0 at the cover's bottom edge to 1 where
+  // the fade reaches black, so it samples the bottom of the cover, flipped.
+  float vf = u_reflection != 0 ? 255.0 - vc * (255.0 * ${REFLECTION_SPAN}) : vc * 255.0;
+  vec3 c = shade(bilinear(uf, vf), floor(uf + 0.5), u_darken);
+  // Reflections fade towards black rather than transparent, so nearer ones
+  // hide farther ones, as in the Wasm renderer.
+  if (u_reflection != 0) c = floor(c * floor(float(${REFLECTION_ALPHA}) * (1.0 - vc) + 0.5) / 255.0);
+  float alpha = cov == 4 ? 255.0 : float(cov * 63);
   out_color = vec4(c / 255.0, alpha / 255.0);
 }`;
 
 const imageFS = `#version 300 es
 precision mediump float;
 uniform sampler2D u_tex;
-in vec2 v_pos;
+in vec2 v_uv;
 out vec4 out_color;
 void main() {
-  out_color = texture(u_tex, vec2(v_pos.x / float(${RENDER_W}), v_pos.y / float(${RENDER_H})));
+  out_color = texture(u_tex, v_uv);
 }`;
 
-const solidFS = `#version 300 es
-precision mediump float;
-uniform vec4 u_color;
+// Horizontal capsule with a vertical top-to-bottom gradient and an
+// antialiased edge.
+const capsuleFS = `#version 300 es
+precision highp float;
+uniform vec4 u_box;
+uniform vec3 u_top;
+uniform vec3 u_bottom;
 out vec4 out_color;
 void main() {
-  out_color = u_color;
-}`;
-
-const shadowFS = `#version 300 es
-precision mediump float;
-uniform float u_x0;
-uniform float u_x1;
-uniform float u_y;
-out vec4 out_color;
-void main() {
-  float x = floor(gl_FragCoord.x);
-  float y = floor(float(${RENDER_H}) - gl_FragCoord.y);
-  float cx = x < u_x0 ? u_x0 - x : (x > u_x1 ? x - u_x1 : 0.0);
-  float cy = abs(y - u_y);
-  float a = clamp(42.0 - cx * 2.0 - cy * 4.0, 0.0, 42.0);
-  if (a <= 0.0) discard;
-  out_color = vec4(0.0, 0.0, 0.0, a / 255.0);
-}`;
-
-const circleFS = `#version 300 es
-precision mediump float;
-uniform vec2 u_center;
-uniform float u_radius;
-uniform vec4 u_color;
-out vec4 out_color;
-void main() {
-  vec2 p = vec2(floor(gl_FragCoord.x), floor(float(${RENDER_H}) - gl_FragCoord.y));
-  vec2 d = p - u_center;
-  if (dot(d, d) > u_radius * u_radius) discard;
-  out_color = u_color;
-}`;
-
-const lineFS = `#version 300 es
-precision mediump float;
-uniform vec2 u_a;
-uniform vec2 u_b;
-uniform vec4 u_color;
-out vec4 out_color;
-void main() {
-  vec2 p = vec2(gl_FragCoord.x, float(${RENDER_H}) - gl_FragCoord.y);
-  vec2 ab = u_b - u_a;
-  float t = clamp(dot(p - u_a, ab) / max(dot(ab, ab), 0.0001), 0.0, 1.0);
-  vec2 closest = u_a + ab * t;
-  if (distance(p, closest) > 0.85) discard;
-  out_color = u_color;
+  float px = floor(gl_FragCoord.x) + 0.5;
+  float py = floor(float(${RENDER_H}) - gl_FragCoord.y) + 0.5;
+  float r = u_box.w * 0.5;
+  float cy = u_box.y + r;
+  float left = u_box.x + r;
+  float right = max(left, u_box.x + u_box.z - r);
+  vec2 delta = vec2(px - clamp(px, left, right), py - cy);
+  float coverage = clamp(r - length(delta) + 0.5, 0.0, 1.0);
+  if (coverage <= 0.0) discard;
+  vec3 c = floor(mix(u_top, u_bottom, (py - u_box.y) / u_box.w) + 0.5);
+  out_color = vec4(c / 255.0, coverage);
 }`;
 
 function clamp(v, lo, hi) {
@@ -200,8 +204,8 @@ function mod(a, b) {
   return ((a % b) + b) % b;
 }
 
-function mix(a, b, t) {
-  return a + (b - a) * clamp(t, 0, 1);
+function lerp(a, b, t) {
+  return a + (b - a) * t;
 }
 
 function smoothstep(edge0, edge1, x) {
@@ -306,7 +310,6 @@ function sampleAlbum(albumIndex, u, v) {
   }
 
   if (u < 8 || u > 247 || v < 8 || v > 247) base = shadeColor(base, 58);
-  if (v < 62 && u > 18 && u < 237) base = mixColor(base, [255, 255, 255, 255], divTrunc((62 - v) * 90, 62));
   return base;
 }
 
@@ -325,122 +328,41 @@ function makeAlbumTextureBytes(albumIndex) {
   return bytes;
 }
 
-function blendPixel(buf, x, y, c) {
-  if (x < 0 || y < 0 || x >= RENDER_W || y >= RENDER_H) return;
-  const idx = (y * RENDER_W + x) * 4;
-  const a = c[3];
-  if (a <= 0) return;
-  if (a >= 255) {
-    buf[idx] = c[0]; buf[idx + 1] = c[1]; buf[idx + 2] = c[2]; buf[idx + 3] = c[3];
-    return;
-  }
-  buf[idx] = divTrunc(buf[idx] * (255 - a) + c[0] * a, 255);
-  buf[idx + 1] = divTrunc(buf[idx + 1] * (255 - a) + c[1] * a, 255);
-  buf[idx + 2] = divTrunc(buf[idx + 2] * (255 - a) + c[2] * a, 255);
-  buf[idx + 3] = 255;
-}
-
-function makeBackgroundBytes() {
-  const bytes = new Uint8Array(RENDER_W * RENDER_H * 4);
-  for (let y = 0; y < RENDER_H; y++) {
-    const t = divTrunc(y * 255, RENDER_H - 1);
-    const floorFade = y >= FLOOR_Y ? clamp(170 - (y - FLOOR_Y) * 2, 0, 170) : 0;
-    for (let x = 0; x < RENDER_W; x++) {
-      const cx = Math.abs(x - CENTER_X);
-      const vignette = clamp(divTrunc(cx * 85, CENTER_X) + divTrunc(Math.abs(y - 198) * 34, 240), 0, 105);
-      const glow = clamp(78 - divTrunc(cx, 6) - divTrunc(Math.abs(y - 156), 5), 0, 78);
-      let r = clamp(6 + divTrunc(t, 18) + divTrunc(glow, 5) - divTrunc(vignette, 6), 0, 255);
-      let g = clamp(7 + divTrunc(t, 20) + divTrunc(glow, 4) - divTrunc(vignette, 6), 0, 255);
-      let b = clamp(10 + divTrunc(t, 12) + divTrunc(glow, 2) - divTrunc(vignette, 4), 0, 255);
-      if (floorFade > 0) {
-        const keep = 255 - floorFade;
-        r = divTrunc(r * keep, 255);
-        g = divTrunc(g * keep, 255);
-        b = divTrunc(b * keep, 255);
-      }
-      const idx = (y * RENDER_W + x) * 4;
-      bytes[idx] = r; bytes[idx + 1] = g; bytes[idx + 2] = b; bytes[idx + 3] = 255;
-    }
-  }
-
-  for (let x = 0; x < RENDER_W; x++) blendPixel(bytes, x, FLOOR_Y - 1, [0xc6, 0xd6, 0xea, 0x30]);
-  for (let y = FLOOR_Y; y < FLOOR_Y + 64; y++) {
-    const rowAlpha = clamp(42 - (y - FLOOR_Y), 0, 42);
-    for (let x = 63; x < RENDER_W - 63; x++) {
-      const dx = Math.abs(x - CENTER_X);
-      const a = clamp(rowAlpha - divTrunc(dx, 15), 0, 42);
-      if (a > 0) blendPixel(bytes, x, y, [0xd8, 0xe9, 0xff, a]);
-    }
-  }
-  return bytes;
-}
-
-function projectCoverCorner(localX, localY, xWorld, yCenter, zWorld, cosY, sinY) {
+function projectCoverCorner(localX, localY, xWorld, zWorld, cosY, sinY) {
   const rotatedX = localX * cosY;
   const rotatedZ = -localX * sinY;
   const z = zWorld + rotatedZ;
-  const perspective = 780 / (780 + z);
+  const perspective = FOCAL / (FOCAL + z);
   return {
     x: Math.round(CENTER_X + (xWorld + rotatedX) * perspective),
-    y: Math.round(yCenter + localY * perspective),
+    y: Math.round(COVER_CENTER_Y + localY * perspective),
   };
 }
 
-function coverQuad(selectedQ8, reflection, index) {
-  const dQ8 = index * 256 - selectedQ8;
-  const rel = dQ8 / 256;
-  const ad = Math.abs(rel);
-  const sign = rel < 0 ? -1 : 1;
-  const turn = smoothstep(0.18, 0.82, ad);
-  const yaw = sign * (turn * 1.08 + (1 - turn) * rel * 0.18);
-  const cosY = Math.cos(yaw);
-  const sinY = Math.sin(yaw);
-  const centerPush = rel * 60;
-  const sidePush = sign * (126 + (ad - 1) * 86);
-  const xWorld = clamp(mix(centerPush, sidePush, turn), -500, 500);
-  const zWorld = clamp(ad * 51, 0, 270);
-  const yCenter = 171 + clamp(ad * 6, 0, 36);
-  const half = COVER * (1 - clamp(ad * 0.025, 0, 0.12)) * 0.5;
-  const q = {
-    tl: projectCoverCorner(-half, -half, xWorld, yCenter, zWorld, cosY, sinY),
-    tr: projectCoverCorner(half, -half, xWorld, yCenter, zWorld, cosY, sinY),
-    br: projectCoverCorner(half, half, xWorld, yCenter, zWorld, cosY, sinY),
-    bl: projectCoverCorner(-half, half, xWorld, yCenter, zWorld, cosY, sinY),
-  };
-  if (!reflection) return q;
-  const gap = 4;
-  return {
-    tl: { x: q.bl.x, y: FLOOR_Y + gap },
-    tr: { x: q.br.x, y: FLOOR_Y + gap },
-    br: { x: q.tr.x, y: FLOOR_Y + gap + divTrunc((q.br.y - q.tr.y) * 3, 4) },
-    bl: { x: q.tl.x, y: FLOOR_Y + gap + divTrunc((q.bl.y - q.tl.y) * 3, 4) },
-  };
-}
-
-function coverNormal(selectedQ8, index) {
+function coverPose(selectedQ8, index) {
   const rel = (index * 256 - selectedQ8) / 256;
   const ad = Math.abs(rel);
   const sign = rel < 0 ? -1 : 1;
-  const turn = smoothstep(0.18, 0.82, ad);
-  const yaw = sign * (turn * 1.08 + (1 - turn) * rel * 0.18);
-  return { x: Math.sin(yaw), y: 0, z: Math.cos(yaw) };
-}
-
-function lightingBoost(normal) {
-  const light = normalize3({ x: -0.42, y: -0.22, z: 0.88 });
-  const facing = clamp(dot3(normal, { x: 0, y: 0, z: 1 }), 0, 1);
-  const diffuse = clamp(dot3(normal, light), 0, 1);
-  const rim = clamp(1 - facing, 0, 1);
-  return Math.round(diffuse * 34 + rim * 18);
-}
-
-function dot3(a, b) {
-  return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-function normalize3(v) {
-  const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z);
-  return len <= 0.0001 ? { x: 0, y: 0, z: 1 } : { x: v.x / len, y: v.y / len, z: v.z / len };
+  const turn = smoothstep(0.1, 0.9, ad);
+  // Side covers turn to face the center, so their inner edges tuck behind
+  // their neighbors and only the nearer, outer edges show.
+  const yaw = sign * turn * SIDE_YAW;
+  const cosY = Math.cos(yaw);
+  const sinY = Math.sin(yaw);
+  const sideX = sign * (SIDE_OFFSET + (ad - 1) * SIDE_SPACING);
+  const xWorld = lerp(rel * CENTER_SLIDE, sideX, turn);
+  const zWorld = turn * SIDE_DEPTH;
+  const half = COVER * 0.5;
+  // The reflection is the cover mirrored in the floor plane at its bottom
+  // edge, trimmed to the part that is still visible before it fades out.
+  const mirrorTop = half + REFLECTION_GAP;
+  const mirrorBottom = mirrorTop + 2 * half * REFLECTION_SPAN;
+  const corner = (x, y) => projectCoverCorner(x, y, xWorld, zWorld, cosY, sinY);
+  return {
+    q: { tl: corner(-half, -half), tr: corner(half, -half), br: corner(half, half), bl: corner(-half, half) },
+    reflectionQ: { tl: corner(-half, mirrorTop), tr: corner(half, mirrorTop), br: corner(half, mirrorBottom), bl: corner(-half, mirrorBottom) },
+    facing: clamp(cosY, 0, 1),
+  };
 }
 
 function quadArea(q) {
@@ -542,7 +464,7 @@ function getUniforms(gl, program, spec) {
   return out;
 }
 
-function createTexture(gl, width, height, bytes, filter = gl.NEAREST) {
+function createTexture(gl, width, height, source, filter = gl.NEAREST) {
   const tex = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, tex);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filter);
@@ -550,8 +472,24 @@ function createTexture(gl, width, height, bytes, filter = gl.NEAREST) {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, bytes);
+  if (source instanceof Uint8Array) {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  } else {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, source);
+  }
   return tex;
+}
+
+function fontFor(weight, size) {
+  return `${weight} ${size}px "${FONT_FAMILY}", "Inter Display", Inter, system-ui, sans-serif`;
+}
+
+const measureContext = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+
+function textWidth(text, weight, size) {
+  measureContext.font = fontFor(weight, size);
+  measureContext.fontKerning = "normal";
+  return measureContext.measureText(text).width;
 }
 
 class CoverFlowWebGL2 extends HTMLElement {
@@ -565,10 +503,11 @@ class CoverFlowWebGL2 extends HTMLElement {
     this.lastX = 0;
     this.lastDX = 0;
     this.pressSelectedQ8 = 0;
+    this.scrubActive = false;
+    this.scrubGrabDX = 0;
     this.featureMask = FEATURE_LIGHTING | FEATURE_SPRING;
     this.renderCount = 0;
     this.lastRenderMs = 0;
-    this.lastFrameMs = 0;
     this.sourceBytes = moduleByteSize();
     this.textCache = new Map();
 
@@ -577,14 +516,15 @@ class CoverFlowWebGL2 extends HTMLElement {
     this.canvas.height = RENDER_H;
     this.canvas.tabIndex = 0;
     this.canvas.style.display = "block";
-    this.canvas.style.width = `${RENDER_W}px`;
+    this.canvas.style.width = `${DISPLAY_W}px`;
+    this.canvas.style.maxWidth = "100%";
     this.canvas.style.height = "auto";
     this.canvas.style.touchAction = "none";
 
     this.stats = document.createElement("div");
     this.stats.style.boxSizing = "border-box";
     this.stats.style.marginTop = "6px";
-    this.stats.style.maxWidth = `${RENDER_W}px`;
+    this.stats.style.maxWidth = `${DISPLAY_W}px`;
     this.stats.style.font = "11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
     this.stats.style.color = "#666";
     this.stats.style.lineHeight = "1.35";
@@ -593,10 +533,15 @@ class CoverFlowWebGL2 extends HTMLElement {
     this.initGL();
     this.attachInput();
     this.renderFrame();
+    // Redraw once Inter has loaded, replacing text set in a fallback font.
+    fontsReady.then(() => {
+      this.clearTextCache();
+      this.renderFrame();
+    }, () => {});
   }
 
   initGL() {
-    const gl = this.canvas.getContext("webgl2", { alpha: false, antialias: true, desynchronized: true });
+    const gl = this.canvas.getContext("webgl2", { alpha: false, antialias: false, desynchronized: true });
     if (!gl) throw new Error("WebGL2 is unavailable");
     this.gl = gl;
     gl.viewport(0, 0, RENDER_W, RENDER_H);
@@ -606,10 +551,7 @@ class CoverFlowWebGL2 extends HTMLElement {
 
     this.quadProgram = createProgram(gl, quadVS, textureFS);
     this.imageProgram = createProgram(gl, quadVS, imageFS);
-    this.solidProgram = createProgram(gl, quadVS, solidFS);
-    this.shadowProgram = createProgram(gl, quadVS, shadowFS);
-    this.circleProgram = createProgram(gl, quadVS, circleFS);
-    this.lineProgram = createProgram(gl, quadVS, lineFS);
+    this.capsuleProgram = createProgram(gl, quadVS, capsuleFS);
     this.uniforms = {
       quad: getUniforms(gl, this.quadProgram, {
         rect: "u_rect",
@@ -621,21 +563,15 @@ class CoverFlowWebGL2 extends HTMLElement {
         left: "u_left",
         reflection: "u_reflection",
         darken: "u_darken",
-        lightBoost: "u_light_boost",
-        alpha: "u_alpha",
       }),
       image: getUniforms(gl, this.imageProgram, { rect: "u_rect", tex: "u_tex" }),
-      solid: getUniforms(gl, this.solidProgram, { rect: "u_rect", color: "u_color" }),
-      shadow: getUniforms(gl, this.shadowProgram, { rect: "u_rect", x0: "u_x0", x1: "u_x1", y: "u_y" }),
-      circle: getUniforms(gl, this.circleProgram, { rect: "u_rect", center: "u_center", radius: "u_radius", color: "u_color" }),
-      line: getUniforms(gl, this.lineProgram, { rect: "u_rect", a: "u_a", b: "u_b", color: "u_color" }),
+      capsule: getUniforms(gl, this.capsuleProgram, { rect: "u_rect", box: "u_box", top: "u_top", bottom: "u_bottom" }),
     };
 
     this.rectBuffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.rectBuffer);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
 
-    this.backgroundTexture = createTexture(gl, RENDER_W, RENDER_H, makeBackgroundBytes(), gl.NEAREST);
     this.albumTextures = albums.map((_, i) => createTexture(gl, TEX_SIZE, TEX_SIZE, makeAlbumTextureBytes(i), gl.NEAREST));
   }
 
@@ -661,35 +597,52 @@ class CoverFlowWebGL2 extends HTMLElement {
       this.schedule();
     });
     this.canvas.addEventListener("pointerdown", (event) => {
+      if (this.primaryDown) return;
       this.canvas.setPointerCapture(event.pointerId);
       this.canvas.focus();
       const p = this.canvasPoint(event);
+      if (this.scrollBarHit(p.x, p.y)) {
+        const thumb = this.scrollThumb();
+        this.scrubActive = true;
+        this.scrubGrabDX = p.x >= thumb.x && p.x < thumb.x + thumb.w ? p.x - thumb.x : divTrunc(thumb.w, 2);
+        this.scrubTo(p.x);
+      } else {
+        this.pressX = p.x;
+        this.lastX = p.x;
+        this.lastDX = 0;
+        this.pressSelectedQ8 = this.selectedQ8;
+        this.targetQ8 = this.selectedQ8;
+        this.velocityQ8 = 0;
+        this.springVelocityQ8 = 0;
+      }
       this.primaryDown = true;
-      this.pressX = p.x;
-      this.lastX = p.x;
-      this.lastDX = 0;
-      this.pressSelectedQ8 = this.selectedQ8;
-      this.targetQ8 = this.selectedQ8;
-      this.velocityQ8 = 0;
-      this.springVelocityQ8 = 0;
       this.schedule();
     });
     this.canvas.addEventListener("pointermove", (event) => {
       if (!this.primaryDown) return;
       const p = this.canvasPoint(event);
-      const dx = p.x - this.pressX;
-      this.lastDX = p.x - this.lastX;
-      this.lastX = p.x;
-      this.selectedQ8 = this.clampSelected(this.pressSelectedQ8 - divTrunc(dx * 256, 129), true);
-      this.targetQ8 = this.selectedQ8;
-      this.velocityQ8 = divTrunc(-this.lastDX * 256, 129);
-      this.springVelocityQ8 = 0;
-      this.schedule();
+      const wasSelectedQ8 = this.selectedQ8;
+      if (this.scrubActive) {
+        this.scrubTo(p.x);
+      } else {
+        const dx = p.x - this.pressX;
+        this.lastDX = p.x - this.lastX;
+        this.lastX = p.x;
+        this.selectedQ8 = this.clampSelected(this.pressSelectedQ8 - divTrunc(dx * 256, 129 * SCALE), true);
+        this.targetQ8 = this.selectedQ8;
+        this.velocityQ8 = divTrunc(-this.lastDX * 256, 129 * SCALE);
+        this.springVelocityQ8 = 0;
+      }
+      // A held pointer that hasn't moved the covers leaves the frame unchanged.
+      if (this.selectedQ8 !== wasSelectedQ8) this.schedule();
     });
     const finishPointer = (event) => {
       if (!this.primaryDown) return;
       const p = this.canvasPoint(event);
-      if (Math.abs(p.x - this.pressX) < 5) {
+      if (this.scrubActive) {
+        this.scrubActive = false;
+        this.targetQ8 = this.nearestIndex() * 256;
+      } else if (Math.abs(p.x - this.pressX) < 5 * SCALE) {
         const hit = this.hitAlbum(p.x, p.y);
         if (hit >= 0) this.setSelection(hit);
       }
@@ -732,51 +685,83 @@ class CoverFlowWebGL2 extends HTMLElement {
     this.setSelection(this.nearestIndex() + delta);
   }
 
+  scrollThumbWidth() {
+    return Math.max(SCROLL_TRACK_H * 3, divTrunc(SCROLL_TRACK_W * 2, albums.length));
+  }
+
+  scrollThumb() {
+    const w = this.scrollThumbWidth();
+    const maxQ8 = (albums.length - 1) * 256;
+    const posQ8 = clamp(this.selectedQ8, 0, maxQ8);
+    return { x: SCROLL_TRACK_X + divTrunc((SCROLL_TRACK_W - w) * posQ8, Math.max(1, maxQ8)), w };
+  }
+
+  scrollBarHit(x, y) {
+    return x >= SCROLL_TRACK_X - SCROLL_HIT_SLOP && x < SCROLL_TRACK_X + SCROLL_TRACK_W + SCROLL_HIT_SLOP &&
+      y >= SCROLL_TRACK_Y - SCROLL_HIT_SLOP && y < SCROLL_TRACK_Y + SCROLL_TRACK_H + SCROLL_HIT_SLOP;
+  }
+
+  // Places the thumb's left edge at x - scrubGrabDX and moves the covers to
+  // match, without snapping to an album until the pointer is released.
+  scrubTo(x) {
+    const maxQ8 = (albums.length - 1) * 256;
+    const travel = Math.max(1, SCROLL_TRACK_W - this.scrollThumbWidth());
+    const offset = clamp(x - this.scrubGrabDX - SCROLL_TRACK_X, 0, travel);
+    this.selectedQ8 = divTrunc(offset * maxQ8 + divTrunc(travel, 2), travel);
+    this.targetQ8 = this.selectedQ8;
+    this.velocityQ8 = 0;
+    this.springVelocityQ8 = 0;
+  }
+
   tick() {
-    let active = this.primaryDown;
-    if (!this.primaryDown) {
-      if (this.velocityQ8 !== 0) {
-        this.selectedQ8 = this.clampSelected(this.selectedQ8 + this.velocityQ8, true);
-        this.velocityQ8 = divTrunc(this.velocityQ8 * 88, 100);
-        if (Math.abs(this.velocityQ8) < 3) {
-          this.velocityQ8 = 0;
-          this.targetQ8 = this.nearestIndex() * 256;
-          this.springVelocityQ8 = 0;
-        }
-        active = true;
-      } else {
-        const delta = this.targetQ8 - this.selectedQ8;
-        if ((this.featureMask & FEATURE_SPRING) !== 0) {
-          if (Math.abs(delta) > 1 || Math.abs(this.springVelocityQ8) > 2) {
-            this.springVelocityQ8 += divTrunc(delta, 7);
-            this.springVelocityQ8 = divTrunc(this.springVelocityQ8 * 72, 100);
-            if (this.springVelocityQ8 === 0 && delta !== 0) this.springVelocityQ8 = delta < 0 ? -1 : 1;
-            this.selectedQ8 += this.springVelocityQ8;
-            active = true;
-          } else {
-            this.selectedQ8 = this.targetQ8;
-            this.springVelocityQ8 = 0;
-          }
-        } else if (Math.abs(delta) > 1) {
-          let step = divTrunc(delta, 6);
-          if (step === 0) step = delta < 0 ? -1 : 1;
-          this.selectedQ8 += step;
-          active = true;
-        } else {
-          this.selectedQ8 = this.targetQ8;
-        }
+    if (this.primaryDown) return;
+    if (this.velocityQ8 !== 0) {
+      this.selectedQ8 = this.clampSelected(this.selectedQ8 + this.velocityQ8, true);
+      this.velocityQ8 = divTrunc(this.velocityQ8 * 88, 100);
+      if (Math.abs(this.velocityQ8) < 3) {
+        this.velocityQ8 = 0;
+        this.targetQ8 = this.nearestIndex() * 256;
+        this.springVelocityQ8 = 0;
       }
+      return;
     }
-    return active;
+    const delta = this.targetQ8 - this.selectedQ8;
+    if ((this.featureMask & FEATURE_SPRING) !== 0) {
+      if (Math.abs(delta) > 1 || Math.abs(this.springVelocityQ8) > 2) {
+        this.springVelocityQ8 += divTrunc(delta, 7);
+        this.springVelocityQ8 = divTrunc(this.springVelocityQ8 * 72, 100);
+        if (this.springVelocityQ8 === 0 && delta !== 0) this.springVelocityQ8 = delta < 0 ? -1 : 1;
+        this.selectedQ8 += this.springVelocityQ8;
+      } else {
+        this.selectedQ8 = this.targetQ8;
+        this.springVelocityQ8 = 0;
+      }
+    } else if (Math.abs(delta) > 1) {
+      let step = divTrunc(delta, 6);
+      if (step === 0) step = delta < 0 ? -1 : 1;
+      this.selectedQ8 += step;
+    } else {
+      this.selectedQ8 = this.targetQ8;
+    }
+  }
+
+  // Nothing animates while the pointer is held; pointer moves drive the
+  // frames instead.
+  animating() {
+    return !this.primaryDown && (
+      this.velocityQ8 !== 0 ||
+      Math.abs(this.targetQ8 - this.selectedQ8) > 1 ||
+      Math.abs(this.springVelocityQ8) > 2
+    );
   }
 
   schedule() {
     if (this.raf) return;
     this.raf = requestAnimationFrame(() => {
       this.raf = 0;
-      const active = this.tick();
+      this.tick();
       this.renderFrame();
-      if (active) this.schedule();
+      if (this.animating()) this.schedule();
     });
   }
 
@@ -802,65 +787,18 @@ class CoverFlowWebGL2 extends HTMLElement {
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  drawSolidRect(x0, y0, x1, y1, c) {
+  fillCapsule(x, y, w, h, top, bottom) {
+    if (w <= 0 || h <= 0) return;
     const gl = this.gl;
-    this.useProgram(this.solidProgram);
-    this.setRect(this.uniforms.solid.rect, x0, y0, x1, y1);
-    gl.uniform4f(this.uniforms.solid.color, c[0] / 255, c[1] / 255, c[2] / 255, c[3] / 255);
+    this.useProgram(this.capsuleProgram);
+    this.setRect(this.uniforms.capsule.rect, x, y, x + w, y + h);
+    gl.uniform4f(this.uniforms.capsule.box, x, y, w, h);
+    gl.uniform3f(this.uniforms.capsule.top, top[0], top[1], top[2]);
+    gl.uniform3f(this.uniforms.capsule.bottom, bottom[0], bottom[1], bottom[2]);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  drawShadow(q) {
-    const x0 = min4(q.tl.x, q.tr.x, q.br.x, q.bl.x);
-    const x1 = max4(q.tl.x, q.tr.x, q.br.x, q.bl.x);
-    const y = FLOOR_Y - 1;
-    const gl = this.gl;
-    this.useProgram(this.shadowProgram);
-    this.setRect(this.uniforms.shadow.rect, x0 - 12, y - 10, x1 + 12, y + 10);
-    gl.uniform1f(this.uniforms.shadow.x0, x0);
-    gl.uniform1f(this.uniforms.shadow.x1, x1);
-    gl.uniform1f(this.uniforms.shadow.y, y);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-
-  drawLine(x0, y0, x1, y1, c) {
-    const gl = this.gl;
-    this.useProgram(this.lineProgram);
-    this.setRect(this.uniforms.line.rect, Math.min(x0, x1) - 2, Math.min(y0, y1) - 2, Math.max(x0, x1) + 2, Math.max(y0, y1) + 2);
-    gl.uniform2f(this.uniforms.line.a, x0, y0);
-    gl.uniform2f(this.uniforms.line.b, x1, y1);
-    gl.uniform4f(this.uniforms.line.color, c[0] / 255, c[1] / 255, c[2] / 255, c[3] / 255);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-
-  drawCircle(cx, cy, radius, c) {
-    const gl = this.gl;
-    this.useProgram(this.circleProgram);
-    this.setRect(this.uniforms.circle.rect, cx - radius, cy - radius, cx + radius + 1, cy + radius + 1);
-    gl.uniform2f(this.uniforms.circle.center, cx, cy);
-    gl.uniform1f(this.uniforms.circle.radius, radius);
-    gl.uniform4f(this.uniforms.circle.color, c[0] / 255, c[1] / 255, c[2] / 255, c[3] / 255);
-    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-  }
-
-  drawAlbum(reflection, index) {
-    const q = coverQuad(this.selectedQ8, reflection, index);
-    const deltaQ8 = index * 256 - this.selectedQ8;
-    const dist = Math.abs(deltaQ8);
-    const sideDark = clamp(divTrunc(dist, 9), 0, 72);
-    const light = reflection || (this.featureMask & FEATURE_LIGHTING) === 0 ? 0 : lightingBoost(coverNormal(this.selectedQ8, index));
-    const alpha = reflection ? clamp(88 - divTrunc(dist, 12), 14, 84) : 255;
-    if (!reflection) this.drawShadow(q);
-    this.drawTexturedQuad(reflection, q, index, sideDark, light, alpha);
-    if (!reflection) {
-      const a = clamp(84 - divTrunc(dist, 5), 18, 84);
-      const y0 = q.tl.y + divTrunc((q.bl.y - q.tl.y) * 38, 255);
-      const y1 = q.tr.y + divTrunc((q.br.y - q.tr.y) * 38, 255);
-      this.drawLine(q.tl.x + 8, y0, q.tr.x - 8, y1, [255, 255, 255, a]);
-    }
-  }
-
-  drawTexturedQuad(reflection, q, albumIndex, darken, lightBoost, alpha) {
+  drawTexturedQuad(reflection, q, albumIndex, darken) {
     const inv = inverseHomography(q);
     if (!inv) return;
     const minX = clamp(min4(q.tl.x, q.tr.x, q.br.x, q.bl.x), 0, RENDER_W - 1);
@@ -881,64 +819,83 @@ class CoverFlowWebGL2 extends HTMLElement {
     gl.uniform3fv(this.uniforms.quad.left, edges.left);
     gl.uniform1i(this.uniforms.quad.reflection, reflection ? 1 : 0);
     gl.uniform1i(this.uniforms.quad.darken, darken);
-    gl.uniform1i(this.uniforms.quad.lightBoost, lightBoost);
-    gl.uniform1i(this.uniforms.quad.alpha, alpha);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
-  drawText(x, y, text, color, scale) {
-    const size = scale === 3 ? 22 : scale === 2 ? 14 : 10;
-    const adv = Math.max(1, Math.ceil(34 * (size / 66)));
-    const w = text.length * adv;
-    const key = `${text}|${size}|${color.join(",")}`;
-    let item = this.textCache.get(key);
-    if (!item) {
-      const canvas = document.createElement("canvas");
-      canvas.width = Math.max(1, w + 2);
-      canvas.height = size + 4;
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${color[3] / 255})`;
-      ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace`;
-      ctx.textBaseline = "top";
-      for (let i = 0; i < text.length; i++) ctx.fillText(text[i], i * adv, 0);
-      item = { tex: createTexture(this.gl, canvas.width, canvas.height, ctx.getImageData(0, 0, canvas.width, canvas.height).data, this.gl.LINEAR), w: canvas.width, h: canvas.height };
-      this.textCache.set(key, item);
-    }
-    this.drawTexture(item.tex, x, y, x + item.w, y + item.h);
+  clearTextCache() {
+    for (const item of this.textCache.values()) this.gl.deleteTexture(item.tex);
+    this.textCache.clear();
   }
 
-  textWidth(text, scale) {
-    const size = scale === 3 ? 22 : scale === 2 ? 14 : 10;
-    return text.length * Math.max(1, Math.ceil(34 * (size / 66)));
+  // Sets one line of text with the browser's kerning into a texture, cached
+  // by content, and draws it with its baseline at y.
+  drawText(x, baseline, text, weight, size, color) {
+    const key = `${text}|${weight}|${size}|${color.join(",")}`;
+    let item = this.textCache.get(key);
+    if (!item) {
+      const pad = 2;
+      const canvas = document.createElement("canvas");
+      let ctx = canvas.getContext("2d");
+      ctx.font = fontFor(weight, size);
+      ctx.fontKerning = "normal";
+      const metrics = ctx.measureText(text);
+      const ascent = Math.ceil(metrics.fontBoundingBoxAscent ?? size);
+      const descent = Math.ceil(metrics.fontBoundingBoxDescent ?? size * 0.3);
+      canvas.width = Math.max(1, Math.ceil(metrics.width) + pad * 2);
+      canvas.height = ascent + descent + pad * 2;
+      // Resizing resets the context's state.
+      ctx = canvas.getContext("2d");
+      ctx.font = fontFor(weight, size);
+      ctx.fontKerning = "normal";
+      ctx.textBaseline = "alphabetic";
+      ctx.fillStyle = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
+      ctx.fillText(text, pad, pad + ascent);
+      item = {
+        tex: createTexture(this.gl, canvas.width, canvas.height, canvas, this.gl.NEAREST),
+        w: canvas.width,
+        h: canvas.height,
+        dx: -pad,
+        dy: -(pad + ascent),
+      };
+      this.textCache.set(key, item);
+    }
+    const left = Math.round(x) + item.dx;
+    const top = Math.round(baseline) + item.dy;
+    this.drawTexture(item.tex, left, top, left + item.w, top + item.h);
+  }
+
+  drawTextCentered(centerX, baseline, text, weight, size, color) {
+    this.drawText(Math.round(centerX - textWidth(text, weight, size) * 0.5), baseline, text, weight, size, color);
+  }
+
+  drawScrollBar() {
+    const x = SCROLL_TRACK_X;
+    const y = SCROLL_TRACK_Y;
+    const w = SCROLL_TRACK_W;
+    const h = SCROLL_TRACK_H;
+    this.fillCapsule(x, y, w, h, [0x50, 0x50, 0x50], [0x3a, 0x3a, 0x3a]);
+    this.fillCapsule(x + SCALE, y + SCALE, w - 2 * SCALE, h - 2 * SCALE, [0x0c, 0x0c, 0x0c], [0x1e, 0x1e, 0x1e]);
+
+    const thumb = this.scrollThumb();
+    // The thumb brightens while it is held.
+    const lift = this.scrubActive ? 0x1c : 0;
+    const lit = (v) => [v + lift, v + lift, v + lift];
+    this.fillCapsule(thumb.x, y, thumb.w, h, lit(0xb4), lit(0x70));
+    this.fillCapsule(thumb.x + SCALE, y + SCALE, thumb.w - 2 * SCALE, h - 2 * SCALE, lit(0x8c), lit(0x50));
   }
 
   drawChrome() {
-    this.drawSolidRect(0, 0, RENDER_W, 42, [0, 0, 0, 0x8f]);
-    this.drawText(27, 15, "COVER FLOW", [0xea, 0xf3, 0xff, 0xff], 3);
-    this.drawText(RENDER_W - 213, 18, "DRAG OR ARROWS", [0xa7, 0xb7, 0xc8, 0xff], 2);
-    this.drawFlag(28, 54, "L LIGHT", (this.featureMask & FEATURE_LIGHTING) !== 0);
-    this.drawFlag(126, 54, "S SPRING", (this.featureMask & FEATURE_SPRING) !== 0);
-    const idx = this.targetIndex();
-    const album = albums[idx];
-    this.drawText(CENTER_X - divTrunc(this.textWidth(album.title, 3), 2), 378, album.title, [0xf8, 0xfa, 0xff, 0xff], 3);
-    this.drawText(CENTER_X - divTrunc(this.textWidth(album.artist, 2), 2), 411, album.artist, [0xa9, 0xb5, 0xc3, 0xff], 2);
-    const dotsW = albums.length * 15 - 6;
-    for (let i = 0; i < albums.length; i++) {
-      const x = CENTER_X - divTrunc(dotsW, 2) + i * 15;
-      const active = i === idx;
-      this.drawCircle(x, 447, active ? 5 : 3, active ? [0xf5, 0xf7, 0xff, 0xff] : [0x78, 0x84, 0x92, 0xc8]);
-    }
+    const flagX = 16 * SCALE;
+    this.drawFlagLabel(flagX, "L LIGHT", (this.featureMask & FEATURE_LIGHTING) !== 0);
+    this.drawFlagLabel(flagX + textWidth("L LIGHT", 400, FLAG_SIZE) + 14 * SCALE, "S SPRING", (this.featureMask & FEATURE_SPRING) !== 0);
+    const album = albums[this.targetIndex()];
+    this.drawTextCentered(CENTER_X, TITLE_BASELINE, album.title, 700, TITLE_SIZE, [0xff, 0xff, 0xff]);
+    this.drawTextCentered(CENTER_X, ARTIST_BASELINE, album.artist, 400, ARTIST_SIZE, [0x9a, 0x9a, 0x9a]);
+    this.drawScrollBar();
   }
 
-  drawFlag(x, y, label, enabled) {
-    const w = this.textWidth(label, 2) + 12;
-    this.drawSolidRect(x, y, x + w, y + 18, enabled ? [0xe8, 0xf1, 0xff, 0x22] : [0, 0, 0, 0x32]);
-    this.drawLine(x, y, x + w, y, enabled ? [0xd8, 0xe8, 0xff, 0x92] : [0x7a, 0x86, 0x95, 0x72]);
-    this.drawLine(x, y + 17, x + w, y + 17, enabled ? [0xd8, 0xe8, 0xff, 0x92] : [0x7a, 0x86, 0x95, 0x72]);
-    this.drawLine(x, y, x, y + 18, enabled ? [0xd8, 0xe8, 0xff, 0x92] : [0x7a, 0x86, 0x95, 0x72]);
-    this.drawLine(x + w - 1, y, x + w - 1, y + 18, enabled ? [0xd8, 0xe8, 0xff, 0x92] : [0x7a, 0x86, 0x95, 0x72]);
-    this.drawText(x + 6, y + 5, label, enabled ? [0xf2, 0xf7, 0xff, 0xff] : [0x7d, 0x89, 0x97, 0xff], 2);
+  drawFlagLabel(x, label, enabled) {
+    this.drawText(x, FLAG_BASELINE, label, 400, FLAG_SIZE, enabled ? [0x8a, 0x8a, 0x8a] : [0x40, 0x40, 0x40]);
   }
 
   hitAlbum(x, y) {
@@ -947,7 +904,7 @@ class CoverFlowWebGL2 extends HTMLElement {
     for (let i = 0; i < albums.length; i++) {
       const dQ8 = i * 256 - this.selectedQ8;
       if (Math.abs(dQ8) > 4 * 256) continue;
-      const q = coverQuad(this.selectedQ8, false, i);
+      const q = coverPose(this.selectedQ8, i).q;
       if (x >= min4(q.tl.x, q.tr.x, q.br.x, q.bl.x) &&
           x <= max4(q.tl.x, q.tr.x, q.br.x, q.bl.x) &&
           y >= min4(q.tl.y, q.tr.y, q.br.y, q.bl.y) &&
@@ -962,23 +919,40 @@ class CoverFlowWebGL2 extends HTMLElement {
     return best;
   }
 
+  // Draws the outermost covers first and the centered one last, so nearer
+  // covers, and their reflections, hide the ones behind them.
+  drawBackToFront(covers, reflection) {
+    const nearest = this.nearestIndex();
+    const draw = (idx) => {
+      const cover = covers.get(idx);
+      if (cover) this.drawTexturedQuad(reflection, reflection ? cover.reflectionQ : cover.q, idx, cover.darken);
+    };
+    for (let pass = 5; pass >= 1; pass--) {
+      draw(nearest - pass);
+      draw(nearest + pass);
+    }
+    draw(nearest);
+  }
+
   renderFrame() {
     const start = performance.now();
-    this.drawTexture(this.backgroundTexture, 0, 0, RENDER_W, RENDER_H);
-    for (let pass = 5; pass >= -5; pass--) {
-      const idx = this.nearestIndex() + pass;
-      if (idx >= 0 && idx < albums.length) this.drawAlbum(true, idx);
+    const gl = this.gl;
+    // The original stage is pure black: no floor line, glow or vignette.
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    const lighting = (this.featureMask & FEATURE_LIGHTING) !== 0;
+    const covers = new Map();
+    const nearest = this.nearestIndex();
+    for (let idx = Math.max(0, nearest - 5); idx <= Math.min(albums.length - 1, nearest + 5); idx++) {
+      const pose = coverPose(this.selectedQ8, idx);
+      // With lighting on, side covers darken as they turn away from the viewer.
+      pose.darken = lighting ? Math.round((1 - pose.facing) * SIDE_DARKEN_MAX) : 0;
+      covers.set(idx, pose);
     }
-    for (let pass = 5; pass >= 1; pass--) {
-      const left = this.nearestIndex() - pass;
-      if (left >= 0) this.drawAlbum(false, left);
-      const right = this.nearestIndex() + pass;
-      if (right < albums.length) this.drawAlbum(false, right);
-    }
-    const center = this.nearestIndex();
-    if (center >= 0 && center < albums.length) this.drawAlbum(false, center);
+    this.drawBackToFront(covers, true);
+    this.drawBackToFront(covers, false);
     this.drawChrome();
-    this.gl.flush();
+    gl.flush();
     this.lastRenderMs = performance.now() - start;
     this.renderCount += 1;
     this.updateStats();

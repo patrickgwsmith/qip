@@ -41,7 +41,7 @@ events, and timing.
 ## Interface studies
 
 - [`browser-security.wasm`](/gui/browser-security.wasm) presents a browser-security interface.
-- [`cover-flow.wasm`](/gui/cover-flow.wasm) and [`cover-flow-lofi.wasm`](/gui/cover-flow-lofi.wasm) browse a Cover Flow layout.
+- [`cover-flow.wasm`](/gui/cover-flow.wasm) browses a Cover Flow layout.
 - [`data-grid-svg.wasm`](/gui/data-grid-svg.wasm) draws a sortable, filterable grid of 1,000 orders as SVG, 17 rows at a time.
 - [`date-range-picker-svg.wasm`](/gui/date-range-picker-svg.wasm) draws a two-month check-in and check-out picker as SVG.
 - [`dock-magnification.wasm`](/gui/dock-magnification.wasm) magnifies icons around the pointer.
