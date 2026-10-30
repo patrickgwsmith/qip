@@ -37,7 +37,6 @@ More interactive pages:
 - [Original Xbox Dashboard](/play-xbox-dashboard)
 - [PlayStation 2 Menu](/play-ps2-menu)
 - [Cover Flow](/play-cover-flow)
-- [Cover Flow WebGL2](/play-cover-flow-webgl2)
 - [Photo Light Table](/play-photo-light-table)
 - [Palm webOS Card View](/play-webos-card-view)
 - [Game Boy Camera UI](/play-gameboy-camera)

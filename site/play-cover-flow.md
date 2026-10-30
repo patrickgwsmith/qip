@@ -6,8 +6,6 @@ The component applies input events and animation time before it publishes a new
 KTX2 frame. Its feature flags are retained interaction state; it does not
 export configuration uniforms.
 
-Compare against the browser-native [WebGL2 renderer](/play-cover-flow-webgl2) at the same displayed size.
-
 Controls:
 
 - Drag left/right: move through albums with inertia
@@ -19,3 +17,11 @@ Controls:
 <qip-play canvas-width="720px" canvas-height="auto">
   <source src="/gui/cover-flow.wasm" type="application/wasm" />
 </qip-play>
+
+## WebGL2
+
+The same scene drawn through WebGL2 in the browser, for comparison at the same displayed size. It renders at 1440x960 and is displayed at 720x480. Text is set in Inter Display by the browser, with kerning. It also supports `Home`/`End`.
+
+<script type="module" src="/cover-flow-webgl2.js"></script>
+
+<cover-flow-webgl2></cover-flow-webgl2>
