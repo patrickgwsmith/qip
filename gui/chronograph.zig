@@ -77,10 +77,18 @@ var tilt_drag_start_angle: f32 = 0;
 var tilt_last_x: i32 = 0;
 var tilt_last_event_at_ms: i64 = 0;
 
-var render_tilt_scale_x: f32 = 1;
-var render_tilt_inverse_x: f32 = 1;
+// Yaw is a real rotation about the vertical axis seen through a pinhole
+// camera VIEW_DISTANCE pixels from the dial. The edge turning toward the
+// viewer grows and the far edge shrinks, so the round dial becomes an
+// egg-shaped outline instead of a uniformly squashed ellipse.
+const VIEW_DISTANCE: f32 = 600.0;
+
+var render_tilt_cosine: f32 = 1;
 var render_tilt_sine: f32 = 0;
-var render_layer_offset_x: f32 = 0;
+// sin(yaw) / VIEW_DISTANCE: how much each local x unit changes the depth.
+var render_perspective: f32 = 0;
+// Height above the dial plane of the layer being drawn, in local pixels.
+var render_layer_depth: f32 = 0;
 
 export fn input_ptr() u32 {
     return 0;
@@ -326,14 +334,14 @@ fn writeF32(output: []u8, offset: usize, value: f32) void {
 
 fn drawChronograph(seconds: f32) void {
     if (tilt_angle == 0) {
-        render_tilt_scale_x = 1;
-        render_tilt_inverse_x = 1;
+        render_tilt_cosine = 1;
         render_tilt_sine = 0;
     } else {
-        render_tilt_scale_x = std.math.cos(tilt_angle);
-        render_tilt_inverse_x = 1.0 / render_tilt_scale_x;
+        render_tilt_cosine = std.math.cos(tilt_angle);
         render_tilt_sine = std.math.sin(tilt_angle);
     }
+    render_perspective = render_tilt_sine / VIEW_DISTANCE;
+    render_layer_depth = 0;
     updateLight();
     drawStaticDial();
     drawHand(seconds);
@@ -360,12 +368,12 @@ fn drawStaticDial() void {
         return;
     }
     drawBackground();
-    drawCase();
+    drawCaseBody();
     drawDialSurface();
-    drawBezelReflection();
     drawChapterRing();
     drawIndices();
     drawLabels();
+    drawBezel();
     if (face_on) {
         @memcpy(&static_pixels, pixels());
         @memcpy(&static_emission, &emission_buf);
@@ -373,13 +381,272 @@ fn drawStaticDial() void {
     }
 }
 
-fn drawCase() void {
-    // The rear case and raised bezel use the same continuous rose-gold
-    // profile at different depths. Their offset reveals a rounded sidewall
-    // under yaw instead of exposing the edges of stacked flat-color discs.
-    drawMetalAnnulus(scale(143), scale(164), scaleF(1));
-    drawMetalAnnulus(scale(143), scale(160), scaleF(7));
-    render_layer_offset_x = 0;
+const CASE_RADIUS: f32 = 164.0;
+const CASE_BACK_DEPTH: f32 = -18.0;
+const CASE_TOP_DEPTH: f32 = 1.0;
+const BEZEL_RADIUS: f32 = 160.0;
+const BEZEL_INNER_RADIUS: f32 = 143.0;
+const BEZEL_DEPTH: f32 = 16.0;
+const CROWN_AXIS_DEPTH: f32 = -7.0;
+
+fn drawCaseBody() void {
+    // The case top and raised bezel use the same continuous rose-gold
+    // profile at different depths. Under yaw the band below each one turns
+    // into view on the side swinging toward the viewer, so the watch reads as
+    // a solid object rather than a flat disc. The crown sits on the 3 o'clock
+    // flank: behind the band when that side turns away, in front of it when
+    // it turns toward the viewer.
+    const crown_in_front = render_tilt_sine < 0;
+    if (!crown_in_front) drawCrown();
+    if (isTilted()) drawCaseBand(CASE_RADIUS, CASE_BACK_DEPTH, CASE_TOP_DEPTH);
+    if (crown_in_front) drawCrown();
+    drawMetalAnnulus(scale(143), scale(164), CASE_TOP_DEPTH);
+}
+
+// The bezel stands above the dial, so it is drawn after the dial and its
+// printing: on the near side it covers the dial's edge, and on the far side
+// its inner wall (the rehaut) comes into view.
+fn drawBezel() void {
+    if (isTilted()) {
+        drawRehaut();
+        drawCaseBand(BEZEL_RADIUS, CASE_TOP_DEPTH, BEZEL_DEPTH);
+    }
+    drawMetalAnnulus(scale(143), scale(160), BEZEL_DEPTH);
+    drawBezelReflection();
+}
+
+// The inside wall of the bezel between the dial and the bezel top. A ray
+// through the crystal opening that would land on the dial beyond the wall
+// hits the wall instead.
+fn drawRehaut() void {
+    defer render_layer_depth = 0;
+    const radius = BEZEL_INNER_RADIUS;
+    const visible = (radius - 1.0) * (radius - 1.0);
+    setRenderLayerDepth(0);
+    const bounds = circleBounds(0, 0, radius + 1.0);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const far = localPointAt(x, y, 0);
+            const far_squared = far.x * far.x + far.y * far.y;
+            if (far_squared < visible) continue;
+            const near = localPointAt(x, y, BEZEL_DEPTH);
+            const near_squared = near.x * near.x + near.y * near.y;
+            if (near_squared > radius * radius) continue;
+            const far_radius = std.math.sqrt(far_squared);
+            const coverage = std.math.clamp(
+                0.5 + screenDistance(far, far_radius - radius, far.x / far_radius, far.y / far_radius),
+                0.0,
+                1.0,
+            );
+            if (coverage <= 0.0) continue;
+            const ray_x = far.x - near.x;
+            const ray_y = far.y - near.y;
+            const a = ray_x * ray_x + ray_y * ray_y;
+            if (a < 0.000001) continue;
+            const b = near.x * ray_x + near.y * ray_y;
+            const c = near_squared - radius * radius;
+            const t = std.math.clamp((-b + std.math.sqrt(@max(0.0, b * b - a * c))) / a, 0.0, 1.0);
+            const hit_x = near.x + ray_x * t;
+            const hit_y = near.y + ray_y * t;
+            const hit_inverse = 1.0 / @max(0.001, std.math.sqrt(hit_x * hit_x + hit_y * hit_y));
+            // The wall faces the centre and sits in the bezel's shadow.
+            var shade = withViewerFill(shadeGold(-hit_x * hit_inverse, -hit_y * hit_inverse, 0.25), -hit_x * hit_inverse, 0.25);
+            const depth_shade = smoothStep(t) * 0.55;
+            shade.color = mixRgb(shade.color, GOLD_DEEP, 0.25 + depth_shade);
+            shade.emission *= 1.0 - depth_shade;
+            blendShade(x, y, shade, coverage);
+        }
+    }
+}
+
+// The vertical side of the case between two depths. Each pixel's view ray
+// is intersected with the cylinder, taking the first hit from the front.
+fn drawCaseBand(radius: f32, back: f32, front: f32) void {
+    defer render_layer_depth = 0;
+    setRenderLayerDepth(back);
+    const back_bounds = circleBounds(0, 0, radius + 1.0);
+    setRenderLayerDepth(front);
+    const front_bounds = circleBounds(0, 0, radius + 1.0);
+    const hidden = (radius - 2.0) * (radius - 2.0);
+    var y = @min(back_bounds.min_y, front_bounds.min_y);
+    while (y <= @max(back_bounds.max_y, front_bounds.max_y)) : (y += 1) {
+        var x = @min(back_bounds.min_x, front_bounds.min_x);
+        while (x <= @max(back_bounds.max_x, front_bounds.max_x)) : (x += 1) {
+            const near = localPointAt(x, y, front);
+            // Rays through the top face are covered by the bezel and dial.
+            if (near.x * near.x + near.y * near.y < hidden) continue;
+            const far = localPointAt(x, y, back);
+            const ray_x = far.x - near.x;
+            const ray_y = far.y - near.y;
+            const a = ray_x * ray_x + ray_y * ray_y;
+            if (a < 0.000001) continue;
+            const b = near.x * ray_x + near.y * ray_y;
+            const c = near.x * near.x + near.y * near.y - radius * radius;
+            // Closest approach to the axis along the visible span sets the
+            // antialiased silhouette.
+            const closest = std.math.clamp(-b / a, 0.0, 1.0);
+            const closest_x = near.x + ray_x * closest;
+            const closest_y = near.y + ray_y * closest;
+            const closest_radius = std.math.sqrt(closest_x * closest_x + closest_y * closest_y);
+            const coverage = std.math.clamp(
+                0.5 - screenDistance(near, closest_radius - radius, closest_x / closest_radius, closest_y / closest_radius),
+                0.0,
+                1.0,
+            );
+            if (coverage <= 0.0) continue;
+            const discriminant = b * b - a * c;
+            const t = if (discriminant >= 0.0)
+                std.math.clamp((-b - std.math.sqrt(discriminant)) / a, 0.0, 1.0)
+            else
+                closest;
+            const hit_x = near.x + ray_x * t;
+            const hit_y = near.y + ray_y * t;
+            const hit_inverse = 1.0 / @max(0.001, std.math.sqrt(hit_x * hit_x + hit_y * hit_y));
+            blendShade(x, y, shadeCaseBand(hit_x * hit_inverse, hit_y * hit_inverse, t), coverage);
+        }
+    }
+}
+
+// The band is gently rounded: its front edge leans toward the viewer and its
+// back edge away, so a highlight runs along it and the back edge falls dark
+// where it meets the case back.
+// The flanks face away from the upper-left key light, so a single light
+// leaves them almost black. Polished gold also mirrors the room behind the
+// viewer; a soft fill along the view direction keeps them reading as metal.
+fn withViewerFill(shade: Shade, nx: f32, nz: f32) Shade {
+    const facing = std.math.clamp(-nx * render_tilt_sine + nz * render_tilt_cosine, 0.0, 1.0);
+    var lit = shade;
+    lit.color = mixRgb(shade.color, GOLD_MID, facing * facing * 0.45);
+    return lit;
+}
+
+fn shadeCaseBand(radial_x: f32, radial_y: f32, back_fraction: f32) Shade {
+    const bend = (0.5 - back_fraction) * 1.5;
+    const across = std.math.cos(bend);
+    var shade = withViewerFill(shadeGold(radial_x * across, radial_y * across, std.math.sin(bend)), radial_x * across, std.math.sin(bend));
+    const occlusion = smoothStep((back_fraction - 0.62) / 0.38);
+    shade.color = mixRgb(shade.color, GOLD_DEEP, occlusion * 0.7);
+    shade.emission *= 1.0 - occlusion;
+    return shade;
+}
+
+const CROWN_TUBE_START: f32 = 162.0;
+const CROWN_TUBE_END: f32 = 167.0;
+const CROWN_TUBE_RADIUS: f32 = 3.6;
+const CROWN_START: f32 = 166.5;
+const CROWN_END: f32 = 173.0;
+const CROWN_RADIUS: f32 = 7.5;
+
+fn drawCrown() void {
+    // Moving toward the viewer along a ray goes toward smaller x when the
+    // crown side turns away, so draw the far part first.
+    if (render_tilt_sine > 0) {
+        drawCrownCylinder(CROWN_START, CROWN_END, CROWN_RADIUS, true);
+        drawCrownCylinder(CROWN_TUBE_START, CROWN_TUBE_END, CROWN_TUBE_RADIUS, false);
+    } else {
+        drawCrownCylinder(CROWN_TUBE_START, CROWN_TUBE_END, CROWN_TUBE_RADIUS, false);
+        drawCrownCylinder(CROWN_START, CROWN_END, CROWN_RADIUS, true);
+    }
+}
+
+// A cylinder lying along the local x axis at the crown's depth, ray-traced
+// per pixel so its side and end caps turn correctly with the watch.
+fn drawCrownCylinder(start: f32, end: f32, radius: f32, fluted: bool) void {
+    defer render_layer_depth = 0;
+    var bounds = ScreenBounds{ .min_x = std.math.maxInt(i32), .max_x = std.math.minInt(i32), .min_y = std.math.maxInt(i32), .max_y = std.math.minInt(i32) };
+    for ([2]f32{ CROWN_AXIS_DEPTH - radius, CROWN_AXIS_DEPTH + radius }) |depth| {
+        setRenderLayerDepth(depth);
+        const layer = screenBounds(start, end, -radius, radius);
+        bounds.min_x = @min(bounds.min_x, layer.min_x);
+        bounds.max_x = @max(bounds.max_x, layer.max_x);
+        bounds.min_y = @min(bounds.min_y, layer.min_y);
+        bounds.max_y = @max(bounds.max_y, layer.max_y);
+    }
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            // Parametrize the ray by height u above the crown axis; larger u
+            // is nearer the viewer.
+            const axis = localPointAt(x, y, CROWN_AXIS_DEPTH);
+            const above = localPointAt(x, y, CROWN_AXIS_DEPTH + 1.0);
+            const slope_x = above.x - axis.x;
+            const slope_y = above.y - axis.y;
+            const a = 1.0 + slope_y * slope_y;
+            var u_min: f32 = -radius - 1.0;
+            var u_max: f32 = radius + 1.0;
+            if (@abs(slope_x) > 0.00001) {
+                const u_start = (start - axis.x) / slope_x;
+                const u_end = (end - axis.x) / slope_x;
+                u_min = @max(u_min, @min(u_start, u_end));
+                u_max = @min(u_max, @max(u_start, u_end));
+            } else if (axis.x < start - 1.0 or axis.x > end + 1.0) {
+                continue;
+            }
+            if (u_min > u_max) continue;
+
+            const closest = std.math.clamp(-axis.y * slope_y / a, u_min, u_max);
+            const closest_y = axis.y + slope_y * closest;
+            var signed_distance = std.math.sqrt(closest_y * closest_y + closest * closest) - radius;
+            if (@abs(slope_x) <= 0.00001) {
+                signed_distance = @max(signed_distance, @max(start - axis.x, axis.x - end));
+            }
+            const coverage = std.math.clamp(0.5 - signed_distance * edgeScale(axis), 0.0, 1.0);
+            if (coverage <= 0.0) continue;
+
+            // Nearest hit: the cylinder side, or an end cap.
+            var hit_u = closest;
+            var cap: f32 = 0;
+            const discriminant = axis.y * axis.y * slope_y * slope_y - a * (axis.y * axis.y - radius * radius);
+            if (discriminant >= 0.0) {
+                const side_u = (-axis.y * slope_y + std.math.sqrt(discriminant)) / a;
+                if (side_u >= u_min and side_u <= u_max) {
+                    hit_u = side_u;
+                } else if (@abs(slope_x) > 0.00001) {
+                    hit_u = u_max;
+                    cap = if ((axis.x + slope_x * u_max) > (start + end) * 0.5) 1.0 else -1.0;
+                }
+            }
+            const hit_y = axis.y + slope_y * hit_u;
+            const hit_x = axis.x + slope_x * hit_u;
+            blendShade(x, y, shadeCrown(hit_x, hit_y, hit_u, radius, end, cap, fluted), coverage);
+        }
+    }
+}
+
+fn shadeCrown(hit_x: f32, hit_y: f32, hit_u: f32, radius: f32, end: f32, cap: f32, fluted: bool) Shade {
+    const radial = std.math.sqrt(hit_y * hit_y + hit_u * hit_u);
+    const inverse = 1.0 / @max(radial, 0.001);
+    if (cap != 0) {
+        // A slightly domed, polished end with an engraved ring.
+        const dome_y = hit_y * inverse * radial / radius * 0.75;
+        const dome_z = hit_u * inverse * radial / radius * 0.75;
+        var shade = withViewerFill(shadeGold(cap, dome_y, dome_z), cap, dome_z);
+        const ring = std.math.clamp(1.0 - @abs(radial - radius * 0.55) / 0.8, 0.0, 1.0);
+        shade.color = mixRgb(shade.color, GOLD_DEEP, ring * 0.6);
+        return shade;
+    }
+    var normal_y = hit_y * inverse;
+    var normal_z = hit_u * inverse;
+    var groove: f32 = 0;
+    // A polished chamfer at the outer end, then coin-edge flutes.
+    const chamfer = std.math.clamp((hit_x - (end - 1.6)) / 1.6, 0.0, 1.0);
+    if (fluted and chamfer <= 0.0) {
+        const angle = std.math.atan2(hit_y, hit_u);
+        const ridge = std.math.cos(angle * 16.0);
+        const lean = std.math.sin(angle * 16.0) * 0.45;
+        const tangent_y = normal_z;
+        const tangent_z = -normal_y;
+        normal_y += tangent_y * lean;
+        normal_z += tangent_z * lean;
+        groove = std.math.clamp(-ridge, 0.0, 1.0);
+    }
+    var shade = withViewerFill(shadeGold(chamfer * 0.7, normal_y, normal_z), chamfer * 0.7, normal_z);
+    shade.color = mixRgb(shade.color, GOLD_DEEP, groove * 0.45);
+    shade.emission *= 1.0 - groove * 0.6;
+    return shade;
 }
 
 const Shade = struct { color: Rgb, emission: f32 };
@@ -435,31 +702,37 @@ fn blendShade(x: i32, y: i32, shade: Shade, coverage: f32) void {
     blendEmissive(x, y, toColor(shade.color, 0xFF), coverage, shade.emission);
 }
 
-// Local-space antialiasing width. Yaw compresses x, so a local unit spans
-// less than a screen pixel; averaging both axes keeps edges crisp enough.
-inline fn edgeScale() f32 {
-    return 2.0 / (1.0 + render_tilt_scale_x);
-}
-
 const ScreenBounds = struct { min_x: i32, max_x: i32, min_y: i32, max_y: i32 };
 
+// Perspective keeps straight lines straight, so the projected corners of a
+// local rectangle bound everything inside it.
 fn screenBounds(min_local_x: f32, max_local_x: f32, min_local_y: f32, max_local_y: f32) ScreenBounds {
-    const center_x: f32 = @floatFromInt(CX);
-    const center_y: f32 = @floatFromInt(CY);
+    const corners = [4]ScreenPoint{
+        project(min_local_x, min_local_y),
+        project(max_local_x, min_local_y),
+        project(min_local_x, max_local_y),
+        project(max_local_x, max_local_y),
+    };
+    var min_x = corners[0].x;
+    var max_x = corners[0].x;
+    var min_y = corners[0].y;
+    var max_y = corners[0].y;
+    for (corners[1..]) |corner| {
+        min_x = @min(min_x, corner.x);
+        max_x = @max(max_x, corner.x);
+        min_y = @min(min_y, corner.y);
+        max_y = @max(max_y, corner.y);
+    }
     return .{
-        .min_x = @as(i32, @intFromFloat(@floor(projectedX(center_x + min_local_x)))) - 1,
-        .max_x = @as(i32, @intFromFloat(@ceil(projectedX(center_x + max_local_x)))) + 1,
-        .min_y = @as(i32, @intFromFloat(@floor(center_y + min_local_y))) - 1,
-        .max_y = @as(i32, @intFromFloat(@ceil(center_y + max_local_y))) + 1,
+        .min_x = @as(i32, @intFromFloat(@floor(min_x))) - 1,
+        .max_x = @as(i32, @intFromFloat(@ceil(max_x))) + 1,
+        .min_y = @as(i32, @intFromFloat(@floor(min_y))) - 1,
+        .max_y = @as(i32, @intFromFloat(@ceil(max_y))) + 1,
     };
 }
 
-inline fn localX(x: i32) f32 {
-    return inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) - @as(f32, @floatFromInt(CX));
-}
-
-inline fn localY(y: i32) f32 {
-    return @as(f32, @floatFromInt(y - CY)) + 0.5;
+fn circleBounds(center_x: f32, center_y: f32, radius: f32) ScreenBounds {
+    return screenBounds(center_x - radius, center_x + radius, center_y - radius, center_y + radius);
 }
 
 fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
@@ -467,36 +740,30 @@ fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
         drawFaceOnMetalAnnulus(inner_radius, outer_radius);
         return;
     }
-    defer render_layer_offset_x = 0;
+    defer render_layer_depth = 0;
     setRenderLayerDepth(depth);
 
     const inner: f32 = @floatFromInt(inner_radius);
     const outer: f32 = @floatFromInt(outer_radius);
-    const reject_inner = @max(0.0, inner - 0.75);
-    const reject_outer = outer + 0.75;
+    const reject_inner = @max(0.0, inner - 1.0);
+    const reject_outer = outer + 1.0;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
-    const min_x = projectedFloor(CX - outer_radius) - 1;
-    const max_x = projectedCeil(CX + outer_radius) + 1;
-    var y = CY - outer_radius - 1;
-    while (y <= CY + outer_radius + 1) : (y += 1) {
-        const local_y = @as(f32, @floatFromInt(y - CY)) + 0.5;
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_x = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) -
-                @as(f32, @floatFromInt(CX));
+    const bounds = circleBounds(0, 0, outer + 1.0);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const point = localPoint(x, y);
+            const local_x = point.x;
+            const local_y = point.y;
             const distance_squared = local_x * local_x + local_y * local_y;
             if (distance_squared <= reject_inner_squared or distance_squared >= reject_outer_squared) continue;
             const distance = std.math.sqrt(distance_squared);
             const signed_distance = @max(distance - outer, inner - distance);
             const normal_x = local_x / distance;
             const normal_y = local_y / distance;
-            const inverse_derivative = inverseProjectedDerivative(@as(f32, @floatFromInt(x)) + 0.5);
-            const gradient = std.math.sqrt(
-                normal_x * normal_x * inverse_derivative * inverse_derivative +
-                    normal_y * normal_y,
-            );
-            const coverage = std.math.clamp(0.5 - signed_distance / gradient, 0.0, 1.0);
+            const coverage = std.math.clamp(0.5 - screenDistance(point, signed_distance, normal_x, normal_y), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             const radial = std.math.clamp((distance - inner) / (outer - inner), 0.0, 1.0);
             blendShade(x, y, shadeBezel(radial, normal_x, normal_y), coverage);
@@ -576,22 +843,21 @@ fn smoothStep(value: f32) f32 {
 
 fn drawBezelReflection() void {
     if (!isTilted()) return;
-    defer render_layer_offset_x = 0;
-    setRenderLayerDepth(scaleF(7));
+    defer render_layer_depth = 0;
+    setRenderLayerDepth(BEZEL_DEPTH);
 
     const outer = scaleF(159);
     const inner = scaleF(145);
-    const min_x = projectedFloor(CX - scale(160)) - 1;
-    const max_x = projectedCeil(CX + scale(160)) + 1;
     const tilt_strength = std.math.clamp(@abs(render_tilt_sine) * 3.0, 0.0, 1.0);
     const direction = std.math.sign(render_tilt_sine);
-    var y = CY - scale(160);
-    while (y <= CY + scale(160)) : (y += 1) {
-        const local_y = @as(f32, @floatFromInt(y - CY)) + 0.5;
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_x = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) -
-                @as(f32, @floatFromInt(CX));
+    const bounds = circleBounds(0, 0, outer);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const point = localPoint(x, y);
+            const local_x = point.x;
+            const local_y = point.y;
             const distance = std.math.sqrt(local_x * local_x + local_y * local_y);
             if (distance < inner or distance > outer) continue;
             const normal_x = local_x / distance;
@@ -656,7 +922,7 @@ fn batonDistance(along: f32, across: f32, middle: f32, half_length: f32, half_wi
 }
 
 fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
-    defer render_layer_offset_x = 0;
+    defer render_layer_depth = 0;
     const dir_x = std.math.sin(angle);
     const dir_y = -std.math.cos(angle);
     const middle = (inner + outer) * 0.5;
@@ -666,17 +932,17 @@ fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
     const max_lx = @max(dir_x * inner, dir_x * outer) + pad;
     const min_ly = @min(dir_y * inner, dir_y * outer) - pad;
     const max_ly = @max(dir_y * inner, dir_y * outer) + pad;
-    const aa = edgeScale();
 
     // A soft drop shadow on the dial sells the applied height.
     setRenderLayerDepth(scaleF(1));
     var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y) - 2.2;
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x) - 1.4;
+            const point = localPoint(x, y);
+            const lx = point.x - 1.4;
+            const ly = point.y - 2.2;
             const distance = batonDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x, middle, half_length, half_width);
             blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / 1.8, 0.0, 1.0));
         }
@@ -686,14 +952,15 @@ fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
     bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
     y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y);
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x);
+            const point = localPoint(x, y);
+            const lx = point.x;
+            const ly = point.y;
             const along = lx * dir_x + ly * dir_y;
             const across = lx * -dir_y + ly * dir_x;
             const distance = batonDistance(along, across, middle, half_length, half_width);
-            const coverage = std.math.clamp(0.5 - distance * aa, 0.0, 1.0);
+            const coverage = std.math.clamp(0.5 - distance * edgeScale(point), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             // Two long facets meet at a centre ridge; the ends are bevelled.
             const facet = std.math.clamp(across * 1.6, -1.0, 1.0) * 0.62;
@@ -732,6 +999,11 @@ const HAND_LUME_RADIUS: f32 = 4.5;
 const HAND_WEIGHT: f32 = -23.0;
 const HAND_WEIGHT_RADIUS: f32 = 5.8;
 const HAND_CAP_RADIUS: f32 = 7.5;
+// Heights above the dial. Yaw shifts each layer sideways in proportion, so
+// these set how far the hand appears to float.
+const HAND_DEPTH: f32 = 11.0;
+const HAND_CAP_DEPTH: f32 = 13.0;
+const CRYSTAL_DEPTH: f32 = 18.0;
 
 fn handDistance(along: f32, across: f32) f32 {
     const taper = std.math.clamp(along / HAND_TIP, 0.0, 1.0);
@@ -743,16 +1015,15 @@ fn handDistance(along: f32, across: f32) f32 {
 }
 
 fn drawHand(seconds: f32) void {
-    defer render_layer_offset_x = 0;
+    defer render_layer_depth = 0;
     const hand_angle = seconds * std.math.tau / 60.0;
     const dir_x = std.math.sin(hand_angle);
     const dir_y = -std.math.cos(hand_angle);
-    const pad: f32 = HAND_WEIGHT_RADIUS + 6.0;
+    const pad: f32 = HAND_WEIGHT_RADIUS + 3.0 + HAND_DEPTH * 0.8;
     const min_lx = @min(dir_x * HAND_TAIL, dir_x * HAND_TIP) - pad;
     const max_lx = @max(dir_x * HAND_TAIL, dir_x * HAND_TIP) + pad;
     const min_ly = @min(dir_y * HAND_TAIL, dir_y * HAND_TIP) - pad;
     const max_ly = @max(dir_y * HAND_TAIL, dir_y * HAND_TIP) + pad;
-    const aa = edgeScale();
 
     // Separate the shadow, hand, and cap into shallow depth planes. Yaw moves
     // each plane by a different amount, which gives the hand parallax without
@@ -761,44 +1032,47 @@ fn drawHand(seconds: f32) void {
     var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y) - 4.0;
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x) - 3.0;
+            const point = localPoint(x, y);
+            const lx = point.x - HAND_DEPTH * 0.5;
+            const ly = point.y - HAND_DEPTH * 0.67;
             const distance = handDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x);
-            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / 2.4, 0.0, 1.0));
+            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / (1.2 + HAND_DEPTH * 0.2), 0.0, 1.0));
         }
     }
 
-    setRenderLayerDepth(scaleF(6));
+    setRenderLayerDepth(HAND_DEPTH);
     bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
     y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y);
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x);
+            const point = localPoint(x, y);
+            const lx = point.x;
+            const ly = point.y;
             const along = lx * dir_x + ly * dir_y;
             const across = lx * -dir_y + ly * dir_x;
             const distance = handDistance(along, across);
-            const coverage = std.math.clamp(0.5 - distance * aa, 0.0, 1.0);
+            const coverage = std.math.clamp(0.5 - distance * edgeScale(point), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             blendShade(x, y, shadeHand(along, across, dir_x, dir_y), coverage);
         }
     }
 
     // Domed centre cap with a dark pinion at its heart.
-    setRenderLayerDepth(scaleF(9));
+    setRenderLayerDepth(HAND_CAP_DEPTH);
     const cap = HAND_CAP_RADIUS + 1.0;
     bounds = screenBounds(-cap, cap, -cap, cap);
     y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y);
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x);
+            const point = localPoint(x, y);
+            const lx = point.x;
+            const ly = point.y;
             const radius = std.math.sqrt(lx * lx + ly * ly);
-            const coverage = std.math.clamp(0.5 - (radius - HAND_CAP_RADIUS) * aa, 0.0, 1.0);
+            const coverage = std.math.clamp(0.5 - (radius - HAND_CAP_RADIUS) * edgeScale(point), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             var shade = shadeGold(lx / HAND_CAP_RADIUS * 0.85, ly / HAND_CAP_RADIUS * 0.85, 0.75);
             const pinion = std.math.clamp(1.6 - radius, 0.0, 1.0);
@@ -911,30 +1185,21 @@ fn drawGlassReflection() void {
 }
 
 fn drawTiltedGlassReflection() void {
-    defer render_layer_offset_x = 0;
-    setRenderLayerDepth(scaleF(12));
+    defer render_layer_depth = 0;
+    setRenderLayerDepth(CRYSTAL_DEPTH);
     const crystal_radius = scaleF(143);
     const crystal_radius_squared = crystal_radius * crystal_radius;
-    const min_x = projectedFloor(CX - scale(143)) - 1;
-    const max_x = projectedCeil(CX + scale(143)) + 1;
     const reflection_shift = render_tilt_sine * scaleF(72);
     const tilt_strength = std.math.clamp(@abs(render_tilt_sine) * 3.2, 0.0, 1.0);
-    // The face-on reflection fits above CY + 38. Positive yaw moves the
-    // rotated band down by reflection_shift / cos(35deg); extend the bounded
-    // scan with it instead of clipping the moving highlight at the old limit.
-    const reflection_y_extension: i32 = if (reflection_shift > 0.0)
-        @intFromFloat(@ceil(reflection_shift / 0.819152))
-    else
-        0;
-    const max_y = @min(CY + scale(143), CY + scale(38) + reflection_y_extension);
+    const bounds = circleBounds(0, 0, crystal_radius);
 
-    var y = CY - scale(143);
-    while (y <= max_y) : (y += 1) {
-        const dy: f32 = @floatFromInt(y - CY);
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_x = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5);
-            const dx = local_x - @as(f32, @floatFromInt(CX));
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const point = localPoint(x, y);
+            const dx = point.x;
+            const dy = point.y;
             const distance_squared = dx * dx + dy * dy;
             if (distance_squared > crystal_radius_squared) continue;
 
@@ -999,10 +1264,11 @@ fn drawDialSurface() void {
     const light_dir_y = light_y * planar_inverse;
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        const ly = localY(y);
         var x = bounds.min_x;
         while (x <= bounds.max_x) : (x += 1) {
-            const lx = localX(x);
+            const point = localPoint(x, y);
+            const lx = point.x;
+            const ly = point.y;
             const distance_squared = lx * lx + ly * ly;
             if (distance_squared >= (radius + 1.0) * (radius + 1.0)) continue;
             const distance = std.math.sqrt(distance_squared);
@@ -1099,30 +1365,61 @@ inline fn isTilted() bool {
     return @abs(render_tilt_sine) > 0.0001;
 }
 
-inline fn projectedX(local_x: f32) f32 {
-    const center: f32 = @floatFromInt(CX);
-    return center + (local_x - center) * render_tilt_scale_x + render_layer_offset_x;
-}
-
-inline fn inverseProjectedX(screen_x: f32) f32 {
-    const center: f32 = @floatFromInt(CX);
-    return center + (screen_x - center - render_layer_offset_x) * render_tilt_inverse_x;
-}
-
-inline fn inverseProjectedDerivative(_: f32) f32 {
-    return render_tilt_inverse_x;
-}
-
 inline fn setRenderLayerDepth(depth: f32) void {
-    render_layer_offset_x = render_tilt_sine * depth;
+    render_layer_depth = depth;
 }
 
-fn projectedFloor(local_x: i32) i32 {
-    return @intFromFloat(@floor(projectedX(@floatFromInt(local_x))));
+const ScreenPoint = struct { x: f32, y: f32 };
+
+// Project a point on the current layer, relative to the dial centre, to
+// screen pixels. Depth only feeds the rotation, not the perspective divide:
+// the layers are a few pixels thick, and leaving it out keeps the face-on
+// frame identical to a flat drawing.
+inline fn project(local_x: f32, local_y: f32) ScreenPoint {
+    const inverse_w = 1.0 / (1.0 + local_x * render_perspective);
+    return .{
+        .x = @as(f32, @floatFromInt(CX)) + (local_x * render_tilt_cosine + render_layer_depth * render_tilt_sine) * inverse_w,
+        .y = @as(f32, @floatFromInt(CY)) + local_y * inverse_w,
+    };
 }
 
-fn projectedCeil(local_x: i32) i32 {
-    return @intFromFloat(@ceil(projectedX(@floatFromInt(local_x))));
+// A screen pixel centre mapped back onto the current layer. scale_x and
+// scale_y are local pixels per screen pixel, for antialiasing edges.
+const LocalPoint = struct { x: f32, y: f32, scale_x: f32, scale_y: f32 };
+
+inline fn localPoint(x: i32, y: i32) LocalPoint {
+    return localPointAt(x, y, render_layer_depth);
+}
+
+// The same mapping at an explicit depth. Points along one pixel's view ray
+// are linear in depth, which the case band and crown use to intersect it
+// with their cylinders.
+inline fn localPointAt(x: i32, y: i32, depth: f32) LocalPoint {
+    const screen_x = @as(f32, @floatFromInt(x - CX)) + 0.5;
+    const screen_y = @as(f32, @floatFromInt(y - CY)) + 0.5;
+    const inverse_denominator = 1.0 / (render_tilt_cosine - screen_x * render_perspective);
+    const local_x = (screen_x - depth * render_tilt_sine) * inverse_denominator;
+    const w = 1.0 + local_x * render_perspective;
+    return .{
+        .x = local_x,
+        .y = screen_y * w,
+        .scale_x = (render_tilt_cosine - depth * render_tilt_sine * render_perspective) *
+            inverse_denominator * inverse_denominator,
+        .scale_y = w,
+    };
+}
+
+// Screen pixels per local pixel, averaged over both axes. Multiply a local
+// signed distance by it to get a screen-space antialiasing ramp.
+inline fn edgeScale(point: LocalPoint) f32 {
+    return 2.0 / (point.scale_x + point.scale_y);
+}
+
+// Convert a local signed distance with unit normal (nx, ny) to screen pixels.
+inline fn screenDistance(point: LocalPoint, signed_distance: f32, nx: f32, ny: f32) f32 {
+    const gx = nx * point.scale_x;
+    const gy = ny * point.scale_y;
+    return signed_distance / std.math.sqrt(gx * gx + gy * gy);
 }
 
 fn drawCenteredText(text: []const u8, center_x: i32, center_y: i32, color: Color) void {
@@ -1150,22 +1447,28 @@ fn glyphIndex(character: u8) ?usize {
 fn drawGlyph(character: u8, origin_x: i32, origin_y: i32, color: Color) void {
     const glyph_index = glyphIndex(character) orelse return;
     if (isTilted()) {
-        const min_x = projectedFloor(origin_x) - 1;
-        const max_x = projectedCeil(origin_x + @as(i32, @intCast(font.GLYPH_W))) + 1;
-        var destination_y: usize = 0;
-        while (destination_y < font.GLYPH_H) : (destination_y += 1) {
-            var destination_x = min_x;
-            while (destination_x <= max_x) : (destination_x += 1) {
-                const local_x = inverseProjectedX(@as(f32, @floatFromInt(destination_x)) + 0.5) - @as(f32, @floatFromInt(origin_x));
-                if (local_x < 0 or local_x >= @as(f32, @floatFromInt(font.GLYPH_W))) continue;
+        const glyph_w: f32 = @floatFromInt(font.GLYPH_W);
+        const glyph_h: f32 = @floatFromInt(font.GLYPH_H);
+        const left: f32 = @floatFromInt(origin_x - CX);
+        const top: f32 = @floatFromInt(origin_y - CY);
+        const bounds = screenBounds(left, left + glyph_w, top, top + glyph_h);
+        var destination_y = bounds.min_y;
+        while (destination_y <= bounds.max_y) : (destination_y += 1) {
+            var destination_x = bounds.min_x;
+            while (destination_x <= bounds.max_x) : (destination_x += 1) {
+                const point = localPoint(destination_x, destination_y);
+                const local_x = point.x - left;
+                const local_y = point.y - top;
+                if (local_x < 0 or local_x >= glyph_w or local_y < 0 or local_y >= glyph_h) continue;
                 const source_x: usize = @intFromFloat(@floor(local_x));
-                const pixel_index = destination_y * font.GLYPH_W + source_x;
+                const source_y: usize = @intFromFloat(@floor(local_y));
+                const pixel_index = source_y * font.GLYPH_W + source_x;
                 const byte = font.glyph_alpha4[glyph_index][pixel_index / 2];
                 const alpha4 = if (pixel_index % 2 == 0) byte >> 4 else byte & 0x0F;
                 if (alpha4 == 0) continue;
                 var source = color;
                 source[3] = @intCast((@as(u16, color[3]) * alpha4) / 15);
-                blendPixel(destination_x, origin_y + @as(i32, @intCast(destination_y)), source);
+                blendPixel(destination_x, destination_y, source);
             }
         }
         return;
@@ -1186,28 +1489,45 @@ fn drawGlyph(character: u8, origin_x: i32, origin_y: i32, color: Color) void {
 }
 
 fn drawLine(x0: f32, y0: f32, x1: f32, y1: f32, thickness: f32, color: Color) void {
-    const projected_x0: f32 = if (isTilted()) projectedX(x0) else x0;
-    const projected_x1: f32 = if (isTilted()) projectedX(x1) else x1;
-    const ax = projected_x0;
-    const ay = y0;
-    const vx = projected_x1 - projected_x0;
-    const vy = y1 - y0;
+    // Perspective keeps the line straight, so project its endpoints and draw a
+    // screen-space capsule. Its width is the local width measured across the
+    // projected line at the midpoint.
+    const center_x: f32 = @floatFromInt(CX);
+    const center_y: f32 = @floatFromInt(CY);
+    var normal_scale: f32 = 1.0;
+    var start = ScreenPoint{ .x = x0, .y = y0 };
+    var end = ScreenPoint{ .x = x1, .y = y1 };
+    if (isTilted()) {
+        start = project(x0 - center_x, y0 - center_y);
+        end = project(x1 - center_x, y1 - center_y);
+        const local_vx = x1 - x0;
+        const local_vy = y1 - y0;
+        const local_length = std.math.sqrt(local_vx * local_vx + local_vy * local_vy);
+        const screen_vx = end.x - start.x;
+        const screen_vy = end.y - start.y;
+        const screen_length = std.math.sqrt(screen_vx * screen_vx + screen_vy * screen_vy);
+        if (local_length > 0 and screen_length > 0) {
+            const mid_x = (x0 + x1) * 0.5 - center_x;
+            const mid_y = (y0 + y1) * 0.5 - center_y;
+            const normal_x = -local_vy / local_length * 0.5;
+            const normal_y = local_vx / local_length * 0.5;
+            const a = project(mid_x - normal_x, mid_y - normal_y);
+            const b = project(mid_x + normal_x, mid_y + normal_y);
+            normal_scale = @abs((b.x - a.x) * screen_vy - (b.y - a.y) * screen_vx) / screen_length;
+        }
+    }
+    const ax = start.x;
+    const ay = start.y;
+    const vx = end.x - start.x;
+    const vy = end.y - start.y;
     const length_squared = vx * vx + vy * vy;
-    const local_vx = x1 - x0;
-    const local_vy = y1 - y0;
-    const local_length = std.math.sqrt(local_vx * local_vx + local_vy * local_vy);
-    const normal_scale = if (!isTilted() or local_length == 0)
-        1.0
-    else
-        std.math.sqrt((local_vy / local_length * render_tilt_scale_x) * (local_vy / local_length * render_tilt_scale_x) +
-            (local_vx / local_length) * (local_vx / local_length));
     const half_width = @max(0.5, thickness * 0.5) * normal_scale;
     const padding: f32 = @ceil(half_width) + 1.0;
 
-    const min_x: i32 = @intFromFloat(@floor(@min(projected_x0, projected_x1) - padding));
-    const max_x: i32 = @intFromFloat(@ceil(@max(projected_x0, projected_x1) + padding));
-    const min_y: i32 = @intFromFloat(@floor(@min(y0, y1) - padding));
-    const max_y: i32 = @intFromFloat(@ceil(@max(y0, y1) + padding));
+    const min_x: i32 = @intFromFloat(@floor(@min(start.x, end.x) - padding));
+    const max_x: i32 = @intFromFloat(@ceil(@max(start.x, end.x) + padding));
+    const min_y: i32 = @intFromFloat(@floor(@min(start.y, end.y) - padding));
+    const max_y: i32 = @intFromFloat(@ceil(@max(start.y, end.y) + padding));
 
     var y = min_y;
     while (y <= max_y) : (y += 1) {
@@ -1225,78 +1545,6 @@ fn drawLine(x0: f32, y0: f32, x1: f32, y1: f32, thickness: f32, color: Color) vo
             blendPixelCoverage(x, y, color, coverage);
         }
     }
-}
-
-fn fillCircle(cx: i32, cy: i32, radius: i32, color: Color) void {
-    if (isTilted()) {
-        fillTiltedCircle(cx, cy, radius, color);
-        return;
-    }
-    var y = cy - radius - 1;
-    while (y <= cy + radius + 1) : (y += 1) {
-        var x = cx - radius - 1;
-        while (x <= cx + radius + 1) : (x += 1) {
-            const coverage = circleCoverage(x, y, cx, cy, radius);
-            if (coverage >= 1.0) {
-                blendPixel(x, y, color);
-                continue;
-            }
-            blendPixelCoverage(x, y, color, coverage);
-        }
-    }
-}
-
-fn fillTiltedCircle(cx: i32, cy: i32, radius: i32, color: Color) void {
-    const radius_f: f32 = @floatFromInt(radius);
-    const antialias_local: f32 = 0.75;
-    const opaque_radius = @max(0.0, radius_f - antialias_local);
-    const transparent_radius = radius_f + antialias_local;
-    const opaque_radius_squared = opaque_radius * opaque_radius;
-    const transparent_radius_squared = transparent_radius * transparent_radius;
-    const min_x = projectedFloor(cx - radius) - 1;
-    const max_x = projectedCeil(cx + radius) + 1;
-    var y = cy - radius - 1;
-    while (y <= cy + radius + 1) : (y += 1) {
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_dx = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) - @as(f32, @floatFromInt(cx));
-            const local_dy = @as(f32, @floatFromInt(y - cy)) + 0.5;
-            const distance_squared = local_dx * local_dx + local_dy * local_dy;
-            if (distance_squared <= opaque_radius_squared) {
-                blendPixel(x, y, color);
-                continue;
-            }
-            if (distance_squared >= transparent_radius_squared) continue;
-            const distance = std.math.sqrt(distance_squared);
-            if (distance == 0) {
-                blendPixel(x, y, color);
-                continue;
-            }
-            const nx = local_dx / distance;
-            const ny = local_dy / distance;
-            const inverse_derivative = inverseProjectedDerivative(@as(f32, @floatFromInt(x)) + 0.5);
-            const gradient = std.math.sqrt(nx * nx * inverse_derivative * inverse_derivative + ny * ny);
-            const screen_distance = (distance - radius_f) / gradient;
-            const coverage = std.math.clamp(0.5 - screen_distance, 0.0, 1.0);
-            if (coverage >= 1.0) {
-                blendPixel(x, y, color);
-            } else {
-                blendPixelCoverage(x, y, color, coverage);
-            }
-        }
-    }
-}
-
-inline fn circleCoverage(x: i32, y: i32, cx: i32, cy: i32, radius: i32) f32 {
-    const radius_f: f32 = @floatFromInt(radius);
-    const dx = @as(f32, @floatFromInt(x - cx)) + 0.5;
-    const dy = @as(f32, @floatFromInt(y - cy)) + 0.5;
-    const distance_squared = dx * dx + dy * dy;
-    const opaque_radius = radius_f - 0.5;
-    const transparent_radius = radius_f + 0.5;
-    if (distance_squared <= opaque_radius * opaque_radius) return 1.0;
-    if (distance_squared >= transparent_radius * transparent_radius) return 0.0;
-    return transparent_radius - std.math.sqrt(distance_squared);
 }
 
 fn drawRing(cx: i32, cy: i32, radius: i32, thickness: i32, color: Color) void {
@@ -1334,37 +1582,30 @@ fn drawRing(cx: i32, cy: i32, radius: i32, thickness: i32, color: Color) void {
 fn drawTiltedRing(cx: i32, cy: i32, radius: i32, thickness: i32, color: Color) void {
     const outer: f32 = @floatFromInt(radius);
     const inner: f32 = @floatFromInt(@max(0, radius - thickness));
-    const antialias_local: f32 = 0.75;
-    const reject_inner = @max(0.0, inner - antialias_local);
-    const reject_outer = outer + antialias_local;
-    const full_inner = inner + antialias_local;
-    const full_outer = @max(0.0, outer - antialias_local);
+    const center_x: f32 = @floatFromInt(cx - CX);
+    const center_y: f32 = @floatFromInt(cy - CY);
+    const reject_inner = @max(0.0, inner - 1.0);
+    const reject_outer = outer + 1.0;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
-    const full_inner_squared = full_inner * full_inner;
-    const full_outer_squared = full_outer * full_outer;
-    const min_x = projectedFloor(cx - radius) - 1;
-    const max_x = projectedCeil(cx + radius) + 1;
-    var y = cy - radius - 1;
-    while (y <= cy + radius + 1) : (y += 1) {
-        var x = min_x;
-        while (x <= max_x) : (x += 1) {
-            const local_dx = inverseProjectedX(@as(f32, @floatFromInt(x)) + 0.5) - @as(f32, @floatFromInt(cx));
-            const local_dy = @as(f32, @floatFromInt(y - cy)) + 0.5;
+    const bounds = circleBounds(center_x, center_y, reject_outer);
+    var y = bounds.min_y;
+    while (y <= bounds.max_y) : (y += 1) {
+        var x = bounds.min_x;
+        while (x <= bounds.max_x) : (x += 1) {
+            const point = localPoint(x, y);
+            const local_dx = point.x - center_x;
+            const local_dy = point.y - center_y;
             const distance_squared = local_dx * local_dx + local_dy * local_dy;
             if (distance_squared <= reject_inner_squared or distance_squared >= reject_outer_squared) continue;
-            if (distance_squared >= full_inner_squared and distance_squared <= full_outer_squared) {
-                blendPixel(x, y, color);
-                continue;
-            }
             const distance = std.math.sqrt(distance_squared);
             if (distance == 0) continue;
             const signed_distance = @max(distance - outer, inner - distance);
-            const nx = local_dx / distance;
-            const ny = local_dy / distance;
-            const inverse_derivative = inverseProjectedDerivative(@as(f32, @floatFromInt(x)) + 0.5);
-            const gradient = std.math.sqrt(nx * nx * inverse_derivative * inverse_derivative + ny * ny);
-            const coverage = std.math.clamp(0.5 - signed_distance / gradient, 0.0, 1.0);
+            const coverage = std.math.clamp(
+                0.5 - screenDistance(point, signed_distance, local_dx / distance, local_dy / distance),
+                0.0,
+                1.0,
+            );
             if (coverage >= 1.0) {
                 blendPixel(x, y, color);
             } else {
@@ -1528,10 +1769,10 @@ fn resetForTest() void {
     tilt_drag_start_angle = 0;
     tilt_last_x = 0;
     tilt_last_event_at_ms = 0;
-    render_tilt_scale_x = 1;
-    render_tilt_inverse_x = 1;
+    render_tilt_cosine = 1;
     render_tilt_sine = 0;
-    render_layer_offset_x = 0;
+    render_perspective = 0;
+    render_layer_depth = 0;
     static_cached = false;
     resetUniform();
 }
