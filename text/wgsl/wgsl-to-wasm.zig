@@ -27,6 +27,21 @@
 //! Dependencies, non-identity stores, Tile kernels, or exhausted optimization
 //! budgets retain the original scalar module. Generated modules keep the ABI;
 //! an optimized module records byte 4 in `qip.vectorize_invocations` metadata.
+//! Scalar buffer elements at `id.x` load and store as whole v128s.
+//!
+//! Byte shaders vectorize further, 16 bytes per i8x16 operation, when each
+//! byte of a u32 element maps independently:
+//!
+//!   let b = unpack4xU8(src[id.x]);
+//!   let k = (b | vec4u(32u)) - vec4u(97u);
+//!   dst[id.x] = pack4xU8(b + select(vec4u(0u), vec4u(13u), k < vec4u(13u)));
+//!
+//! Every vec4u must come from `unpack4xU8(src[id.x])` and literals through
+//! `+ - & | ^ ~`, shifts by a splatted literal, comparisons, `select`, `min`,
+//! `max` and `clamp`, every store must be `dst[id.x] = pack4xU8(...)`, and
+//! the only branches are bounds guards on `id.x` and `arrayLength`. The
+//! compiler then evaluates the shader in u32 and in u8 arithmetic for all 256
+//! values of each input byte, and uses i8x16 only if every stored byte agrees.
 //!
 //! Accepted subset:
 //!
@@ -77,8 +92,17 @@
 //!   vector type; `dot`, `length`, `distance` and `normalize`, as the square
 //!   root of the sum of squares in lane order; and `mix(a, b, t)` as
 //!   a * (1 - t) + b * t, with t a vector or an f32.
-//!   Buffers hold only `vec4f` vectors. Swizzle assignment, vector
-//!   comparisons and integer or bool vectors are unsupported.
+//!   Buffers hold only `vec4f` vectors. Swizzle assignment and float vector
+//!   comparisons are unsupported.
+//! - `vec4u` (or `vec4<u32>`) lowers to one i32x4: constructors from four
+//!   u32s, a splat, a `vec4u` or a `vec4f` (saturating); `+ - *` with a u32
+//!   splatted; `& | ^ ~`, `<<` and `>>` (per lane, modulo 32) and comparisons
+//!   between two vec4u, which give a `vec4<bool>` of 0 or -1 lanes that
+//!   supports `& | !` and locals; `select` with a `vec4<bool>` or a bool;
+//!   `min`, `max` and `clamp`; members and two- or four-lane swizzles;
+//!   `vec4f(v)`; `unpack4xU8(u32)` and `pack4xU8(vec4u)`, which keeps the low
+//!   byte of each lane. Buffers cannot hold them, and `/`, `%`, `any` and `all`
+//!   are unsupported.
 //!
 //! Fragment shaders: a module whose entry is `@fragment` runs it once per
 //! RGBA32F pixel of the input and writes the returned colour:
@@ -504,7 +528,7 @@ fn expectWord(word: []const u8) CompileError!Token {
 // ---------------------------------------------------------------------------
 // Types and names
 
-const Ty = enum(u8) { void, bool, i32, u32, f32, vec2f, vec3f, vec4f, vec2i, vec2u, abstract_int, abstract_float };
+const Ty = enum(u8) { void, bool, i32, u32, f32, vec2f, vec3f, vec4f, vec2i, vec2u, vec4u, vec4b, abstract_int, abstract_float };
 
 // Every vector lowers to one v128; lanes past its length are unused.
 fn isVec(t: Ty) bool {
@@ -513,19 +537,27 @@ fn isVec(t: Ty) bool {
 
 // `vec2i` and `vec2u` exist for texture coordinates and dimensions: they
 // support constructors, conversions, members, and lane-wise `+ - *`.
+// `vec4u` is one u32 per lane of an i32x4 for byte work: it adds bitwise
+// operators, shifts, comparisons into `vec4<bool>` (`vec4b`, 0 or -1 lanes),
+// `select`, `min`, `max`, `clamp`, `unpack4xU8` and `pack4xU8`.
 fn isIVec(t: Ty) bool {
-    return t == .vec2i or t == .vec2u;
+    return t == .vec2i or t == .vec2u or t == .vec4u;
 }
 
 fn ivecElem(t: Ty) Ty {
     return if (t == .vec2i) .i32 else .u32;
 }
 
+// The `vecN<u32>` for a swizzle of `len` integer lanes.
+fn ivecOf(source: Ty, len: u8) Ty {
+    return if (len == 4) .vec4u else if (source == .vec2i) .vec2i else .vec2u;
+}
+
 fn vecLen(t: Ty) u8 {
     return switch (t) {
         .vec2f, .vec2i, .vec2u => 2,
         .vec3f => 3,
-        .vec4f => 4,
+        .vec4f, .vec4u, .vec4b => 4,
         else => 1,
     };
 }
@@ -581,7 +613,7 @@ fn unify(a: Ty, b: Ty, offset: u32) CompileError!Ty {
 fn valType(t: Ty) u8 {
     return switch (t) {
         .f32 => 0x7d,
-        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u => 0x7b,
+        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u, .vec4u, .vec4b => 0x7b,
         else => 0x7f,
     };
 }
@@ -610,24 +642,25 @@ fn vecWordLen(t: Token, suffixed: bool) ?u8 {
     return if (name[3] >= '2' and name[3] <= '4') name[3] - '0' else null;
 }
 
-// A scalar type, `vecNf` or `vecN<f32>` for N in 2..4, or `vec2i`, `vec2u`,
-// `vec2<i32>` or `vec2<u32>`.
+// A scalar type, `vecNf` or `vecN<f32>` for N in 2..4, `vec2i`, `vec2u`,
+// `vec2<i32>`, `vec2<u32>`, `vec4u`, `vec4<u32>` or `vec4<bool>`.
 fn parseType() CompileError!Ty {
     const t = peek();
     if (vecWordLen(t, true)) |len| {
         _ = advance();
         return vecOf(len);
     }
-    if (isWord(t, "vec2i") or isWord(t, "vec2u")) {
+    if (isWord(t, "vec2i") or isWord(t, "vec2u") or isWord(t, "vec4u")) {
         _ = advance();
-        return if (isWord(t, "vec2i")) .vec2i else .vec2u;
+        return if (isWord(t, "vec2i")) .vec2i else if (isWord(t, "vec2u")) .vec2u else .vec4u;
     }
     const len = vecWordLen(t, false) orelse return parseScalarType();
     _ = advance();
     _ = try expect(.lt);
     const elem = peek();
     const int_elem = isWord(elem, "i32") or isWord(elem, "u32");
-    if (!isWord(elem, "f32") and !(int_elem and len == 2)) return fail(elem.start, .unsupported);
+    const wide = len == 4 and (isWord(elem, "u32") or isWord(elem, "bool"));
+    if (!isWord(elem, "f32") and !(int_elem and len == 2) and !wide) return fail(elem.start, .unsupported);
     _ = advance();
     if (peek().kind == .shr) {
         // `array<vec4<f32>>` lexes its closing `>>` as one token: consume half.
@@ -637,6 +670,7 @@ fn parseType() CompileError!Ty {
     } else {
         _ = try expect(.gt);
     }
+    if (wide) return if (isWord(elem, "bool")) .vec4b else .vec4u;
     if (int_elem) return if (isWord(elem, "i32")) .vec2i else .vec2u;
     return vecOf(len);
 }
@@ -795,6 +829,8 @@ var ir_complete = false;
 var last_expr = Expr{};
 var vectorize_invocations: u32 = 0;
 var vectorized = false;
+// The byte path's entry loops over every element itself and stores each one.
+var byte_kernel = false;
 var scalar_code = Buf{ .bytes = &kernel_code_buf };
 
 fn rememberExpr(root: u16) void {
@@ -1051,7 +1087,7 @@ fn emitLiteral(w: *Buf, lit: Literal) CompileError!void {
 
 const NodeKind = enum(u8) { lit, local, override, gid_x, array_len, load, lane, swizzle, unary, binary, call, sample, texture_dims, user_call, const_load };
 
-const Callee = enum(u8) { abs, sign, min, max, clamp, select, sqrt, inverse_sqrt, floor, ceil, trunc, round, fract, sin, cos, tan, asin, acos, atan, atan2, tanh, exp, exp2, log, log2, pow, step, smoothstep, dot, length, distance, normalize, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f, vec2i, vec2u, texture_load, dpdx, dpdy, fwidth };
+const Callee = enum(u8) { abs, sign, min, max, clamp, select, sqrt, inverse_sqrt, floor, ceil, trunc, round, fract, sin, cos, tan, asin, acos, atan, atan2, tanh, exp, exp2, log, log2, pow, step, smoothstep, dot, length, distance, normalize, mix, to_f32, to_i32, to_u32, to_bool, vec2f, vec3f, vec4f, vec2i, vec2u, vec4u, texture_load, dpdx, dpdy, fwidth, unpack4xU8, pack4xU8 };
 
 const Node = struct {
     kind: NodeKind,
@@ -1219,7 +1255,7 @@ fn invocationIndependent() bool {
     for (ir_nodes[0..ir_node_len]) |node| {
         if (node.kind == .sample or (node.kind == .load and node.op != 0)) return false;
         // Helper calls and integer vectors keep the scalar path.
-        if (node.kind == .user_call or node.kind == .const_load or isIVec(node.ty) or isIVec(node.opnd_ty)) return false;
+        if (node.kind == .user_call or node.kind == .const_load or isIVec(node.ty) or isIVec(node.opnd_ty) or node.ty == .vec4b) return false;
     }
     var identities = [_]bool{false} ** (MAX_LOCALS + 1);
     for (ir_stmts[0..ir_stmt_len]) |stmt| {
@@ -1464,7 +1500,40 @@ fn batchMinMax(ty: Ty, max: bool) CompileError!void {
     else if (ty == .i32) (if (max) @as(u32, 184) else 182) else (if (max) @as(u32, 185) else 183));
 }
 
-fn batchLoad(node: Node, index: BatchValue, out: BatchValue) CompileError!void {
+// A local declared as `id.x` (or another such local) and never assigned.
+var batch_identity: [MAX_LOCALS + 1]bool = undefined;
+
+fn analyzeBatchIdentities() void {
+    @memset(&batch_identity, false);
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind != .declare) continue;
+        const root = ir_nodes[stmt.expr.start + stmt.expr.len - 1];
+        batch_identity[stmt.local] = stmt.expr.len == 1 and (root.kind == .gid_x or (root.kind == .local and batch_identity[root.ref]));
+    }
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind == .assign) batch_identity[stmt.local] = false;
+    }
+}
+
+fn isIdentityIndex(index: Node) bool {
+    return index.kind == .gid_x or (index.kind == .local and batch_identity[index.ref]);
+}
+
+fn batchLoad(node: Node, index: BatchValue, out: BatchValue, contiguous: bool) CompileError!void {
+    if (contiguous and !isVec(node.ty)) {
+        // Lanes id.x .. id.x + 3 are adjacent elements. Absent tail lanes
+        // read zero, as an out-of-range load does; the read itself stays
+        // inside the input capacity, a multiple of 16 bytes.
+        try body.localGet(0);
+        try body.i32Const(2);
+        try body.byte(0x74);
+        try body.simd(SIMD_LOAD);
+        try body.byte(2);
+        try body.uleb(bufferBase(0));
+        try body.localGet(batch_alive);
+        try body.simd(78); // v128.and
+        return body.localSet(out.regs[0]);
+    }
     for (0..vecLen(node.ty)) |component| {
         try batchConst(0);
         try body.localSet(out.regs[component]);
@@ -1529,7 +1598,7 @@ fn batchExpr(expr: Expr) CompileError!BatchValue {
             continue;
         }
         if (node.kind == .load) {
-            try batchLoad(node, a, out);
+            try batchLoad(node, a, out, isIdentityIndex(expr_nodes[node.kids[0]]));
             continue;
         }
         if (node.kind == .gid_x) {
@@ -1715,6 +1784,21 @@ fn batchAssign(destination: BatchValue, value: BatchValue, masked: bool, lane: u
 }
 
 fn batchStore(value: BatchValue) CompileError!void {
+    // Store indices are identities, so four scalar lanes are one contiguous
+    // v128 when every lane stores. Otherwise only active lanes are written.
+    if (!isVec(value.ty)) {
+        try body.localGet(batch_active);
+        try body.simd(SIMD_I32X4_ALL_TRUE);
+        try body.raw(&.{ 0x04, 0x40 });
+        try body.localGet(0);
+        try body.i32Const(2);
+        try body.byte(0x74);
+        try batchGet(value, 0);
+        try body.simd(SIMD_STORE);
+        try body.byte(2);
+        try body.uleb(bufferBase(1));
+        try body.byte(0x05);
+    }
     for (0..4) |lane| {
         try body.localGet(batch_active);
         try body.simdLane(27, @intCast(lane));
@@ -1741,10 +1825,12 @@ fn batchStore(value: BatchValue) CompileError!void {
         try body.uleb(bufferBase(1));
         try body.byte(0x0b);
     }
+    if (!isVec(value.ty)) try body.byte(0x0b);
 }
 
 fn emitInvocationBatch() CompileError!bool {
     analyzeBatchUniformity();
+    analyzeBatchIdentities();
     body.len = 0;
     local_count = 0;
     batch_temp_len = .{ 0, 0, 0 };
@@ -1877,6 +1963,526 @@ fn emitInvocationBatch() CompileError!bool {
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Byte vectorization: four invocations of a shader that maps each byte of a
+// u32 element independently, as one i8x16. It applies when every vec4u value
+// comes from `unpack4xU8(src[id.x])`, literals, and lane-wise operators, and
+// every store is `dst[id.x] = pack4xU8(...)`, so output byte c of an element
+// depends only on input byte c. Lanes then need only 8 bits if the result
+// agrees: the compiler evaluates the shader in u32 and in u8 arithmetic for
+// all 256 values of each input byte and keeps this path only if every stored
+// byte matches. Bounds guards such as `if (i < arrayLength(&src))` hold for
+// every live invocation. Anything else keeps the other paths.
+
+const ByteClass = enum(u8) { other, index, alen, word, bytes, mask, cbytes, cscalar, known_true, known_false, packed_word };
+var byte_class: [MAX_NODES]ByteClass = undefined;
+var byte_const: [MAX_NODES][4]u32 = undefined;
+var byte_local_class: [MAX_LOCALS + 1]ByteClass = undefined;
+var byte_local_const: [MAX_LOCALS + 1][4]u32 = undefined;
+var byte_local_reg: [MAX_LOCALS + 1]u32 = undefined;
+var byte_v32: [MAX_NODES]u32 = undefined;
+var byte_v8: [MAX_NODES]u8 = undefined;
+var byte_local_v32: [MAX_LOCALS + 1]u32 = undefined;
+var byte_local_v8: [MAX_LOCALS + 1]u8 = undefined;
+
+fn byteDomain(class: ByteClass) bool {
+    return class == .bytes or class == .cbytes or class == .cscalar;
+}
+
+fn splatConst(values: [4]u32) bool {
+    return values[0] == values[1] and values[1] == values[2] and values[2] == values[3];
+}
+
+// Classifies each node of `expr` into byte_class; `.other` marks a node
+// outside the byte subset.
+fn classifyByteExpr(expr: Expr) void {
+    if (expr.len == 0) return;
+    const expr_nodes = ir_nodes[expr.start..][0..expr.len];
+    for (expr_nodes, 0..) |node, i| {
+        const k = node.kids;
+        const ka = if (nodeArity(node) > 0) byte_class[k[0]] else ByteClass.other;
+        const kb = if (nodeArity(node) > 1) byte_class[k[1]] else ByteClass.other;
+        var class = ByteClass.other;
+        byte_const[i] = .{ 0, 0, 0, 0 };
+        switch (node.kind) {
+            .lit => if (isInt(node.ty)) {
+                class = .cscalar;
+                byte_const[i] = @splat(@bitCast(literalValue(node.lit)));
+            } else if (node.ty == .vec4u) {
+                class = .cbytes; // the zero vector
+            },
+            .local => {
+                class = byte_local_class[node.ref];
+                byte_const[i] = byte_local_const[node.ref];
+            },
+            .gid_x => class = .index,
+            .array_len => class = .alen,
+            .load => if (node.op == 0 and node.ty == .u32 and ka == .index) {
+                class = .word;
+            },
+            .unary => {
+                const op: Tk = @enumFromInt(node.op);
+                if (op == .tilde and node.ty == .vec4u and byteDomain(ka)) class = .bytes;
+                if (op == .bang and ka == .mask) class = .mask;
+            },
+            .binary => {
+                const op: Tk = @enumFromInt(node.op);
+                const both = byteDomain(ka) and byteDomain(kb);
+                if (node.ty == .vec4u and both) switch (op) {
+                    .plus, .minus, .amp, .pipe, .caret => class = .bytes,
+                    // i8x16 shifts take one count for every lane.
+                    .shl, .shr => if (kb == .cbytes and splatConst(byte_const[k[1]])) {
+                        class = .bytes;
+                    },
+                    else => {},
+                } else if (node.ty == .vec4b and node.opnd_ty == .vec4u and both) {
+                    class = .mask;
+                } else if (node.ty == .vec4b and ka == .mask and kb == .mask) {
+                    class = .mask;
+                } else if (node.ty == .bool) {
+                    // Every live invocation has id.x < arrayLength.
+                    const index_first = ka == .index and kb == .alen;
+                    const alen_first = ka == .alen and kb == .index;
+                    if ((index_first and op == .lt) or (alen_first and op == .gt) or
+                        (index_first and op == .bang_eq) or (alen_first and op == .bang_eq)) class = .known_true;
+                    if ((index_first and op == .ge) or (alen_first and op == .le) or
+                        (index_first and op == .eq_eq) or (alen_first and op == .eq_eq)) class = .known_false;
+                }
+            },
+            .call => switch (@as(Callee, @enumFromInt(node.op))) {
+                .unpack4xU8 => if (ka == .word) {
+                    class = .bytes;
+                },
+                .pack4xU8 => if (byteDomain(ka)) {
+                    class = .packed_word;
+                },
+                .vec4u => if (node.argc == 1 and ka == .cscalar) {
+                    class = .cbytes;
+                    byte_const[i] = byte_const[k[0]];
+                } else if (node.argc == 1 and (ka == .bytes or ka == .cbytes)) {
+                    class = ka;
+                    byte_const[i] = byte_const[k[0]];
+                } else if (node.argc == 4) {
+                    class = .cbytes;
+                    for (0..4) |c| {
+                        if (byte_class[k[c]] != .cscalar) class = .other;
+                        byte_const[i][c] = byte_const[k[c]][0];
+                    }
+                },
+                .select => if (node.ty == .vec4u and byteDomain(ka) and byteDomain(kb) and byte_class[k[2]] == .mask) {
+                    class = .bytes;
+                },
+                .min, .max => if (node.ty == .vec4u and byteDomain(ka) and byteDomain(kb)) {
+                    class = .bytes;
+                },
+                .clamp => if (node.ty == .vec4u and byteDomain(ka) and byteDomain(kb) and byteDomain(byte_class[k[2]])) {
+                    class = .bytes;
+                },
+                else => {},
+            },
+            else => {},
+        }
+        byte_class[i] = class;
+    }
+}
+
+// Scans the statements once for eligibility, recording each local's class.
+fn byteKernelEligible() bool {
+    if (input_buffer.elem != .u32 or output_buffer.elem != .u32) return false;
+    for (ir_nodes[0..ir_node_len]) |node| if (node.kind == .override) return false;
+    var skip_depth: usize = 0;
+    var depth: usize = 0;
+    var stores: usize = 0;
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (skip_depth > 0) {
+            if (stmt.kind == .if_head) skip_depth += 1;
+            if (stmt.kind == .else_head and skip_depth == 1) return false;
+            if (stmt.kind == .end_if) skip_depth -= 1;
+            continue;
+        }
+        classifyByteExpr(stmt.expr);
+        const root = if (stmt.expr.len > 0) byte_class[stmt.expr.len - 1] else ByteClass.other;
+        switch (stmt.kind) {
+            .declare => {
+                switch (root) {
+                    .index, .word, .bytes, .mask, .cbytes, .cscalar => {},
+                    else => return false,
+                }
+                byte_local_class[stmt.local] = root;
+                byte_local_const[stmt.local] = byte_const[stmt.expr.len - 1];
+            },
+            .store => {
+                if (root != .packed_word) return false;
+                stores += 1;
+            },
+            .if_head => switch (root) {
+                .known_true => depth += 1,
+                // The body never runs, so it needs no other checks.
+                .known_false => skip_depth = 1,
+                else => return false,
+            },
+            .end_if => {
+                if (depth == 0) return false;
+                depth -= 1;
+            },
+            else => return false,
+        }
+    }
+    // Every store indexes with id.x itself.
+    analyzeBatchIdentities();
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind != .store) continue;
+        if (stmt.index_expr.len != 1 or !isIdentityIndex(ir_nodes[stmt.index_expr.start])) return false;
+    }
+    return stores > 0;
+}
+
+// Evaluates the classified nodes of `expr` for one input byte and lane, in
+// u32 (WGSL) and in u8 (the i8x16 lowering) arithmetic.
+fn evalByteExpr(expr: Expr, lane: usize, byte: u8) void {
+    const expr_nodes = ir_nodes[expr.start..][0..expr.len];
+    for (expr_nodes, 0..) |node, i| {
+        if (!byteDomain(byte_class[i]) and byte_class[i] != .mask and byte_class[i] != .packed_word) continue;
+        const k = node.kids;
+        if (node.kind == .local) {
+            byte_v32[i] = byte_local_v32[node.ref];
+            byte_v8[i] = byte_local_v8[node.ref];
+            if (byte_class[i] == .cbytes) {
+                byte_v32[i] = byte_const[i][lane];
+                byte_v8[i] = @truncate(byte_const[i][lane]);
+            }
+            continue;
+        }
+        if (byte_class[i] == .cbytes or byte_class[i] == .cscalar) {
+            byte_v32[i] = byte_const[i][lane];
+            byte_v8[i] = @truncate(byte_const[i][lane]);
+            continue;
+        }
+        const a32 = byte_v32[k[0]];
+        const b32 = byte_v32[k[1]];
+        const a8 = byte_v8[k[0]];
+        const b8 = byte_v8[k[1]];
+        var r32: u32 = 0;
+        var r8: u8 = 0;
+        switch (node.kind) {
+            .unary => {
+                r32 = if (node.ty == .vec4b) @intFromBool(a32 == 0) else ~a32;
+                r8 = if (node.ty == .vec4b) @intFromBool(a8 == 0) else ~a8;
+            },
+            .binary => {
+                const op: Tk = @enumFromInt(node.op);
+                if (node.ty == .vec4b) {
+                    r32 = @intFromBool(switch (op) {
+                        .amp => a32 != 0 and b32 != 0,
+                        .pipe => a32 != 0 or b32 != 0,
+                        .eq_eq => a32 == b32,
+                        .bang_eq => a32 != b32,
+                        .lt => a32 < b32,
+                        .gt => a32 > b32,
+                        .le => a32 <= b32,
+                        else => a32 >= b32,
+                    });
+                    r8 = @intFromBool(switch (op) {
+                        .amp => a8 != 0 and b8 != 0,
+                        .pipe => a8 != 0 or b8 != 0,
+                        .eq_eq => a8 == b8,
+                        .bang_eq => a8 != b8,
+                        .lt => a8 < b8,
+                        .gt => a8 > b8,
+                        .le => a8 <= b8,
+                        else => a8 >= b8,
+                    });
+                } else switch (op) {
+                    .plus => {
+                        r32 = a32 +% b32;
+                        r8 = a8 +% b8;
+                    },
+                    .minus => {
+                        r32 = a32 -% b32;
+                        r8 = a8 -% b8;
+                    },
+                    .amp => {
+                        r32 = a32 & b32;
+                        r8 = a8 & b8;
+                    },
+                    .pipe => {
+                        r32 = a32 | b32;
+                        r8 = a8 | b8;
+                    },
+                    .caret => {
+                        r32 = a32 ^ b32;
+                        r8 = a8 ^ b8;
+                    },
+                    // WGSL and Wasm shift by the count modulo the lane width.
+                    .shl => {
+                        r32 = a32 << @intCast(b32 & 31);
+                        r8 = a8 << @intCast(b32 & 7);
+                    },
+                    else => {
+                        r32 = a32 >> @intCast(b32 & 31);
+                        r8 = a8 >> @intCast(b32 & 7);
+                    },
+                }
+            },
+            .call => switch (@as(Callee, @enumFromInt(node.op))) {
+                .unpack4xU8 => {
+                    r32 = byte;
+                    r8 = byte;
+                },
+                .pack4xU8, .vec4u => {
+                    r32 = a32;
+                    r8 = a8;
+                },
+                .select => {
+                    const pick = byte_v32[k[2]] != 0;
+                    // The lowering selects with the u8 mask.
+                    r32 = if (pick) b32 else a32;
+                    r8 = if (byte_v8[k[2]] != 0) b8 else a8;
+                },
+                .min => {
+                    r32 = @min(a32, b32);
+                    r8 = @min(a8, b8);
+                },
+                .max => {
+                    r32 = @max(a32, b32);
+                    r8 = @max(a8, b8);
+                },
+                else => { // clamp(e, low, high) = min(max(e, low), high)
+                    r32 = @min(@max(a32, b32), byte_v32[k[2]]);
+                    r8 = @min(@max(a8, b8), byte_v8[k[2]]);
+                },
+            },
+            else => unreachable,
+        }
+        byte_v32[i] = r32;
+        byte_v8[i] = r8;
+    }
+}
+
+// True when the u8 lowering stores the low byte of the u32 result for every
+// input byte value in every lane.
+fn byteLoweringExact() bool {
+    for (0..4) |lane| for (0..256) |b| {
+        var skip_depth: usize = 0;
+        for (ir_stmts[0..ir_stmt_len]) |stmt| {
+            if (skip_depth > 0) {
+                if (stmt.kind == .if_head) skip_depth += 1;
+                if (stmt.kind == .end_if) skip_depth -= 1;
+                continue;
+            }
+            if (stmt.kind == .if_head) {
+                classifyByteExpr(stmt.expr);
+                if (byte_class[stmt.expr.len - 1] == .known_false) skip_depth = 1;
+                continue;
+            }
+            if (stmt.kind != .declare and stmt.kind != .store) continue;
+            classifyByteExpr(stmt.expr);
+            evalByteExpr(stmt.expr, lane, @intCast(b));
+            const root = stmt.expr.len - 1;
+            if (stmt.kind == .declare) {
+                byte_local_v32[stmt.local] = byte_v32[root];
+                byte_local_v8[stmt.local] = byte_v8[root];
+            } else if (@as(u8, @truncate(byte_v32[root])) != byte_v8[root]) {
+                return false;
+            }
+        }
+    };
+    return true;
+}
+
+// Byte constants live in locals set before the loop.
+const ByteConst = struct { bytes: [4]u8, reg: u32 };
+var byte_consts: [32]ByteConst = undefined;
+var byte_const_len: usize = 0;
+
+fn emitByteConst(values: [4]u32) CompileError!void {
+    var bytes: [4]u8 = undefined;
+    for (&bytes, values) |*b, v| b.* = @truncate(v);
+    for (byte_consts[0..byte_const_len]) |c| {
+        if (std.mem.eql(u8, &c.bytes, &bytes)) return body.localGet(c.reg);
+    }
+    if (byte_const_len < byte_consts.len) {
+        const reg = try allocPersistent(.vec4u);
+        byte_consts[byte_const_len] = .{ .bytes = bytes, .reg = reg };
+        byte_const_len += 1;
+        return body.localGet(reg);
+    }
+    try body.simd(SIMD_CONST);
+    for (0..4) |_| try body.raw(&bytes);
+}
+
+// Emits node `i` of `expr_nodes` as an i8x16, from its operands down.
+fn emitByteNode(expr_nodes: []const Node, i: usize, source: u32) CompileError!void {
+    const node = expr_nodes[i];
+    const k = node.kids;
+    switch (byte_class[i]) {
+        .cbytes, .cscalar => return emitByteConst(byte_const[i]),
+        else => {},
+    }
+    if (node.kind == .local) return body.localGet(byte_local_reg[node.ref]);
+    switch (node.kind) {
+        .unary => {
+            try emitByteNode(expr_nodes, k[0], source);
+            try body.simd(77); // v128.not
+        },
+        .binary => {
+            const op: Tk = @enumFromInt(node.op);
+            try emitByteNode(expr_nodes, k[0], source);
+            if (op == .shl or op == .shr) {
+                try body.i32Const(@bitCast(byte_const[k[1]][0]));
+                return body.simd(if (op == .shl) @as(u32, 107) else 109); // i8x16.shl, shr_u
+            }
+            try emitByteNode(expr_nodes, k[1], source);
+            try body.simd(if (node.ty == .vec4b and node.opnd_ty == .vec4u) switch (op) {
+                .eq_eq => @as(u32, 35),
+                .bang_eq => 36,
+                .lt => 38,
+                .gt => 40,
+                .le => 42,
+                else => 44,
+            } else switch (op) {
+                .plus => @as(u32, 110), // i8x16.add
+                .minus => 113, // i8x16.sub
+                .amp => SIMD_V128_AND,
+                .pipe => SIMD_V128_OR,
+                else => SIMD_V128_XOR,
+            });
+        },
+        .call => switch (@as(Callee, @enumFromInt(node.op))) {
+            .unpack4xU8 => try body.localGet(source),
+            .pack4xU8, .vec4u => try emitByteNode(expr_nodes, k[0], source),
+            .select => {
+                try emitByteNode(expr_nodes, k[1], source);
+                try emitByteNode(expr_nodes, k[0], source);
+                try emitByteNode(expr_nodes, k[2], source);
+                try body.simd(SIMD_V128_BITSELECT);
+            },
+            .min, .max => |callee| {
+                try emitByteNode(expr_nodes, k[0], source);
+                try emitByteNode(expr_nodes, k[1], source);
+                try body.simd(if (callee == .min) @as(u32, 119) else 121); // i8x16.min_u, max_u
+            },
+            else => {
+                try emitByteNode(expr_nodes, k[0], source);
+                try emitByteNode(expr_nodes, k[1], source);
+                try body.simd(121);
+                try emitByteNode(expr_nodes, k[2], source);
+                try body.simd(119);
+            },
+        },
+        else => return fail(node.offset, .unsupported),
+    }
+}
+
+// Emits one batch at id.x (local 0): elements id.x .. id.x + 3. A `tail`
+// batch stores only the elements below the count; the read stays inside the
+// input capacity, a multiple of 16 bytes.
+fn emitByteBody(source: u32, value: u32, tail: bool) CompileError!void {
+    try body.localGet(0);
+    try body.i32Const(2);
+    try body.byte(0x74);
+    try body.simd(SIMD_LOAD);
+    try body.byte(2);
+    try body.uleb(bufferBase(0));
+    try body.localSet(source);
+    var skip_depth: usize = 0;
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (skip_depth > 0) {
+            if (stmt.kind == .if_head) skip_depth += 1;
+            if (stmt.kind == .end_if) skip_depth -= 1;
+            continue;
+        }
+        if (stmt.kind != .declare and stmt.kind != .store and stmt.kind != .if_head) continue;
+        classifyByteExpr(stmt.expr);
+        const root = stmt.expr.len - 1;
+        const expr_nodes = ir_nodes[stmt.expr.start..][0..stmt.expr.len];
+        switch (stmt.kind) {
+            .if_head => if (byte_class[root] == .known_false) {
+                skip_depth = 1;
+            },
+            .declare => if (byte_class[root] == .bytes or byte_class[root] == .mask) {
+                try emitByteNode(expr_nodes, root, source);
+                try body.localSet(byte_local_reg[stmt.local]);
+            },
+            else => if (!tail) {
+                try body.localGet(0);
+                try body.i32Const(2);
+                try body.byte(0x74);
+                try emitByteNode(expr_nodes, root, source);
+                try body.simd(SIMD_STORE);
+                try body.byte(2);
+                try body.uleb(bufferBase(1));
+            } else {
+                try emitByteNode(expr_nodes, root, source);
+                try body.localSet(value);
+                for (0..3) |lane| {
+                    try body.localGet(0);
+                    try body.i32Const(@intCast(lane));
+                    try body.byte(0x6a);
+                    try body.byte(0x23);
+                    try body.uleb(GLOBAL_COUNT);
+                    try body.raw(&.{ 0x49, 0x04, 0x40 }); // i32.lt_u if
+                    try body.localGet(0);
+                    try body.i32Const(@intCast(lane));
+                    try body.byte(0x6a);
+                    try body.i32Const(2);
+                    try body.byte(0x74);
+                    try body.localGet(value);
+                    try body.simdLane(SIMD_I32X4_EXTRACT_LANE, @intCast(lane));
+                    try body.raw(&.{ 0x36, 2 });
+                    try body.uleb(bufferBase(1));
+                    try body.byte(0x0b);
+                }
+            },
+        }
+    }
+}
+
+fn emitByteBatch() CompileError!bool {
+    if (!byteKernelEligible() or !byteLoweringExact()) return false;
+    body.len = 0;
+    local_count = 0;
+    const source = try allocPersistent(.vec4u);
+    const value = try allocPersistent(.vec4u);
+    const full = try allocPersistent(.u32);
+    for (ir_stmts[0..ir_stmt_len]) |stmt| {
+        if (stmt.kind == .declare) byte_local_reg[stmt.local] = try allocPersistent(.vec4u);
+    }
+    // A first pass finds the constants; the code starts again after it.
+    byte_const_len = 0;
+    try emitByteBody(source, value, false);
+    body.len = 0;
+    for (byte_consts[0..byte_const_len]) |c| {
+        try body.simd(SIMD_CONST);
+        for (0..4) |_| try body.raw(&c.bytes);
+        try body.localSet(c.reg);
+    }
+    // for (id.x = 0; id.x < count & ~3; id.x += 4): render calls this once.
+    try body.byte(0x23);
+    try body.uleb(GLOBAL_COUNT);
+    try body.i32Const(-4);
+    try body.byte(0x71);
+    try body.localSet(full);
+    try body.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try body.localGet(0);
+    try body.localGet(full);
+    try body.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
+    try emitByteBody(source, value, false);
+    try body.localGet(0);
+    try body.i32Const(4);
+    try body.byte(0x6a);
+    try body.localSet(0);
+    try body.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    // One to three remaining elements.
+    try body.localGet(0);
+    try body.byte(0x23);
+    try body.uleb(GLOBAL_COUNT);
+    try body.raw(&.{ 0x49, 0x04, 0x40 }); // i32.lt_u if
+    try emitByteBody(source, value, true);
+    try body.byte(0x0b);
+    return true;
+}
+
 const OpKind = enum(u8) { paren, call, user_call, bracket, unary, binary };
 
 const OpEntry = struct { kind: OpKind, op: u8, prec: u8 = 0, argc: u8 = 0, offset: u32 };
@@ -1944,8 +2550,8 @@ fn applyUnary(entry: OpEntry) CompileError!void {
     }
     const ok = switch (kind) {
         .minus => (isNumeric(at) and at != .u32) or isVec(at),
-        .bang => at == .bool,
-        .tilde => isInt(at),
+        .bang => at == .bool or at == .vec4b,
+        .tilde => isInt(at) or at == .vec4u,
         else => false,
     };
     if (!ok) return fail(entry.offset, .type_mismatch);
@@ -1961,15 +2567,39 @@ fn applyBinary(entry: OpEntry) CompileError!void {
     const kind: Tk = @enumFromInt(entry.op);
     var ty: Ty = undefined;
     var opnd: Ty = undefined;
+    if (at == .vec4b or bt == .vec4b) {
+        // `&` and `|` lane-wise on comparison results.
+        if (at != bt or !(kind == .amp or kind == .pipe)) return fail(entry.offset, .type_mismatch);
+        _ = try pushNode(.{ .kind = .binary, .op = entry.op, .ty = at, .opnd_ty = at, .kids = .{ a, b, 0, 0 }, .offset = entry.offset });
+        return;
+    }
     if (isIVec(at) or isIVec(bt)) {
-        // `+ - *` lane-wise on vec2i or vec2u, with a scalar splatted.
+        // `+ - *` lane-wise on vec2i, vec2u or vec4u, with a scalar
+        // splatted; on two vec4u also `& | ^`, shifts and comparisons.
         const arith = kind == .plus or kind == .minus or kind == .star;
         const vt = if (isIVec(at)) at else bt;
         const elem = ivecElem(vt);
         const lanes_ok = (at == vt or convertible(at, elem)) and (bt == vt or convertible(bt, elem));
-        if (!arith) return fail(entry.offset, if (kind == .slash or kind == .percent) .unsupported else .type_mismatch);
-        if (!lanes_ok) return fail(entry.offset, .type_mismatch);
-        _ = try pushNode(.{ .kind = .binary, .op = entry.op, .ty = vt, .opnd_ty = vt, .kids = .{ a, b, 0, 0 }, .offset = entry.offset });
+        ty = vt;
+        if (vt == .vec4u and !arith) {
+            switch (kind) {
+                .amp, .pipe, .caret => if (at != vt or bt != vt) return fail(entry.offset, .type_mismatch),
+                .shl, .shr => {
+                    if (at != vt or bt != vt) return fail(entry.offset, .type_mismatch);
+                    try checkShiftCount(b, entry.offset);
+                },
+                .lt, .gt, .le, .ge, .eq_eq, .bang_eq => {
+                    if (at != vt or bt != vt) return fail(entry.offset, .type_mismatch);
+                    ty = .vec4b;
+                },
+                .slash, .percent => return fail(entry.offset, .unsupported),
+                else => return fail(entry.offset, .type_mismatch),
+            }
+        } else {
+            if (!arith) return fail(entry.offset, if (kind == .slash or kind == .percent) .unsupported else .type_mismatch);
+            if (!lanes_ok) return fail(entry.offset, .type_mismatch);
+        }
+        _ = try pushNode(.{ .kind = .binary, .op = entry.op, .ty = ty, .opnd_ty = vt, .kids = .{ a, b, 0, 0 }, .offset = entry.offset });
         return;
     }
     if (isVec(at) or isVec(bt)) {
@@ -2012,12 +2642,41 @@ fn applyBinary(entry: OpEntry) CompileError!void {
         },
         .shl, .shr => {
             if (!isInt(at) or !(bt == .u32 or bt == .abstract_int)) return fail(entry.offset, .type_mismatch);
+            try checkShiftCount(b, entry.offset);
             opnd = at;
             ty = at;
         },
         else => return fail(entry.offset, .syntax),
     }
     _ = try pushNode(.{ .kind = .binary, .op = entry.op, .ty = ty, .opnd_ty = opnd, .kids = .{ a, b, 0, 0 }, .offset = entry.offset });
+}
+
+// The largest lane of a constant integer expression, or null if any lane is
+// not known at compile time.
+fn constIntMax(index: u16) ?f64 {
+    const node = nodes[index];
+    if (node.kind == .call) switch (@as(Callee, @enumFromInt(node.op))) {
+        .to_u32, .to_i32, .vec2i, .vec2u, .vec4u => {
+            var max: ?f64 = null;
+            for (node.kids[0..node.argc]) |kid| {
+                const value = constIntMax(kid) orelse return null;
+                max = if (max) |m| @max(m, value) else value;
+            }
+            return max;
+        },
+        else => {},
+    };
+    const value = constFloat(index) orelse return null;
+    var max = value.values[0];
+    for (value.values[1..value.len]) |lane| max = @max(max, lane);
+    return max;
+}
+
+// WGSL makes a constant shift count of 32 or more a shader-creation error.
+fn checkShiftCount(count: u16, offset: u32) CompileError!void {
+    if (constIntMax(count)) |max| {
+        if (max >= 32) return fail(offset, .type_mismatch);
+    }
 }
 
 fn applyOp(entry: OpEntry) CompileError!void {
@@ -2064,7 +2723,8 @@ fn lookupCallee(name: []const u8) ?Callee {
         .{ "smoothstep", .smoothstep }, .{ "inverseSqrt", .inverse_sqrt }, .{ "length", .length }, .{ "distance", .distance },
         .{ "normalize", .normalize },   .{ "f32", .to_f32 },               .{ "i32", .to_i32 },    .{ "u32", .to_u32 },
         .{ "bool", .to_bool },          .{ "vec2f", .vec2f },              .{ "vec3f", .vec3f },   .{ "vec4f", .vec4f },
-        .{ "vec2i", .vec2i },           .{ "vec2u", .vec2u },
+        .{ "vec2i", .vec2i },           .{ "vec2u", .vec2u },              .{ "vec4u", .vec4u },   .{ "unpack4xU8", .unpack4xU8 },
+        .{ "pack4xU8", .pack4xU8 },
     };
     for (table) |entry| if (std.mem.eql(u8, entry[0], name)) return entry[1];
     // Chrome on Metal computes every form per row and column of the quad, so
@@ -2089,6 +2749,7 @@ fn conversionTarget(callee: Callee) ?Ty {
         .vec4f => .vec4f,
         .vec2i => .vec2i,
         .vec2u => .vec2u,
+        .vec4u => .vec4u,
         else => null,
     };
 }
@@ -2098,7 +2759,7 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
     const want: u8 = switch (callee) {
         .min, .max, .dot, .pow, .atan2, .step, .distance => 2,
         .clamp, .select, .mix, .smoothstep => 3,
-        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u => @min(argc, vecLen(conversionTarget(callee).?)),
+        .vec2f, .vec3f, .vec4f, .vec2i, .vec2u, .vec4u => @min(argc, vecLen(conversionTarget(callee).?)),
         .texture_load => 2,
         else => 1,
     };
@@ -2122,13 +2783,26 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
         .min, .max, .clamp => {
             opnd = try unify(t0, nodes[kids[1]].ty, entry.offset);
             if (callee == .clamp) opnd = try unify(opnd, nodes[kids[2]].ty, entry.offset);
-            if (!isNumeric(opnd) and !isVec(opnd)) return fail(entry.offset, .type_mismatch);
+            if (!isNumeric(opnd) and !isVec(opnd) and opnd != .vec4u) return fail(entry.offset, .type_mismatch);
             ty = opnd;
         },
         .select => {
+            // A vec4u selects per lane with a vec4<bool>, or whole with a bool.
             opnd = try unify(t0, nodes[kids[1]].ty, entry.offset);
-            if (!(isScalar(opnd) or isVec(opnd)) or nodes[kids[2]].ty != .bool) return fail(entry.offset, .type_mismatch);
+            const ct = nodes[kids[2]].ty;
+            const cond_ok = ct == .bool or (opnd == .vec4u and ct == .vec4b);
+            if (!(isScalar(opnd) or isVec(opnd) or opnd == .vec4u) or !cond_ok) return fail(entry.offset, .type_mismatch);
             ty = opnd;
+        },
+        .unpack4xU8 => {
+            if (!convertible(t0, .u32)) return fail(entry.offset, .type_mismatch);
+            opnd = .u32;
+            ty = .vec4u;
+        },
+        .pack4xU8 => {
+            if (t0 != .vec4u) return fail(entry.offset, .type_mismatch);
+            opnd = t0;
+            ty = .u32;
         },
         .dpdx, .dpdy, .fwidth => {
             // Derivatives exist only in fragment shaders.
@@ -2184,9 +2858,9 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             // vector arguments supply exactly N lanes, as in vec4f(v.rgb, 1.0).
             ty = conversionTarget(callee).?;
             opnd = t0;
-            // vec2f(v) converts a vec2i or vec2u lane-wise.
+            // vec2f(v) converts a vec2i or vec2u lane-wise, vec4f(v) a vec4u.
             if (argc == 1 and isIVec(t0)) {
-                if (ty != .vec2f) return fail(entry.offset, .type_mismatch);
+                if (vecLen(ty) != vecLen(t0)) return fail(entry.offset, .type_mismatch);
                 _ = try pushNode(.{ .kind = .call, .op = entry.op, .ty = ty, .opnd_ty = opnd, .kids = kids, .argc = argc, .offset = entry.offset });
                 return;
             }
@@ -2199,21 +2873,24 @@ fn applyCall(entry: OpEntry, argc: u8) CompileError!void {
             const ok = if (argc == 1) (t0 == ty or !isVec(t0)) else lanes == vecLen(ty);
             if (!ok) return fail(entry.offset, .type_mismatch);
         },
-        .vec2i, .vec2u => {
+        .vec2i, .vec2u, .vec4u => {
             // vec2i(s) splats, vec2i(a, b) takes two scalars of the element
-            // type, and vec2i(v) converts any vec2.
+            // type, and vec2i(v) converts any vec2; vec4u likewise with four.
             ty = conversionTarget(callee).?;
             opnd = t0;
             const elem = ivecElem(ty);
-            const ok = if (argc == 1)
-                t0 == .vec2f or isIVec(t0) or convertible(t0, elem)
+            var ok = if (argc == 1)
+                ((t0 == .vec2f or t0 == .vec4f or isIVec(t0)) and vecLen(t0) == vecLen(ty)) or convertible(t0, elem)
             else
-                convertible(t0, elem) and convertible(nodes[kids[1]].ty, elem);
+                true;
+            if (argc > 1) for (kids[0..argc]) |kid| {
+                ok = ok and convertible(nodes[kid].ty, elem);
+            };
             if (!ok) return fail(entry.offset, .type_mismatch);
         },
         .texture_load => {
             // textureLoad(t, coords, level) after the texture argument.
-            if (!isIVec(t0) or !isInt(nodes[kids[1]].ty)) return fail(entry.offset, .type_mismatch);
+            if (!isIVec(t0) or vecLen(t0) != 2 or !isInt(nodes[kids[1]].ty)) return fail(entry.offset, .type_mismatch);
             opnd = t0;
             ty = .vec4f;
         },
@@ -2350,6 +3027,12 @@ fn parseIdentOperand() CompileError!bool {
     const t = peek();
     const name = text(t);
     const next = peekAt(1);
+    if (vecWordLen(t, false) == 4 and next.kind == .lt and isWord(peekAt(2), "u32") and
+        peekAt(3).kind == .gt and peekAt(4).kind == .l_paren)
+    {
+        pos += 3;
+        return parseConstructorCall(t, .vec4u);
+    }
     if (vecWordLen(t, false) == 2 and next.kind == .lt and (isWord(peekAt(2), "i32") or isWord(peekAt(2), "u32")) and
         peekAt(3).kind == .gt and peekAt(4).kind == .l_paren)
     {
@@ -2529,9 +3212,9 @@ fn parseExpr() CompileError!u16 {
                 if (!isVec(vt) and !isIVec(vt)) return fail(t.start, .type_mismatch);
                 const swizzle = try parseSwizzle(member, vt);
                 if (isIVec(vt)) {
-                    // Only vec2i and vec2u exist, so a swizzle has two lanes.
-                    if (swizzle.len > 2) return fail(member.start, .unsupported);
-                    const ty = if (swizzle.len == 1) ivecElem(vt) else vt;
+                    // Integer vectors have two or four lanes, so a swizzle does too.
+                    if (swizzle.len == 3) return fail(member.start, .unsupported);
+                    const ty = if (swizzle.len == 1) ivecElem(vt) else ivecOf(vt, swizzle.len);
                     const kind: NodeKind = if (swizzle.len == 1) .lane else .swizzle;
                     const op = if (swizzle.len == 1) swizzle.lanes[0] else swizzle.packedLanes();
                     _ = try pushNode(.{ .kind = kind, .op = op, .ty = ty, .opnd_ty = vt, .kids = .{ v, 0, 0, 0 }, .offset = member.start });
@@ -2632,9 +3315,11 @@ fn concretize(root: u16, want: ?Ty) CompileError!void {
                     .vec2f, .vec3f, .vec4f => for (node.kids[0..node.argc]) |kid| {
                         if (!isVec(nodes[kid].ty) and !isIVec(nodes[kid].ty)) try setNodeTy(kid, .f32);
                     },
-                    .vec2i, .vec2u => for (node.kids[0..node.argc]) |kid| {
+                    .vec2i, .vec2u, .vec4u => for (node.kids[0..node.argc]) |kid| {
                         if (!isVec(nodes[kid].ty) and !isIVec(nodes[kid].ty)) try setNodeTy(kid, ivecElem(node.ty));
                     },
+                    .unpack4xU8 => try setNodeTy(node.kids[0], .u32),
+                    .pack4xU8 => {},
                     .texture_load => {
                         const level = node.kids[1];
                         try setNodeTy(level, defaultTy(nodes[level].ty));
@@ -2731,6 +3416,7 @@ fn emitMinMax(ty: Ty, is_max: bool) CompileError!void {
     if (ty == .f32) return body.byte(if (is_max) 0x97 else 0x96);
     // f32x4.min and max are lane-wise f32.min and max, NaN handling included.
     if (isVec(ty)) return body.simd(if (is_max) SIMD_F32X4_MAX else SIMD_F32X4_MIN);
+    if (ty == .vec4u) return body.simd(if (is_max) @as(u32, 185) else 183); // i32x4.max_u, min_u
     try emitIntMinMax(ty, is_max);
 }
 
@@ -2853,8 +3539,62 @@ fn emitIVecArith(kind: Tk, a_ty: Ty, b_ty: Ty) CompileError!void {
         .plus => SIMD_I32X4_ADD,
         .minus => SIMD_I32X4_SUB,
         .star => SIMD_I32X4_MUL,
+        .amp => SIMD_V128_AND,
+        .pipe => SIMD_V128_OR,
+        .caret => SIMD_V128_XOR,
         else => unreachable,
     });
+}
+
+// Stack: [a, b] as vec4u. Shifts each lane of a by the same lane of b modulo
+// 32, as WGSL and i32.shl do. A splatted amount is one i32x4 shift.
+fn emitIVecShift(kind: Tk, amount: Node) CompileError!void {
+    const op: u32 = if (kind == .shl) SIMD_I32X4_SHL else SIMD_I32X4_SHR_U;
+    if (amount.kind == .call and @as(Callee, @enumFromInt(amount.op)) == .vec4u and amount.argc == 1 and !isIVec(nodes[amount.kids[0]].ty)) {
+        try body.simdLane(SIMD_I32X4_EXTRACT_LANE, 0);
+        return body.simd(op);
+    }
+    const tb = try allocLocal(.vec4u);
+    const ta = try allocLocal(.vec4u);
+    try body.localSet(tb);
+    try body.localTee(ta);
+    for (0..4) |lane| {
+        try body.localGet(ta);
+        try body.simdLane(SIMD_I32X4_EXTRACT_LANE, @intCast(lane));
+        try body.localGet(tb);
+        try body.simdLane(SIMD_I32X4_EXTRACT_LANE, @intCast(lane));
+        try body.byte(if (kind == .shl) 0x74 else 0x76);
+        try body.simdLane(SIMD_I32X4_REPLACE_LANE, @intCast(lane));
+    }
+}
+
+// Stack: [a, b] as vec4u. Lane-wise unsigned comparison into 0 or -1 lanes.
+fn emitIVecCompare(kind: Tk) CompileError!void {
+    try body.simd(switch (kind) {
+        .eq_eq => @as(u32, 55),
+        .bang_eq => 56,
+        .lt => 58,
+        .gt => 60,
+        .le => 62,
+        else => 64,
+    });
+}
+
+// Stack: [x: u32]. Its four bytes, low first, as vec4u lanes.
+fn emitUnpack4xU8() CompileError!void {
+    try body.simd(SIMD_I32X4_SPLAT);
+    try body.simd(137); // i16x8.extend_low_i8x16_u
+    try body.simd(169); // i32x4.extend_low_i16x8_u
+}
+
+// Stack: [v: vec4u]. The low byte of each lane, lane 0 lowest, as a u32.
+fn emitPack4xU8() CompileError!void {
+    const t = try allocLocal(.vec4u);
+    try body.localTee(t);
+    try body.localGet(t);
+    try body.simd(SIMD_I8X16_SHUFFLE);
+    try body.raw(&.{ 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12, 0, 4, 8, 12 });
+    try body.simdLane(SIMD_I32X4_EXTRACT_LANE, 0);
 }
 
 // Stack: [i32]. Limits a texel coordinate to size - 1 as unsigned, where size
@@ -3810,8 +4550,8 @@ fn emitNode(node: Node) CompileError!void {
                 try body.i32Const(-1);
                 try body.byte(0x6c);
             },
-            .bang => try body.byte(0x45),
-            .tilde => {
+            .bang => if (node.ty == .vec4b) try body.simd(77) else try body.byte(0x45),
+            .tilde => if (node.ty == .vec4u) try body.simd(77) else {
                 try body.i32Const(-1);
                 try body.byte(0x73);
             },
@@ -3820,6 +4560,11 @@ fn emitNode(node: Node) CompileError!void {
         .binary => {
             const kind: Tk = @enumFromInt(node.op);
             if (isVec(node.ty)) return emitVecArith(kind, nodes[node.kids[0]].ty, nodes[node.kids[1]].ty);
+            if (node.ty == .vec4b) {
+                if (node.opnd_ty == .vec4u) return emitIVecCompare(kind);
+                return body.simd(if (kind == .amp) SIMD_V128_AND else SIMD_V128_OR);
+            }
+            if (kind == .shl or kind == .shr) if (node.ty == .vec4u) return emitIVecShift(kind, nodes[node.kids[1]]);
             if (isIVec(node.ty)) return emitIVecArith(kind, nodes[node.kids[0]].ty, nodes[node.kids[1]].ty);
             switch (kind) {
                 .lt, .gt, .le, .ge, .eq_eq, .bang_eq => try emitCompare(kind, node.opnd_ty),
@@ -3858,8 +4603,10 @@ fn emitNode(node: Node) CompileError!void {
                 try emitMinMax(node.ty, false);
             },
             .select => {
-                // WGSL select(f, t, cond) is Wasm select(t, f, cond).
-                const tc = try allocLocal(.bool);
+                // WGSL select(f, t, cond) is Wasm select(t, f, cond), or
+                // v128.bitselect(t, f, cond) for a vec4<bool> condition.
+                const cond_ty = nodes[node.kids[2]].ty;
+                const tc = try allocLocal(cond_ty);
                 const tt = try allocLocal(node.ty);
                 const tf = try allocLocal(node.ty);
                 try body.localSet(tc);
@@ -3868,8 +4615,10 @@ fn emitNode(node: Node) CompileError!void {
                 try body.localGet(tt);
                 try body.localGet(tf);
                 try body.localGet(tc);
-                try body.byte(0x1b);
+                if (cond_ty == .vec4b) try body.simd(SIMD_V128_BITSELECT) else try body.byte(0x1b);
             },
+            .unpack4xU8 => try emitUnpack4xU8(),
+            .pack4xU8 => try emitPack4xU8(),
             .sqrt => try emitFloatOp(node.ty, 0x91, SIMD_F32X4_SQRT),
             .floor => try emitFloatOp(node.ty, 0x8e, SIMD_F32X4_FLOOR),
             .ceil => try emitFloatOp(node.ty, 0x8d, SIMD_F32X4_CEIL),
@@ -3902,19 +4651,26 @@ fn emitNode(node: Node) CompileError!void {
             },
             .to_f32, .to_i32, .to_u32, .to_bool => try emitConvert(node.opnd_ty, node.ty),
             .vec2f, .vec3f, .vec4f => if (node.argc > 1) try emitVecConstruct(node) else if (isIVec(node.opnd_ty)) {
-                try body.simd(SIMD_F32X4_CONVERT_I32X4_S + @intFromBool(node.opnd_ty == .vec2u));
+                try body.simd(SIMD_F32X4_CONVERT_I32X4_S + @intFromBool(node.opnd_ty != .vec2i));
             } else if (!isVec(node.opnd_ty)) {
                 try body.simd(SIMD_F32X4_SPLAT);
             },
-            .vec2i, .vec2u => if (node.argc > 1) {
-                const t = try allocLocal(.i32);
-                try body.localSet(t);
+            .vec2i, .vec2u, .vec4u => if (node.argc > 1) {
+                var temps: [4]u32 = undefined;
+                var lane: usize = node.argc;
+                while (lane > 1) {
+                    lane -= 1;
+                    temps[lane] = try allocLocal(.i32);
+                    try body.localSet(temps[lane]);
+                }
                 try body.simd(SIMD_I32X4_SPLAT);
-                try body.localGet(t);
-                try body.simdLane(SIMD_I32X4_REPLACE_LANE, 1);
-            } else if (node.opnd_ty == .vec2f) {
+                for (1..node.argc) |l| {
+                    try body.localGet(temps[l]);
+                    try body.simdLane(SIMD_I32X4_REPLACE_LANE, @intCast(l));
+                }
+            } else if (node.opnd_ty == .vec2f or node.opnd_ty == .vec4f) {
                 // Saturating, as WGSL's float-to-integer conversion.
-                try body.simd(SIMD_I32X4_TRUNC_SAT_F32X4_S + @intFromBool(node.ty == .vec2u));
+                try body.simd(SIMD_I32X4_TRUNC_SAT_F32X4_S + @intFromBool(node.ty != .vec2i));
             } else if (!isIVec(node.opnd_ty)) {
                 try body.simd(SIMD_I32X4_SPLAT);
             },
@@ -4077,7 +4833,9 @@ fn parseLocalAssignment(local: Local) CompileError!void {
             rememberLiteral(.{ .ty = local.ty, .int_value = 1 });
         } else {
             const rhs_want: Ty = if (op == .shl or op == .shr) .u32 else local.ty;
-            _ = try compileExpr(rhs_want);
+            const rhs = try parseExpr();
+            if (op == .shl or op == .shr) try checkShiftCount(rhs, op_tok.start);
+            _ = try emitExpr(rhs, rhs_want);
         }
         const ok = switch (op) {
             .amp, .pipe, .caret => isInt(local.ty) or (local.ty == .bool and op != .caret),
@@ -4510,7 +5268,7 @@ fn parseArrayType(len: *?u32) CompileError!Ty {
     _ = try expect(.lt);
     const elem_at = peek().start;
     const elem = try parseType();
-    if (elem == .bool or isIVec(elem)) return fail(elem_at, .unsupported);
+    if (elem == .bool or elem == .vec4b or isIVec(elem)) return fail(elem_at, .unsupported);
     _ = try expect(.comma);
     const n = try expect(.int_lit);
     const lit = try intLiteral(n);
@@ -4667,7 +5425,7 @@ fn parseBufferVar() CompileError!void {
     const elem_at = peek().start;
     const elem = try parseType();
     if (elem == .bool) return fail(elem_at, .type_mismatch);
-    if (elem == .vec2f or elem == .vec3f or isIVec(elem)) return fail(elem_at, .unsupported);
+    if (elem == .vec2f or elem == .vec3f or elem == .vec4b or isIVec(elem)) return fail(elem_at, .unsupported);
     if (peek().kind == .comma) return fail(peek().start, .unsupported); // fixed-size array
     _ = try expect(.gt);
     _ = try expect(.semicolon);
@@ -4950,7 +5708,12 @@ fn emitRender(w: *Buf) CompileError!void {
     try w.byte(0x76); // i32.shr_u
     try w.byte(0x24);
     try w.uleb(GLOBAL_COUNT);
-    if (input_buffer.declared) {
+    if (byte_kernel) {
+        // The byte path stores every element, so it needs no zero fill.
+        try w.i32Const(0);
+        try w.byte(0x10);
+        try w.uleb(FN_MAIN);
+    } else if (input_buffer.declared) {
         try w.i32Const(@bitCast(RUN_OUTPUT_PTR));
         try w.i32Const(0);
         try w.localGet(0);
@@ -4958,19 +5721,21 @@ fn emitRender(w: *Buf) CompileError!void {
     }
     // for (i = 0; i < count; i += vectorized ? 4 : 1) main(i)
     // The input cap keeps either counter far below unsigned overflow.
-    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
-    try w.localGet(1);
-    try w.byte(0x23);
-    try w.uleb(GLOBAL_COUNT);
-    try w.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
-    try w.localGet(1);
-    try w.byte(0x10);
-    try w.uleb(FN_MAIN);
-    try w.localGet(1);
-    try w.i32Const(if (vectorized) 4 else 1);
-    try w.byte(0x6a);
-    try w.localSet(1);
-    try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    if (!byte_kernel) {
+        try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+        try w.localGet(1);
+        try w.byte(0x23);
+        try w.uleb(GLOBAL_COUNT);
+        try w.raw(&.{ 0x4f, 0x0d, 0x01 }); // i32.ge_u br_if 1
+        try w.localGet(1);
+        try w.byte(0x10);
+        try w.uleb(FN_MAIN);
+        try w.localGet(1);
+        try w.i32Const(if (vectorized) 4 else 1);
+        try w.byte(0x6a);
+        try w.localSet(1);
+        try w.raw(&.{ 0x0c, 0x00, 0x0b, 0x0b }); // br 0 end end
+    }
     try w.localGet(0);
     try w.byte(0xad); // i64.extend_i32_u
     try w.byte(0x42);
@@ -5951,6 +6716,7 @@ fn compile(source: []const u8) CompileError!usize {
     ir_stmt_len = 0;
     ir_complete = vectorize_invocations != 0;
     vectorized = false;
+    byte_kernel = false;
     scalar_code.len = 0;
     try lex();
     stage_module = false;
@@ -5973,13 +6739,17 @@ fn compile(source: []const u8) CompileError!usize {
         return emitModule();
     }
     if (!have_entry or !output_buffer.declared) return fail(@intCast(source.len), .unsupported);
-    if (ir_complete and input_buffer.declared and invocationIndependent()) {
-        // Keep the validated scalar function only for safe compilation fallback.
-        emitFunction(&scalar_code) catch {
-            scalar_code.len = 0;
-            return emitModule();
-        };
-        vectorized = emitInvocationBatch() catch false;
+    if (ir_complete and input_buffer.declared) {
+        const bytes = byteKernelEligible();
+        if (bytes or invocationIndependent()) {
+            // Keep the validated scalar function only for safe compilation fallback.
+            emitFunction(&scalar_code) catch {
+                scalar_code.len = 0;
+                return emitModule();
+            };
+            vectorized = (if (bytes) emitByteBatch() else emitInvocationBatch()) catch false;
+            byte_kernel = bytes and vectorized;
+        }
     }
     return emitModule();
 }
@@ -6136,6 +6906,53 @@ test "compiles swizzles, vec2f and vec3f, dot and mix" {
     const module = output_buf[0..size];
     // i8x16.shuffle for c.bgr: lanes 2, 1, 0 then lane 0 as filler.
     try testing.expect(std.mem.indexOf(u8, module, &.{ 0xfd, 0x0d, 8, 9, 10, 11, 4, 5, 6, 7, 0, 1, 2, 3, 0, 1, 2, 3 }) != null);
+}
+
+test "rejects vec4u features outside the subset" {
+    const head =
+        \\@group(0) @binding(0) var<storage, read_write> v: array<u32>;
+        \\@compute @workgroup_size(1) fn main() { let b = unpack4xU8(v[0]);
+    ;
+    const divide = head ++ " let a = b / vec4u(2u); }";
+    try expectRejected(divide, std.mem.indexOf(u8, divide, "/").?, .unsupported);
+    // WGSL splats a scalar only for arithmetic, not for bitwise operators,
+    // shifts or comparisons.
+    const scalar_and = head ++ " let a = b & 1u; }";
+    try expectRejected(scalar_and, std.mem.indexOf(u8, scalar_and, "&").?, .type_mismatch);
+    const scalar_compare = head ++ " let a = b < 13u; }";
+    try expectRejected(scalar_compare, std.mem.indexOf(u8, scalar_compare, "< 13u").?, .type_mismatch);
+    const three = head ++ " let a = b.xyz; }";
+    try expectRejected(three, std.mem.indexOf(u8, three, "xyz").?, .unsupported);
+    const mask_math = head ++ " let a = (b < b) + (b < b); }";
+    try expectRejected(mask_math, std.mem.indexOf(u8, mask_math, "+").?, .type_mismatch);
+    const pack_scalar = head ++ " let a = pack4xU8(1u); }";
+    try expectRejected(pack_scalar, std.mem.indexOf(u8, pack_scalar, "pack4xU8(1").?, .type_mismatch);
+    const buffer = "@group(0) @binding(0) var<storage, read_write> v: array<vec4u>;";
+    try expectRejected(buffer, std.mem.indexOf(u8, buffer, "vec4u").?, .unsupported);
+}
+
+test "vectorizes byte shaders as i8x16 only when every stored byte agrees" {
+    const rot13 =
+        \\@group(0) @binding(0) var<storage, read> src: array<u32>;
+        \\@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+        \\@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) id: vec3u) {
+        \\  if (id.x >= arrayLength(&src)) { return; }
+        \\  let b = unpack4xU8(src[id.x]);
+        \\  let k = (b | vec4u(32u)) - vec4u(97u);
+        \\  dst[id.x] = pack4xU8(b + select(vec4u(0u), select(vec4u(243u), vec4u(13u), k < vec4u(13u)), k < vec4u(26u)));
+        \\}
+    ;
+    vectorize_invocations = 1;
+    var size = try compile(rot13);
+    try testing.expect(byte_kernel);
+    try testing.expect(std.mem.indexOf(u8, output_buf[0..size], "qip.vectorize_invocations") != null);
+    // A u32 shift by 8 clears the byte; an i8x16 shift counts modulo 8.
+    const shift = std.mem.replaceOwned(u8, testing.allocator, rot13, "b + select", "(b >> vec4u(8u)) + select") catch unreachable;
+    defer testing.allocator.free(shift);
+    vectorize_invocations = 1;
+    size = try compile(shift);
+    try testing.expect(!byte_kernel and !vectorized);
+    vectorize_invocations = 0;
 }
 
 test "rejects vec4f features outside the subset" {

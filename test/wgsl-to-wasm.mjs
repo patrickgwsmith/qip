@@ -830,6 +830,40 @@ test("compiler rejects unsupported WGSL with offset and mode", async () => {
   }
 });
 
+test("compiler rejects constant shift counts of 32 or more, like WGSL", async () => {
+  const shader = (body) => `@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(1) fn main(@builtin(global_invocation_id) id: vec3u) {
+  const big = 33u;
+  let w = src[id.x];
+  let v = unpack4xU8(w);
+  var x = w;
+  ${body}
+  dst[id.x] = x ^ pack4xU8(v);
+}
+`;
+  for (const [body, at] of [
+    ["x = w << 32u;", "<<"],
+    ["x = w >> 40;", ">>"],
+    ["x = w << big;", "<<"],
+    ["x = w >> (16u + 16u);", ">>"],
+    ["x <<= 32u;", "<<="],
+    ["x = pack4xU8(v << vec4u(32u));", "<<"],
+    ["x = pack4xU8(v >> vec4u(1u, 2u, 3u, 32u));", ">>"],
+  ]) {
+    const source = shader(body);
+    await assert.rejects(
+      compile(source),
+      new RegExp(`rejected input at input offset ${source.indexOf(at, source.indexOf(body))} with mode 2\\b`),
+      body,
+    );
+  }
+  // 31 is the largest valid constant count; runtime counts wrap modulo 32.
+  for (const body of ["x = w << 31u;", "x >>= 31u;", "x = w << (w + 32u);", "x = pack4xU8(v >> vec4u(31u, 0u, 1u, 2u));", "x = pack4xU8(v << (v + vec4u(32u)));"]) {
+    await compile(shader(body));
+  }
+});
+
 test("smoothstep rejects equal constant edges", async () => {
   const source = `fn k(c: vec4f) -> vec4f { return vec4f(smoothstep(0.0, 0.0, c.x)); }`;
   await assert.rejects(
@@ -996,6 +1030,117 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     variants.compare(f32Bytes(Array.from({ length: count * 4 }, (_, i) => ((i * 73 + 31) % 257) / 256)));
   }
   await execFileAsync(qip, ["run", "-i", variants.paths[1], "--", ...strictCheckers]);
+});
+
+// ROT13 with one byte per vec4u lane. k wraps below 'a', so k < 26 selects
+// letters only, in u32 and in u8 arithmetic alike.
+const rot13Shader = `
+@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let i = id.x;
+  if (i < arrayLength(&src)) {
+    let b = unpack4xU8(src[i]);
+    let k = (b | vec4u(32u)) - vec4u(97u);
+    let d = select(vec4u(0u), select(vec4u(243u), vec4u(13u), k < vec4u(13u)), k < vec4u(26u));
+    dst[i] = pack4xU8(b + d);
+  }
+}`;
+
+function rot13(bytes) {
+  return Buffer.from(bytes.map((c) => c >= 65 && c <= 90 ? 65 + (c - 52) % 26 : c >= 97 && c <= 122 ? 97 + (c - 84) % 26 : c));
+}
+
+test("vec4u supports byte unpacking, bitwise operators, shifts, comparisons and select", async () => {
+  const module = await compile(`
+@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let w = src[id.x];
+  let v = unpack4xU8(w);
+  // Runtime shift amounts wrap modulo 32; WGSL rejects constant ones past 31.
+  let s = (v & vec4u(7u)) + vec4<u32>(0u, 1u, 7u, 30u);
+  var r: vec4u;
+  if (id.x % 4u == 0u) {
+    r = ((v << s) ^ (v >> vec4u(3u))) | (~v & vec4u(0x10u));
+  } else if (id.x % 4u == 1u) {
+    let m: vec4<bool> = (v < vec4u(64u)) & !(v == vec4u(7u));
+    r = select(v * 3u, 200u - v, m | (v >= vec4u(250u)));
+  } else if (id.x % 4u == 2u) {
+    r = clamp(min(v, vec4u(180u)), vec4u(20u), vec4u(120u)) + max(v.wzyx, vec4u(v.x)) - vec4u(vec4f(v) * 0.5);
+  } else {
+    r = select(v, v.yxwz, v.x > v.y);
+  }
+  dst[id.x] = pack4xU8(r) ^ (u32(r.w > 255u) << 31u);
+}`);
+  const input = Buffer.alloc(4096);
+  for (let i = 0; i < input.length; i++) input[i] = (i * 151 + 7 * (i >> 8)) & 255;
+  input.writeUInt32LE(0x00ff07ff, 0);
+  const output = await run(module, input);
+  const u = (x) => x >>> 0;
+  const shift = [0, 1, 7, 30];
+  for (let e = 0; e < input.length / 4; e++) {
+    const v = [...input.subarray(4 * e, 4 * e + 4)];
+    let r;
+    if (e % 4 === 0) r = v.map((x, c) => u(u(u(x << (((x & 7) + shift[c]) & 31)) ^ (x >>> 3)) | (u(~x) & 0x10)));
+    else if (e % 4 === 1) r = v.map((x) => (x < 64 && x !== 7) || x >= 250 ? u(200 - x) : 3 * x);
+    else if (e % 4 === 2) {
+      const w = [v[3], v[2], v[1], v[0]];
+      r = v.map((x, c) => u(Math.max(20, Math.min(120, Math.min(x, 180))) + Math.max(w[c], v[0]) - Math.trunc(x * 0.5)));
+    } else r = v[0] > v[1] ? [v[1], v[0], v[3], v[2]] : v;
+    const want = u(r.reduce((acc, x, c) => acc | ((x & 255) << (8 * c)), 0) ^ (r[3] > 255 ? 0x80000000 : 0));
+    assert.equal(output.readUInt32LE(4 * e), want, `element ${e}: ${v}`);
+  }
+  await execFileAsync(qip, ["run", "-i", module, "--", ...strictCheckers]);
+});
+
+test("byte shaders vectorize as i8x16 and store only existing elements", async () => {
+  const variants = await invocationVariants(rot13Shader);
+  const all = Buffer.from(Array.from({ length: 1024 }, (_, i) => i & 255));
+  for (const length of [0, 4, 8, 12, 16, 20, 1020, 1024]) {
+    const input = all.subarray(0, length);
+    variants.compare(input);
+    assert.deepEqual(await run(variants.paths[1], input), rot13(input));
+  }
+  // Full capacity, then every partial batch on the same instance.
+  const e = variants.instances[1];
+  const outputPtr = Number(BigInt.asUintN(64, e.render(0)) >> 32n);
+  const cap = e.input_bytes_cap() / 4;
+  for (const count of [cap, cap - 1, cap - 2, cap - 3, 9, 7, 6, 5, 3, 2, 1, 0]) {
+    const length = count * 4;
+    const canary = new Uint8Array(e.memory.buffer, outputPtr + length,
+      Math.min(64, e.memory.buffer.byteLength - outputPtr - length));
+    canary.fill(0xa5);
+    variants.compare(Buffer.alloc(length, 0x61));
+    assert.ok(canary.every((byte) => byte === 0xa5), `${count} elements`);
+  }
+  variants.compare(Buffer.from([1, 2, 3]));
+  await execFileAsync(qip, ["run", "-i", variants.paths[1], "--", ...strictCheckers]);
+});
+
+test("byte vectorization falls back when u8 arithmetic would change a stored byte", async () => {
+  const shader = (body) => `
+@group(0) @binding(0) var<storage, read> src: array<u32>;
+@group(0) @binding(1) var<storage, read_write> dst: array<u32>;
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let b = unpack4xU8(src[id.x]);
+  dst[id.x] = pack4xU8(${body});
+}`;
+  const input = Buffer.from(Array.from({ length: 1024 }, (_, i) => (i * 97 + 13) & 255));
+  // A shift by 8 clears a u32 lane but is a shift by 0 in an i8x16; a byte
+  // below 200 wraps differently in u32 and u8 before the comparison.
+  for (const body of ["b >> vec4u(8u)", "select(b, vec4u(1u), b - vec4u(200u) < vec4u(100u))"]) {
+    const variants = await invocationVariants(shader(body), false);
+    variants.compare(input);
+  }
+  // The same shapes vectorize when every byte agrees.
+  for (const body of ["b >> vec4u(3u)", "select(b, vec4u(1u), b - vec4u(200u) < vec4u(50u))", "max(b, vec4u(9u)) ^ vec4u(1u, 2u, 3u, 4u)"]) {
+    const variants = await invocationVariants(shader(body));
+    variants.compare(input);
+  }
 });
 
 test("invocation vectorization keeps unsigned constant division exact over u32", async () => {

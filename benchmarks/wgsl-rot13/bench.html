@@ -1,0 +1,25 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>WGSL ROT13 benchmark</title>
+<!-- Run `python3 benchmarks/wgsl-rot13/serve.py 4277` from the repository root, then open
+     http://127.0.0.1:4277/benchmarks/wgsl-rot13/bench.html?runs=30 in a browser with WebGPU. -->
+<pre id="out">running…</pre>
+<script type="module">
+  import { runBenchmark } from "./bench-core.mjs";
+  const out = document.getElementById("out");
+  const lines = [];
+  const runs = Number(new URLSearchParams(location.search).get("runs") ?? 30);
+  try {
+    await runBenchmark({
+      read: async (p) => new Uint8Array(await (await fetch(`/${p}`)).arrayBuffer()),
+      log: (line) => { lines.push(line); out.textContent = lines.join("\n"); },
+      runs,
+      runtime: `${navigator.userAgent}; crossOriginIsolated: ${crossOriginIsolated}`,
+    });
+    lines.push("DONE");
+  } catch (e) {
+    lines.push(`ERROR: ${e.stack ?? e}`);
+  }
+  out.textContent = lines.join("\n");
+  window.benchDone = true;
+</script>
