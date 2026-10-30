@@ -1,0 +1,137 @@
+=== INPUT ===
+<pre><code class="language-wgsl">@group(0) @binding(0) var src: texture_2d&lt;f32&gt;;
+@group(0) @binding(1) var&lt;storage, read_write&gt; out: array&lt;u32&gt;;
+
+@compute @workgroup_size(8, 8)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  let size = textureDimensions(src);
+  if (any(id.xy &gt;= size)) {
+    return;
+  }
+  let c = textureLoad(src, vec2i(id.xy), 0);
+  out[id.y * size.x + id.x] = pack4x8unorm(c);
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-meta">@group</span>(<span class="hljs-number">0</span>) <span class="hljs-meta">@binding</span>(<span class="hljs-number">0</span>) <span class="hljs-keyword">var</span> src: <span class="hljs-type">texture_2d</span>&lt;<span class="hljs-type">f32</span>&gt;;
+<span class="hljs-meta">@group</span>(<span class="hljs-number">0</span>) <span class="hljs-meta">@binding</span>(<span class="hljs-number">1</span>) <span class="hljs-keyword">var</span>&lt;<span class="hljs-keyword">storage</span>, <span class="hljs-keyword">read_write</span>&gt; out: <span class="hljs-type">array</span>&lt;<span class="hljs-type">u32</span>&gt;;
+
+<span class="hljs-meta">@compute</span> <span class="hljs-meta">@workgroup_size</span>(<span class="hljs-number">8</span>, <span class="hljs-number">8</span>)
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>(<span class="hljs-meta">@builtin</span>(global_invocation_id) id: <span class="hljs-type">vec3u</span>) {
+  <span class="hljs-keyword">let</span> size = <span class="hljs-built_in">textureDimensions</span>(src);
+  <span class="hljs-keyword">if</span> (<span class="hljs-built_in">any</span>(id.xy &gt;= size)) {
+    <span class="hljs-keyword">return</span>;
+  }
+  <span class="hljs-keyword">let</span> c = <span class="hljs-built_in">textureLoad</span>(src, <span class="hljs-type">vec2i</span>(id.xy), <span class="hljs-number">0</span>);
+  out[id.y * size.x + id.x] = <span class="hljs-built_in">pack4x8unorm</span>(c);
+}</code></pre>
+=== END ===
+
+=== INPUT ===
+<pre><code class="language-wgsl">struct VertexOut {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+}
+
+@vertex
+fn vs(@builtin(vertex_index) i: u32) -&gt; VertexOut {
+  var corners = array&lt;vec2f, 3&gt;(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
+  var out: VertexOut;
+  out.position = vec4f(corners[i], 0.0, 1.0);
+  out.uv = corners[i] * 0.5 + 0.5;
+  return out;
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-keyword">struct</span> <span class="hljs-title class_">VertexOut</span> {
+  <span class="hljs-meta">@builtin</span>(position) position: <span class="hljs-type">vec4f</span>,
+  <span class="hljs-meta">@location</span>(<span class="hljs-number">0</span>) uv: <span class="hljs-type">vec2f</span>,
+}
+
+<span class="hljs-meta">@vertex</span>
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">vs</span>(<span class="hljs-meta">@builtin</span>(vertex_index) i: <span class="hljs-type">u32</span>) <span class="hljs-punctuation">-&gt;</span> VertexOut {
+  <span class="hljs-keyword">var</span> corners = <span class="hljs-type">array</span>&lt;<span class="hljs-type">vec2f</span>, <span class="hljs-number">3</span>&gt;(<span class="hljs-type">vec2f</span>(-<span class="hljs-number">1.0</span>, -<span class="hljs-number">1.0</span>), <span class="hljs-type">vec2f</span>(<span class="hljs-number">3.0</span>, -<span class="hljs-number">1.0</span>), <span class="hljs-type">vec2f</span>(-<span class="hljs-number">1.0</span>, <span class="hljs-number">3.0</span>));
+  <span class="hljs-keyword">var</span> out: VertexOut;
+  out.position = <span class="hljs-type">vec4f</span>(corners[i], <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>);
+  out.uv = corners[i] * <span class="hljs-number">0.5</span> + <span class="hljs-number">0.5</span>;
+  <span class="hljs-keyword">return</span> out;
+}</code></pre>
+=== END ===
+
+=== INPUT ===
+<pre><code class="language-wgsl">const pi = 3.14159265;
+const half = .5f;
+const tiny = 1e-6;
+const big = 0x7fffffffu;
+const hex_float = 0x1.8p3f;
+const neg = -2i + 4u + 1.0h;</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-keyword">const</span> pi = <span class="hljs-number">3.14159265</span>;
+<span class="hljs-keyword">const</span> half = <span class="hljs-number">.5f</span>;
+<span class="hljs-keyword">const</span> tiny = <span class="hljs-number">1e-6</span>;
+<span class="hljs-keyword">const</span> big = <span class="hljs-number">0x7fffffffu</span>;
+<span class="hljs-keyword">const</span> hex_float = <span class="hljs-number">0x1.8p3f</span>;
+<span class="hljs-keyword">const</span> neg = -<span class="hljs-number">2i</span> + <span class="hljs-number">4u</span> + <span class="hljs-number">1.0h</span>;</code></pre>
+=== END ===
+
+=== INPUT ===
+<pre><code class="language-wgsl">// TODO: share with the vertex shader.
+/* Block comments /* nest */ in WGSL.
+   NOTE: so this is still a comment. */
+fn luma(c: vec3f) -&gt; f32 {
+  return dot(c, vec3f(0.2126, 0.7152, 0.0722)); // Rec. 709
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-comment">// <span class="hljs-doctag">TODO:</span> share with the vertex shader.</span>
+<span class="hljs-comment">/* Block comments <span class="hljs-comment">/* nest */</span> in WGSL.
+   <span class="hljs-doctag">NOTE:</span> so this is still a comment. */</span>
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">luma</span>(c: <span class="hljs-type">vec3f</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">f32</span> {
+  <span class="hljs-keyword">return</span> <span class="hljs-built_in">dot</span>(c, <span class="hljs-type">vec3f</span>(<span class="hljs-number">0.2126</span>, <span class="hljs-number">0.7152</span>, <span class="hljs-number">0.0722</span>)); <span class="hljs-comment">// Rec. 709</span>
+}</code></pre>
+=== END ===
+
+=== INPUT ===
+<pre><code class="language-wgsl">alias Color = vec4&lt;f32&gt;;
+override strength: f32 = 1.0;
+const_assert 2 &lt; 3;
+
+fn shade(c: Color, t: f32) -&gt; Color {
+  let k = smoothstep(0.0, 1.0, clamp(t, 0.0, 1.0)) * strength;
+  return select(c, mix(c, vec4f(1.0), k), t &gt; 0.5 &amp;&amp; t &lt;= 1.0);
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-keyword">alias</span> <span class="hljs-title class_">Color</span> = <span class="hljs-type">vec4</span>&lt;<span class="hljs-type">f32</span>&gt;;
+<span class="hljs-keyword">override</span> strength: <span class="hljs-type">f32</span> = <span class="hljs-number">1.0</span>;
+<span class="hljs-keyword">const_assert</span> <span class="hljs-number">2</span> &lt; <span class="hljs-number">3</span>;
+
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">shade</span>(c: Color, t: <span class="hljs-type">f32</span>) <span class="hljs-punctuation">-&gt;</span> Color {
+  <span class="hljs-keyword">let</span> k = <span class="hljs-built_in">smoothstep</span>(<span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>, <span class="hljs-built_in">clamp</span>(t, <span class="hljs-number">0.0</span>, <span class="hljs-number">1.0</span>)) * strength;
+  <span class="hljs-keyword">return</span> <span class="hljs-built_in">select</span>(c, <span class="hljs-built_in">mix</span>(c, <span class="hljs-type">vec4f</span>(<span class="hljs-number">1.0</span>), k), t &gt; <span class="hljs-number">0.5</span> &amp;&amp; t &lt;= <span class="hljs-number">1.0</span>);
+}</code></pre>
+=== END ===
+
+=== INPUT ===
+<pre><code class="language-wgsl">@fragment
+fn main(@builtin(position) pos: vec4f) -&gt; @location(0) vec4f {
+  var total = vec3f(0.0);
+  for (var i = 0; i &lt; 4; i++) {
+    total += sampleAt(pos.xy + vec2f(f32(i), 0.0)).rgb;
+  }
+  loop {
+    if true { break; }
+    continuing { }
+  }
+  return vec4f(total / 4.0, 1.0);
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-wgsl hljs"><span class="hljs-meta">@fragment</span>
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>(<span class="hljs-meta">@builtin</span>(position) pos: <span class="hljs-type">vec4f</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-meta">@location</span>(<span class="hljs-number">0</span>) <span class="hljs-type">vec4f</span> {
+  <span class="hljs-keyword">var</span> total = <span class="hljs-type">vec3f</span>(<span class="hljs-number">0.0</span>);
+  <span class="hljs-keyword">for</span> (<span class="hljs-keyword">var</span> i = <span class="hljs-number">0</span>; i &lt; <span class="hljs-number">4</span>; i++) {
+    total += <span class="hljs-title function_ invoke__">sampleAt</span>(pos.xy + <span class="hljs-type">vec2f</span>(<span class="hljs-type">f32</span>(i), <span class="hljs-number">0.0</span>)).rgb;
+  }
+  <span class="hljs-keyword">loop</span> {
+    <span class="hljs-keyword">if</span> <span class="hljs-literal">true</span> { <span class="hljs-keyword">break</span>; }
+    <span class="hljs-keyword">continuing</span> { }
+  }
+  <span class="hljs-keyword">return</span> <span class="hljs-type">vec4f</span>(total / <span class="hljs-number">4.0</span>, <span class="hljs-number">1.0</span>);
+}</code></pre>
+=== END ===

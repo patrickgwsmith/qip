@@ -67,6 +67,8 @@ details.raw-html textarea {
       <option value="html">HTML / XML</option>
       <option value="css">CSS</option>
       <option value="go">Go</option>
+      <option value="rust">Rust</option>
+      <option value="wgsl">WGSL</option>
       <option value="swift">Swift</option>
       <option value="ruby">Ruby</option>
       <option value="zig">Zig</option>
@@ -111,6 +113,8 @@ const languageClasses = {
   html: "language-html",
   css: "language-css",
   go: "language-go",
+  rust: "language-rust",
+  wgsl: "language-wgsl",
   swift: "language-swift",
   ruby: "language-ruby",
   wasm: "language-wat",
@@ -123,6 +127,8 @@ const samples = {
   html: '<!-- Highlighted locally, in ~16 KB of wasm. -->\n<nav aria-label="Main">\n  <a href="/">Home</a>\n  <a href="/tools">Tools</a>\n</nav>',
   css: '/* Highlighted locally, in ~7 KB of wasm. */\n.card:hover {\n  color: #c792ea;\n  transform: translateY(-0.125rem);\n}',
   go: 'package main\n\nimport "fmt"\n\ntype Size struct {\n\tBytes int\n}\n\nfunc (s Size) Label() string {\n\treturn fmt.Sprintf("Size: %d bytes", s.Bytes)\n}',
+  rust: '// Highlighted locally, in ~14 KB of wasm.\n#[derive(Debug)]\nstruct Size {\n    bytes: usize,\n}\n\nfn label(size: &Size) -> String {\n    format!("Size: {} bytes", size.bytes)\n}',
+  wgsl: '// Highlighted locally, in ~13 KB of wasm.\n@group(0) @binding(0) var src: texture_2d<f32>;\n\n@fragment\nfn main(@builtin(position) pos: vec4f) -> @location(0) vec4f {\n  let c = textureLoad(src, vec2i(pos.xy), 0);\n  return vec4f(1.0 - c.rgb, c.a);\n}',
   swift: 'import Foundation\n\nstruct Size {\n  let bytes: Int\n}\n\nfunc label(_ size: Size) -> String {\n  "Size: \\(size.bytes) bytes"\n}',
   ruby: 'class Size\n  attr_reader :bytes\n\n  def initialize(bytes:)\n    @bytes = bytes\n  end\n\n  def label\n    "Size: #{@bytes} bytes"\n  end\nend',
   wasm: '(module\n  ;; Highlighted locally, in ~8 KB of wasm.\n  (func (export "double") (param i32) (result i32)\n    (i32.mul (local.get 0) (i32.const 2))))',
@@ -230,7 +236,9 @@ contextual parser rather than a compiler front end: malformed code is preserved
 as escaped text, and it does not try to validate types or resolve names.
 
 Each language also has a comply component containing source snippets paired
-with the HTML produced by Highlight.js. The highlighter and its executable
+with the HTML produced by Highlight.js. Highlight.js has no WGSL grammar, so
+WGSL's expected HTML comes from a small Highlight.js grammar of our own, in
+`tools/gen-syntax-highlight-wgsl-fixtures.mjs`. The highlighter and its executable
 expectations are built separately and then compared byte for byte. Adding a
 special case to the parser therefore requires adding the corresponding output
 to the other side of the ledger.
@@ -300,6 +308,8 @@ self-contained.
 - <a href="/text/html/html-code-syntax-highlight-html.wasm" download>html-code-syntax-highlight-html.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-html.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-css.wasm" download>html-code-syntax-highlight-css.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-css.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-go.wasm" download>html-code-syntax-highlight-go.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-go.wasm"></qip-content-size>
+- <a href="/text/html/html-code-syntax-highlight-rust.wasm" download>html-code-syntax-highlight-rust.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-rust.wasm"></qip-content-size>
+- <a href="/text/html/html-code-syntax-highlight-wgsl.wasm" download>html-code-syntax-highlight-wgsl.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-wgsl.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-swift.wasm" download>html-code-syntax-highlight-swift.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-swift.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-ruby.wasm" download>html-code-syntax-highlight-ruby.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-ruby.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-wasm.wasm" download>html-code-syntax-highlight-wasm.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-wasm.wasm"></qip-content-size>
@@ -315,6 +325,8 @@ everything else untouched, so they chain safely.
 ```bash
 qip run text/html/html-code-syntax-highlight-zig.wasm \
   text/html/html-code-syntax-highlight-go.wasm \
+  text/html/html-code-syntax-highlight-rust.wasm \
+  text/html/html-code-syntax-highlight-wgsl.wasm \
   text/html/html-code-syntax-highlight-swift.wasm \
   text/html/html-code-syntax-highlight-ruby.wasm \
   text/html/html-code-syntax-highlight-css.wasm \

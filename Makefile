@@ -148,7 +148,7 @@ compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm: compliance/jpeg-to-bmp-b8g8r8a
 compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm: compliance/bmp-b8g8r8a8-icc-to-srgb.comply.zig $(wildcard compliance/bmp-b8g8r8a8-icc-to-srgb-fixtures/*)
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-SYNTAX_HIGHLIGHT_COMPLY_TARGETS := compliance/syntax-highlight-javascript.comply.wasm compliance/syntax-highlight-javascript-semantic.comply.wasm compliance/syntax-highlight-html.comply.wasm compliance/syntax-highlight-css.comply.wasm compliance/syntax-highlight-python.comply.wasm compliance/syntax-highlight-java.comply.wasm compliance/syntax-highlight-csharp.comply.wasm compliance/syntax-highlight-swift.comply.wasm compliance/syntax-highlight-ruby.comply.wasm compliance/syntax-highlight-go.comply.wasm compliance/syntax-highlight-c.comply.wasm compliance/syntax-highlight-bash.comply.wasm compliance/syntax-highlight-wasm.comply.wasm compliance/syntax-highlight-zig.comply.wasm
+SYNTAX_HIGHLIGHT_COMPLY_TARGETS := compliance/syntax-highlight-javascript.comply.wasm compliance/syntax-highlight-javascript-semantic.comply.wasm compliance/syntax-highlight-html.comply.wasm compliance/syntax-highlight-css.comply.wasm compliance/syntax-highlight-python.comply.wasm compliance/syntax-highlight-java.comply.wasm compliance/syntax-highlight-csharp.comply.wasm compliance/syntax-highlight-swift.comply.wasm compliance/syntax-highlight-ruby.comply.wasm compliance/syntax-highlight-go.comply.wasm compliance/syntax-highlight-rust.comply.wasm compliance/syntax-highlight-wgsl.comply.wasm compliance/syntax-highlight-c.comply.wasm compliance/syntax-highlight-bash.comply.wasm compliance/syntax-highlight-wasm.comply.wasm compliance/syntax-highlight-zig.comply.wasm
 
 compliance/syntax-highlight-%.comply.wasm: compliance/syntax-highlight-%.comply.zig compliance/syntax-highlight-%.fixtures.txt compliance/lib/syntax-highlight-comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
@@ -587,6 +587,12 @@ text/x-c/c-to-ktx2-r8g8b8a8-srgb.wasm: text/x-c/c-to-bmp.c text/lib/raster-outpu
 recipes/text/markdown/80-html-page-wrap.wasm: recipes/text/markdown/styles.css recipes/text/markdown/header.html recipes/text/markdown/footer.html
 
 text/html/html-add-highlight-stylesheet-night-owl.wasm: text/html/highlight-night-owl.css
+
+recipes/text/markdown/15-html-code-syntax-highlight-wgsl.wasm: text/html/html-code-syntax-highlight-wgsl.wasm
+	cp $< $@
+
+recipes/text/markdown/16-html-code-syntax-highlight-rust.wasm: text/html/html-code-syntax-highlight-rust.wasm
+	cp $< $@
 
 recipes/text/markdown/17-html-code-syntax-highlight-go.wasm: text/html/html-code-syntax-highlight-go.wasm
 	cp $< $@
@@ -1206,6 +1212,8 @@ recipes: $(patsubst recipes/application/warc/%.zig,recipes/application/warc/%.wa
 recipes: recipes/application/warc/05-text-uri-list-to-redirect.wasm
 recipes: recipes/application/warc/10-add-open-graph-image-inter-png.wasm
 recipes: recipes/application/warc/99-add-custom-element-scripts.wasm
+recipes: recipes/text/markdown/15-html-code-syntax-highlight-wgsl.wasm
+recipes: recipes/text/markdown/16-html-code-syntax-highlight-rust.wasm
 recipes: recipes/text/markdown/17-html-code-syntax-highlight-go.wasm
 recipes: recipes/text/markdown/18-html-code-syntax-highlight-ruby.wasm
 recipes: recipes/text/markdown/19-html-code-syntax-highlight-swift.wasm
@@ -1479,6 +1487,8 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-swift.wasm --with compliance/syntax-highlight-swift.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-ruby.wasm --with compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-go.wasm --with compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-rust.wasm --with compliance/syntax-highlight-rust.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wgsl.wasm --with compliance/syntax-highlight-wgsl.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-c.wasm --with compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --with compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --with compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles

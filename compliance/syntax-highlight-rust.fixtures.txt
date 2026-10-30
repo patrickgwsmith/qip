@@ -1,0 +1,134 @@
+=== INPUT ===
+<pre><code class="language-rust">use std::collections::HashMap;
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Size {
+    bytes: usize,
+}
+
+impl Size {
+    pub fn label(&amp;self) -&gt; String {
+        format!(&quot;Size: {} bytes&quot;, self.bytes)
+    }
+}
+
+fn main() {
+    let mut sizes: HashMap&lt;&amp;str, Size&gt; = HashMap::new();
+    sizes.insert(&quot;wasm&quot;, Size { bytes: 13_850 });
+    for (name, size) in &amp;sizes {
+        println!(&quot;{name}: {}&quot;, size.label());
+    }
+}</code></pre>
+=== OUTPUT ===
+<pre><code class="language-rust hljs"><span class="hljs-keyword">use</span> std::collections::HashMap;
+
+<span class="hljs-meta">#[derive(Debug, Clone, PartialEq)]</span>
+<span class="hljs-keyword">pub</span> <span class="hljs-keyword">struct</span> <span class="hljs-title class_">Size</span> {
+    bytes: <span class="hljs-type">usize</span>,
+}
+
+<span class="hljs-keyword">impl</span> <span class="hljs-title class_">Size</span> {
+    <span class="hljs-keyword">pub</span> <span class="hljs-keyword">fn</span> <span class="hljs-title function_">label</span>(&amp;<span class="hljs-keyword">self</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">String</span> {
+        <span class="hljs-built_in">format!</span>(<span class="hljs-string">&quot;Size: {} bytes&quot;</span>, <span class="hljs-keyword">self</span>.bytes)
+    }
+}
+
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">main</span>() {
+    <span class="hljs-keyword">let</span> <span class="hljs-keyword">mut </span><span class="hljs-variable">sizes</span>: HashMap&lt;&amp;<span class="hljs-type">str</span>, Size&gt; = HashMap::<span class="hljs-title function_ invoke__">new</span>();
+    sizes.<span class="hljs-title function_ invoke__">insert</span>(<span class="hljs-string">&quot;wasm&quot;</span>, Size { bytes: <span class="hljs-number">13_850</span> });
+    <span class="hljs-keyword">for</span> (name, size) <span class="hljs-keyword">in</span> &amp;sizes {
+        <span class="hljs-built_in">println!</span>(<span class="hljs-string">&quot;{name}: {}&quot;</span>, size.<span class="hljs-title function_ invoke__">label</span>());
+    }
+}</code></pre>
+=== END ===
+=== INPUT ===
+<code class='language-rs extra'>// TODO: keywords in comments stay plain: fn let match
+/* outer /* nested */ still a comment */
+const MASK: u32 = 0xFF_FFu32 | 0b1010 | 0o17;
+static RATIO: f64 = 6.022e23;
+let ch = &#39;\n&#39;;
+let quote = &#39;\&#39;&#39;;
+let byte = b&#39;a&#39;;
+let raw = r#&quot;a &quot;quoted&quot; word&quot;#;
+let bytes = b&quot;bytes&quot;;</code>
+=== OUTPUT ===
+<code class='language-rs extra hljs'><span class="hljs-comment">// <span class="hljs-doctag">TODO:</span> keywords in comments stay plain: fn let match</span>
+<span class="hljs-comment">/* outer <span class="hljs-comment">/* nested */</span> still a comment */</span>
+<span class="hljs-keyword">const</span> MASK: <span class="hljs-type">u32</span> = <span class="hljs-number">0xFF_FFu32</span> | <span class="hljs-number">0b1010</span> | <span class="hljs-number">0o17</span>;
+<span class="hljs-keyword">static</span> RATIO: <span class="hljs-type">f64</span> = <span class="hljs-number">6.022e23</span>;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">ch</span> = <span class="hljs-string">&#39;<span class="hljs-char escape_">\n</span>&#39;</span>;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">quote</span> = <span class="hljs-string">&#39;<span class="hljs-char escape_">\&#39;</span>&#39;</span>;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">byte</span> = <span class="hljs-string">b&#39;a&#39;</span>;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">raw</span> = <span class="hljs-string">r#&quot;a &quot;quoted&quot; word&quot;#</span>;
+<span class="hljs-keyword">let</span> <span class="hljs-variable">bytes</span> = <span class="hljs-string">b&quot;bytes&quot;</span>;</code>
+=== END ===
+=== INPUT ===
+<code class="language-rust">trait Shape&lt;&#39;a&gt;: Send + Sync {
+    fn area(&amp;self) -&gt; f32;
+}
+
+enum Event&lt;&#39;a&gt; {
+    Key(char),
+    Text(&amp;&#39;a str),
+}
+
+fn first&lt;&#39;a, T: Into&lt;String&gt;&gt;(items: &amp;&#39;a [T]) -&gt; Option&lt;&amp;&#39;a T&gt; {
+    match items.first() {
+        Some(item) =&gt; Some(item),
+        None =&gt; None,
+    }
+}
+
+unsafe extern &quot;C&quot; {
+    safe fn abs(input: i32) -&gt; i32;
+}
+
+type Bytes = Vec&lt;u8&gt;;
+macro_rules! square {
+    ($x:expr) =&gt; { $x * $x };
+}</code>
+=== OUTPUT ===
+<code class="language-rust hljs"><span class="hljs-keyword">trait</span> <span class="hljs-title class_">Shape</span>&lt;<span class="hljs-symbol">&#39;a</span>&gt;: <span class="hljs-built_in">Send</span> + <span class="hljs-built_in">Sync</span> {
+    <span class="hljs-keyword">fn</span> <span class="hljs-title function_">area</span>(&amp;<span class="hljs-keyword">self</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">f32</span>;
+}
+
+<span class="hljs-keyword">enum</span> <span class="hljs-title class_">Event</span>&lt;<span class="hljs-symbol">&#39;a</span>&gt; {
+    <span class="hljs-title function_ invoke__">Key</span>(<span class="hljs-type">char</span>),
+    <span class="hljs-title function_ invoke__">Text</span>(&amp;<span class="hljs-symbol">&#39;a</span> <span class="hljs-type">str</span>),
+}
+
+<span class="hljs-keyword">fn</span> <span class="hljs-title function_">first</span>&lt;<span class="hljs-symbol">&#39;a</span>, T: <span class="hljs-built_in">Into</span>&lt;<span class="hljs-type">String</span>&gt;&gt;(items: &amp;<span class="hljs-symbol">&#39;a</span> [T]) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">Option</span>&lt;&amp;<span class="hljs-symbol">&#39;a</span> T&gt; {
+    <span class="hljs-keyword">match</span> items.<span class="hljs-title function_ invoke__">first</span>() {
+        <span class="hljs-title function_ invoke__">Some</span>(item) =&gt; <span class="hljs-title function_ invoke__">Some</span>(item),
+        <span class="hljs-literal">None</span> =&gt; <span class="hljs-literal">None</span>,
+    }
+}
+
+<span class="hljs-keyword">unsafe</span> <span class="hljs-keyword">extern</span> <span class="hljs-string">&quot;C&quot;</span> {
+    safe <span class="hljs-keyword">fn</span> <span class="hljs-title function_">abs</span>(input: <span class="hljs-type">i32</span>) <span class="hljs-punctuation">-&gt;</span> <span class="hljs-type">i32</span>;
+}
+
+<span class="hljs-keyword">type</span> <span class="hljs-title class_">Bytes</span> = <span class="hljs-type">Vec</span>&lt;<span class="hljs-type">u8</span>&gt;;
+<span class="hljs-built_in">macro_rules!</span> square {
+    ($x:expr) =&gt; { $x * $x };
+}</code>
+=== END ===
+=== INPUT ===
+<code class="language-rust">let r#match = 1; let mut = 2;
+outlet x; return (1); t.0.1; 0b102;
+&#39;ab&#39; &#39;\x41&#39; true!=x a &lt;/// c</code>
+=== OUTPUT ===
+<code class="language-rust hljs"><span class="hljs-keyword">let</span> <span class="hljs-variable">r#match</span> = <span class="hljs-number">1</span>; <span class="hljs-keyword">let</span> <span class="hljs-variable">mut</span> = <span class="hljs-number">2</span>;
+out<span class="hljs-keyword">let</span> <span class="hljs-variable">x</span>; <span class="hljs-title function_ invoke__">return</span> (<span class="hljs-number">1</span>); t.<span class="hljs-number">0.1</span>; <span class="hljs-number">0b10</span>2;
+<span class="hljs-symbol">&#39;a</span><span class="hljs-string">b&#39; &#39;</span>\x41<span class="hljs-string">&#39; true!=x a &lt;/// c</span></code>
+=== END ===
+=== INPUT ===
+<code class="language-rust hljs"><span class="hljs-keyword">fn</span> main() {}</code>
+=== OUTPUT ===
+<code class="language-rust hljs"><span class="hljs-keyword">fn</span> main() {}</code>
+=== END ===
+=== INPUT ===
+<code class="language-go">fn main() { let x = 1; }</code>
+=== OUTPUT ===
+<code class="language-go">fn main() { let x = 1; }</code>
+=== END ===

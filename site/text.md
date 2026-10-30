@@ -36,9 +36,11 @@ These components highlight matching fenced code blocks and return `text/html`:
 - [`html-code-syntax-highlight-go.wasm`](/text/html/html-code-syntax-highlight-go.wasm)
 - [`html-code-syntax-highlight-html.wasm`](/text/html/html-code-syntax-highlight-html.wasm)
 - [`html-code-syntax-highlight-ruby.wasm`](/text/html/html-code-syntax-highlight-ruby.wasm)
+- [`html-code-syntax-highlight-rust.wasm`](/text/html/html-code-syntax-highlight-rust.wasm)
 - [`html-code-syntax-highlight-swift.wasm`](/text/html/html-code-syntax-highlight-swift.wasm)
 - [`html-code-syntax-highlight-tsx.wasm`](/text/html/html-code-syntax-highlight-tsx.wasm)
 - [`html-code-syntax-highlight-wasm.wasm`](/text/html/html-code-syntax-highlight-wasm.wasm)
+- [`html-code-syntax-highlight-wgsl.wasm`](/text/html/html-code-syntax-highlight-wgsl.wasm)
 - [`html-code-syntax-highlight-zig.wasm`](/text/html/html-code-syntax-highlight-zig.wasm)
 
 Related tools: [syntax highlighter](/syntax-highlight) and [HTML accessibility tree](/accessibility-tree).
