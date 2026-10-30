@@ -3,9 +3,11 @@ const ktx_sdr = @import("ktx2_rgba8_srgb");
 const ktx_hdr = @import("ktx2_rgba32float_display_p3_linear");
 const font = @import("assets/inter_display_bold_chronograph_digits.zig");
 
-const DRAW_SCALE: i32 = 1;
-const RENDER_W: usize = 360;
-const RENDER_H: usize = 360;
+// The dial is designed on a 360-unit square and drawn at twice that so it
+// stays sharp at 360 CSS pixels on high-density displays.
+const DRAW_SCALE: i32 = 2;
+const RENDER_W: usize = 360 * DRAW_SCALE;
+const RENDER_H: usize = 360 * DRAW_SCALE;
 const PIXEL_COUNT: usize = RENDER_W * RENDER_H;
 const SDR_PIXEL_BYTES: usize = PIXEL_COUNT * 4;
 const SDR_OUTPUT_BYTES: usize = ktx_sdr.HEADER_SIZE + SDR_PIXEL_BYTES;
@@ -14,7 +16,7 @@ const HDR_OUTPUT_BYTES: usize = ktx_hdr.HEADER_SIZE + HDR_PIXEL_BYTES;
 const OUTPUT_CONTENT_TYPE = ktx_sdr.CONTENT_TYPE;
 const WAKE_INTERVAL_MS: i64 = 200;
 const MAX_TILT_RADIANS: f32 = 36.0 * std.math.pi / 180.0;
-const TILT_RADIANS_PER_PIXEL: f32 = 0.25 * std.math.pi / 180.0;
+const TILT_RADIANS_PER_PIXEL: f32 = 0.25 * std.math.pi / 180.0 / @as(f32, @floatFromInt(DRAW_SCALE));
 
 const CX: i32 = @intCast(RENDER_W / 2);
 const CY: i32 = @intCast(RENDER_H / 2);
@@ -81,7 +83,7 @@ var tilt_last_event_at_ms: i64 = 0;
 // camera VIEW_DISTANCE pixels from the dial. The edge turning toward the
 // viewer grows and the far edge shrinks, so the round dial becomes an
 // egg-shaped outline instead of a uniformly squashed ellipse.
-const VIEW_DISTANCE: f32 = 600.0;
+const VIEW_DISTANCE: f32 = scaleF(600);
 
 var render_tilt_cosine: f32 = 1;
 var render_tilt_sine: f32 = 0;
@@ -381,26 +383,29 @@ fn drawStaticDial() void {
     }
 }
 
-const CASE_RADIUS: f32 = 164.0;
-const CASE_BACK_DEPTH: f32 = -18.0;
-const CASE_TOP_DEPTH: f32 = 1.0;
-const BEZEL_RADIUS: f32 = 160.0;
-const BEZEL_INNER_RADIUS: f32 = 143.0;
-const BEZEL_DEPTH: f32 = 16.0;
-const CROWN_AXIS_DEPTH: f32 = -7.0;
+const CASE_RADIUS: f32 = scaleF(164);
+const CASE_BACK_DEPTH: f32 = scaleF(-18);
+// Where the bezel seats on the case middle; the side band shows a fine seam
+// here rather than a second ring.
+const CASE_SEAM_DEPTH: f32 = scaleF(1);
+const BEZEL_INNER_RADIUS: f32 = scaleF(143);
+const BEZEL_DEPTH: f32 = scaleF(16);
+const CASE_SEAM_FRACTION: f32 = (BEZEL_DEPTH - CASE_SEAM_DEPTH) / (BEZEL_DEPTH - CASE_BACK_DEPTH);
+const CROWN_AXIS_DEPTH: f32 = scaleF(-7);
 
 fn drawCaseBody() void {
-    // The case top and raised bezel use the same continuous rose-gold
-    // profile at different depths. Under yaw the band below each one turns
-    // into view on the side swinging toward the viewer, so the watch reads as
-    // a solid object rather than a flat disc. The crown sits on the 3 o'clock
+    // The case is one ring: the bezel top, and below it a single side band
+    // from the bezel down to the case back. Under yaw the band turns into
+    // view on the side swinging toward the viewer, so the watch reads as a
+    // solid object rather than a flat disc. The crown sits on the 3 o'clock
     // flank: behind the band when that side turns away, in front of it when
-    // it turns toward the viewer.
+    // it turns toward the viewer. The band below the seam is drawn here so
+    // the crown can sit in front of it; the part above the seam stands over
+    // the dial and is drawn with the bezel.
     const crown_in_front = render_tilt_sine < 0;
     if (!crown_in_front) drawCrown();
-    if (isTilted()) drawCaseBand(CASE_RADIUS, CASE_BACK_DEPTH, CASE_TOP_DEPTH);
+    if (isTilted()) drawCaseBand(CASE_RADIUS, CASE_BACK_DEPTH, CASE_SEAM_DEPTH, CASE_SEAM_FRACTION, 1.0);
     if (crown_in_front) drawCrown();
-    drawMetalAnnulus(scale(143), scale(164), CASE_TOP_DEPTH);
 }
 
 // The bezel stands above the dial, so it is drawn after the dial and its
@@ -409,10 +414,9 @@ fn drawCaseBody() void {
 fn drawBezel() void {
     if (isTilted()) {
         drawRehaut();
-        drawCaseBand(BEZEL_RADIUS, CASE_TOP_DEPTH, BEZEL_DEPTH);
+        drawCaseBand(CASE_RADIUS, CASE_SEAM_DEPTH, BEZEL_DEPTH, 0.0, CASE_SEAM_FRACTION);
     }
-    drawMetalAnnulus(scale(143), scale(160), BEZEL_DEPTH);
-    drawBezelReflection();
+    drawMetalAnnulus(scale(143), scale(164), scale(143), BEZEL_DEPTH);
 }
 
 // The inside wall of the bezel between the dial and the bezel top. A ray
@@ -422,12 +426,25 @@ fn drawRehaut() void {
     defer render_layer_depth = 0;
     const radius = BEZEL_INNER_RADIUS;
     const visible = (radius - 1.0) * (radius - 1.0);
+    // The wall spans from the dial to the bezel top, so bound both ends.
     setRenderLayerDepth(0);
-    const bounds = circleBounds(0, 0, radius + 1.0);
+    var bounds = circleBounds(0, 0, radius + 1.0);
+    setRenderLayerDepth(BEZEL_DEPTH);
+    const top_bounds = circleBounds(0, 0, radius + 1.0);
+    bounds.min_x = @min(bounds.min_x, top_bounds.min_x);
+    bounds.max_x = @max(bounds.max_x, top_bounds.max_x);
+    setRenderLayerDepth(0);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToCircle(&columns, y, radius, BEZEL_DEPTH)) continue;
+        skipInsideCircle(&columns, y, radius - 1.0, 0);
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
+            if (columns.skips(x)) {
+                x = columns.skip_max;
+                continue;
+            }
             const far = localPointAt(x, y, 0);
             const far_squared = far.x * far.x + far.y * far.y;
             if (far_squared < visible) continue;
@@ -463,17 +480,29 @@ fn drawRehaut() void {
 
 // The vertical side of the case between two depths. Each pixel's view ray
 // is intersected with the cylinder, taking the first hit from the front.
-fn drawCaseBand(radius: f32, back: f32, front: f32) void {
+// The segment covers band_front to band_back of the whole band's height, so
+// segments drawn separately shade as one continuous wall.
+fn drawCaseBand(radius: f32, back: f32, front: f32, band_front: f32, band_back: f32) void {
     defer render_layer_depth = 0;
     setRenderLayerDepth(back);
     const back_bounds = circleBounds(0, 0, radius + 1.0);
     setRenderLayerDepth(front);
     const front_bounds = circleBounds(0, 0, radius + 1.0);
-    const hidden = (radius - 2.0) * (radius - 2.0);
+    const hidden = (radius - scaleF(2)) * (radius - scaleF(2));
     var y = @min(back_bounds.min_y, front_bounds.min_y);
     while (y <= @max(back_bounds.max_y, front_bounds.max_y)) : (y += 1) {
-        var x = @min(back_bounds.min_x, front_bounds.min_x);
-        while (x <= @max(back_bounds.max_x, front_bounds.max_x)) : (x += 1) {
+        var columns = RowColumns{
+            .min_x = @min(back_bounds.min_x, front_bounds.min_x),
+            .max_x = @max(back_bounds.max_x, front_bounds.max_x),
+        };
+        if (!clipToCylinder(&columns, y, radius + 1.0, back, front)) continue;
+        skipInsideCircle(&columns, y, radius - scaleF(2), front);
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
+            if (columns.skips(x)) {
+                x = columns.skip_max;
+                continue;
+            }
             const near = localPointAt(x, y, front);
             // Rays through the top face are covered by the bezel and dial.
             if (near.x * near.x + near.y * near.y < hidden) continue;
@@ -504,14 +533,14 @@ fn drawCaseBand(radius: f32, back: f32, front: f32) void {
             const hit_x = near.x + ray_x * t;
             const hit_y = near.y + ray_y * t;
             const hit_inverse = 1.0 / @max(0.001, std.math.sqrt(hit_x * hit_x + hit_y * hit_y));
-            blendShade(x, y, shadeCaseBand(hit_x * hit_inverse, hit_y * hit_inverse, t), coverage);
+            blendShade(x, y, shadeCaseBand(hit_x * hit_inverse, hit_y * hit_inverse, band_front + t * (band_back - band_front)), coverage);
         }
     }
 }
 
-// The band is gently rounded: its front edge leans toward the viewer and its
-// back edge away, so a highlight runs along it and the back edge falls dark
-// where it meets the case back.
+// The band is a gently rounded polished wall, so the studio horizon runs
+// along it as one crisp line; its back edge falls dark where it meets the
+// case back.
 // The flanks face away from the upper-left key light, so a single light
 // leaves them almost black. Polished gold also mirrors the room behind the
 // viewer; a soft fill along the view direction keeps them reading as metal.
@@ -522,22 +551,28 @@ fn withViewerFill(shade: Shade, nx: f32, nz: f32) Shade {
     return lit;
 }
 
+const CASE_SEAM_WIDTH: f32 = 0.035;
+
 fn shadeCaseBand(radial_x: f32, radial_y: f32, back_fraction: f32) Shade {
-    const bend = (0.5 - back_fraction) * 1.5;
+    const bend = (0.5 - back_fraction) * 1.2;
     const across = std.math.cos(bend);
-    var shade = withViewerFill(shadeGold(radial_x * across, radial_y * across, std.math.sin(bend)), radial_x * across, std.math.sin(bend));
+    const forward = std.math.sin(bend);
+    var shade = withViewerFill(shadeMirrorGold(radial_x * across, radial_y * across, forward), radial_x * across, forward);
     const occlusion = smoothStep((back_fraction - 0.62) / 0.38);
-    shade.color = mixRgb(shade.color, GOLD_DEEP, occlusion * 0.7);
-    shade.emission *= 1.0 - occlusion;
+    // The bezel seats on the case middle at a fine dark seam.
+    const seam = smoothStep(1.0 - @abs(back_fraction - CASE_SEAM_FRACTION) / CASE_SEAM_WIDTH);
+    const darken = @max(occlusion * 0.7, seam * 0.8);
+    shade.color = mixRgb(shade.color, GOLD_DEEP, darken);
+    shade.emission *= 1.0 - @max(occlusion, seam);
     return shade;
 }
 
-const CROWN_TUBE_START: f32 = 162.0;
-const CROWN_TUBE_END: f32 = 167.0;
-const CROWN_TUBE_RADIUS: f32 = 3.6;
-const CROWN_START: f32 = 166.5;
-const CROWN_END: f32 = 173.0;
-const CROWN_RADIUS: f32 = 7.5;
+const CROWN_TUBE_START: f32 = scaleF(162);
+const CROWN_TUBE_END: f32 = scaleF(167);
+const CROWN_TUBE_RADIUS: f32 = scaleF(3.6);
+const CROWN_START: f32 = scaleF(166.5);
+const CROWN_END: f32 = scaleF(173);
+const CROWN_RADIUS: f32 = scaleF(7.5);
 
 fn drawCrown() void {
     // Moving toward the viewer along a ray goes toward smaller x when the
@@ -624,7 +659,7 @@ fn shadeCrown(hit_x: f32, hit_y: f32, hit_u: f32, radius: f32, end: f32, cap: f3
         const dome_y = hit_y * inverse * radial / radius * 0.75;
         const dome_z = hit_u * inverse * radial / radius * 0.75;
         var shade = withViewerFill(shadeGold(cap, dome_y, dome_z), cap, dome_z);
-        const ring = std.math.clamp(1.0 - @abs(radial - radius * 0.55) / 0.8, 0.0, 1.0);
+        const ring = std.math.clamp(1.0 - @abs(radial - radius * 0.55) / scaleF(0.8), 0.0, 1.0);
         shade.color = mixRgb(shade.color, GOLD_DEEP, ring * 0.6);
         return shade;
     }
@@ -632,7 +667,7 @@ fn shadeCrown(hit_x: f32, hit_y: f32, hit_u: f32, radius: f32, end: f32, cap: f3
     var normal_z = hit_u * inverse;
     var groove: f32 = 0;
     // A polished chamfer at the outer end, then coin-edge flutes.
-    const chamfer = std.math.clamp((hit_x - (end - 1.6)) / 1.6, 0.0, 1.0);
+    const chamfer = std.math.clamp((hit_x - (end - scaleF(1.6))) / scaleF(1.6), 0.0, 1.0);
     if (fluted and chamfer <= 0.0) {
         const angle = std.math.atan2(hit_y, hit_u);
         const ridge = std.math.cos(angle * 16.0);
@@ -654,12 +689,16 @@ const Shade = struct { color: Rgb, emission: f32 };
 // Polished rose gold: a warm diffuse ramp plus a tight specular lobe that
 // carries most of the HDR emission.
 fn shadeGold(nx_in: f32, ny_in: f32, nz_in: f32) Shade {
+    return shadeGoldLit(nx_in, ny_in, nz_in, .{ light_x, light_y, light_z }, .{ half_x, half_y, half_z });
+}
+
+fn shadeGoldLit(nx_in: f32, ny_in: f32, nz_in: f32, light: [3]f32, half: [3]f32) Shade {
     const inverse_length = 1.0 / std.math.sqrt(nx_in * nx_in + ny_in * ny_in + nz_in * nz_in);
     const nx = nx_in * inverse_length;
     const ny = ny_in * inverse_length;
     const nz = nz_in * inverse_length;
-    const diffuse = std.math.clamp(nx * light_x + ny * light_y + nz * light_z, 0.0, 1.0);
-    var specular = std.math.clamp(nx * half_x + ny * half_y + nz * half_z, 0.0, 1.0);
+    const diffuse = std.math.clamp(nx * light[0] + ny * light[1] + nz * light[2], 0.0, 1.0);
+    var specular = std.math.clamp(nx * half[0] + ny * half[1] + nz * half[2], 0.0, 1.0);
     specular *= specular;
     specular *= specular;
     specular *= specular;
@@ -735,9 +774,117 @@ fn circleBounds(center_x: f32, center_y: f32, radius: f32) ScreenBounds {
     return screenBounds(center_x - radius, center_x + radius, center_y - radius, center_y + radius);
 }
 
-fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
+// The columns a pass visits on one row, less a middle run whose pixels it
+// would reject anyway. At twice the design size a tilted frame is four
+// times the pixels, so the rings and annuli skip their hollow centres and
+// every circular pass skips the corners of its bounding box.
+const RowColumns = struct {
+    min_x: i32,
+    max_x: i32,
+    skip_min: i32 = std.math.maxInt(i32),
+    skip_max: i32 = std.math.minInt(i32),
+
+    fn skips(self: RowColumns, x: i32) bool {
+        return x >= self.skip_min and x <= self.skip_max;
+    }
+};
+
+fn rowColumns(bounds: ScreenBounds) RowColumns {
+    return .{ .min_x = bounds.min_x, .max_x = bounds.max_x };
+}
+
+// Screen x where row y enters and leaves a circle about the dial centre on
+// the layer at depth. Along a row the local y is screen_y * (1 + local_x *
+// perspective), so the circle's edges solve a quadratic in local x, and
+// project() is increasing in local x.
+fn circleRowSpan(y: i32, radius: f32, depth: f32) ?ScreenPoint {
+    const screen_y = @as(f32, @floatFromInt(y - CY)) + 0.5;
+    const screen_y_squared = screen_y * screen_y;
+    const a = 1.0 + screen_y_squared * render_perspective * render_perspective;
+    const half_b = screen_y_squared * render_perspective;
+    const c = screen_y_squared - radius * radius;
+    const discriminant = half_b * half_b - a * c;
+    if (radius <= 0.0 or discriminant <= 0.0) return null;
+    const root = std.math.sqrt(discriminant);
+    return .{
+        .x = screenXAt((-half_b - root) / a, depth),
+        .y = screenXAt((-half_b + root) / a, depth),
+    };
+}
+
+fn screenXAt(local_x: f32, depth: f32) f32 {
+    return @as(f32, @floatFromInt(CX)) +
+        (local_x * render_tilt_cosine + depth * render_tilt_sine) / (1.0 + local_x * render_perspective);
+}
+
+// Keep only columns whose pixel centres can lie within radius. Callers pass
+// the radius their own rejection test uses; the half-unit and one-column
+// slack only ever keeps extra pixels for that test to reject.
+fn clipToCircle(columns: *RowColumns, y: i32, radius: f32, depth: f32) bool {
+    const span = circleRowSpan(y, radius + 0.5, depth) orelse return false;
+    columns.min_x = @max(columns.min_x, @as(i32, @intFromFloat(@floor(span.x - 0.5))) - 1);
+    columns.max_x = @min(columns.max_x, @as(i32, @intFromFloat(@ceil(span.y - 0.5))) + 1);
+    return columns.min_x <= columns.max_x;
+}
+
+// Skip columns whose pixel centres lie well inside radius.
+fn skipInsideCircle(columns: *RowColumns, y: i32, radius: f32, depth: f32) void {
+    const span = circleRowSpan(y, radius - 0.5, depth) orelse return;
+    columns.skip_min = @as(i32, @intFromFloat(@ceil(span.x - 0.5))) + 1;
+    columns.skip_max = @as(i32, @intFromFloat(@floor(span.y - 0.5))) - 1;
+}
+
+// Keep only columns whose pixel centres can lie on a cylinder about the dial
+// axis between two depths. Along a row the circle's edges move linearly with
+// depth, so the spans at the two ends bound every depth between them.
+fn clipToCylinder(columns: *RowColumns, y: i32, radius: f32, back: f32, front: f32) bool {
+    const back_span = circleRowSpan(y, radius + 0.5, back) orelse return false;
+    const front_span = circleRowSpan(y, radius + 0.5, front) orelse return false;
+    columns.min_x = @max(columns.min_x, @as(i32, @intFromFloat(@floor(@min(back_span.x, front_span.x) - 0.5))) - 1);
+    columns.max_x = @min(columns.max_x, @as(i32, @intFromFloat(@ceil(@max(back_span.y, front_span.y) - 0.5))) + 1);
+    return columns.min_x <= columns.max_x;
+}
+
+// The screen corners of a rectangle on the current layer, laid along a unit
+// direction from along_min to along_max, half_across either side, and moved
+// by an offset. Perspective keeps it a convex quadrilateral.
+fn projectRectangle(dir_x: f32, dir_y: f32, along_min: f32, along_max: f32, half_across: f32, offset_x: f32, offset_y: f32) [4]ScreenPoint {
+    const across_x = -dir_y * half_across;
+    const across_y = dir_x * half_across;
+    return .{
+        project(offset_x + dir_x * along_min - across_x, offset_y + dir_y * along_min - across_y),
+        project(offset_x + dir_x * along_max - across_x, offset_y + dir_y * along_max - across_y),
+        project(offset_x + dir_x * along_max + across_x, offset_y + dir_y * along_max + across_y),
+        project(offset_x + dir_x * along_min + across_x, offset_y + dir_y * along_min + across_y),
+    };
+}
+
+// Keep only columns whose pixel centres on row y can lie inside a convex
+// quadrilateral. A long diagonal shape such as the hand covers a small part
+// of its bounding box, so this skips most of the box.
+fn clipToQuad(columns: *RowColumns, y: i32, quad: [4]ScreenPoint) bool {
+    const row = @as(f32, @floatFromInt(y)) + 0.5;
+    var low = std.math.inf(f32);
+    var high = -std.math.inf(f32);
+    for (quad, 0..) |start, index| {
+        const end = quad[(index + 1) % quad.len];
+        if (@min(start.y, end.y) > row or @max(start.y, end.y) < row) continue;
+        const crossing = if (start.y == end.y) start.x else start.x + (row - start.y) * (end.x - start.x) / (end.y - start.y);
+        const other = if (start.y == end.y) end.x else crossing;
+        low = @min(low, @min(crossing, other));
+        high = @max(high, @max(crossing, other));
+    }
+    if (low > high) return false;
+    columns.min_x = @max(columns.min_x, @as(i32, @intFromFloat(@floor(low - 0.5))) - 1);
+    columns.max_x = @min(columns.max_x, @as(i32, @intFromFloat(@ceil(high - 0.5))) + 1);
+    return columns.min_x <= columns.max_x;
+}
+
+// Pixels inside drawn_inner_radius are skipped because a later layer covers
+// them; the shading profile still spans inner_radius to outer_radius.
+fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, drawn_inner_radius: i32, depth: f32) void {
     if (!isTilted()) {
-        drawFaceOnMetalAnnulus(inner_radius, outer_radius);
+        drawFaceOnMetalAnnulus(inner_radius, outer_radius, drawn_inner_radius);
         return;
     }
     defer render_layer_depth = 0;
@@ -745,15 +892,22 @@ fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
 
     const inner: f32 = @floatFromInt(inner_radius);
     const outer: f32 = @floatFromInt(outer_radius);
-    const reject_inner = @max(0.0, inner - 1.0);
+    const reject_inner = @max(0.0, @as(f32, @floatFromInt(drawn_inner_radius)) - 1.0);
     const reject_outer = outer + 1.0;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
     const bounds = circleBounds(0, 0, outer + 1.0);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToCircle(&columns, y, reject_outer, depth)) continue;
+        skipInsideCircle(&columns, y, reject_inner, depth);
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
+            if (columns.skips(x)) {
+                x = columns.skip_max;
+                continue;
+            }
             const point = localPoint(x, y);
             const local_x = point.x;
             const local_y = point.y;
@@ -771,10 +925,10 @@ fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, depth: f32) void {
     }
 }
 
-fn drawFaceOnMetalAnnulus(inner_radius: i32, outer_radius: i32) void {
+fn drawFaceOnMetalAnnulus(inner_radius: i32, outer_radius: i32, drawn_inner_radius: i32) void {
     const inner: f32 = @floatFromInt(inner_radius);
     const outer: f32 = @floatFromInt(outer_radius);
-    const reject_inner = @max(0.0, inner - 0.75);
+    const reject_inner = @max(0.0, @as(f32, @floatFromInt(drawn_inner_radius)) - 0.75);
     const reject_outer = outer + 0.75;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
@@ -809,73 +963,99 @@ fn drawFaceOnMetalSpan(y: i32, min_x: i32, max_x: i32, inner: f32, outer: f32) v
     }
 }
 
-// The bezel is a rounded rose-gold profile. Its normal leans toward the
-// centre on the inner slope and away on the outer slope, so the key light
-// draws a bright arc on the upper-left outside and the lower-right inside.
+// The bezel is a polished domed ring, like the chrome compass bezel of an
+// early-2000s glossy icon, in rose gold: a bright chamfer at the crystal, a
+// fine dark groove, then a dome that rolls over to the outer edge. The dome
+// mirrors a studio environment (see shadeMirrorGold), so it carries a crisp
+// sky highlight on the key-light side and a dark horizon line beside it.
+const BEZEL_CHAMFER_END: f32 = 0.06;
+const BEZEL_GROOVE_END: f32 = 0.11;
+const BEZEL_CHAMFER_SLOPE: f32 = -0.75;
+const BEZEL_DOME_CREST: f32 = 0.42;
+const BEZEL_DOME_CURVE: f32 = 1.75;
+const BEZEL_EDGE_SLOPE: f32 = 0.9;
+
 fn shadeBezel(radial: f32, normal_x: f32, normal_y: f32) Shade {
-    const crest: f32 = 0.42;
-    const slope = std.math.clamp((radial - crest) * 1.5, -0.95, 0.95);
-    const nx = normal_x * slope;
-    const ny = normal_y * slope;
-    const nz = std.math.sqrt(1.0 - slope * slope);
-    var shade = shadeGold(nx, ny, nz);
-    // Polished metal mirrors its surroundings: a broad sheen around the
-    // glint, and a dark horizon band on the inner slope.
-    var broad = std.math.clamp(nx * half_x + ny * half_y + nz * half_z, 0.0, 1.0);
-    broad *= broad;
-    broad *= broad;
-    broad *= broad;
-    shade.color = mixRgb(shade.color, GOLD_LIGHT, broad * 0.45);
-    shade.emission += broad * 45.0;
-    const horizon = std.math.clamp(1.0 - @abs(slope + 0.32) / 0.2, 0.0, 1.0);
-    shade.color = mixRgb(shade.color, GOLD_DEEP, horizon * 0.5);
-    // A narrow polished bevel where the bezel meets the crystal.
-    const bevel = std.math.clamp(1.0 - radial / 0.07, 0.0, 1.0);
-    shade.color = mixRgb(shade.color, GOLD_LIGHT, bevel * 0.55);
-    shade.emission += bevel * 70.0;
+    // The dome starts at the chamfer's slope, so only the groove marks the
+    // join between them.
+    const dome = std.math.clamp((radial - BEZEL_GROOVE_END) / (1.0 - BEZEL_GROOVE_END), 0.0, 1.0);
+    const slope = if (radial < BEZEL_CHAMFER_END)
+        BEZEL_CHAMFER_SLOPE
+    else
+        std.math.clamp((dome - BEZEL_DOME_CREST) * BEZEL_DOME_CURVE, BEZEL_CHAMFER_SLOPE, BEZEL_EDGE_SLOPE);
+    var shade = shadeMirrorGold(normal_x * slope, normal_y * slope, std.math.sqrt(1.0 - slope * slope));
+    const groove_middle = (BEZEL_CHAMFER_END + BEZEL_GROOVE_END) * 0.5;
+    const groove = smoothStep(1.0 - @abs(radial - groove_middle) / (BEZEL_GROOVE_END - groove_middle));
+    shade.color = mixRgb(shade.color, GOLD_DEEP, groove * 0.75);
+    shade.emission *= 1.0 - groove;
+    return shade;
+}
+
+// Mirror-polished gold reflects its surroundings more than it scatters the
+// key light. The surroundings are a studio: a bright sky on the key light's
+// side, a sharp dark horizon below it, and warm ground bounce beyond. The
+// sky sits in the key light's direction, so the reflections move with the
+// same light as the diffuse gold and the dial.
+const MIRROR_HORIZON: f32 = 0.04;
+const MIRROR_STRIP: f32 = 0.14;
+const MIRROR_AMOUNT: f32 = 0.82;
+
+// The studio stays put while the watch turns, so the rings are lit in world
+// space by the key light's face-on position. (updateLight swings the light
+// across the dial to animate its sheen; following that swing would turn the
+// studio with the watch and light the walls facing away from it.)
+const STUDIO_LIGHT_ANGLE: f32 = -0.75 * std.math.pi;
+const STUDIO_LIGHT_PLANAR: f32 = 0.74;
+const STUDIO_LIGHT = [3]f32{
+    @cos(STUDIO_LIGHT_ANGLE) * STUDIO_LIGHT_PLANAR,
+    @sin(STUDIO_LIGHT_ANGLE) * STUDIO_LIGHT_PLANAR,
+    @sqrt(1.0 - STUDIO_LIGHT_PLANAR * STUDIO_LIGHT_PLANAR),
+};
+const STUDIO_HALF = blk: {
+    const length = @sqrt(STUDIO_LIGHT[0] * STUDIO_LIGHT[0] + STUDIO_LIGHT[1] * STUDIO_LIGHT[1] + (STUDIO_LIGHT[2] + 1.0) * (STUDIO_LIGHT[2] + 1.0));
+    break :blk [3]f32{ STUDIO_LIGHT[0] / length, STUDIO_LIGHT[1] / length, (STUDIO_LIGHT[2] + 1.0) / length };
+};
+
+fn shadeMirrorGold(nx_in: f32, ny_in: f32, nz_in: f32) Shade {
+    const inverse_length = 1.0 / std.math.sqrt(nx_in * nx_in + ny_in * ny_in + nz_in * nz_in);
+    // Turn the normal by the watch's yaw into world space, where the viewer
+    // looks straight down -z.
+    const nx = (nx_in * render_tilt_cosine + nz_in * render_tilt_sine) * inverse_length;
+    const ny = ny_in * inverse_length;
+    const nz = (nz_in * render_tilt_cosine - nx_in * render_tilt_sine) * inverse_length;
+    var shade = shadeGoldLit(nx, ny, nz, STUDIO_LIGHT, STUDIO_HALF);
+    // Reflect the view direction.
+    const reflect_x = 2.0 * nz * nx;
+    const reflect_y = 2.0 * nz * ny;
+    const reflect_z = 2.0 * nz * nz - 1.0;
+    const toward = (reflect_x * STUDIO_LIGHT[0] + reflect_y * STUDIO_LIGHT[1]) / STUDIO_LIGHT_PLANAR;
+    const height = toward * 0.85 - reflect_z * 0.25;
+    const above = height - MIRROR_HORIZON;
+    // A bright softbox strip sits just above the horizon; the open sky
+    // beyond it is a calmer gold, so the strip reads as one crisp band.
+    const strip = 1.0 - smoothStep((above - MIRROR_STRIP) / 0.12);
+    const ground = smoothStep((-above - 0.06) / 0.7);
+    // Soften the horizon over about a pixel so it stays antialiased.
+    const edge = std.math.clamp(above / 0.035 + 0.5, 0.0, 1.0);
+    const environment = mixRgb(
+        mixRgb(GOLD_DEEP, mixRgb(GOLD_DEEP, GOLD_MID, 0.72), ground),
+        mixRgb(mixRgb(GOLD_MID, GOLD_LIGHT, 0.3), GOLD_LIGHT, strip),
+        edge,
+    );
+    shade.emission += strip * edge * 90.0;
+    var specular = std.math.clamp(nx * STUDIO_HALF[0] + ny * STUDIO_HALF[1] + nz * STUDIO_HALF[2], 0.0, 1.0);
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    specular *= specular;
+    shade.color = mixRgb(mixRgb(shade.color, environment, MIRROR_AMOUNT), GOLD_GLINT, specular);
     return shade;
 }
 
 fn smoothStep(value: f32) f32 {
     const clamped = std.math.clamp(value, 0.0, 1.0);
     return clamped * clamped * (3.0 - 2.0 * clamped);
-}
-
-fn drawBezelReflection() void {
-    if (!isTilted()) return;
-    defer render_layer_depth = 0;
-    setRenderLayerDepth(BEZEL_DEPTH);
-
-    const outer = scaleF(159);
-    const inner = scaleF(145);
-    const tilt_strength = std.math.clamp(@abs(render_tilt_sine) * 3.0, 0.0, 1.0);
-    const direction = std.math.sign(render_tilt_sine);
-    const bounds = circleBounds(0, 0, outer);
-    var y = bounds.min_y;
-    while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
-            const point = localPoint(x, y);
-            const local_x = point.x;
-            const local_y = point.y;
-            const distance = std.math.sqrt(local_x * local_x + local_y * local_y);
-            if (distance < inner or distance > outer) continue;
-            const normal_x = local_x / distance;
-            const near = normal_x * direction;
-            const broad = std.math.clamp(1.0 - @abs(near - 0.58) / 0.34, 0.0, 1.0) * tilt_strength;
-            if (broad > 0.0) {
-                blendEmissive(x, y, .{ 0xFF, 0xD9, 0xC4, 0x82 }, broad, 90);
-            }
-            const sharp = std.math.clamp(1.0 - @abs(near - 0.64) / 0.055, 0.0, 1.0) * tilt_strength;
-            if (sharp > 0.0) {
-                blendEmissive(x, y, .{ 0xFF, 0xF6, 0xEE, 0xD0 }, sharp, 255);
-            }
-            const shade = std.math.clamp(1.0 - @abs(near + 0.48) / 0.42, 0.0, 1.0) * tilt_strength;
-            if (shade > 0.0) {
-                blendPixelCoverage(x, y, .{ 0x2A, 0x0C, 0x06, 0x60 }, shade);
-            }
-        }
-    }
 }
 
 fn drawChapterRing() void {
@@ -927,7 +1107,7 @@ fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
     const dir_y = -std.math.cos(angle);
     const middle = (inner + outer) * 0.5;
     const half_length = (outer - inner) * 0.5;
-    const pad = half_width + 5.0;
+    const pad = half_width + scaleF(5);
     const min_lx = @min(dir_x * inner, dir_x * outer) - pad;
     const max_lx = @max(dir_x * inner, dir_x * outer) + pad;
     const min_ly = @min(dir_y * inner, dir_y * outer) - pad;
@@ -936,24 +1116,30 @@ fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
     // A soft drop shadow on the dial sells the applied height.
     setRenderLayerDepth(scaleF(1));
     var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    const shadow_quad = projectRectangle(dir_x, dir_y, inner - scaleF(2), outer + scaleF(2), half_width + scaleF(2), scaleF(1.4), scaleF(2.2));
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToQuad(&columns, y, shadow_quad)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
-            const lx = point.x - 1.4;
-            const ly = point.y - 2.2;
+            const lx = point.x - scaleF(1.4);
+            const ly = point.y - scaleF(2.2);
             const distance = batonDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x, middle, half_length, half_width);
-            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / 1.8, 0.0, 1.0));
+            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / scaleF(1.8), 0.0, 1.0));
         }
     }
 
     setRenderLayerDepth(scaleF(3));
     bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    const quad = projectRectangle(dir_x, dir_y, inner - scaleF(2), outer + scaleF(2), half_width + scaleF(2), 0, 0);
     y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToQuad(&columns, y, quad)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
             const lx = point.x;
             const ly = point.y;
@@ -963,9 +1149,9 @@ fn drawAppliedBaton(angle: f32, inner: f32, outer: f32, half_width: f32) void {
             const coverage = std.math.clamp(0.5 - distance * edgeScale(point), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             // Two long facets meet at a centre ridge; the ends are bevelled.
-            const facet = std.math.clamp(across * 1.6, -1.0, 1.0) * 0.62;
+            const facet = std.math.clamp(across / scaleF(1) * 1.6, -1.0, 1.0) * 0.62;
             const end_offset = along - middle;
-            const end = std.math.clamp((@abs(end_offset) - (half_length - 1.6)) / 1.6, 0.0, 1.0) *
+            const end = std.math.clamp((@abs(end_offset) - (half_length - scaleF(1.6))) / scaleF(1.6), 0.0, 1.0) *
                 std.math.sign(end_offset) * 0.62;
             const nx = -dir_y * facet + dir_x * end;
             const ny = dir_x * facet + dir_y * end;
@@ -984,30 +1170,30 @@ fn drawLabels() void {
 fn drawAppliedNumeral(text: []const u8, center_x: i32, center_y: i32) void {
     // Shadow, lit upper-left rim, then the body: three passes of the same
     // glyph read as raised, polished metal.
-    drawCenteredText(text, center_x + 1, center_y + 2, C_SHADOW);
+    drawCenteredText(text, center_x + scale(1), center_y + scale(2), C_SHADOW);
     paint_emission = 150;
-    drawCenteredText(text, center_x - 1, center_y - 1, toColor(GOLD_LIGHT, 0xFF));
+    drawCenteredText(text, center_x - scale(1), center_y - scale(1), toColor(GOLD_LIGHT, 0xFF));
     paint_emission = 0;
     drawCenteredText(text, center_x, center_y, toColor(.{ 0.80, 0.50, 0.39 }, 0xFF));
 }
 
-const HAND_TIP: f32 = 132.0;
-const HAND_TAIL: f32 = -31.0;
-const HAND_LOLLIPOP: f32 = 101.0;
-const HAND_LOLLIPOP_RADIUS: f32 = 6.6;
-const HAND_LUME_RADIUS: f32 = 4.5;
-const HAND_WEIGHT: f32 = -23.0;
-const HAND_WEIGHT_RADIUS: f32 = 5.8;
-const HAND_CAP_RADIUS: f32 = 7.5;
+const HAND_TIP: f32 = scaleF(132);
+const HAND_TAIL: f32 = scaleF(-31);
+const HAND_LOLLIPOP: f32 = scaleF(101);
+const HAND_LOLLIPOP_RADIUS: f32 = scaleF(6.6);
+const HAND_LUME_RADIUS: f32 = scaleF(4.5);
+const HAND_WEIGHT: f32 = scaleF(-23);
+const HAND_WEIGHT_RADIUS: f32 = scaleF(5.8);
+const HAND_CAP_RADIUS: f32 = scaleF(7.5);
 // Heights above the dial. Yaw shifts each layer sideways in proportion, so
 // these set how far the hand appears to float.
-const HAND_DEPTH: f32 = 11.0;
-const HAND_CAP_DEPTH: f32 = 13.0;
-const CRYSTAL_DEPTH: f32 = 18.0;
+const HAND_DEPTH: f32 = scaleF(11);
+const HAND_CAP_DEPTH: f32 = scaleF(13);
+const CRYSTAL_DEPTH: f32 = scaleF(18);
 
 fn handDistance(along: f32, across: f32) f32 {
     const taper = std.math.clamp(along / HAND_TIP, 0.0, 1.0);
-    const half_width: f32 = if (along < 0.0) 2.2 else 2.9 - 1.9 * taper;
+    const half_width: f32 = if (along < 0.0) scaleF(2.2) else scaleF(2.9) - scaleF(1.9) * taper;
     const shaft = @max(@abs(across) - half_width, @max(HAND_TAIL - along, along - HAND_TIP));
     const lollipop = std.math.hypot(along - HAND_LOLLIPOP, across) - HAND_LOLLIPOP_RADIUS;
     const weight = std.math.hypot(along - HAND_WEIGHT, across) - HAND_WEIGHT_RADIUS;
@@ -1019,7 +1205,7 @@ fn drawHand(seconds: f32) void {
     const hand_angle = seconds * std.math.tau / 60.0;
     const dir_x = std.math.sin(hand_angle);
     const dir_y = -std.math.cos(hand_angle);
-    const pad: f32 = HAND_WEIGHT_RADIUS + 3.0 + HAND_DEPTH * 0.8;
+    const pad: f32 = HAND_WEIGHT_RADIUS + scaleF(3) + HAND_DEPTH * 0.8;
     const min_lx = @min(dir_x * HAND_TAIL, dir_x * HAND_TIP) - pad;
     const max_lx = @max(dir_x * HAND_TAIL, dir_x * HAND_TIP) + pad;
     const min_ly = @min(dir_y * HAND_TAIL, dir_y * HAND_TIP) - pad;
@@ -1030,24 +1216,30 @@ fn drawHand(seconds: f32) void {
     // allocating or compositing an intermediate image.
     setRenderLayerDepth(scaleF(1));
     var bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    const shadow_quad = projectRectangle(dir_x, dir_y, HAND_TAIL - scaleF(3), HAND_TIP + scaleF(3), HAND_LOLLIPOP_RADIUS + scaleF(3), HAND_DEPTH * 0.5, HAND_DEPTH * 0.67);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToQuad(&columns, y, shadow_quad)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
             const lx = point.x - HAND_DEPTH * 0.5;
             const ly = point.y - HAND_DEPTH * 0.67;
             const distance = handDistance(lx * dir_x + ly * dir_y, lx * -dir_y + ly * dir_x);
-            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / (1.2 + HAND_DEPTH * 0.2), 0.0, 1.0));
+            blendPixelCoverage(x, y, C_SHADOW, std.math.clamp(0.5 - distance / (scaleF(1.2) + HAND_DEPTH * 0.2), 0.0, 1.0));
         }
     }
 
     setRenderLayerDepth(HAND_DEPTH);
     bounds = screenBounds(min_lx, max_lx, min_ly, max_ly);
+    const quad = projectRectangle(dir_x, dir_y, HAND_TAIL - scaleF(3), HAND_TIP + scaleF(3), HAND_LOLLIPOP_RADIUS + scaleF(3), 0, 0);
     y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToQuad(&columns, y, quad)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
             const lx = point.x;
             const ly = point.y;
@@ -1075,7 +1267,7 @@ fn drawHand(seconds: f32) void {
             const coverage = std.math.clamp(0.5 - (radius - HAND_CAP_RADIUS) * edgeScale(point), 0.0, 1.0);
             if (coverage <= 0.0) continue;
             var shade = shadeGold(lx / HAND_CAP_RADIUS * 0.85, ly / HAND_CAP_RADIUS * 0.85, 0.75);
-            const pinion = std.math.clamp(1.6 - radius, 0.0, 1.0);
+            const pinion = std.math.clamp((scaleF(1.6) - radius) / scaleF(1), 0.0, 1.0);
             shade.color = mixRgb(shade.color, GOLD_DEEP, pinion * 0.9);
             shade.emission *= 1.0 - pinion;
             blendShade(x, y, shade, coverage);
@@ -1086,33 +1278,33 @@ fn drawHand(seconds: f32) void {
 fn shadeHand(along: f32, across: f32, dir_x: f32, dir_y: f32) Shade {
     const lollipop_along = along - HAND_LOLLIPOP;
     const lollipop_radius = std.math.hypot(lollipop_along, across);
-    if (lollipop_radius < HAND_LOLLIPOP_RADIUS + 0.5) {
+    if (lollipop_radius < HAND_LOLLIPOP_RADIUS + scaleF(0.5)) {
         if (lollipop_radius < HAND_LUME_RADIUS) {
             // Lume glows well past diffuse white on HDR displays.
-            const fade = std.math.clamp(HAND_LUME_RADIUS - lollipop_radius, 0.0, 1.0);
+            const fade = std.math.clamp((HAND_LUME_RADIUS - lollipop_radius) / scaleF(1), 0.0, 1.0);
             var shade = shadeGold(0, 0, 1);
             shade.color = mixRgb(shade.color, LUME, fade);
             shade.emission = 165.0 * fade;
             return shade;
         }
         // The lume frame is a rounded bezel.
-        const slope = std.math.clamp((lollipop_radius - (HAND_LUME_RADIUS + HAND_LOLLIPOP_RADIUS) * 0.5) * 0.55, -0.7, 0.7);
+        const slope = std.math.clamp((lollipop_radius - (HAND_LUME_RADIUS + HAND_LOLLIPOP_RADIUS) * 0.5) / scaleF(1) * 0.55, -0.7, 0.7);
         return shadeLocalNormal(lollipop_along / lollipop_radius * slope, across / lollipop_radius * slope, dir_x, dir_y);
     }
     const weight_along = along - HAND_WEIGHT;
     const weight_radius = std.math.hypot(weight_along, across);
-    if (weight_radius < HAND_WEIGHT_RADIUS + 0.5) {
+    if (weight_radius < HAND_WEIGHT_RADIUS + scaleF(0.5)) {
         // Domed counterweight with an engraved ring.
         const dome = std.math.clamp(weight_radius / HAND_WEIGHT_RADIUS, 0.0, 1.0) * 0.8;
         const inverse = 1.0 / @max(weight_radius, 0.001);
         var shade = shadeLocalNormal(weight_along * inverse * dome, across * inverse * dome, dir_x, dir_y);
-        const groove = std.math.clamp(1.0 - @abs(weight_radius - 3.4) / 0.7, 0.0, 1.0);
+        const groove = std.math.clamp(1.0 - @abs(weight_radius - scaleF(3.4)) / scaleF(0.7), 0.0, 1.0);
         shade.color = mixRgb(shade.color, GOLD_DEEP, groove * 0.75);
         shade.emission *= 1.0 - groove;
         return shade;
     }
     // Two facets meet along the centre of the shaft, one lit, one shaded.
-    return shadeLocalNormal(0, std.math.clamp(across * 1.8, -1.0, 1.0) * 0.7, dir_x, dir_y);
+    return shadeLocalNormal(0, std.math.clamp(across / scaleF(1) * 1.8, -1.0, 1.0) * 0.7, dir_x, dir_y);
 }
 
 fn shadeLocalNormal(normal_along: f32, normal_across: f32, dir_x: f32, dir_y: f32) Shade {
@@ -1162,7 +1354,7 @@ fn drawGlassReflection() void {
                 std.math.clamp((along + scaleF(132)) / scaleF(28), 0.0, 1.0),
                 std.math.clamp((scaleF(108) - along) / scaleF(28), 0.0, 1.0),
             );
-            const curve = -scaleF(76) + along * along * 0.00075;
+            const curve = -scaleF(76) + along * along * (0.00075 / scaleF(1));
             const curve_distance = @abs(across - curve);
 
             const wash_ellipse =
@@ -1195,8 +1387,10 @@ fn drawTiltedGlassReflection() void {
 
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToCircle(&columns, y, crystal_radius, CRYSTAL_DEPTH)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
             const dx = point.x;
             const dy = point.y;
@@ -1227,7 +1421,7 @@ fn drawTiltedGlassReflection() void {
                 std.math.clamp((along + scaleF(132)) / scaleF(28), 0.0, 1.0),
                 std.math.clamp((scaleF(108) - along) / scaleF(28), 0.0, 1.0),
             );
-            const curve = -scaleF(76) + along * along * 0.00075;
+            const curve = -scaleF(76) + along * along * (0.00075 / scaleF(1));
             const curve_distance = @abs(across - curve);
             const wash_ellipse =
                 ((along - scaleF(4)) * (along - scaleF(4))) / (scaleF(116) * scaleF(116)) +
@@ -1264,8 +1458,10 @@ fn drawDialSurface() void {
     const light_dir_y = light_y * planar_inverse;
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        if (!clipToCircle(&columns, y, radius + 1.0, render_layer_depth)) continue;
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
             const point = localPoint(x, y);
             const lx = point.x;
             const ly = point.y;
@@ -1295,7 +1491,7 @@ fn drawDialSurface() void {
                 light = 0.08 + sheen * 0.45;
                 emission = sheen * 60.0;
             } else if (distance < scaleF(118)) {
-                const groove = std.math.sin(distance * (std.math.tau / 3.0));
+                const groove = std.math.sin(distance * (std.math.tau / scaleF(3)));
                 light = 0.05 * groove * facing + sheen * 0.24;
                 emission = sheen * 40.0;
                 color = mixRgb(color, ENAMEL_EDGE, 0.12);
@@ -1314,7 +1510,7 @@ fn drawDialSurface() void {
     }
 }
 
-const HOBNAIL_PERIOD: f32 = 7.0;
+const HOBNAIL_PERIOD: f32 = scaleF(7);
 const Hobnail = struct { light: f32, glint: f32, groove: f32 };
 
 // Clous de Paris: a grid of small pyramids cut on the diagonal. Each pixel
@@ -1591,8 +1787,18 @@ fn drawTiltedRing(cx: i32, cy: i32, radius: i32, thickness: i32, color: Color) v
     const bounds = circleBounds(center_x, center_y, reject_outer);
     var y = bounds.min_y;
     while (y <= bounds.max_y) : (y += 1) {
-        var x = bounds.min_x;
-        while (x <= bounds.max_x) : (x += 1) {
+        var columns = rowColumns(bounds);
+        // Every ring is centred on the dial, so skip its hollow middle.
+        if (center_x == 0 and center_y == 0) {
+            if (!clipToCircle(&columns, y, reject_outer, render_layer_depth)) continue;
+            skipInsideCircle(&columns, y, reject_inner, render_layer_depth);
+        }
+        var x = columns.min_x;
+        while (x <= columns.max_x) : (x += 1) {
+            if (columns.skips(x)) {
+                x = columns.skip_max;
+                continue;
+            }
             const point = localPoint(x, y);
             const local_dx = point.x - center_x;
             const local_dy = point.y - center_y;
@@ -1743,11 +1949,11 @@ test "horizontal drag tilts and release schedules spring frames" {
     try std.testing.expectEqual(@as(i32, 1), pointer_event(1, CX, CY));
     try std.testing.expectEqual(@as(i64, 201), finish_update());
     begin_update_at(2);
-    try std.testing.expectEqual(@as(i32, 1), pointer_event(1, CX + 80, CY));
+    try std.testing.expectEqual(@as(i32, 1), pointer_event(1, CX + scale(80), CY));
     _ = finish_update();
     try std.testing.expect(tilt_angle > 0.3);
     begin_update_at(3);
-    try std.testing.expectEqual(@as(i32, 1), pointer_event(0, CX + 80, CY));
+    try std.testing.expectEqual(@as(i32, 1), pointer_event(0, CX + scale(80), CY));
     try std.testing.expectEqual(@as(i64, 17), finish_update());
     begin_update_at(17);
     try std.testing.expectEqual(@as(i64, 33), finish_update());

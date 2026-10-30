@@ -151,6 +151,7 @@ Server Component and Client Component example.
 <li><a href="/docs/render-cyclomatic-complexity">Render-Reachable WebAssembly Cyclomatic Complexity</a></li>
 <li><a href="/docs/nontrapping-divides">Proving Non-Trapping Divides</a></li>
 <li><a href="/docs/interactive-rendering-performance">Interactive Rendering Performance</a></li>
+<li><a href="/docs/timing-gui-render-layers">Timing GUI Render Layers</a></li>
 <li><a href="/docs/testing-gui-components">Testing GUI Components</a></li>
 </ol>
 </li>

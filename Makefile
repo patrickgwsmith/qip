@@ -471,6 +471,8 @@ gui/browser-security.wasm gui/calculator.wasm gui/chronograph.wasm gui/dock-magn
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter gui/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter gui/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
 
 gui/chronograph.wasm: gui/assets/inter_display_bold_chronograph_digits.zig image/lib/ktx2-rgba32float-display-p3-linear.zig
+# 720x720 tilted frames are shaded per pixel; ReleaseFast with SIMD keeps drags near 30 fps.
+gui/chronograph.wasm: ZIG_WASM_FLAGS := $(ZIG_WASM_SIMD_FLAGS)
 gui/openai-anthropic-arr.wasm: gui/assets/inter_display_chart_ascii.zig
 
 application/wasm/wasm-strict-profile.wasm: ZIG_WASM_MAX_MEMORY = 20971520

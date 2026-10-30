@@ -197,10 +197,10 @@ QIP GUI Components receive keyboard and pointer events and render pixels.
 Use `<qip-play>` to render them in the browser, or use our SDK to render them in Swift.
 
 <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
-  <qip-play canvas-width="min(180px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
+  <qip-play canvas-width="min(360px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
     <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="0" />
   </qip-play>
-  <qip-play canvas-width="min(180px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
+  <qip-play canvas-width="min(360px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
     <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="1" />
   </qip-play>
 </div>
@@ -211,19 +211,6 @@ for (const source of document.querySelectorAll(".home-chronograph-source")) {
   source.setAttribute("data-uniform-current_seconds", currentSeconds);
 }
 </script>
-
-A small JavaScript host passes the current second once as a uniform. The Timed
-component then advances from the explicit lifecycle timestamps and requests an
-update every 200 ms, matching the five steps per second of an 18,000 vph
-mechanical movement. That keeps the clock input explicit without giving Wasm
-ambient clock access. The first instance emits the compatible RGBA8 sRGB
-profile. The second emits linear Display P3 float pixels with HDR highlights.
-`<qip-play>` uses a float16 canvas when the browser supports one and tone maps
-the same highlights for an 8-bit canvas otherwise.
-Drag either watch horizontally to tilt it. The component redraws its SDF dial
-directly through a one-axis transform, moves the crystal and bezel
-reflections with the angle, and returns to rest at 60 Hz after release.
-Vertical touch gestures remain available for page scrolling.
 
 ---
 
