@@ -67,7 +67,7 @@ test("intro assembles a creature once and returns to the logo without further wa
   assert.ok(wake > now(), "asks to wake for the intro");
   run(2000);
   const shown = read();
-  assert.equal(eyes(shown), 2, "the robot's two eyes are drawn");
+  assert.equal(eyes(shown), 2, "the crab's two eyes are drawn");
   assert.ok(new Set(rects(shown).map((r) => r.fill)).size >= 2, "palette colors replace the logo orange");
   run(4000);
   assert.equal(read(), logo);
@@ -245,4 +245,27 @@ test("every other shape is a three-letter term, formats with a leading period, a
     }
   }
   assert.deepEqual(words, ["period", "period", "period", "period", "cursor", "underline"], ".SVG, .CSV, .PNG, .ZIG, TUI|, then a neon underlined GUI");
+});
+
+test("six characters take turns with the terms, each inside the frame", () => {
+  const { read, update, run } = creature(7, { intro: 0 });
+  const layouts = [];
+  for (let n = 0; n < 12; n++) {
+    update((e) => e.key_event(0x6e, 1));
+    run(1600);
+    const svg = read();
+    const isCharacter = eyes(svg) > 0;
+    assert.equal(isCharacter, n % 2 === 0, "characters and terms alternate");
+    if (!isCharacter) continue;
+    const bars = rects(svg);
+    assert.equal(bars.length, 12, "every logo bar is drawn");
+    for (const r of bars) {
+      const t = (r.a * Math.PI) / 180, cx = r.left + r.w / 2, cy = r.top + r.h / 2;
+      const hx = Math.abs((r.w / 2) * Math.cos(t)) + Math.abs((r.h / 2) * Math.sin(t));
+      const hy = Math.abs((r.w / 2) * Math.sin(t)) + Math.abs((r.h / 2) * Math.cos(t));
+      assert.ok(cx - hx > 0 && cx + hx < 800 && cy - hy > 0 && cy + hy < 600, "bars stay inside the viewBox");
+    }
+    layouts.push(bars.map((r) => `${Math.round(r.left / 30)},${Math.round(r.top / 30)},${Math.round(r.a / 15)}`).sort().join(" "));
+  }
+  assert.equal(new Set(layouts).size, 6, "crab, bird, giraffe, starfish, snail and flamingo all differ");
 });

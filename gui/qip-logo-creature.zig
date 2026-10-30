@@ -93,46 +93,124 @@ const Creature = struct {
 };
 
 // Creature coordinates are grid cells from the centre of the feet; y grows down.
-const robot = Creature{
+
+const RayOpts = struct {
+    role: Role = .main,
+    bob: bool = true,
+    // Swings about the ray's start, like a limb from its joint.
+    swing: ?Wiggle = null,
+};
+
+/// Lays bar i from a start point along a direction in degrees (0 is right,
+/// -90 is up), so limbs can be placed by their joint rather than their centre.
+fn ray(comptime i: usize, comptime from: [2]f64, comptime deg: f64, comptime o: RayOpts) Pose {
+    const r = deg * std.math.pi / 180;
+    const half = barLength(i) / 2;
+    const upright = sizes[i].h > sizes[i].w;
+    const wig: ?*const Wiggle = if (o.swing) |w| blk: {
+        var s = w;
+        if (upright) s.py = @floatCast(-half) else s.px = @floatCast(-half);
+        const final = s;
+        break :blk &final;
+    } else null;
+    return .{
+        .x = @floatCast(from[0] + half * @cos(r)),
+        .y = @floatCast(from[1] + half * @sin(r)),
+        .a = @floatCast(if (upright) deg - 90 else deg),
+        .role = o.role,
+        .bob = o.bob,
+        .wig = wig,
+    };
+}
+
+// Front on: a domed shell on four legs, eyes up on stalks and two claws
+// held out wide, their pincers snapping.
+const crab = Creature{
     .poses = .{
-        .{ .x = 0, .y = -12.1 }, // head top
-        .{ .x = -2, .y = -10.1 }, // head left
-        .{ .x = 2, .y = -10.1 }, // head right
-        .{ .x = 0, .y = -8.1 }, // head bottom
-        .{ .x = -3, .y = -10.1, .role = .accent }, // left ear bolt
-        .{ .x = -1.05, .y = -1.55, .a = -65, .bob = false }, // left leg, the / of /\
-        .{ .x = 3, .y = -10.1, .role = .accent }, // right ear bolt
-        .{ .x = 1.05, .y = -1.55, .a = 65, .bob = false }, // right leg, the \ of /\
-        .{ .x = 0, .y = -6.6, .a = 90, .role = .secondary, .wig = &.{ .deg = 3, .hz = 0.45 } }, // shoulders
-        .{ .x = -3.85, .y = -4.19, .a = -75, .role = .accent, .wig = &.{ .deg = 6, .hz = 0.8, .px = 2.5 } }, // hanging arm
-        .{ .x = 0, .y = -4.6, .role = .accent }, // spine
-        .{ .x = 4.45, .y = -8.77, .a = -60, .role = .accent, .wig = &.{ .deg = 14, .hz = 1.6, .px = -2.5 } }, // waving arm
+        ray(0, .{ -2.8, -3.3 }, -152, .{}), // left arm
+        ray(1, .{ -1.9, -2.6 }, 125, .{ .role = .secondary, .bob = false }), // left outer leg
+        ray(2, .{ -0.9, -2.8 }, 108, .{ .role = .secondary, .bob = false }), // left inner leg
+        ray(3, .{ 2.8, -3.3 }, -28, .{}), // right arm
+        ray(4, .{ -0.8, -4.9 }, -100, .{ .role = .accent }), // left eye stalk
+        ray(5, .{ 0.9, -2.8 }, 72, .{ .role = .secondary, .bob = false }), // right inner leg
+        ray(6, .{ 0.8, -4.9 }, -80, .{ .role = .accent }), // right eye stalk
+        .{ .x = 0, .y = -4.5 }, // shell dome
+        .{ .x = 0, .y = -3.5, .a = 90 }, // shell
+        ray(9, .{ -7.0, -5.5 }, -68, .{ .role = .secondary, .swing = .{ .deg = 10, .hz = 1.4 } }), // left pincer, snapping
+        ray(10, .{ 1.9, -2.6 }, 55, .{ .role = .secondary, .bob = false }), // right outer leg
+        ray(11, .{ 7.0, -5.5 }, -112, .{ .role = .secondary, .swing = .{ .deg = -10, .hz = 1.4, .phase = 2 } }), // right pincer, snapping
     },
-    .order = .{ 5, 7, 10, 8, 9, 11, 4, 6, 1, 2, 0, 3 },
-    .eyes = &.{ .{ -0.75, -10.2 }, .{ 0.75, -10.2 } },
+    .order = .{ 1, 2, 5, 10, 4, 6, 0, 9, 3, 11, 7, 8 },
+    .eyes = &.{ .{ -1.15, -7.25 }, .{ 1.15, -7.25 } },
     .eye_r = 0.55,
     .light_eyes = true,
 };
 
-const dog = Creature{
+// Side on, facing right: the 6-cell bar is the long neck, with a mane
+// behind it, two horns and a swishing tail.
+const giraffe = Creature{
     .poses = .{
-        .{ .x = 3.8, .y = -9.5 }, // brow
-        .{ .x = -2.8, .y = -1.5, .role = .secondary, .bob = false }, // back leg
-        .{ .x = -1.8, .y = -1.5, .role = .secondary, .bob = false }, // back leg
-        .{ .x = -0.3, .y = -3.5, .role = .secondary }, // belly
-        .{ .x = 1.9, .y = -11, .a = -14, .role = .accent }, // left ear
-        .{ .x = 2.2, .y = -1.5, .a = 90, .role = .secondary, .bob = false }, // front leg
-        .{ .x = 5.7, .y = -11, .a = 14, .role = .accent }, // right ear
-        .{ .x = -4.36, .y = -6.73, .a = 55, .wig = &.{ .deg = 14, .hz = 1.3, .px = 1.5 } }, // tail
-        .{ .x = -0.5, .y = -5.5, .a = 90 }, // back
-        .{ .x = 3.8, .y = -6.5 }, // jaw
-        .{ .x = 1.2, .y = -1.5, .role = .secondary, .bob = false }, // front leg
-        .{ .x = -0.2, .y = -4.5 }, // flank
+        .{ .x = 0, .y = -3.5 }, // belly
+        .{ .x = -2, .y = -1.5, .bob = false }, // hind leg
+        .{ .x = 2, .y = -1.5, .bob = false }, // foreleg
+        .{ .x = 0.2, .y = -4.5, .a = -5 }, // back
+        ray(4, .{ 4.3, -11.3 }, -100, .{ .role = .accent }), // horn
+        ray(5, .{ -0.8, -2.9 }, 90, .{ .role = .secondary, .bob = false }), // far hind leg
+        ray(6, .{ 5.0, -11.3 }, -80, .{ .role = .accent }), // horn
+        .{ .x = 5.1, .y = -10.8, .a = 12 }, // head
+        ray(8, .{ 2.0, -4.6 }, -70, .{}), // neck
+        ray(9, .{ -2.4, -4.6 }, 108, .{ .role = .secondary, .swing = .{ .deg = 10, .hz = 0.8 } }), // tail
+        .{ .x = 0.8, .y = -1.5, .role = .secondary, .bob = false }, // far foreleg
+        ray(11, .{ 1.2, -4.9 }, -71, .{ .role = .accent }), // mane
     },
-    .order = .{ 7, 1, 2, 10, 5, 3, 11, 8, 9, 0, 4, 6 },
-    .eyes = &.{ .{ 2.8, -8 }, .{ 4.8, -8 } },
-    .eye_r = 0.5,
+    .order = .{ 5, 10, 9, 11, 1, 2, 0, 3, 8, 4, 6, 7 },
+    .eyes = &.{.{ 4.65, -10.85 }},
+    .eye_r = 0.4,
+};
+
+// Side on, facing right: the Q's ring is the shell with a curl inside, on a
+// long foot, with one long and one short eye stalk.
+const snail = Creature{
+    .poses = .{
+        .{ .x = -1.0, .y = -5.5 }, // shell top
+        .{ .x = -3.0, .y = -3.5 }, // shell back
+        .{ .x = 1.0, .y = -3.5 }, // shell front
+        .{ .x = -1.0, .y = -1.5 }, // shell bottom
+        .{ .x = -0.5, .y = -3.5, .a = 90, .role = .accent }, // curl
+        ray(5, .{ 2.4, -0.9 }, -84, .{ .role = .secondary }), // neck
+        ray(6, .{ 2.7, -3.6 }, -105, .{ .role = .secondary, .swing = .{ .deg = 7, .hz = 0.6, .phase = 1 } }), // short eye stalk
+        ray(7, .{ 3.4, -3.6 }, -65, .{ .role = .secondary, .swing = .{ .deg = 8, .hz = 0.5 } }), // long eye stalk
+        .{ .x = 0.5, .y = -0.5, .a = 90, .role = .secondary, .bob = false }, // foot
+        .{ .x = 0.5, .y = -0.5, .bob = false, .role = .secondary }, // foot, under the shell
+        ray(10, .{ 3.3, -0.9 }, -84, .{ .role = .secondary }), // neck
+        .{ .x = -3.0, .y = -0.5, .role = .secondary, .bob = false }, // tail of the foot
+    },
+    .order = .{ 9, 11, 8, 5, 10, 6, 7, 4, 0, 1, 2, 3 },
+    .eyes = &.{ .{ 2.1, -5.85 }, .{ 4.8, -6.65 } },
+    .eye_r = 0.45,
     .light_eyes = true,
+};
+
+// Side on, facing right, standing on one leg with the other folded up and an
+// S-curved neck.
+const flamingo = Creature{
+    .poses = .{
+        .{ .x = 0.3, .y = -7.3, .a = -6 }, // body
+        ray(1, .{ 0.4, -6.2 }, 58, .{ .role = .accent }), // thigh, folded
+        ray(2, .{ 1.99, -3.66 }, 150, .{ .role = .accent }), // shin, folded
+        .{ .x = 0.0, .y = -6.5, .a = -6 }, // belly
+        ray(4, .{ 1.7, -14.2 }, 0, .{}), // head
+        ray(5, .{ 2.9, -10.6 }, -112, .{}), // upper neck
+        ray(6, .{ 3.5, -14.2 }, 55, .{ .role = .accent }), // beak
+        ray(7, .{ -2.0, -7.9 }, 198, .{ .role = .secondary, .swing = .{ .deg = 6, .hz = 0.9 } }), // tail
+        ray(8, .{ 0, 0 }, -90, .{ .role = .accent, .bob = false }), // standing leg
+        .{ .x = 0.0, .y = -8.1, .a = -8 }, // back
+        ray(10, .{ 2.2, -7.9 }, -72, .{}), // lower neck
+        .{ .x = -0.4, .y = -7.6, .a = -12, .role = .secondary, .wig = &.{ .deg = 4, .hz = 0.7, .px = 2.5 } }, // wing
+    },
+    .order = .{ 8, 2, 1, 7, 3, 0, 9, 10, 5, 4, 6, 11 },
+    .eyes = &.{.{ 2.4, -14.2 }},
+    .eye_r = 0.36,
 };
 
 const bird = Creature{
@@ -154,6 +232,63 @@ const bird = Creature{
     .eyes = &.{.{ 3.4, -8.1 }},
     .eye_r = 0.45,
 };
+
+/// Five arms from a pentagon of the 3-cell bars, standing on the lower two.
+/// The 6-cell bar is the top arm; the 2-cell bars make a smile.
+fn starfish() Creature {
+    @setEvalBranchQuota(20000);
+    const cy: f64 = -6.9;
+    const arm_bars = [5]u8{ 8, 0, 9, 11, 3 };
+    const ring_bars = [5]u8{ 5, 1, 10, 2, 7 };
+    const arm_wiggles = [5]Wiggle{
+        .{ .deg = 5, .hz = 0.6 },
+        .{ .deg = 16, .hz = 1.4 }, // waving
+        .{ .deg = 0, .hz = 0 },
+        .{ .deg = 0, .hz = 0 },
+        .{ .deg = -6, .hz = 0.7, .phase = 1 },
+    };
+    var c = Creature{ .poses = undefined, .order = undefined, .light_eyes = true };
+    for (0..5) |k| {
+        const deg = -90.0 + 72.0 * @as(f64, @floatFromInt(k));
+        const r = deg * std.math.pi / 180;
+        const i = arm_bars[k];
+        const len = barLength(i);
+        const d = 2.2 + len / 2;
+        const upright = sizes[i].h > sizes[i].w;
+        const leg = k == 2 or k == 3;
+        // Swing from the arm's root, where it meets the middle.
+        const wig = blk: {
+            var w = arm_wiggles[k];
+            if (upright) w.py = @floatCast(-len / 2) else w.px = @floatCast(-len / 2);
+            break :blk w;
+        };
+        c.poses[i] = .{
+            .x = @floatCast(d * @cos(r)),
+            .y = @floatCast(cy + d * @sin(r)),
+            .a = @floatCast(if (upright) deg - 90 else deg),
+            .bob = !leg,
+            .wig = if (wig.deg == 0) null else &wig,
+        };
+        // The side between this arm and the next, square to their bisector.
+        const mid = (deg + 36) * std.math.pi / 180;
+        const j = ring_bars[k];
+        const side_deg = deg + 36 + 90;
+        c.poses[j] = .{
+            .x = @floatCast(2.06 * @cos(mid)),
+            .y = @floatCast(cy + 2.06 * @sin(mid)),
+            .a = @floatCast(if (sizes[j].h > sizes[j].w) side_deg - 90 else side_deg),
+            .role = .secondary,
+        };
+    }
+    c.poses[4] = .{ .x = -0.5, .y = @floatCast(cy + 0.75), .a = 30 - 90, .role = .accent };
+    c.poses[6] = .{ .x = 0.5, .y = @floatCast(cy + 0.75), .a = -30 - 90, .role = .accent };
+    c.order = .{ 8, 0, 9, 11, 3, 5, 1, 10, 2, 7, 4, 6 };
+    c.eyes = &.{ .{ -0.65, cy - 0.65 }, .{ 0.65, cy - 0.65 } };
+    c.eye_r = 0.65;
+    return c;
+}
+
+const starfish_creature = starfish();
 
 // ---------------------------------------------------------------- words
 //
@@ -315,10 +450,10 @@ const word_zig = word(.dot, &.{ glyph_z, glyph_i, glyph_g });
 const word_tui = word(.caret, &.{ glyph_t, glyph_u, glyph_i });
 const word_gui = word(.underline, &.{ glyph_g, glyph_u, glyph_i });
 
-const creatures = [_]*const Creature{
-    &robot, &word_svg, &dog, &word_csv, &bird,  &word_png,
-    &robot, &word_zig, &dog, &word_tui, &bird, &word_gui,
-};
+// Characters and terms take turns; each list cycles at its own length.
+const characters = [_]*const Creature{ &crab, &bird, &giraffe, &starfish_creature, &snail, &flamingo };
+const terms = [_]*const Creature{ &word_svg, &word_csv, &word_png, &word_zig, &word_tui, &word_gui };
+const creatures = characters ++ terms;
 
 const Bar = struct {
     x: f64 = 0,
@@ -342,7 +477,8 @@ const eye_color = oklch(0.2, 0.015, 52.85);
 const ink_color = oklch(0.9155, 0.0391, 68.55);
 const blush_color = oklch(0.72, 0.14, 10);
 
-var creature_index: usize = creatures.len - 1;
+var shape_n: usize = 0;
+var current: *const Creature = &crab;
 var assembled = false;
 var pinned = false;
 var hover_suppressed = false;
@@ -498,7 +634,7 @@ fn newPalette() void {
 // ---------------------------------------------------------------- motion
 
 fn creature() *const Creature {
-    return creatures[creature_index];
+    return current;
 }
 
 /// Gives each bar a new target, a staggered start and sometimes an extra
@@ -537,7 +673,9 @@ fn beHappy(from_s: f64, for_s: f64) void {
 }
 
 fn assemble() void {
-    creature_index = (creature_index + 1) % creatures.len;
+    const turn = shape_n / 2;
+    current = if (shape_n % 2 == 0) characters[turn % characters.len] else terms[turn % terms.len];
+    shape_n = (shape_n + 1) % (2 * characters.len * terms.len);
     newPalette();
     assembled = true;
     assembled_this_update = true;
