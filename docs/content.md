@@ -4,7 +4,7 @@ This document defines the on-disk content layout consumed by routing/build workf
 
 ## Root
 
-- Content root directory is provided by the host (for example `qip router dev ./docs`).
+- Content root directory is provided by the host (for example `qip router dev -C ./docs`).
 - Every regular file under the root is eligible input.
 - File key is its relative path from the chosen root using `/` separators.
 

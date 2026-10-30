@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -15,9 +16,9 @@ import (
 )
 
 func TestNormalizeRouteWarcArgs(t *testing.T) {
-	in := []string{"docs/", "--recipes", "recipes/", "--components", "components/", "--host", "example.com", "-o", "out.warc"}
+	in := []string{"extra", "-C", "docs/", "--recipes", "recipes/", "--components", "components/", "--host", "example.com", "-o", "out.warc"}
 	got := normalizeRouteWarcArgs(in)
-	want := []string{"--recipes", "recipes/", "--components", "components/", "--host", "example.com", "-o", "out.warc", "docs/"}
+	want := []string{"-C", "docs/", "--recipes", "recipes/", "--components", "components/", "--host", "example.com", "-o", "out.warc", "extra"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args=%v, want %v", got, want)
 	}
@@ -32,7 +33,7 @@ func TestNormalizeRouteWarcArgs(t *testing.T) {
 
 func TestRunRouteWARCPassesComponentsRoot(t *testing.T) {
 	var gotComponentsRoot string
-	err := RunRoute([]string{"warc", "--components", "components", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "--components", "components", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		DefaultMode:    "dev",
@@ -56,11 +57,57 @@ func TestRunRouteWARCPassesComponentsRoot(t *testing.T) {
 	}
 }
 
+func TestRunRouteWARCContentRootFlag(t *testing.T) {
+	run := func(args ...string) (string, error) {
+		var contentRoot string
+		err := RunRoute(append([]string{"warc"}, args...), RouteConfig{
+			UsageRoute:     "usage route",
+			UsageRouteWarc: "usage route warc",
+			Stdout:         io.Discard,
+			ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
+				contentRoot = request.ContentRoot
+				return []string{"/a"}, nil
+			},
+			ResolveWARC: func(ctx context.Context, request RouteWARCRequest) (qinternal.InProcessHTTPResponse, error) {
+				return qinternal.InProcessHTTPResponse{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/plain"}},
+					Body:       []byte("ok"),
+				}, nil
+			},
+		})
+		return contentRoot, err
+	}
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{nil, "."},
+		{[]string{"-C", "docs"}, "docs"},
+		{[]string{"--cwd", "docs"}, "docs"},
+		{[]string{"--cwd=docs"}, "docs"},
+	} {
+		got, err := run(tc.args...)
+		if err != nil {
+			t.Fatalf("RunRoute(%v): %v", tc.args, err)
+		}
+		if got != tc.want {
+			t.Fatalf("RunRoute(%v) content root=%q, want %q", tc.args, got, tc.want)
+		}
+	}
+
+	_, err := run("docs")
+	if err == nil || !strings.Contains(err.Error(), "qip router warc -C docs") {
+		t.Fatalf("positional content dir error = %v", err)
+	}
+}
+
 func TestRunRouteWARCArchivesAllPaths(t *testing.T) {
 	var out bytes.Buffer
 	var listed bool
 	resolved := make([]string, 0, 2)
-	err := RunRoute([]string{"warc", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		DefaultMode:    "dev",
@@ -105,7 +152,7 @@ func TestRunRouteWARCTransformsArchive(t *testing.T) {
 	var out bytes.Buffer
 	var transformedInput []byte
 	var transformedRouteCount int
-	err := RunRoute([]string{"warc", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		DefaultMode:    "dev",
@@ -144,7 +191,7 @@ func TestRunRouteWARCIsReproducible(t *testing.T) {
 	run := func() []byte {
 		t.Helper()
 		var out bytes.Buffer
-		err := RunRoute([]string{"warc", "docs"}, RouteConfig{
+		err := RunRoute([]string{"warc", "-C", "docs"}, RouteConfig{
 			UsageRoute:     "usage route",
 			UsageRouteWarc: "usage route warc",
 			Stdout:         &out,
@@ -173,7 +220,7 @@ func TestRunRouteWARCIsReproducible(t *testing.T) {
 }
 
 func TestRunRouteWARCRejectsInvalidRecipeOutput(t *testing.T) {
-	err := RunRoute([]string{"warc", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		Stdout:         &bytes.Buffer{},
@@ -197,7 +244,7 @@ func TestRunRouteWARCRejectsInvalidRecipeOutput(t *testing.T) {
 }
 
 func TestRunRouteWARCNoPaths(t *testing.T) {
-	err := RunRoute([]string{"warc", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
@@ -214,7 +261,7 @@ func TestRunRouteWARCNoPaths(t *testing.T) {
 
 func TestRunRouteWARCCustomHost(t *testing.T) {
 	var out bytes.Buffer
-	err := RunRoute([]string{"warc", "--host", "example.com", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "--host", "example.com", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		DefaultMode:    "dev",
@@ -243,7 +290,7 @@ func TestRunRouteWARCCustomHost(t *testing.T) {
 
 func TestRunRouteWARCAcceptsHTTPSOrigin(t *testing.T) {
 	var out bytes.Buffer
-	err := RunRoute([]string{"warc", "--host", "https://example.com", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "--host", "https://example.com", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
@@ -277,7 +324,7 @@ func TestRunRouteWARCRejectsHostWithPath(t *testing.T) {
 }
 
 func TestRunRouteWARCRejectsMethodFlags(t *testing.T) {
-	err := RunRoute([]string{"warc", "-X", "HEAD", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "-X", "HEAD", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
@@ -291,7 +338,7 @@ func TestRunRouteWARCRejectsMethodFlags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	err = RunRoute([]string{"warc", "--method", "HEAD", "docs"}, RouteConfig{
+	err = RunRoute([]string{"warc", "--method", "HEAD", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
@@ -307,7 +354,7 @@ func TestRunRouteWARCRejectsMethodFlags(t *testing.T) {
 }
 
 func TestRunRouteWARCViewSourceRequiresRecipes(t *testing.T) {
-	err := RunRoute([]string{"warc", "--view-source", "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "--view-source", "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
@@ -353,7 +400,7 @@ func TestRunRouteWARCViewSourceAddsViewSourceRecords(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := RunRoute([]string{"warc", "--view-source", "--recipes", recipesRoot, "--components", componentsRoot, "docs"}, RouteConfig{
+	err := RunRoute([]string{"warc", "--view-source", "--recipes", recipesRoot, "--components", componentsRoot, "-C", "docs"}, RouteConfig{
 		UsageRoute:     "usage route",
 		UsageRouteWarc: "usage route warc",
 		DefaultMode:    "dev",

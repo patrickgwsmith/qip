@@ -61,14 +61,14 @@ Ordinary content recipes only see the current response. Use `application/warc` r
 During development, use single-path commands for faster feedback:
 
 ```sh
-qip router get ./site /docs/router
-qip router head ./site /docs/router
+qip router get -C ./site /docs/router
+qip router head -C ./site /docs/router
 ```
 
 Before publishing, run the whole-site path:
 
 ```sh
-qip router warc ./site
+qip router warc -C ./site
 ```
 
 ## Dev Reload

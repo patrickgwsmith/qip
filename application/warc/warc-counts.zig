@@ -8,7 +8,7 @@
 //! ```sh
 //! make -j qip application/warc/warc-counts.wasm
 //!
-//! qip router warc ./site |
+//! qip router warc -C ./site |
 //!   qip run application/warc/warc-counts.wasm
 //! ```
 //!

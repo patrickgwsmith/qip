@@ -7,11 +7,11 @@ meta tags. It draws Inter Display glyph outlines straight to pixels in one
 pass, with no SVG step and no separate rasterize and encode components.
 
 The qip.dev site uses it as the WARC recipe
-`10-add-open-graph-image-inter-png.wasm`, so `qip router warc ./site` adds an
+`10-add-open-graph-image-inter-png.wasm`, so `qip router warc -C ./site` adds an
 image for every page:
 
 ```bash
-qip router warc ./site --host https://qip.dev -o site.warc
+qip router warc -C ./site --host https://qip.dev -o site.warc
 ```
 
 You can also run it on an existing archive:

@@ -226,11 +226,44 @@ test("Node router CLI warc --check-kindred exits non-zero on a difference", asyn
   const contentRoot = await kindredCheckSite(["a", "b", "c", "d", "e"]);
   const output = join(await mkdtemp(join(tmpdir(), "qip-node-router-check-kindred-out-")), "site.warc");
   const cli = join(root, "npm", "qip-router", "qip-router.mjs");
-  await execFileAsync(process.execPath, [cli, "warc", contentRoot, "-o", output]);
+  await execFileAsync(process.execPath, [cli, "warc", "-C", contentRoot, "-o", output]);
   await assert.rejects(
-    execFileAsync(process.execPath, [cli, "warc", contentRoot, "--check-kindred", "-o", output]),
+    execFileAsync(process.execPath, [cli, "warc", "-C", contentRoot, "--check-kindred", "-o", output]),
     { code: 1, stderr: `${kindredCheckFailure}\n` },
   );
+});
+
+test("Node router CLI takes its content directory from -C, --cwd, or the current directory", async () => {
+  const contentRoot = await mkdtemp(join(tmpdir(), "qip-node-router-cwd-"));
+  await writeFile(join(contentRoot, "about.md"), "# About\n");
+  const cli = join(root, "npm", "qip-router", "qip-router.mjs");
+  const listed = (result) => result.stdout.split("\n").filter(Boolean).map((line) => line.split("\t")[1]);
+  assert.deepEqual(listed(await execFileAsync(process.execPath, [cli, "list"], { cwd: contentRoot })), ["/about", "/about", "/about.md", "/about.md"]);
+  assert.deepEqual(listed(await execFileAsync(process.execPath, [cli, "list", "-C", contentRoot])), ["/about", "/about", "/about.md", "/about.md"]);
+  assert.deepEqual(listed(await execFileAsync(process.execPath, [cli, "list", "--cwd", contentRoot])), ["/about", "/about", "/about.md", "/about.md"]);
+  assert.match((await execFileAsync(process.execPath, [cli, "get", "-C", contentRoot, "/about.md"])).stdout, /^# About/);
+
+  for (const [args, suggestion] of [
+    [["get", contentRoot, "/about"], `qip-router get -C ${contentRoot} /about`],
+    [["get", "."], "qip-router get -C . /"],
+    [["list", contentRoot], `qip-router list -C ${contentRoot}`],
+    [["warc", contentRoot, "-o", "-"], `qip-router warc -C ${contentRoot}`],
+  ]) {
+    await assert.rejects(execFileAsync(process.execPath, [cli, ...args], { cwd: contentRoot }), (error) => {
+      assert.equal(error.code, 1);
+      assert.match(error.stderr, /no longer takes the content directory as an argument/);
+      assert.ok(error.stderr.includes(suggestion), error.stderr);
+      return true;
+    });
+  }
+
+  for (const args of [["get", "about"], ["head", "about.md"], ["kindred", "missing/page"]]) {
+    await assert.rejects(execFileAsync(process.execPath, [cli, ...args], { cwd: contentRoot }), (error) => {
+      assert.equal(error.code, 1);
+      assert.ok(error.stderr.includes(`request path must start with "/": "${args[1]}"`), error.stderr);
+      return true;
+    });
+  }
 });
 
 test("Node and Go routers produce identical page and full-site WARC bytes", async () => {
@@ -238,7 +271,7 @@ test("Node and Go routers produce identical page and full-site WARC bytes", asyn
   const nodePage = await router.resolve("GET", "/docs/router");
   const goPage = await execFileAsync(
     join(root, "qip"),
-    ["router", "get", "site", "/docs/router", "--recipes", "recipes"],
+    ["router", "get", "-C", "site", "/docs/router", "--recipes", "recipes"],
     { encoding: "buffer", maxBuffer: 2 * 1024 * 1024 },
   );
   assert.deepEqual(Buffer.from(nodePage.body), goPage.stdout);
@@ -250,7 +283,7 @@ test("Node and Go routers produce identical page and full-site WARC bytes", asyn
   const nodeWarc = await router.warc();
   const goWarc = await execFileAsync(
     join(root, "qip"),
-    ["router", "warc", "site", "--recipes", "recipes", "-o", "-"],
+    ["router", "warc", "-C", "site", "--recipes", "recipes", "-o", "-"],
     { encoding: "buffer", maxBuffer: 128 * 1024 * 1024 },
   );
   assertSameArchive(Buffer.from(nodeWarc), goWarc.stdout);
@@ -327,7 +360,7 @@ test("Node and Go routers filter content but keep filtered-out parent layouts", 
   assert.doesNotMatch(text, /Draft|SECRET/);
   const goWarc = await execFileAsync(
     join(root, "qip"),
-    ["router", "warc", contentRoot, "--recipes", recipesRoot, "--include", "blog/post", "--exclude", "blog/drafts", "-o", "-"],
+    ["router", "warc", "-C", contentRoot, "--recipes", recipesRoot, "--include", "blog/post", "--exclude", "blog/drafts", "-o", "-"],
     { encoding: "buffer", maxBuffer: 16 * 1024 * 1024 },
   );
   assertSameArchive(nodeWarc, goWarc.stdout);

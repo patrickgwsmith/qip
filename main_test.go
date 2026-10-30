@@ -309,9 +309,9 @@ func TestRunRejectsRemovedAllowMemoryGrowFlag(t *testing.T) {
 }
 
 func TestNormalizeRouteArgs(t *testing.T) {
-	in := []string{"docs/", "--recipes", "recipes/", "--mode", "dev"}
+	in := []string{"/", "-C", "docs/", "--recipes", "recipes/", "--cwd", "site/", "--mode", "dev"}
 	got := normalizeRouteArgs(in)
-	want := []string{"--recipes", "recipes/", "--mode", "dev", "docs/"}
+	want := []string{"-C", "docs/", "--recipes", "recipes/", "--cwd", "site/", "--mode", "dev", "/"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("args=%v, want %v", got, want)
 	}

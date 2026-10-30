@@ -117,7 +117,7 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const qip = join(root, "qip");
   const content = resolve(root, options.content);
-  const args = ["router", "warc", content, "--host", options.host, "-v", "-o", "/dev/null"];
+  const args = ["router", "warc", "-C", content, "--host", options.host, "-v", "-o", "/dev/null"];
   if (options.viewSource) args.push("--view-source");
 
   const runs = [];

@@ -118,6 +118,8 @@ func routePathCmd(args []string, method string, usage string, logPrefix string) 
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var contentRoot string
+	qinternal.RegisterRouterCWDFlag(fs, &contentRoot)
 	var filterFlags qinternal.ContentFilterFlags
 	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
@@ -141,11 +143,13 @@ func routePathCmd(args []string, method string, usage string, logPrefix string) 
 	opts.mode = mode
 
 	rest := fs.Args()
-	if len(rest) != 2 {
+	if err := qinternal.CheckRouterPositionalContentDir(strings.ToLower(method), rest, 1); err != nil {
+		gameOver("%v", err)
+	}
+	if len(rest) != 1 {
 		gameOver("%s", usage)
 	}
-	contentRoot := rest[0]
-	requestPath := rest[1]
+	requestPath := rest[0]
 	if requestPath == "" {
 		requestPath = "/"
 	}
@@ -276,6 +280,8 @@ func routePathCmdWithState(args []string, usage string, run func(context.Context
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var contentRoot string
+	qinternal.RegisterRouterCWDFlag(fs, &contentRoot)
 	var filterFlags qinternal.ContentFilterFlags
 	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
@@ -298,11 +304,13 @@ func routePathCmdWithState(args []string, usage string, run func(context.Context
 	opts.mode = mode
 
 	rest := fs.Args()
-	if len(rest) != 2 {
+	if err := qinternal.CheckRouterPositionalContentDir("kindred", rest, 1); err != nil {
+		gameOver("%v", err)
+	}
+	if len(rest) != 1 {
 		gameOver("%s", usage)
 	}
-	contentRoot := rest[0]
-	requestPath := rest[1]
+	requestPath := rest[0]
 	if requestPath == "" {
 		requestPath = "/"
 	}
@@ -351,6 +359,8 @@ func routeListCmd(args []string) {
 	fs.StringVar(&recipesRoot, "recipes", "", "recipe QIP components root directory")
 	fs.StringVar(&componentsRoot, "components", "", "browser-loadable QIP components root directory")
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
+	var contentRoot string
+	qinternal.RegisterRouterCWDFlag(fs, &contentRoot)
 	var filterFlags qinternal.ContentFilterFlags
 	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteArgs(args)); err != nil {
@@ -374,10 +384,12 @@ func routeListCmd(args []string) {
 	opts.mode = mode
 
 	rest := fs.Args()
-	if len(rest) != 1 {
+	if err := qinternal.CheckRouterPositionalContentDir("list", rest, 0); err != nil {
+		gameOver("%v", err)
+	}
+	if len(rest) != 0 {
 		gameOver("%s", usageRouteList)
 	}
-	contentRoot := rest[0]
 
 	if err := validateContentRootArg(contentRoot); err != nil {
 		gameOver("%v", err)

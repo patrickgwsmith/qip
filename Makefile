@@ -1733,7 +1733,7 @@ wasm-safety-report: qip components
 # SITE_HTML_VALIDATORS := text/html/html-unique-id-validator.wasm text/html/html-id-reference-validator.wasm text/html/html-accessible-name-unique-validator.wasm
 
 site-static: qip # $(SITE_HTML_VALIDATORS)
-	$(QIP_BIN) router warc ./site --host https://qip.dev --view-source | $(QIP_BIN) run application/warc/warc-check-broken-links.wasm application/warc/warc-check-broken-module-imports.wasm application/warc/warc-to-static-tar-no-trailing-slash.wasm > site-static.tar && mkdir -p site-static && tar -xvf site-static.tar -C site-static
+	$(QIP_BIN) router warc -C ./site --host https://qip.dev --view-source | $(QIP_BIN) run application/warc/warc-check-broken-links.wasm application/warc/warc-check-broken-module-imports.wasm application/warc/warc-to-static-tar-no-trailing-slash.wasm > site-static.tar && mkdir -p site-static && tar -xvf site-static.tar -C site-static
 	@failed=0; \
 	html_entries="$$(tar -tf site-static.tar | LC_ALL=C sort | awk '/\.html$$/')"; \
 	for validator in $(SITE_HTML_VALIDATORS); do \
@@ -1751,10 +1751,10 @@ site-static: qip # $(SITE_HTML_VALIDATORS)
 	test "$$failed" -eq 0
 
 site-checks: site-static
-	$(QIP_BIN) router get site / | $(QIP_BIN) run text/html/html-wcag-contrast-aa.wasm
+	$(QIP_BIN) router get -C site / | $(QIP_BIN) run text/html/html-wcag-contrast-aa.wasm
 
 dev:
-	$(QIP_BIN) router dev ./site -p 4114 --view-source
+	$(QIP_BIN) router dev -C ./site -p 4114 --view-source
 
 defluff:
 	find . -name '.DS_Store' -type f -delete

@@ -40,6 +40,8 @@ func devCmd(args []string) {
 	fs.StringVar(&modeRaw, "mode", string(modeDev), "runtime mode: dev or prod")
 	fs.BoolVar(&opts.viewSource, "view-source", false, "serve /view-source plus recipe source files from --recipes")
 	fs.IntVar(&port, "p", 4000, "port")
+	var contentRoot string
+	qinternal.RegisterRouterCWDFlag(fs, &contentRoot)
 	var filterFlags qinternal.ContentFilterFlags
 	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeDevArgs(args)); err != nil {
@@ -62,10 +64,12 @@ func devCmd(args []string) {
 	opts.verbose = devVerbose
 	opts.mode = mode
 	contentArgs := fs.Args()
-	if len(contentArgs) != 1 {
+	if err := qinternal.CheckRouterPositionalContentDir("dev", contentArgs, 0); err != nil {
+		gameOver("%v", err)
+	}
+	if len(contentArgs) != 0 {
 		gameOver(usageDev)
 	}
-	contentRoot := contentArgs[0]
 	if port <= 0 || port > 65535 {
 		gameOver("Invalid port: %d", port)
 	}

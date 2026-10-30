@@ -2,7 +2,7 @@
 
 import { createHash } from "node:crypto";
 import { createServer, STATUS_CODES } from "node:http";
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import { readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
 import { availableParallelism } from "node:os";
 import { extname, join, posix, resolve } from "node:path";
@@ -1476,15 +1476,16 @@ function bodySnippet(body, offset) {
 }
 
 function usage() {
-  return `Usage: qip-router <command> <content-directory> [options]\n\n` +
+  return `Usage: qip-router <command> [-C|--cwd <content-directory>] [options]\n\n` +
     `Commands:\n` +
-    `  dev   Serve the content directory\n` +
-    `  get   Render one request path\n` +
-    `  head     Print headers for one request path\n` +
-    `  kindred  List Kindred Route context for one path\n` +
+    `  dev      Serve the content directory\n` +
+    `  get      Render one request path: get <path>\n` +
+    `  head     Print headers for one request path: head <path>\n` +
+    `  kindred  List Kindred Route context for one path: kindred <path>\n` +
     `  list     List routed paths\n` +
-    `  warc  Write the transformed site WARC\n\n` +
+    `  warc     Write the transformed site WARC\n\n` +
     `Options:\n` +
+    `  -C, --cwd <dir>   The content directory. Defaults to the current directory\n` +
     `  --include <path>  Route only content under this path. Repeatable\n` +
     `  --exclude <path>  Do not route content under this path. Repeatable.\n` +
     `                    Routed content is the include paths, or everything,\n` +
@@ -1496,14 +1497,22 @@ function usage() {
     `Documentation: https://qip.dev/docs/router\n`;
 }
 
+const requestPathCounts = { dev: 0, get: 1, head: 1, kindred: 1, list: 0, warc: 0 };
+
 function parseCLI(argv) {
-  const [command, contentRoot, ...rest] = argv;
-  if (!command || !contentRoot) throw new Error(usage());
-  const options = { contentRoot, include: [], exclude: [] };
+  const [command, ...rest] = argv;
+  if (!command) throw new Error(usage());
+  const options = { contentRoot: ".", include: [], exclude: [] };
   const positional = [];
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
-    if (arg === "--recipes") options.recipesRoot = rest[++index];
+    if (arg === "-C" || arg === "--cwd") {
+      const value = rest[++index];
+      if (value === undefined) throw new Error(`${arg} requires a directory`);
+      options.contentRoot = value;
+    }
+    else if (arg.startsWith("--cwd=")) options.contentRoot = arg.slice("--cwd=".length);
+    else if (arg === "--recipes") options.recipesRoot = rest[++index];
     else if (arg === "--components") options.componentsRoot = rest[++index];
     else if (arg === "--elements") options.elementsRoot = rest[++index];
     else if (arg === "--host") options.hostname = rest[++index];
@@ -1518,7 +1527,36 @@ function parseCLI(argv) {
     else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}`);
     else positional.push(arg);
   }
+  checkPositionalContentRoot(command, positional);
   return { command, options, positional };
+}
+
+// Rejects the content directory argument that commands took before -C/--cwd.
+function checkPositionalContentRoot(command, positional) {
+  const requestPaths = requestPathCounts[command];
+  if (requestPaths === undefined) return;
+  let suggestion;
+  if (positional.length > requestPaths) suggestion = positional;
+  else {
+    const relative = positional.find((arg) => !arg.startsWith("/"));
+    if (relative === undefined) return;
+    if (!isDirectory(relative)) throw new Error(`qip-router ${command} request path must start with "/": ${JSON.stringify(relative)}`);
+    suggestion = [relative, "/"];
+  }
+  const [contentRoot, ...requestPath] = suggestion;
+  throw new Error(
+    `qip-router ${command} no longer takes the content directory as an argument; ` +
+    `pass it with -C or --cwd (default: current directory):\n` +
+    `  ${["qip-router", command, "-C", contentRoot, ...requestPath].join(" ")}`,
+  );
+}
+
+function isDirectory(arg) {
+  try {
+    return statSync(arg).isDirectory();
+  } catch {
+    return false;
+  }
 }
 
 export async function main(argv = process.argv.slice(2)) {

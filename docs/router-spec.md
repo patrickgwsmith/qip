@@ -11,7 +11,7 @@ We prefer a small set of explicit routing rules because site authors, recipe aut
 
 ## Site Root
 
-`npx qip-router dev` and the other `qip-router` subcommands take one local site directory.
+`npx qip-router dev` and the other `qip-router` subcommands work on one local site directory. Pass it with `-C <dir>` or `--cwd <dir>`; without either flag, the site root is the current directory. Request path arguments must start with `/`. Subcommands must reject any other request path argument; when it names a directory or a `github:` source, or when there are more arguments than the subcommand accepts, the error must suggest the `-C` form, so that a directory is never mistaken for a request path.
 
 A typical site root contains Markdown pages, static files, browser assets, and optional project directories:
 
@@ -67,8 +67,8 @@ The router auto-discovers these project directories under the site root:
 The recipe and component flags override auto-discovery. Element modules always belong to the site because they define site-owned browser behavior. This keeps the common command short while allowing shared recipe and component directories:
 
 ```sh
-npx qip-router dev ./site
-npx qip-router dev ./site --recipes ../shared-recipes
+npx qip-router dev -C ./site
+npx qip-router dev -C ./site --recipes ../shared-recipes
 ```
 
 Local project directories may be real directories or symlinks. Symlinks are the preferred way to share recipes across sites without introducing a config file. Remote object stores such as S3 do not have symlinks, so shared project directories must be copied or handled by future remote-root support.
@@ -80,7 +80,7 @@ Nested `_recipes`, `_components`, and `_elements` directories are reserved for f
 Request paths must be canonicalized before route lookup.
 
 - An empty path must become `/`.
-- A path without a leading slash must be treated as if it had one.
+- A path without a leading slash must be treated as if it had one. (The CLI rejects such paths before they reach the router; see Site Root.)
 - Dot segments must be cleaned with URL-path semantics.
 - The router uses no trailing slash as the canonical form. `/docs/` must redirect to `/docs`.
 - A canonicalization redirect must preserve the query string.
@@ -108,8 +108,8 @@ These rules keep file paths portable and make route generation reviewable.
 `--include <path>` and `--exclude <path>` limit which content files the router routes. Both flags can be repeated. The `dev`, `get`, `head`, `kindred`, `list` and `warc` commands accept them, in both the Go and Node routers.
 
 ```sh
-qip router warc ./site --exclude blog/drafts -o site.warc
-qip router dev ./site --include blog --include about.md
+qip router warc -C ./site --exclude blog/drafts -o site.warc
+qip router dev -C ./site --include blog --include about.md
 ```
 
 The routed files are the files under any include path, or every content file when there are no include paths, minus the files under any exclude path. The order of the flags does not change the result. A file inside an excluded path cannot be included again.
@@ -387,25 +387,25 @@ Each listed route must include:
 Run the zero-dependency Node package without installing it globally:
 
 ```sh
-npx qip-router dev ./site
-npx qip-router get ./site /docs/router
-npx qip-router head ./site /docs/router
-npx qip-router kindred ./site /docs/router
-npx qip-router list ./site
-npx qip-router warc ./site -o site.warc
+npx qip-router dev -C ./site
+npx qip-router get -C ./site /docs/router
+npx qip-router head -C ./site /docs/router
+npx qip-router kindred -C ./site /docs/router
+npx qip-router list -C ./site
+npx qip-router warc -C ./site -o site.warc
 ```
 
-`npx qip-router dev <content_dir> ...` must serve the same route resolution pipeline used by the other subcommands. Existing files are read for each request. A browser hard reload refreshes the route table and recipe modules, so newly added files and changed recipes take effect without restarting the process.
+`npx qip-router dev [-C <content_dir>] ...` must serve the same route resolution pipeline used by the other subcommands. Existing files are read for each request. A browser hard reload refreshes the route table and recipe modules, so newly added files and changed recipes take effect without restarting the process.
 
-`get <content_dir> <path> ...` must resolve one path through the dev-route pipeline and write the response body.
+`get [-C <content_dir>] <path> ...` must resolve one path through the dev-route pipeline and write the response body.
 
-`head <content_dir> <path> ...` must resolve one path through the dev-route pipeline and write headers/log output without a response body.
+`head [-C <content_dir>] <path> ...` must resolve one path through the dev-route pipeline and write headers/log output without a response body.
 
-`kindred <content_dir> <path> ...` must list the GET request paths that the router supplies as Kindred Route context before the target response. For `/docs/router`, this includes parent pages such as `/` and `/docs` when they resolve to HTML. HTML targets can also contribute direct site-relative non-HTML `src` and eligible `<link href>` dependencies.
+`kindred [-C <content_dir>] <path> ...` must list the GET request paths that the router supplies as Kindred Route context before the target response. For `/docs/router`, this includes parent pages such as `/` and `/docs` when they resolve to HTML. HTML targets can also contribute direct site-relative non-HTML `src` and eligible `<link href>` dependencies.
 
-`list <content_dir> ...` must print the base route table.
+`list [-C <content_dir>] ...` must print the base route table.
 
-`warc <content_dir> ...` must emit a WARC archive. Use `-o <path>` or `--output <path>` to write it to a file; without that option, the command writes the archive to stdout.
+`warc [-C <content_dir>] ...` must emit a WARC archive. Use `-o <path>` or `--output <path>` to write it to a file; without that option, the command writes the archive to stdout.
 
 The archive conforms to [WARC 1.1](https://iipc.github.io/warc-specifications/specifications/warc-format/warc-1.1/).
 This command is intended for deterministic application builds rather than
@@ -415,10 +415,10 @@ network retrieval time.
 The project directory flags are overrides, not requirements:
 
 ```sh
-npx qip-router dev ./site
-npx qip-router get ./site /docs/router
-npx qip-router warc ./site -o site.warc
-npx qip-router warc ./site --recipes ../shared-recipes --components ../shared-components --elements ../shared-elements -o site.warc
+npx qip-router dev -C ./site
+npx qip-router get -C ./site /docs/router
+npx qip-router warc -C ./site -o site.warc
+npx qip-router warc -C ./site --recipes ../shared-recipes --components ../shared-components --elements ../shared-elements -o site.warc
 ```
 
 ## When Not To Use The Router

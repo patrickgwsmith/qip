@@ -7,7 +7,7 @@ filesystem, and runs QIP components with Node's WebAssembly runtime.
 Documentation: <https://qip.dev/docs/router>
 
 ```sh
-npx qip-router dev ./site
+npx qip-router dev -C ./site
 ```
 
 The package has no runtime dependencies. It requires Node.js 22 or newer.
@@ -15,13 +15,18 @@ The package has no runtime dependencies. It requires Node.js 22 or newer.
 ## Commands
 
 ```sh
-qip-router dev ./site
-qip-router get ./site /docs/router
-qip-router head ./site /docs/router
-qip-router kindred ./site /docs/router
-qip-router list ./site
-qip-router warc ./site -o site.warc
+qip-router dev -C ./site
+qip-router get -C ./site /docs/router
+qip-router head -C ./site /docs/router
+qip-router kindred -C ./site /docs/router
+qip-router list -C ./site
+qip-router warc -C ./site -o site.warc
 ```
+
+`-C <dir>` or `--cwd <dir>` sets the content directory. Without it, the
+current directory is the content root, so `cd site && qip-router get /` also
+works. The content directory used to be a positional argument; passing one
+now fails with the `-C` form to use instead.
 
 Project directories are discovered below the content root:
 
@@ -36,7 +41,7 @@ site/
 They can also be supplied separately:
 
 ```sh
-qip-router dev ./site \
+qip-router dev -C ./site \
   --recipes ./recipes \
   --components ./components \
   --elements ./elements
@@ -48,8 +53,8 @@ routes the files under any include path, or all files when there are none, and
 removes the files under any exclude path:
 
 ```sh
-qip-router warc ./site --exclude blog/drafts -o site.warc
-qip-router dev ./site --include blog --include about.md
+qip-router warc -C ./site --exclude blog/drafts -o site.warc
+qip-router dev -C ./site --include blog --include about.md
 ```
 
 Either flag also skips dot paths such as `.env`, unless an include path names

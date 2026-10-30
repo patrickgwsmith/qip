@@ -16,7 +16,7 @@ Create a folder with one page:
 ```sh
 mkdir my-site
 printf '# My Site\n\nWelcome. Read the [blog](/blog).\n' > my-site/index.md
-npx qip-router dev ./my-site
+npx qip-router dev -C ./my-site
 ```
 
 Open <http://127.0.0.1:4000>. You'll see the Markdown source as plain text, because the site has no recipes yet. QIP Router doesn't build anything in: every transformation is a recipe step you can see in the folder.
@@ -73,7 +73,7 @@ The `<meta>` tag at the top of the post moves into the page's `<head>`. This is 
 List the routes to check that the files are where you expect:
 
 ```sh
-npx qip-router list ./my-site
+npx qip-router list -C ./my-site
 ```
 
 ```txt
@@ -138,9 +138,9 @@ printf '/blog/hello-world\n' > my-site/first-post.uri
 Every command runs the same pipeline as the dev server:
 
 ```sh
-npx qip-router get ./my-site /blog            # the rendered HTML
-npx qip-router head ./my-site /first-post     # status and headers
-npx qip-router kindred ./my-site /blog/hello-world
+npx qip-router get -C ./my-site /blog            # the rendered HTML
+npx qip-router head -C ./my-site /first-post     # status and headers
+npx qip-router kindred -C ./my-site /blog/hello-world
 ```
 
 `kindred` lists the pages that whole-site recipes can see while rendering one page. For `/blog/hello-world`, that's `/` and `/blog`, which is how the layout on `/` reaches the post.
@@ -150,7 +150,7 @@ npx qip-router kindred ./my-site /blog/hello-world
 Export the site as one WARC archive, check its links, and convert it to static files:
 
 ```sh
-npx qip-router warc ./my-site \
+npx qip-router warc -C ./my-site \
   | npx @qip.dev/qipx qip.dev run \
       application/warc/warc-check-broken-links.wasm \
       application/warc/warc-to-static-tar-no-trailing-slash.wasm \

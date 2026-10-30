@@ -114,13 +114,13 @@ const scoreDeprecatedNotice = "qip score is deprecated; use wasm-validate-core-1
 const usageImage = "Usage: qip image -i <input image path or -> -o <output image path> [--timeout-ms <ms>] [--max-memory <bytes>] [-v] <QIP component URL or file> [-u <key=value> ...] ..."
 const usageComply = "Usage: qip comply [options] <file-or-dir> [...]"
 const usageRouteDocs = "\n\nDocumentation: https://qip.dev/docs/router"
-const usageDev = "Usage: qip router dev <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [--view-source] [-p <port>] [-v|--verbose]" + usageRouteDocs
+const usageDev = "Usage: qip router dev [-C|--cwd <content_dir>] [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [--view-source] [-p <port>] [-v|--verbose]" + usageRouteDocs
 const usageRoute = "Usage: qip router <subcommand> [args]\n\nSubcommands:\n  dev      Start a dev server for a content directory with optional recipes\n  get      Resolve one GET path through the dev router and print the result\n  head     Resolve one HEAD path through the dev router and print headers\n  kindred  List routes supplied as Kindred Route context for one path\n  list     List routed paths and content types\n  warc     Archive the routed site as WARC 1.1" + usageRouteDocs
-const usageRouteGet = "Usage: qip router get <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
-const usageRouteHead = "Usage: qip router head <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
-const usageRouteKindred = "Usage: qip router kindred <content_dir> <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
-const usageRouteList = "Usage: qip router list <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
-const usageRouteWarc = "Usage: qip router warc <content_dir> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [--host <host>] [--view-source] [--check-kindred] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
+const usageRouteGet = "Usage: qip router get [-C|--cwd <content_dir>] <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
+const usageRouteHead = "Usage: qip router head [-C|--cwd <content_dir>] <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
+const usageRouteKindred = "Usage: qip router kindred [-C|--cwd <content_dir>] <path> [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
+const usageRouteList = "Usage: qip router list [-C|--cwd <content_dir>] [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [-v|--verbose]" + usageRouteDocs
+const usageRouteWarc = "Usage: qip router warc [-C|--cwd <content_dir>] [--recipes <recipes_dir>] [--components <components_dir>] [--mode <dev|prod>] [--include <path>]... [--exclude <path>]... [--host <host>] [--view-source] [--check-kindred] [-o <warc file or ->] [-v|--verbose]" + usageRouteDocs
 const usageTUI = "Usage: qip [host ...] tui [-v] [-i <input>] [-F, --form <name=value> ...] [--timeout-ms <ms>] [--max-memory <bytes>] [--capacities-must-fit] <Interactive component> [-u <key=value> ...] [Content component [-u <key=value> ...] ...]"
 const usageHelp = "Usage: qip help [command]"
 const legacyDevNotice = "qip: `qip dev` has moved to `qip router dev`; please update your command. `qip dev` will continue to work for now."
@@ -2009,6 +2009,9 @@ func normalizeDevArgs(args []string) []string {
 	for _, name := range qinternal.ContentFilterFlagNames {
 		flagsWithValue[name] = struct{}{}
 	}
+	for _, name := range qinternal.RouterCWDFlagNames {
+		flagsWithValue[name] = struct{}{}
+	}
 	return qinternal.NormalizeFlagArgs(args, flagsWithValue)
 }
 
@@ -2019,6 +2022,9 @@ func normalizeRouteArgs(args []string) []string {
 		"--mode":       {},
 	}
 	for _, name := range qinternal.ContentFilterFlagNames {
+		flagsWithValue[name] = struct{}{}
+	}
+	for _, name := range qinternal.RouterCWDFlagNames {
 		flagsWithValue[name] = struct{}{}
 	}
 	return qinternal.NormalizeFlagArgs(args, flagsWithValue)

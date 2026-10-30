@@ -98,6 +98,8 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	fs.StringVar(&outputPath, "output", "-", "output WARC path ('-' for stdout)")
 	fs.BoolVar(&viewSource, "view-source", false, "include /view-source plus recipe source files from --recipes")
 	fs.BoolVar(&checkKindred, "check-kindred", false, "rerun each page's WARC recipes with only its Kindred Routes and fail if any output differs")
+	var contentRoot string
+	qinternal.RegisterRouterCWDFlag(fs, &contentRoot)
 	filterFlags.Register(fs)
 	if err := fs.Parse(normalizeRouteWarcArgs(args)); err != nil {
 		if err == flag.ErrHelp {
@@ -117,11 +119,13 @@ func runRouteWARC(args []string, config RouteConfig) error {
 	}
 
 	rest := fs.Args()
-	if len(rest) != 1 {
+	if err := qinternal.CheckRouterPositionalContentDir("warc", rest, 0); err != nil {
+		return err
+	}
+	if len(rest) != 0 {
 		return errors.New(config.UsageRouteWarc)
 	}
 
-	contentRoot := rest[0]
 	projectConfig, err := qinternal.ResolveRouterProjectConfig(qinternal.RouterProjectConfig{
 		ContentRoot:    contentRoot,
 		RecipesRoot:    recipesRoot,
@@ -291,6 +295,9 @@ func normalizeRouteWarcArgs(args []string) []string {
 		"--output":     {},
 	}
 	for _, name := range qinternal.ContentFilterFlagNames {
+		flagsWithValue[name] = struct{}{}
+	}
+	for _, name := range qinternal.RouterCWDFlagNames {
 		flagsWithValue[name] = struct{}{}
 	}
 	return qinternal.NormalizeFlagArgs(args, flagsWithValue)

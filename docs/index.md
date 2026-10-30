@@ -80,7 +80,7 @@ QIP treats content as bytes with MIME types, not as files with special build-sys
 
 That is why recipes are selected by MIME type, why Content components can convert/assert/refine, and why our router works with `application/warc` instead of a particular static-file layout.
 
-For example, `qip router warc ./site` produces a `application/warc` Web Archive. Another component can check for broken links, add extra endpoints, insert meta tags or stylesheets, and turn the archive into a static tarball to be deployed.
+For example, `qip router warc -C ./site` produces a `application/warc` Web Archive. Another component can check for broken links, add extra endpoints, insert meta tags or stylesheets, and turn the archive into a static tarball to be deployed.
 
 ## Adopting QIP In An Existing App
 

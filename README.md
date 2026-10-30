@@ -489,7 +489,7 @@ docs/_recipes/
 Preview in dev mode:
 
 ```bash
-npx qip-router dev ./docs -p 4000
+npx qip-router dev -C ./docs -p 4000
 open http://localhost:4000
 ```
 
@@ -497,17 +497,17 @@ Resolve a single path through the same router pipeline:
 
 ```bash
 # GET /about
-npx qip-router get ./docs /about
+npx qip-router get -C ./docs /about
 # HEAD /about
-npx qip-router head ./docs /about
+npx qip-router head -C ./docs /about
 # List all routes
-npx qip-router list ./docs
+npx qip-router list -C ./docs
 ```
 
 Build static tar from the site:
 
 ```bash
-npx qip-router warc ./docs \
+npx qip-router warc -C ./docs \
   | qipx run application/warc/warc-to-static-tar-no-trailing-slash.wasm \
   > site.tar
 

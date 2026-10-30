@@ -10,7 +10,7 @@
 Your folders are your routes, each content type runs a numbered Wasm recipe pipeline, and every page renders to WARC, which you can inspect with `qip-router`.
 
 ```sh
-npx qip-router dev ./site
+npx qip-router dev -C ./site
 ```
 
 There is no config file, no plugin API, and no template language. QIP Router needs Node.js 22 or newer and has no dependencies.
@@ -46,11 +46,11 @@ There is no config file, no plugin API, and no template language. QIP Router nee
 Every command resolves through the same pipeline as the dev server, so you can debug a page from the terminal:
 
 ```sh
-npx qip-router list ./site                 # every route and its media type
-npx qip-router get ./site /blog/hello      # the rendered body
-npx qip-router head ./site /blog/hello     # status and headers
-npx qip-router kindred ./site /blog/hello  # the parent pages and assets its recipes can see
-npx qip-router warc ./site -o site.warc    # the whole site as one archive
+npx qip-router list -C ./site                 # every route and its media type
+npx qip-router get -C ./site /blog/hello      # the rendered body
+npx qip-router head -C ./site /blog/hello     # status and headers
+npx qip-router kindred -C ./site /blog/hello  # the parent pages and assets its recipes can see
+npx qip-router warc -C ./site -o site.warc    # the whole site as one archive
 ```
 
 Each Markdown page also keeps its source at its `.md` path, such as `/blog/hello.md`, which is handy for readers, AI agents, and `llms.txt` files.
