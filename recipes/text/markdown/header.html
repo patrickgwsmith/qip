@@ -4,7 +4,7 @@
     <nav aria-label="Header links">
         <ul>
             <li>
-                <a href="/">
+                <a href="/" class="qip-logo">
                     <svg
                         xmlns="http://www.w3.org/2000/svg"
                         width="48"
@@ -33,6 +33,15 @@
                             <rect x="10" y="8" width="5" height="1" />
                         </g>
                     </svg>
+                    <!-- Draws the same logo over the one above, then springs it into a character on hover. -->
+                    <qip-play aria-hidden="true" tabindex="-1" canvas-width="80px" touch-action="manipulation">
+                        <source id="header-qip-logo-creature-source" src="/gui/qip-logo-creature.wasm" type="application/wasm" data-uniform-intro="0" />
+                    </qip-play>
+                    <script>
+                        document.getElementById("header-qip-logo-creature-source").setAttribute(
+                            "data-uniform-seed", String(crypto.getRandomValues(new Uint32Array(1))[0])
+                        );
+                    </script>
                 </a>
             </li>
             <li role="none" style="margin: auto"></li>

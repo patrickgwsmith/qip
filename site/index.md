@@ -241,9 +241,21 @@ runs on both WebGPU and WebAssembly.
 
 ---
 
-<qip-play canvas-width="720px" canvas-height="auto">
-  <source src="/gui/cover-flow.wasm" type="application/wasm" />
+Components can return SVG too. Hover over the QIP logo and its twelve bars
+spring apart into a little character or a term like .SVG or .ZIG, then fly back
+when the pointer leaves. Click or tap to keep it.
+
+<qip-play aria-label="QIP logo that rearranges into a character or a word" canvas-width="min(480px, 100%)" touch-action="pan-y">
+  <source id="home-qip-logo-creature-source" src="/gui/qip-logo-creature.wasm" type="application/wasm" />
 </qip-play>
+<script>
+  document.getElementById("home-qip-logo-creature-source").setAttribute(
+    "data-uniform-seed", String(crypto.getRandomValues(new Uint32Array(1))[0])
+  );
+</script>
+
+See [`/play-qip-logo-creature`](/play-qip-logo-creature) for the keyboard
+controls and how it's built.
 
 ---
 

@@ -417,6 +417,7 @@ gui/svg-gradient-editor.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/data-grid-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/date-range-picker-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
+gui/qip-logo-creature.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/klondike.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/aces-up.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: gui/assets/inter_display_chart_ascii.zig
@@ -1334,6 +1335,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-tui-links.mjs
 	node --test test/svg-path-editor.mjs
 	node --test test/svg-gradient-editor.mjs
+	node --test test/qip-logo-creature.mjs
 	node --test test/openai-anthropic-arr-svg.mjs
 	node --test test/openai-anthropic-arr-keyed-svg.mjs
 	node --test test/data-grid-svg.mjs

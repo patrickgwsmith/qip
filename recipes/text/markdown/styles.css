@@ -149,6 +149,45 @@ header[role="banner"] ul {
     }
 }
 
+/* The logo creature's 800 × 600 SVG at 80 × 60 px puts its resting logo
+   exactly over the static 48 × 18 logo, 17 px in and 21 px down. */
+header[role="banner"] .qip-logo {
+    /* Shrink the link's box to the logo itself so the overlay lines up. */
+    display: inline-flex;
+    vertical-align: -6px;
+    position: relative;
+
+    qip-play {
+        position: absolute;
+        z-index: 1;
+        left: -17px;
+        top: -21px;
+        width: 80px;
+
+        img {
+            max-width: none;
+        }
+
+        > aside {
+            display: none;
+        }
+    }
+
+    &:has(qip-play img[src]) > svg {
+        visibility: hidden;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        qip-play {
+            display: none;
+        }
+
+        > svg {
+            visibility: visible !important;
+        }
+    }
+}
+
 qip-search {
     position: relative;
     display: block;

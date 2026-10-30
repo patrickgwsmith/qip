@@ -18,6 +18,7 @@ More interactive pages:
 - [Tic-Tac-Toe (Sun & Moon)](/play-tic-tac-toe)
 - [Aces Up](/play-aces-up)
 - [Klondike solitaire](/play-klondike)
+- [QIP logo creature](/play-qip-logo-creature)
 - [Mandelbrot](/play-mandelbrot)
 - [Perlin Noise](/play-perlin-noise)
 - [Flurry (looped WGSL vs persistent state)](/flurry)

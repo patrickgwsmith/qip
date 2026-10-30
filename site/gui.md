@@ -45,6 +45,7 @@ events, and timing.
 - [`data-grid-svg.wasm`](/gui/data-grid-svg.wasm) draws a sortable, filterable grid of 1,000 orders as SVG, 17 rows at a time.
 - [`date-range-picker-svg.wasm`](/gui/date-range-picker-svg.wasm) draws a two-month check-in and check-out picker as SVG.
 - [`dock-magnification.wasm`](/gui/dock-magnification.wasm) magnifies icons around the pointer.
+- [`qip-logo-creature.wasm`](/gui/qip-logo-creature.wasm) rearranges the QIP logo's bars into a character or a three-letter term on hover and returns SVG frames.
 - [`layout-systems.wasm`](/gui/layout-systems.wasm) compares layout behavior.
 - [`macintosh-1bit.wasm`](/gui/macintosh-1bit.wasm) renders a monochrome Macintosh interface.
 - [`macos9-desktop.wasm`](/gui/macos9-desktop.wasm) and [`macosx-leopard-desktop.wasm`](/gui/macosx-leopard-desktop.wasm) render desktop interfaces.
