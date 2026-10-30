@@ -11,7 +11,10 @@ import { isMainThread, parentPort, Worker, workerData } from "node:worker_thread
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
-const reservedDirectories = new Set(["_recipes", "_components", "_elements"]);
+// The root CNAME file names the site's domain for warc. Like the project
+// directories, it is not content. Keep in sync with internal/router.go.
+const hostFile = "CNAME";
+const reservedDirectories = new Set(["_recipes", "_components", "_elements", hostFile]);
 
 // Keep in sync with sourceMIMETypes in internal/routing.go.
 const mimeTypes = new Map([
@@ -1083,7 +1086,7 @@ export async function createQIPRouter(options = {}) {
     return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
   }
 
-  async function wholeSiteRecords(current, resolveBase) {
+  async function wholeSiteRecords(current, resolveBase, origin = defaultWarcOrigin) {
     const paths = archivePaths(current);
     const contextPaths = new Set(filteredParentPaths(current, paths));
     const records = [];
@@ -1099,10 +1102,10 @@ export async function createQIPRouter(options = {}) {
       }
       if (isContext) {
         if (!isKindredParentResponse(response)) continue;
-        contextURIs.add(`http://qip.local${pathname}`);
+        contextURIs.add(`${origin}${pathname}`);
       }
       inputPaths.add(pathname);
-      records.push(buildWarcRecord(`http://qip.local${pathname}`, response));
+      records.push(buildWarcRecord(`${origin}${pathname}`, response));
     }
     return { archive: concat(records), inputPaths, contextURIs, missing };
   }
@@ -1172,7 +1175,7 @@ export async function createQIPRouter(options = {}) {
     return false;
   }
 
-  async function kindredArchive(pathname, target, current, resolveBase = (path, resolveOptions) => baseResponse(path, current, resolveOptions)) {
+  async function kindredArchive(pathname, target, current, resolveBase = (path, resolveOptions) => baseResponse(path, current, resolveOptions), origin = defaultWarcOrigin) {
     const records = [];
     const seen = new Set([pathname]);
     for (const parent of parentPaths(pathname)) {
@@ -1180,7 +1183,7 @@ export async function createQIPRouter(options = {}) {
       seen.add(parent);
       const response = await resolveBase(parent, { parent: true });
       if (response?.status === 200 && response.headers.get("content-type")?.startsWith("text/html")) {
-        records.push(buildWarcRecord(`http://qip.local${parent}`, response));
+        records.push(buildWarcRecord(`${origin}${parent}`, response));
       }
     }
     if (target.status === 200 && target.headers.get("content-type")?.startsWith("text/html")) {
@@ -1189,7 +1192,7 @@ export async function createQIPRouter(options = {}) {
         seen.add(sourcePath);
         const response = await resolveBase(sourcePath);
         if (response?.status === 200 && !response.headers.get("content-type")?.startsWith("text/html")) {
-          records.push(buildWarcRecord(`http://qip.local${sourcePath}`, response));
+          records.push(buildWarcRecord(`${origin}${sourcePath}`, response));
         }
       }
     }
@@ -1199,9 +1202,9 @@ export async function createQIPRouter(options = {}) {
       if (!isCustomElementName(name) || elementPath.slice("/elements/".length).includes("/")) continue;
       if (seen.has(elementPath)) continue;
       const response = await resolveBase(elementPath);
-      if (response) records.push(buildWarcRecord(`http://qip.local${elementPath}`, response));
+      if (response) records.push(buildWarcRecord(`${origin}${elementPath}`, response));
     }
-    records.push(buildWarcRecord(`http://qip.local${pathname}`, target));
+    records.push(buildWarcRecord(`${origin}${pathname}`, target));
     return concat(records);
   }
 
@@ -1246,7 +1249,7 @@ export async function createQIPRouter(options = {}) {
   // in the whole-site archive. A difference means a recipe read a record that
   // dev would not have given it. Keep in sync with checkKindredWARC in
   // router_check_kindred.go.
-  async function checkKindredWarc(current, fullArchive, resolveBase, pageTimeoutMs) {
+  async function checkKindredWarc(current, fullArchive, resolveBase, pageTimeoutMs, origin) {
     const fullByURI = new Map();
     for (const record of parseWarcResponses(fullArchive)) {
       if (!fullByURI.has(record.targetURI)) fullByURI.set(record.targetURI, record.response);
@@ -1270,8 +1273,8 @@ export async function createQIPRouter(options = {}) {
           const pathname = pagePaths[index];
           const response = await resolveBase(pathname);
           if (!response) continue;
-          const archive = await kindredArchive(pathname, response, current, resolveBase);
-          const targetURI = `http://qip.local${pathname}`;
+          const archive = await kindredArchive(pathname, response, current, resolveBase, origin);
+          const targetURI = `${origin}${pathname}`;
           const result = await pool.run(pathname, targetURI, archive);
           const want = fullByURI.get(targetURI);
           if (result.error !== undefined) details[index] = `WARC recipes failed with only Kindred Routes: ${result.error}`;
@@ -1361,8 +1364,9 @@ export async function createQIPRouter(options = {}) {
           { method: "HEAD", path, contentType: type },
         ]);
     },
-    async warc({ checkKindred = false, kindredPageTimeoutMs = defaultKindredPageTimeoutMs } = {}) {
+    async warc({ host, checkKindred = false, kindredPageTimeoutMs = defaultKindredPageTimeoutMs } = {}) {
       const current = generation;
+      const origin = host === undefined ? await cnameOrigin(contentRoot) ?? defaultWarcOrigin : warcOrigin(host);
       // The check reuses content recipe output from the export, so each route's
       // content recipes run once however many pages list it as a Kindred Route.
       // A filtered-out parent resolves from contextRoutes, so it caches under
@@ -1376,12 +1380,14 @@ export async function createQIPRouter(options = {}) {
       };
       let archive;
       let contextURIs;
-      if (current.derived) {
+      // The derived build that dev shares is archived under the default
+      // origin, so another host builds the archive afresh.
+      if (current.derived && origin === defaultWarcOrigin) {
         await startDerivedBuild(current, resolveBase);
         archive = current.derived.archive.slice();
         contextURIs = current.derived.contextURIs;
       } else {
-        const records = await wholeSiteRecords(current, resolveBase);
+        const records = await wholeSiteRecords(current, resolveBase, origin);
         archive = records.archive;
         contextURIs = records.contextURIs;
         if (current.recipes.has("application/warc")) {
@@ -1389,7 +1395,7 @@ export async function createQIPRouter(options = {}) {
         }
       }
       if (checkKindred && current.recipes.has("application/warc")) {
-        await checkKindredWarc(current, archive, resolveBase, kindredPageTimeoutMs);
+        await checkKindredWarc(current, archive, resolveBase, kindredPageTimeoutMs, origin);
       }
       return removeWarcResponses(archive, contextURIs);
     },
@@ -1443,6 +1449,48 @@ export async function createQIPRouter(options = {}) {
 }
 
 const maxReportedKindredMismatches = 20;
+const defaultWarcOrigin = "http://qip.local";
+
+// Returns the scheme and host that prefix every WARC-Target-URI. A bare host
+// such as qip.local gets http://. Keep in sync with parseRouteWARCHost in
+// cmd/router.go.
+function warcOrigin(raw) {
+  const host = String(raw).trim();
+  if (host === "") throw new Error("host must not be empty");
+  if (!host.includes("://")) {
+    if (/[/?#]/.test(host)) throw new Error(`invalid host "${raw}"`);
+    return `http://${host}`;
+  }
+  let url;
+  try {
+    url = new URL(host);
+  } catch {
+    throw new Error(`invalid host "${raw}"`);
+  }
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || !url.host || url.username || url.password ||
+    url.pathname !== "/" || url.search || url.hash || /[?#]$/.test(host)) {
+    throw new Error(`invalid host "${raw}"`);
+  }
+  return `${url.protocol}//${url.host}`;
+}
+// Reads the bare domain in contentRoot's CNAME file as an https:// origin, or
+// returns undefined without one. Keep in sync with ReadRouterHostFile in
+// internal/router.go.
+async function cnameOrigin(contentRoot) {
+  const filePath = join(contentRoot, hostFile);
+  let text;
+  try {
+    text = await readFile(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return undefined;
+    throw error;
+  }
+  const domain = text.trim();
+  if (domain === "" || /[\s/?#@:]/.test(domain)) {
+    throw new Error(`${filePath} must hold a single bare domain such as example.com, got ${JSON.stringify(domain)}`);
+  }
+  return `https://${domain}`;
+}
 // Matches defaultRouteWARCTransformTimeout in the Go router.
 const defaultKindredPageTimeoutMs = 5000;
 
@@ -1491,6 +1539,10 @@ function usage() {
     `                    Routed content is the include paths, or everything,\n` +
     `                    minus the exclude paths. Either flag skips dot paths\n` +
     `                    unless an include path names them\n` +
+    `  --host <host>    With dev, the address to listen on. With warc, the\n` +
+    `                   origin of every WARC-Target-URI, such as\n` +
+    `                   https://example.com. Defaults to https:// plus the\n` +
+    `                   domain in the site's CNAME file, or else qip.local\n` +
     `  --check-kindred  With warc, rerun each page's WARC recipes with only its\n` +
     `                   Kindred Routes and fail if any output differs. A page\n` +
     `                   that takes over 5s stops the check and fails it\n\n` +
@@ -1573,7 +1625,7 @@ export async function main(argv = process.argv.slice(2)) {
     return;
   }
   if (command === "warc") {
-    const archive = await router.warc({ checkKindred: options.checkKindred });
+    const archive = await router.warc({ host: options.hostname, checkKindred: options.checkKindred });
     if (!options.output || options.output === "-") process.stdout.write(archive);
     else await writeFile(options.output, archive);
     return;

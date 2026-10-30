@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { copyFile, mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -266,6 +266,65 @@ test("Node router CLI takes its content directory from -C, --cwd, or the current
   }
 });
 
+test("Node router warc --host sets the origin of every WARC-Target-URI", async () => {
+  const contentRoot = await fixtureSite();
+  const router = await createQIPRouter({ contentRoot });
+  const targets = (archive) => [...new TextDecoder().decode(archive).matchAll(/^WARC-Target-URI: (.*)\r$/gm)].map((match) => match[1]);
+
+  const defaults = targets(await router.warc());
+  assert.ok(defaults.length > 0);
+  for (const target of defaults) assert.match(target, /^http:\/\/qip\.local\//);
+
+  const https = targets(await router.warc({ host: "https://example.com/" }));
+  assert.deepEqual(https, defaults.map((target) => target.replace("http://qip.local", "https://example.com")));
+  assert.deepEqual(targets(await router.warc({ host: "example.com" })), defaults.map((target) => target.replace("qip.local", "example.com")));
+  for (const host of ["", "example.com/path", "ftp://example.com", "https://example.com/path"]) {
+    await assert.rejects(router.warc({ host }), /host/);
+  }
+
+  // The Kindred Routes check builds its archives under the same origin.
+  const kindred = await createQIPRouter({ contentRoot: await kindredCheckSite([]) });
+  assert.deepEqual(await kindred.warc({ host: "https://example.com", checkKindred: true }), await kindred.warc({ host: "https://example.com" }));
+
+  const output = join(await mkdtemp(join(tmpdir(), "qip-node-router-host-out-")), "site.warc");
+  const cli = join(root, "npm", "qip-router", "qip-router.mjs");
+  await execFileAsync(process.execPath, [cli, "warc", "-C", contentRoot, "--host", "https://example.com", "-o", output]);
+  assert.deepEqual(targets(await readFile(output)), https);
+});
+
+test("Node router warc takes its origin from the site's CNAME file", async () => {
+  const contentRoot = await fixtureSite();
+  await writeFile(join(contentRoot, "CNAME"), "example.com\n");
+  await mkdir(join(contentRoot, "nested"));
+  await writeFile(join(contentRoot, "nested", "CNAME"), "nested.example\n");
+  const router = await createQIPRouter({ contentRoot });
+  const targets = (archive) => [...new TextDecoder().decode(archive).matchAll(/^WARC-Target-URI: (.*)\r$/gm)].map((match) => match[1]);
+
+  // The root CNAME is build metadata, not a route. Nested ones are content.
+  const listed = (await router.list()).map((entry) => entry.path);
+  assert.ok(!listed.includes("/CNAME"));
+  assert.ok(listed.includes("/nested/CNAME"));
+  assert.equal((await router.resolve("GET", "/CNAME")).status, 404);
+
+  const archive = await router.warc();
+  const cname = targets(archive);
+  assert.ok(cname.length > 0);
+  for (const target of cname) assert.match(target, /^https:\/\/example\.com\//);
+  assert.ok(!cname.includes("https://example.com/CNAME"));
+  assert.ok(cname.includes("https://example.com/nested/CNAME"));
+  assert.deepEqual(targets(await router.warc({ host: "qip.local" })), cname.map((target) => target.replace("https://example.com", "http://qip.local")));
+
+  const cli = join(root, "npm", "qip-router", "qip-router.mjs");
+  const output = join(await mkdtemp(join(tmpdir(), "qip-node-router-cname-out-")), "site.warc");
+  await execFileAsync(process.execPath, [cli, "warc", "-C", contentRoot, "-o", output]);
+  assert.deepEqual(await readFile(output), Buffer.from(archive));
+  const goWarc = await execFileAsync(join(root, "qip"), ["router", "warc", "-C", contentRoot, "-o", "-"], { encoding: "buffer" });
+  assertSameArchive(Buffer.from(archive), goWarc.stdout);
+
+  await writeFile(join(contentRoot, "CNAME"), "https://example.com\n");
+  await assert.rejects(router.warc(), /bare domain/);
+});
+
 test("Node and Go routers produce identical page and full-site WARC bytes", async () => {
   const router = await createQIPRouter({ contentRoot: "site", recipesRoot: "recipes" });
   const nodePage = await router.resolve("GET", "/docs/router");
@@ -287,6 +346,17 @@ test("Node and Go routers produce identical page and full-site WARC bytes", asyn
     { encoding: "buffer", maxBuffer: 128 * 1024 * 1024 },
   );
   assertSameArchive(Buffer.from(nodeWarc), goWarc.stdout);
+
+  // The derived build is cached under qip.local, so another host builds afresh.
+  const nodeHostWarc = Buffer.from(await router.warc({ host: "https://example.com" }));
+  const goHostWarc = await execFileAsync(
+    join(root, "qip"),
+    ["router", "warc", "-C", "site", "--recipes", "recipes", "--host", "https://example.com", "-o", "-"],
+    { encoding: "buffer", maxBuffer: 128 * 1024 * 1024 },
+  );
+  assertSameArchive(nodeHostWarc, goHostWarc.stdout);
+  assert.match(nodeHostWarc.toString("latin1"), /<meta property="og:image" content="https:\/\/example\.com\//);
+  assert.doesNotMatch(nodeHostWarc.toString("latin1"), /http:\/\/qip\.local/);
 });
 
 test("Node router waits for the full-site WARC build for missing paths in derived directories", async () => {

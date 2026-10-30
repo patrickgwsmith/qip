@@ -54,7 +54,7 @@ The router reserves three exact top-level directory names:
 - `_components`: browser-loadable QIP components
 - `_elements`: browser custom-element modules
 
-Reserved project directories must not be routed as content. Other underscore paths, such as `_og/card.png`, are ordinary content unless a future spec reserves them.
+The root `CNAME` file is also reserved; see [Site Domain](#site-domain). Reserved project directories must not be routed as content. Other underscore paths, such as `_og/card.png`, are ordinary content unless a future spec reserves them.
 
 The router auto-discovers these project directories under the site root:
 
@@ -74,6 +74,18 @@ npx qip-router dev -C ./site --recipes ../shared-recipes
 Local project directories may be real directories or symlinks. Symlinks are the preferred way to share recipes across sites without introducing a config file. Remote object stores such as S3 do not have symlinks, so shared project directories must be copied or handled by future remote-root support.
 
 Nested `_recipes`, `_components`, and `_elements` directories are reserved for future path-scoped behavior. The router must not use nested project directories in this version.
+
+## Site Domain
+
+A `CNAME` file at the site root names the site's domain, following the GitHub Pages and Surge convention. It holds one bare domain, with no scheme or path:
+
+```
+example.com
+```
+
+`warc` uses `https://` plus that domain as the origin of every `WARC-Target-URI`, so recipes that build absolute URLs, such as Open Graph image URLs, get the published domain. `--host` overrides the file. Without either, the origin is `qip.local` over plain HTTP. `dev`, `get`, `head` and the other commands keep using `qip.local`.
+
+`CNAME` is build metadata, not content. The router must not route it or pass it to recipes, and it is not in the WARC. Only the root file is reserved; a `CNAME` file in a subdirectory is ordinary content.
 
 ## Request Paths
 

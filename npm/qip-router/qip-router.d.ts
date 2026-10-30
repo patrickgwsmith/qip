@@ -51,6 +51,13 @@ export interface QIPKindredRouteEntry {
 
 export interface QIPWarcOptions {
   /**
+   * The origin of every WARC-Target-URI, such as "https://example.com". A bare
+   * host such as "example.com" gets http://. Defaults to https:// plus the
+   * domain in the site's root CNAME file, or else "qip.local". WARC
+   * recipes use it to write absolute URLs, such as og:image.
+   */
+  host?: string;
+  /**
    * Rerun each page's application/warc recipes with only its Kindred Routes
    * and reject if any page's status, headers, or body differ.
    */

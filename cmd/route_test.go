@@ -316,6 +316,55 @@ func TestRunRouteWARCAcceptsHTTPSOrigin(t *testing.T) {
 	}
 }
 
+func TestRunRouteWARCUsesCNAMEHost(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "CNAME"), []byte("example.com\n"), 0o644); err != nil {
+		t.Fatalf("write CNAME: %v", err)
+	}
+	run := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := RunRoute(append([]string{"warc"}, args...), RouteConfig{
+			UsageRoute:     "usage route",
+			UsageRouteWarc: "usage route warc",
+			Stdout:         &out,
+			ListWARCPaths: func(ctx context.Context, request RouteWARCRequest) ([]string, error) {
+				return []string{"/a"}, nil
+			},
+			ResolveWARC: func(ctx context.Context, request RouteWARCRequest) (qinternal.InProcessHTTPResponse, error) {
+				return qinternal.InProcessHTTPResponse{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{"Content-Type": []string{"text/plain"}},
+					Body:       []byte("ok"),
+				}, nil
+			},
+		})
+		return out.String(), err
+	}
+
+	got, err := run("-C", root)
+	if err != nil {
+		t.Fatalf("RunRoute: %v", err)
+	}
+	if !strings.Contains(got, "WARC-Target-URI: https://example.com/a\r\n") {
+		t.Fatalf("CNAME host not used")
+	}
+
+	got, err = run("--host", "http://qip.local", "-C", root)
+	if err != nil {
+		t.Fatalf("RunRoute with --host: %v", err)
+	}
+	if !strings.Contains(got, "WARC-Target-URI: http://qip.local/a\r\n") {
+		t.Fatalf("--host did not override CNAME")
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "CNAME"), []byte("https://example.com/docs"), 0o644); err != nil {
+		t.Fatalf("write CNAME: %v", err)
+	}
+	if _, err := run("-C", root); err == nil || !strings.Contains(err.Error(), "bare domain") {
+		t.Fatalf("invalid CNAME error = %v", err)
+	}
+}
+
 func TestRunRouteWARCRejectsHostWithPath(t *testing.T) {
 	_, err := parseRouteWARCHost("https://example.com/docs")
 	if err == nil || !strings.Contains(err.Error(), "invalid host") {

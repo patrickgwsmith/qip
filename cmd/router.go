@@ -109,10 +109,6 @@ func runRouteWARC(args []string, config RouteConfig) error {
 		return fmt.Errorf("%s %w", config.UsageRouteWarc, err)
 	}
 
-	host, err := parseRouteWARCHost(hostRaw)
-	if err != nil {
-		return err
-	}
 	contentFilter, err := filterFlags.Filter()
 	if err != nil {
 		return err
@@ -126,6 +122,25 @@ func runRouteWARC(args []string, config RouteConfig) error {
 		return errors.New(config.UsageRouteWarc)
 	}
 
+	hostSet := false
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "host" {
+			hostSet = true
+		}
+	})
+	if !hostSet {
+		cnameHost, err := qinternal.ReadRouterHostFile(contentRoot)
+		if err != nil {
+			return err
+		}
+		if cnameHost != "" {
+			hostRaw = cnameHost
+		}
+	}
+	host, err := parseRouteWARCHost(hostRaw)
+	if err != nil {
+		return err
+	}
 	projectConfig, err := qinternal.ResolveRouterProjectConfig(qinternal.RouterProjectConfig{
 		ContentRoot:    contentRoot,
 		RecipesRoot:    recipesRoot,

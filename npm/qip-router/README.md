@@ -57,6 +57,18 @@ qip-router warc -C ./site --exclude blog/drafts -o site.warc
 qip-router dev -C ./site --include blog --include about.md
 ```
 
+With `warc`, `--host` sets the origin of every `WARC-Target-URI`, which WARC
+recipes use for absolute URLs such as `og:image`. It defaults to `qip.local`:
+
+```sh
+qip-router warc -C ./site --host https://example.com -o site.warc
+```
+
+Without `--host`, a `CNAME` file at the site root sets it, following the GitHub
+Pages convention. The file holds one bare domain, such as `example.com`, and
+gives an `https://` origin. Otherwise the origin is `qip.local`. `CNAME` is not
+routed or archived, and `dev` still uses `qip.local`.
+
 Either flag also skips dot paths such as `.env`, unless an include path names
 them. Parent pages outside the filters still supply their layouts. Details are
 in the [router specification](https://qip.dev/docs/router-spec#content-filters).
@@ -88,6 +100,8 @@ HEAD headers such as `content-length`, but its `body` is an empty `Uint8Array`.
 dynamic. The `include` and `exclude` options take arrays of paths and work like
 the command-line flags.
 `router.warc()` returns the transformed full-site WARC as a `Uint8Array`.
+`router.warc({ host: "https://example.com" })` sets the origin of its
+`WARC-Target-URI`s, like `--host` on the command line.
 `router.warc({ checkKindred: true })`, or `qip-router warc --check-kindred` on
 the command line, also reruns each page's WARC recipes with only its Kindred
 Routes, as dev does, and rejects if any page's output differs. Pages are

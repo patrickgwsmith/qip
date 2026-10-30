@@ -50,6 +50,8 @@ func TestBuildContentRoutesSkipsReservedRouterDirectories(t *testing.T) {
 	mustWrite("_components/gui/game.wasm")
 	mustWrite("_elements/qip-edit.js")
 	mustWrite("_og/card.png")
+	mustWrite("CNAME")
+	mustWrite("docs/CNAME")
 
 	routes, err := BuildContentRoutes(root, DefaultRouteOptions())
 	if err != nil {
@@ -59,6 +61,7 @@ func TestBuildContentRoutesSkipsReservedRouterDirectories(t *testing.T) {
 		"/_recipes/text/markdown/10-markdown.wasm",
 		"/_components/gui/game.wasm",
 		"/_elements/qip-edit.js",
+		"/CNAME",
 	} {
 		if _, ok := routes[requestPath]; ok {
 			t.Fatalf("reserved path %s was routed", requestPath)
@@ -69,6 +72,33 @@ func TestBuildContentRoutesSkipsReservedRouterDirectories(t *testing.T) {
 	}
 	if _, ok := routes["/_forms/contact.wasm"]; !ok {
 		t.Fatalf("ordinary _forms path was not routed")
+	}
+	if _, ok := routes["/docs/CNAME"]; !ok {
+		t.Fatalf("nested CNAME was not routed")
+	}
+}
+
+func TestReadRouterHostFile(t *testing.T) {
+	root := t.TempDir()
+	host, err := ReadRouterHostFile(root)
+	if err != nil || host != "" {
+		t.Fatalf("missing CNAME: host=%q err=%v", host, err)
+	}
+	write := func(body string) {
+		if err := os.WriteFile(filepath.Join(root, ReservedHostFile), []byte(body), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+	}
+	write("example.com\n")
+	host, err = ReadRouterHostFile(root)
+	if err != nil || host != "https://example.com" {
+		t.Fatalf("host=%q err=%v, want https://example.com", host, err)
+	}
+	for _, body := range []string{"", "https://example.com", "example.com/docs", "example.com:8080", "a.com\nb.com"} {
+		write(body)
+		if _, err := ReadRouterHostFile(root); err == nil {
+			t.Fatalf("CNAME %q was accepted", body)
+		}
 	}
 }
 

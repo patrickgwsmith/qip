@@ -122,13 +122,35 @@ const ReservedRecipesDir = "_recipes"
 const ReservedComponentsDir = "_components"
 const ReservedElementsDir = "_elements"
 
+// ReservedHostFile names the site's domain, following the GitHub Pages and
+// Surge convention. It is build metadata, so it is not served as a route.
+const ReservedHostFile = "CNAME"
+
 func IsReservedRouterDirectoryName(name string) bool {
 	switch name {
-	case ReservedRecipesDir, ReservedComponentsDir, ReservedElementsDir:
+	case ReservedRecipesDir, ReservedComponentsDir, ReservedElementsDir, ReservedHostFile:
 		return true
 	default:
 		return false
 	}
+}
+
+// ReadRouterHostFile reads the domain from contentRoot's CNAME file and
+// returns it as an https:// origin. It returns "" when there is no CNAME file.
+func ReadRouterHostFile(contentRoot string) (string, error) {
+	filePath := filepath.Join(contentRoot, ReservedHostFile)
+	data, err := os.ReadFile(filePath)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	domain := strings.TrimSpace(string(data))
+	if domain == "" || strings.ContainsAny(domain, " \t\r\n/?#@") || strings.Contains(domain, ":") {
+		return "", fmt.Errorf("%s must hold a single bare domain such as example.com, got %q", filePath, domain)
+	}
+	return "https://" + domain, nil
 }
 
 func IsReservedRouterRelPath(relPath string) bool {
