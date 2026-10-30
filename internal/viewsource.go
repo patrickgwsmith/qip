@@ -25,35 +25,40 @@ func CollectRecipeSourceAssets(recipesRoot string) ([]RecipeSourceAsset, error) 
 }
 
 func CollectComponentSourceAssets(componentsRoot string) ([]RecipeSourceAsset, error) {
-	return collectViewSourceAssets(componentsRoot, "/view-source/components/")
+	assets, err := collectViewSourceAssets(componentsRoot, "/view-source/components/")
+	if err != nil {
+		return nil, err
+	}
+	// Component .wasm is already served at its own path, which the index links instead.
+	out := assets[:0]
+	for _, asset := range assets {
+		if strings.ToLower(path.Ext(asset.RequestPath)) != ".wasm" {
+			out = append(out, asset)
+		}
+	}
+	return out, nil
 }
+
+// maxViewSourceFileSize skips large generated data files (font metrics, compat
+// tables) that would bloat the site archive and that nobody reads as source.
+const maxViewSourceFileSize = 1 << 20
 
 func collectViewSourceAssets(root string, requestPrefix string) ([]RecipeSourceAsset, error) {
 	assets := make([]RecipeSourceAsset, 0, 32)
 	if root == "" {
 		return assets, nil
 	}
-	err := filepath.WalkDir(root, func(fullPath string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if d.IsDir() {
+	// Follow symlinks: site/_recipes and the folders in site/_components are symlinks.
+	err := WalkFilesFollowingSymlinks(root, "source", func(fullPath string, info fs.FileInfo) error {
+		if info.Size() > maxViewSourceFileSize {
 			return nil
 		}
-		info, err := d.Info()
-		if err != nil {
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			return nil
-		}
-
 		relPath, err := filepath.Rel(root, fullPath)
 		if err != nil {
 			return err
 		}
 		relPath = filepath.ToSlash(relPath)
-		if hasHiddenPathSegment(relPath) {
+		if hasHiddenPathSegment(relPath) || isInsideCargoTarget(root, relPath) {
 			return nil
 		}
 		body, err := os.ReadFile(fullPath)
@@ -269,6 +274,22 @@ func detectViewSourceContentType(relPath string, body []byte) string {
 func hasHiddenPathSegment(relPath string) bool {
 	for part := range strings.SplitSeq(relPath, "/") {
 		if strings.HasPrefix(part, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// isInsideCargoTarget reports whether relPath is under a Rust build output
+// folder, a target/ next to a Cargo.toml. It is gitignored, not source.
+func isInsideCargoTarget(root string, relPath string) bool {
+	parts := strings.Split(relPath, "/")
+	for i := 0; i < len(parts)-1; i++ {
+		if parts[i] != "target" {
+			continue
+		}
+		cargoPath := filepath.Join(root, filepath.FromSlash(strings.Join(parts[:i], "/")), "Cargo.toml")
+		if info, err := os.Stat(cargoPath); err == nil && info.Mode().IsRegular() {
 			return true
 		}
 	}

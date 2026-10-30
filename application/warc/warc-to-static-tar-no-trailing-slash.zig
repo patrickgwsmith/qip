@@ -381,10 +381,28 @@ fn writeChecksum(field: []u8, checksum: u64) bool {
 }
 
 fn buildTarHeader(path: []const u8, size: usize, out: *[TAR_BLOCK]u8) bool {
-    if (path.len == 0 or path.len > 100) return false;
+    if (path.len == 0) return false;
     @memset(out[0..], 0);
 
-    @memcpy(out[0..path.len], path);
+    if (path.len <= 100) {
+        @memcpy(out[0..path.len], path);
+    } else {
+        // Paths over 100 bytes split at a '/' into ustar's prefix (155) and name (100) fields.
+        const min_split = path.len - 101;
+        var split: ?usize = null;
+        var i: usize = @min(path.len - 1, 155);
+        while (i >= min_split and i > 0) : (i -= 1) {
+            if (path[i] == '/') {
+                split = i;
+                break;
+            }
+        }
+        const s = split orelse return false;
+        const name = path[s + 1 ..];
+        if (name.len == 0 or name.len > 100) return false;
+        @memcpy(out[0..name.len], name);
+        @memcpy(out[345 .. 345 + s], path[0..s]);
+    }
     if (!writeOctal(out[100..108], 0o644)) return false;
     if (!writeOctal(out[108..116], 0)) return false;
     if (!writeOctal(out[116..124], 0)) return false;

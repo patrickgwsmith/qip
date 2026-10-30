@@ -91,7 +91,7 @@ func loadRecipeFileSet(recipesRoot string) (recipeFileSet, map[string][][32]byte
 	}
 
 	candidatesByMIME := make(map[string][]recipeCandidate)
-	err := walkFilesFollowingSymlinks(recipesRoot, "recipe", func(fullPath string, _ fs.FileInfo) error {
+	err := qinternal.WalkFilesFollowingSymlinks(recipesRoot, "recipe", func(fullPath string, _ fs.FileInfo) error {
 		relPath, err := filepath.Rel(recipesRoot, fullPath)
 		if err != nil {
 			return err
@@ -200,7 +200,7 @@ func scanRecipeModuleStamps(recipesRoot string) (map[string]moduleFileStamp, err
 		return stamps, nil
 	}
 
-	err := walkFilesFollowingSymlinks(recipesRoot, "recipe", func(fullPath string, info fs.FileInfo) error {
+	err := qinternal.WalkFilesFollowingSymlinks(recipesRoot, "recipe", func(fullPath string, info fs.FileInfo) error {
 		if strings.ToLower(path.Ext(fullPath)) != ".wasm" {
 			return nil
 		}
