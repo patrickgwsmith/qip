@@ -60,81 +60,9 @@ module: markdown-basic.wasm (table)
 module: markdown-basic.wasm | html-page-wrap.wasm
 <!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Title</title><style></style><link rel="icon" type="image/x-icon" href="/favicon.ico" />
 
-<header role="banner">
-    <nav aria-label="Header links">
-        <ul>
-            <li>
-                <a href="/">
-                    <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="48"
-                        height="48"
-                        viewbox="0 0 16 16"
-                        shape-rendering="crispEdges"
-                        aria-label="QIP"
-                    >
-                        <g fill="#0eafe0">
-                            <!-- Q: a square counter with a centered tail. -->
-                            <rect x="0" y="5" width="5" height="1" />
-                            <rect x="0" y="6" width="1" height="3" />
-                            <rect x="4" y="6" width="1" height="3" />
-                            <rect x="0" y="8" width="5" height="1" />
-                            <rect x="2" y="9" width="1" height="2" />
-
-                            <!-- I: capped vertical stroke. -->
-                            <rect x="6" y="5" width="3" height="1" />
-                            <rect x="7" y="6" width="1" height="2" />
-                            <rect x="6" y="8" width="3" height="1" />
-
-                            <!-- P: square bowl, open below the middle bar. -->
-                            <rect x="10" y="5" width="1" height="6" />
-                            <rect x="10" y="5" width="5" height="1" />
-                            <rect x="14" y="6" width="1" height="3" />
-                            <rect x="10" y="8" width="5" height="1" />
-                        </g>
-                    </svg>
-                </a>
-            </li>
-            <li role="none" style="margin: auto"></li>
-            <li>
-                <qip-search>
-                    <form role="search">
-                        <label>
-                            <span class="visually-hidden">Search QIP</span>
-                            <input
-                                name="q"
-                                type="search"
-                                placeholder="Search"
-                                autocomplete="off"
-                                spellcheck="false"
-                            />
-                        </label>
-                    </form>
-                    <div class="qip-search-results" aria-live="polite" hidden></div>
-                </qip-search>
-            </li>
-            <li><a href="/docs">Docs</a></li>
-            <li><a href="/recipes">Recipes</a></li>
-            <li><a href="/tools">Tools</a></li>
-            <li><a href="https://github.com/royalicing/qip">GitHub</a></li>
-            <li><a href="https://discord.gg/ZwMXf5p5e">Discord</a></li>
-        </ul>
-    </nav>
-</header><main><h1>Title</h1>
+<header role="banner"></header><main><h1>Title</h1>
 <p>Hello <strong>World</strong></p>
-</main><footer role="contentinfo">
-    <nav aria-label="Footer links">
-        <ul>
-            <li><a href="/">QIP</a></li>
-            <li><a href="/recipes">Recipes</a></li>
-            <li><a href="/tools">Tools</a></li>
-            <li><a href="/docs">Docs</a></li>
-            <li><a href="/view-source">View Source</a></li>
-            <li><a href="https://github.com/royalicing/qip">GitHub</a></li>
-            <li><a href="https://discord.gg/ZwMXf5p5e">Discord</a></li>
-        </ul>
-    </nav>
-</footer>
+</main><footer role="contentinfo"></footer>
 
 module: rgb-to-hex.wasm
 #ff00aa

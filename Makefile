@@ -1266,7 +1266,7 @@ test-qip-component-to-zig: qip application/wasm/qip-component-to-zig.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-floats.wat -o test/fixtures/qip-component-to-zig-floats.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-float-traps.wat -o test/fixtures/qip-component-to-zig-float-traps.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-indirect.wat -o test/fixtures/qip-component-to-zig-indirect.wasm
-	QIP_BIN=$(QIP_BIN) sh test/qip-component-to-zig.sh
+	QIP_BIN=$(QIP_BIN) ZIG_TEST_FLAGS="$(ZIG_TEST_FLAGS)" sh test/qip-component-to-zig.sh
 
 test-qip-component-to-swift: qip application/wasm/qip-component-to-swift.wasm
 	wat2wasm test/fixtures/qip-component-to-zig-traps.wat -o test/fixtures/qip-component-to-zig-traps.wasm
@@ -1597,7 +1597,7 @@ test-snapshot: qip components
 	@printf "%s\n" "module: markdown-basic.wasm (table)" >> test/latest.txt
 	@printf "%b" '| A | B |\n| --- | --- |\n| `x` | **y** |\n' | $(QIP_BIN) run text/markdown/markdown-basic.wasm >> test/latest.txt
 	@printf "%s\n" "module: markdown-basic.wasm | html-page-wrap.wasm" >> test/latest.txt
-	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run text/markdown/markdown-basic.wasm text/html/html-page-wrap.wasm | perl -0pe 's#(<style\b[^>]*>).*?(</style>)#$$1$$2#gis' >> test/latest.txt
+	@printf "%b" "# Title\nHello **World**\n" | $(QIP_BIN) run text/markdown/markdown-basic.wasm text/html/html-page-wrap.wasm | perl -0pe 's#(<(style|header|footer)\b[^>]*>).*?(</\2>)#$$1$$3#gis' >> test/latest.txt
 	@printf "%s\n" "module: rgb-to-hex.wasm" >> test/latest.txt
 	@printf %s "255,0,170" | $(QIP_BIN) run text/rgb-to-hex.wasm >> test/latest.txt
 	@printf "%s\n" "module: rgb-to-hex.wasm (rgb())" >> test/latest.txt

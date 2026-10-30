@@ -245,6 +245,7 @@ func runComplyForImplementation(implPath string, compliances []complianceSpec, s
 		return err
 	})
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "comply: %s: %v\n", implPath, err)
 		fmt.Printf("FAIL %s: %v\n", implPath, err)
 		return 0, 1
 	}

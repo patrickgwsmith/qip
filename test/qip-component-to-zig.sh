@@ -9,14 +9,13 @@ export ZIG_CACHE_DIR=${ZIG_CACHE_DIR:-/tmp/zig-cache}
 export ZIG_GLOBAL_CACHE_DIR=${ZIG_GLOBAL_CACHE_DIR:-/tmp/zig-global-cache}
 trap 'rm -rf "$tmp_dir"' EXIT HUP INT TERM
 
+# The Makefile passes ZIG_TEST_FLAGS, which on macOS pins an older deployment
+# target and SDK sysroot so Zig 0.15 can link against libSystem.
+zig_test_flags=${ZIG_TEST_FLAGS:-}
+
 zig_build() {
-    if [ -d /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk ]; then
-        "$zig_bin" build-exe \
-            --sysroot /Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk \
-            "$@"
-    else
-        "$zig_bin" build-exe "$@"
-    fi
+    # shellcheck disable=SC2086
+    "$zig_bin" build-exe $zig_test_flags "$@"
 }
 
 "$qip_bin" run -i text/hello.wasm \
