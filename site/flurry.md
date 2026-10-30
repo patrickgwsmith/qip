@@ -107,7 +107,7 @@ version runs the simulation itself.
   tab-size: 2;
 }
 .flurry-play {
-  max-width: 640px;
+  max-width: 928px;
 }
 </style>
 
@@ -639,7 +639,7 @@ frames:
 
 - **The particles:** 3,600 slots, each with a position, velocity, color and
   age, integrated under the sparks' gravity every 20 ms.
-- **The framebuffer:** 640×400 RGB floats. Each step multiplies it by 0.9, as
+- **The framebuffer:** 928×580 RGB floats. Each step multiplies it by 0.9, as
   Flurry's black rectangle at alpha 0.1 does. Then it rasterizes about 625
   textured smoke quads into it with additive blending, using Flurry's 8×8
   atlas of noisy smoke frames.

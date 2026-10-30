@@ -2,7 +2,7 @@
 <meta property="og:image" content="/_og/index.png?primary=A+new+way+to+render&amp;secondary=qip.dev+WebAssembly+everywhere">
 
 <style>
-h1 + a, nav > a  {
+nav > a  {
     text-align: center;
     display: inline-block;
     margin-bottom: var(--paragraph-leading);
@@ -50,8 +50,6 @@ qip-edit source { display: none }
 
 <h1>Components that are<br> <em>Quick</em> to make/maintain/run, <em>Isolated</em> from net/disk/deps, <em>Portable</em> to web/server/native.</h1>
 
-<a href="/docs">Read the docs</a>
-
 QIP components are fast to create with coding agents and fast for users to run.
 
 Users get small `.wasm` modules that load quickly. You get code small enough to review.
@@ -68,13 +66,30 @@ Containers can precisely package that environment. This is useful for full appli
 
 QIP uses a narrower boundary: explicit input, output, memory, and zero host access. That makes small components easier to create, test, and review — including code written by coding agents.
 
+```txt
+             host: files · network · clock · env · syscalls
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━╳━━━━━━━━━━━━━━━━━━━━━━━━━
+                              (no imports)
+
+ input       ┌────────────────────────────────────────────┐     output
+ bytes &     │ component.wasm                             │     bytes
+ uniforms    │ ╭────────────────────────────────────────╮ │     
+             │ │ memory                                 │ │
+             │ │  ┌──────────────┐   ┌───────────────┐  │ │
+─────────────┼─┼─▶│ input buffer │──▶│ output buffer │──┼─┼───────────▶
+             │ │  └──────────────┘   └───────────────┘  │ │
+             │ ╰────────────────────────────────────────╯ │
+             └────────────────────────────────────────────┘
+                  small enough to read in one sitting
+```
+
 ## Components that render any content
 
 Use QIP components for text, images, documents, archives, interactive UI, or any MIME type.
 
 Browse the [text](/text), [image](/image), [audio](/audio), [TUI](/tui), and [GUI](/gui) component collections.
 
-Just like the web is `request -> response`, QIP components are `input -> output`. Yet QIP components are not tied to HTML or JavaScript: they take any content as input and render any content as output.
+Just like the web is `request -> response`, QIP components are `input -> output`. Yet QIP components are not tied to HTML or JavaScript: they take any content as input and render any content as output. You just say what MIME type it is.
 
 Your components can render Markdown into HTML, URLs into QR codes, SVG into bitmap images, SQLite databases into CSV, or WARC archives into deployable websites. Missing something? Prompt a small component and add it to your collection.
 
@@ -149,6 +164,72 @@ const pi: number = 3.14;
 &lt;/form&gt;
 </code></pre>
 
+## NoGPU `<canvas>` components
+
+QIP GUI Components receive keyboard and pointer events and render pixels.
+
+They are pure WebAssembly, with no WebGL or WebGPU required. The same pixels come out in every browser, in CI and on a server, so snapshot tests are exact and server rendering runs on cheap CPUs.
+
+Use `<qip-play>` to render them in the browser, or use our SDK to render them in Swift.
+
+<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
+  <qip-play canvas-width="100%" canvas-height="auto" touch-action="pan-y" style="flex:0 1 285px;min-width:0;cursor:grab">
+    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="0" />
+  </qip-play>
+  <qip-play canvas-width="100%" canvas-height="auto" touch-action="pan-y" style="flex:0 1 285px;min-width:0;cursor:grab">
+    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="1" />
+  </qip-play>
+</div>
+
+<script type="module">
+const currentSeconds = String((Date.now() / 1000) % 60);
+for (const source of document.querySelectorAll(".home-chronograph-source")) {
+  source.setAttribute("data-uniform-current_seconds", currentSeconds);
+}
+</script>
+
+---
+
+A component can also keep state between frames. This port of the Mac OS X
+Flurry screensaver keeps 3,600 smoke particles and its last frame in memory.
+Every 20 ms it fades the previous frame and draws the new smoke on top, as the
+original OpenGL version does.
+
+<qip-play canvas-width="min(928px, 100%)" canvas-height="auto">
+  <source src="/gui/flurry.wasm" type="application/wasm" />
+</qip-play>
+
+See [`/flurry`](/flurry) for how it works, and a stateless WGSL version that
+runs on both WebGPU and WebAssembly.
+
+---
+
+Components can return SVG too. Hover over the QIP logo and its twelve bars
+spring apart into a little character or a term like .SVG or .ZIG, then fly back
+when the pointer leaves. Click or tap to keep it.
+
+<qip-play aria-label="QIP logo that rearranges into a character or a word" canvas-width="min(480px, 100%)" touch-action="pan-y">
+  <source id="home-qip-logo-creature-source" src="/gui/qip-logo-creature.wasm" type="application/wasm" />
+</qip-play>
+<script>
+  document.getElementById("home-qip-logo-creature-source").setAttribute(
+    "data-uniform-seed", String(crypto.getRandomValues(new Uint32Array(1))[0])
+  );
+</script>
+
+See [`/play-qip-logo-creature`](/play-qip-logo-creature) for the keyboard
+controls and how it's built.
+
+---
+
+<qip-play canvas-width="820px" canvas-height="auto">
+  <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
+</qip-play>
+
+---
+
+See [`/play`](/play) for more interactive examples, or [`/charts`](/charts) for chart-focused components.
+
 ## The website router without bitrot
 
 Markdown… Recipes… We can compose this into a static website generator. Each file gets rendered by a recipe of QIP components based on its MIME type. These become the HTTP response bodies.
@@ -189,76 +270,6 @@ qip router warc -C ./site --view-source
 The same components that you use to render the static site can run in the browser via JavaScript. There’s no such thing as a “server component” or “client component”: they are the same component.
 
 Because components are self-contained, maintenance becomes a breeze. Don't worry about needing to update your dependencies every few months so your site still builds. Your site is content plus some `.wasm` files and a little bit of glue to connect the two. Bitrot be gone!
-
-## Cross-platform `<canvas>` components
-
-QIP GUI Components receive keyboard and pointer events and render pixels.
-
-Use `<qip-play>` to render them in the browser, or use our SDK to render them in Swift.
-
-<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start">
-  <qip-play canvas-width="min(360px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
-    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="0" />
-  </qip-play>
-  <qip-play canvas-width="min(360px, 100%)" canvas-height="auto" touch-action="pan-y" style="cursor:grab">
-    <source class="home-chronograph-source" src="/gui/chronograph.wasm" type="application/wasm" data-uniform-current_seconds="0" data-uniform-hdr="1" />
-  </qip-play>
-</div>
-
-<script type="module">
-const currentSeconds = String((Date.now() / 1000) % 60);
-for (const source of document.querySelectorAll(".home-chronograph-source")) {
-  source.setAttribute("data-uniform-current_seconds", currentSeconds);
-}
-</script>
-
----
-
-A component can also keep state between frames. This port of the Mac OS X
-Flurry screensaver keeps 3,600 smoke particles and its last frame in memory.
-Every 20 ms it fades the previous frame and draws the new smoke on top, as the
-original OpenGL version does.
-
-<qip-play canvas-width="min(640px, 100%)" canvas-height="auto">
-  <source src="/gui/flurry.wasm" type="application/wasm" />
-</qip-play>
-
-See [`/flurry`](/flurry) for how it works, and a stateless WGSL version that
-runs on both WebGPU and WebAssembly.
-
----
-
-Components can return SVG too. Hover over the QIP logo and its twelve bars
-spring apart into a little character or a term like .SVG or .ZIG, then fly back
-when the pointer leaves. Click or tap to keep it.
-
-<qip-play aria-label="QIP logo that rearranges into a character or a word" canvas-width="min(480px, 100%)" touch-action="pan-y">
-  <source id="home-qip-logo-creature-source" src="/gui/qip-logo-creature.wasm" type="application/wasm" />
-</qip-play>
-<script>
-  document.getElementById("home-qip-logo-creature-source").setAttribute(
-    "data-uniform-seed", String(crypto.getRandomValues(new Uint32Array(1))[0])
-  );
-</script>
-
-See [`/play-qip-logo-creature`](/play-qip-logo-creature) for the keyboard
-controls and how it's built.
-
----
-
-<qip-play canvas-width="820px" canvas-height="auto">
-  <source src="/gui/openai-anthropic-arr.wasm" type="application/wasm" />
-</qip-play>
-
----
-
-<qip-play canvas-width="min(762px, 100%)" canvas-height="auto">
-  <source src="/gui/sudoku.wasm" type="application/wasm" />
-</qip-play>
-
----
-
-See [`/play`](/play) for more interactive examples, or [`/charts`](/charts) for chart-focused components.
 
 ## Tools without the trackers
 

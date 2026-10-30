@@ -9,8 +9,9 @@
 const std = @import("std");
 const ktx = @import("ktx2_rgba8_srgb");
 
-const RENDER_W: usize = 640;
-const RENDER_H: usize = 400;
+// 928 px is the site's content width, so the home page shows it unscaled.
+const RENDER_W: usize = 928;
+const RENDER_H: usize = 580;
 const PIXEL_BYTES: usize = RENDER_W * RENDER_H * 4;
 const OUTPUT_BYTES: usize = ktx.HEADER_SIZE + PIXEL_BYTES;
 const OUTPUT_CONTENT_TYPE = ktx.CONTENT_TYPE;

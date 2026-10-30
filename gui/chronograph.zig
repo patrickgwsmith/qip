@@ -3,11 +3,14 @@ const ktx_sdr = @import("ktx2_rgba8_srgb");
 const ktx_hdr = @import("ktx2_rgba32float_display_p3_linear");
 const font = @import("assets/inter_display_bold_chronograph_digits.zig");
 
-// The dial is designed on a 360-unit square and drawn at twice that so it
-// stays sharp at 360 CSS pixels on high-density displays.
-const DRAW_SCALE: i32 = 2;
-const RENDER_W: usize = 360 * DRAW_SCALE;
-const RENDER_H: usize = 360 * DRAW_SCALE;
+// The watch is designed in units where the case is 164 units in radius, and
+// drawn at 1.5 pixels per unit so it stays sharp at 285 CSS pixels on
+// high-density displays. The canvas is CANVAS_UNITS wide, leaving room for
+// the crown when the watch is tilted toward the viewer.
+const DRAW_SCALE: f32 = 1.5;
+const CANVAS_UNITS: usize = 380;
+const RENDER_W: usize = CANVAS_UNITS * 3 / 2;
+const RENDER_H: usize = CANVAS_UNITS * 3 / 2;
 const PIXEL_COUNT: usize = RENDER_W * RENDER_H;
 const SDR_PIXEL_BYTES: usize = PIXEL_COUNT * 4;
 const SDR_OUTPUT_BYTES: usize = ktx_sdr.HEADER_SIZE + SDR_PIXEL_BYTES;
@@ -16,7 +19,7 @@ const HDR_OUTPUT_BYTES: usize = ktx_hdr.HEADER_SIZE + HDR_PIXEL_BYTES;
 const OUTPUT_CONTENT_TYPE = ktx_sdr.CONTENT_TYPE;
 const WAKE_INTERVAL_MS: i64 = 200;
 const MAX_TILT_RADIANS: f32 = 36.0 * std.math.pi / 180.0;
-const TILT_RADIANS_PER_PIXEL: f32 = 0.25 * std.math.pi / 180.0 / @as(f32, @floatFromInt(DRAW_SCALE));
+const TILT_RADIANS_PER_PIXEL: f32 = 0.25 * std.math.pi / 180.0 / DRAW_SCALE;
 
 const CX: i32 = @intCast(RENDER_W / 2);
 const CY: i32 = @intCast(RENDER_H / 2);
@@ -416,7 +419,7 @@ fn drawBezel() void {
         drawRehaut();
         drawCaseBand(CASE_RADIUS, CASE_SEAM_DEPTH, BEZEL_DEPTH, 0.0, CASE_SEAM_FRACTION);
     }
-    drawMetalAnnulus(scale(143), scale(164), scale(143), BEZEL_DEPTH);
+    drawMetalAnnulus(BEZEL_INNER_RADIUS, CASE_RADIUS, BEZEL_INNER_RADIUS, BEZEL_DEPTH);
 }
 
 // The inside wall of the bezel between the dial and the bezel top. A ray
@@ -569,10 +572,10 @@ fn shadeCaseBand(radial_x: f32, radial_y: f32, back_fraction: f32) Shade {
 
 const CROWN_TUBE_START: f32 = scaleF(162);
 const CROWN_TUBE_END: f32 = scaleF(167);
-const CROWN_TUBE_RADIUS: f32 = scaleF(3.6);
+const CROWN_TUBE_RADIUS: f32 = scaleF(4.2);
 const CROWN_START: f32 = scaleF(166.5);
-const CROWN_END: f32 = scaleF(173);
-const CROWN_RADIUS: f32 = scaleF(7.5);
+const CROWN_END: f32 = scaleF(175.5);
+const CROWN_RADIUS: f32 = scaleF(9);
 
 fn drawCrown() void {
     // Moving toward the viewer along a ray goes toward smaller x when the
@@ -882,17 +885,15 @@ fn clipToQuad(columns: *RowColumns, y: i32, quad: [4]ScreenPoint) bool {
 
 // Pixels inside drawn_inner_radius are skipped because a later layer covers
 // them; the shading profile still spans inner_radius to outer_radius.
-fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, drawn_inner_radius: i32, depth: f32) void {
+fn drawMetalAnnulus(inner: f32, outer: f32, drawn_inner_radius: f32, depth: f32) void {
     if (!isTilted()) {
-        drawFaceOnMetalAnnulus(inner_radius, outer_radius, drawn_inner_radius);
+        drawFaceOnMetalAnnulus(inner, outer, drawn_inner_radius);
         return;
     }
     defer render_layer_depth = 0;
     setRenderLayerDepth(depth);
 
-    const inner: f32 = @floatFromInt(inner_radius);
-    const outer: f32 = @floatFromInt(outer_radius);
-    const reject_inner = @max(0.0, @as(f32, @floatFromInt(drawn_inner_radius)) - 1.0);
+    const reject_inner = @max(0.0, drawn_inner_radius - 1.0);
     const reject_outer = outer + 1.0;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
@@ -925,10 +926,9 @@ fn drawMetalAnnulus(inner_radius: i32, outer_radius: i32, drawn_inner_radius: i3
     }
 }
 
-fn drawFaceOnMetalAnnulus(inner_radius: i32, outer_radius: i32, drawn_inner_radius: i32) void {
-    const inner: f32 = @floatFromInt(inner_radius);
-    const outer: f32 = @floatFromInt(outer_radius);
-    const reject_inner = @max(0.0, @as(f32, @floatFromInt(drawn_inner_radius)) - 0.75);
+fn drawFaceOnMetalAnnulus(inner: f32, outer: f32, drawn_inner_radius: f32) void {
+    const outer_radius: i32 = @intFromFloat(@ceil(outer));
+    const reject_inner = @max(0.0, drawn_inner_radius - 0.75);
     const reject_outer = outer + 0.75;
     const reject_inner_squared = reject_inner * reject_inner;
     const reject_outer_squared = reject_outer * reject_outer;
@@ -1550,11 +1550,11 @@ fn shadeHobnail(lx: f32, ly: f32) Hobnail {
 }
 
 fn scale(value: i32) i32 {
-    return value * DRAW_SCALE;
+    return @intFromFloat(@round(@as(f32, @floatFromInt(value)) * DRAW_SCALE));
 }
 
 fn scaleF(comptime value: f32) f32 {
-    return value * @as(f32, @floatFromInt(DRAW_SCALE));
+    return value * DRAW_SCALE;
 }
 
 inline fn isTilted() bool {

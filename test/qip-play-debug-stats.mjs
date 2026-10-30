@@ -756,7 +756,7 @@ test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", ()
     colorSpace: "display-p3-linear",
   });
   assert.equal(parsed.pixels.constructor, Float32Array);
-  assert.equal(parsed.pixels.length, 720 * 720 * 4);
+  assert.equal(parsed.pixels.length, 570 * 570 * 4);
   const renderedBytes = new Uint8Array(
     instance.exports.memory.buffer,
     rendered.outputPtr,

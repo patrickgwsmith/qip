@@ -18,17 +18,17 @@ guard let provider = CGDataProvider(url: URL(fileURLWithPath: fontPath) as CFURL
     fatalError("failed to load font at \(fontPath)")
 }
 
-// The chronograph draws at twice its 360-unit design size so it stays sharp
-// on high-density displays. Glyph metrics scale with it.
-let drawScale = 2
+// The chronograph draws at 1.5 pixels per design unit so it stays sharp on
+// high-density displays. Glyph metrics scale with it.
+let drawScale = 1.5
 let fontSize = CGFloat(28 * drawScale)
 let font = CTFontCreateWithGraphicsFont(cgFont, fontSize, nil, nil)
 let codepoints = Array("013456".utf8)
-let glyphW = 25 * drawScale
-let glyphH = 38 * drawScale
+let glyphW = Int((25 * drawScale).rounded(.up))
+let glyphH = Int((38 * drawScale).rounded(.up))
 let bytesPerGlyph = (glyphW * glyphH + 1) / 2
 // Bitmap contexts use a bottom-left text origin. Digits rise from this baseline.
-let baseline = 4 * drawScale
+let baseline = (4 * drawScale).rounded()
 
 var advances: [Int] = []
 var glyphBytes: [[UInt8]] = []

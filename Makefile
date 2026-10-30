@@ -459,8 +459,8 @@ gui/rotunda.wasm: ZIG_WASM_MAX_MEMORY = 4194304
 gui/colosseum.wasm: ZIG_WASM_MAX_MEMORY = 16777216
 # The craft's and the bay's polygon BSPs.
 gui/hovercraftsman.wasm: ZIG_WASM_MAX_MEMORY = 8388608
-# The persistent RGB float framebuffer (3 MB) and the KTX2 output (1 MB).
-gui/flurry.wasm: ZIG_WASM_MAX_MEMORY = 8388608
+# The persistent RGB float framebuffer (6.5 MB) and the KTX2 output (2.2 MB).
+gui/flurry.wasm: ZIG_WASM_MAX_MEMORY = 16777216
 gui/colosseum.wasm gui/highway-chase.wasm gui/hovercraftsman.wasm gui/rotunda.wasm gui/side-scroller-platformer.wasm gui/spreadsheet.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
