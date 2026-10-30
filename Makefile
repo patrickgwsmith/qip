@@ -568,6 +568,9 @@ application/wasm/qip-component-to-swift.wasm: application/wasm/qip-component-to-
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
 bytes/bytes-to-sha256.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+bytes/bytes-to-sri-sha256.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+bytes/bytes-to-sri-sha384.wasm: ZIG_WASM_MAX_MEMORY = 20971520
+bytes/bytes-to-sri-sha512.wasm: ZIG_WASM_MAX_MEMORY = 20971520
 
 text/javascript/js-to-bmp.wasm: text/javascript/js-to-bmp.c
 	$(ZIG_ENV) zig cc $< -target wasm32-freestanding -nostdlib -Wl,--no-entry $(WASM_STACK_FLAG) -Wl,--max-memory=$(ZIG_WASM_MAX_MEMORY) -Wl,--export=render -Wl,--export=input_ptr -Wl,--export=input_utf8_cap -Wl,--export=output_bytes_cap -Oz -o $@
@@ -1277,6 +1280,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --check site/qip-runner.js
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs
+	node --test test/bytes-to-sri.mjs
 	node --test test/gzip-bgzf.mjs
 	node --test test/zstd.mjs
 	node --test test/recipe-finder.mjs

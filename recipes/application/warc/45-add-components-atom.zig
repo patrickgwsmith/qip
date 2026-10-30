@@ -1,5 +1,7 @@
 const std = @import("std");
 const warc = @import("lib/warc.zig");
+// Only the encoder: std.base64.url_safe_no_pad also carries the decoder's lookup tables.
+const ni_base64 = std.base64.Base64Encoder.init(std.base64.url_safe_alphabet_chars, null);
 
 const INPUT_CAP: usize = 256 * 1024 * 1024;
 const FEED_CAP: usize = 8 * 1024 * 1024;
@@ -353,8 +355,8 @@ fn writeFeedEntry(feed: *Writer, uri: []const u8, path: []const u8, updated: []c
         std.crypto.hash.sha2.Sha256.hash(wasm, &digest, .{});
     }
     const hex = std.fmt.bytesToHex(digest, .lower);
-    var ni_buf: [std.base64.url_safe_no_pad.Encoder.calcSize(digest.len)]u8 = undefined;
-    const ni = std.base64.url_safe_no_pad.Encoder.encode(&ni_buf, &digest);
+    var ni_buf: [ni_base64.calcSize(digest.len)]u8 = undefined;
+    const ni = ni_base64.encode(&ni_buf, &digest);
 
     try feed.writeSlice("  <entry>\n");
     // RFC 6920 named-information URI: the entry id changes whenever the bytes do.
