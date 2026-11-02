@@ -10,6 +10,19 @@ import { applyUniforms, loadWasm, main, multipart, parseArgs, parseUniforms, rea
 
 const calendar = await readFile("tui/calendar-gregorian.wasm");
 
+// Run where same-named local files don't exist, so a leading host must download them.
+async function inEmptyDirectory(body) {
+  const directory = await mkdtemp(join(tmpdir(), "qiptui-empty-"));
+  const previous = process.cwd();
+  try {
+    process.chdir(directory);
+    return await body();
+  } finally {
+    process.chdir(previous);
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
 test("qiptui accepts one component and terminal-safe input options", () => {
   assert.deepEqual(parseArgs(["-u", "columns=100", "qip.dev/tui/calendar-gregorian.wasm"]), {
     component: "qip.dev/tui/calendar-gregorian.wasm", host: "", input: undefined, forms: [], uniforms: ["columns=100"],
@@ -62,7 +75,7 @@ test("leading host supplies < Wasm bytes without saving or a filename", async ()
       requests.push(url);
       return new Response(calendar, { status: 200 });
     };
-    const body = await multipart(["component=<tui/calendar-gregorian.wasm"], "qip.dev");
+    const body = await inEmptyDirectory(() => multipart(["component=<tui/calendar-gregorian.wasm"], "qip.dev"));
     assert.deepEqual(requests, ["https://qip.dev/tui/calendar-gregorian.wasm"]);
     assert.equal(body.includes(calendar), true);
     assert.doesNotMatch(body.toString("latin1"), /filename=/);
@@ -80,10 +93,10 @@ test("leading host loads both the TUI and its < Wasm field", async () => {
       requests.push(url);
       return new Response(url.endsWith("/qipdb.wasm") ? qipdb : calendar, { status: 200 });
     };
-    await assert.rejects(
+    await inEmptyDirectory(() => assert.rejects(
       main(["qip.dev", "-F", "component=<tui/calendar-gregorian.wasm", "tui/qipdb.wasm"]),
       /requires terminal stdin and stdout/,
-    );
+    ));
     assert.deepEqual(requests, [
       "https://qip.dev/tui/qipdb.wasm",
       "https://qip.dev/tui/calendar-gregorian.wasm",
@@ -103,15 +116,15 @@ test("leading host loads both the TUI and its @ Wasm field", async () => {
       requests.push(url);
       return new Response(url.endsWith("/qipdb.wasm") ? qipdb : wc, { status: 200 });
     };
-    await assert.rejects(
+    await inEmptyDirectory(() => assert.rejects(
       main(["qip.dev", "-F", "input=Hello", "-F", "component=@text/wc.wasm", "tui/qipdb.wasm"]),
       /requires terminal stdin and stdout/,
-    );
+    ));
     assert.deepEqual(requests, [
       "https://qip.dev/tui/qipdb.wasm",
       "https://qip.dev/text/wc.wasm",
     ]);
-    const body = await multipart(["component=@text/wc.wasm"], "qip.dev");
+    const body = await inEmptyDirectory(() => multipart(["component=@text/wc.wasm"], "qip.dev"));
     assert.match(body.toString("latin1"), /name="component"; filename="wc\.wasm"/);
   } finally {
     globalThis.fetch = originalFetch;
@@ -145,7 +158,7 @@ test("host shorthand fetches on every run and does not create files", async () =
   }
 });
 
-test("absolute paths stay local with a host, and hosted 404s do not fall back", async () => {
+test("with a host, existing relative files stay local and missing ones download", async () => {
   const directory = await mkdtemp(join(tmpdir(), "qiptui-source-"));
   const localPath = join(directory, "component.wasm");
   const originalFetch = globalThis.fetch;
@@ -165,11 +178,16 @@ test("absolute paths stay local with a host, and hosted 404s do not fall back", 
 
     await mkdir("tui");
     await writeFile("tui/component.wasm", calendar);
+    assert.deepEqual(await loadWasm("tui/component.wasm", (data) => new WebAssembly.Module(data), "qip.dev"), calendar);
+    const local = await multipart(["component=@tui/component.wasm"], "qip.dev");
+    assert.equal(local.includes(calendar), true);
+    assert.deepEqual(requests, []);
+
     await assert.rejects(
-      loadWasm("tui/component.wasm", (data) => new WebAssembly.Module(data), "qip.dev"),
-      /https:\/\/qip\.dev\/tui\/component\.wasm returned HTTP 404/,
+      loadWasm("tui/missing.wasm", (data) => new WebAssembly.Module(data), "qip.dev"),
+      /https:\/\/qip\.dev\/tui\/missing\.wasm returned HTTP 404/,
     );
-    assert.deepEqual(requests, ["https://qip.dev/tui/component.wasm"]);
+    assert.deepEqual(requests, ["https://qip.dev/tui/missing.wasm"]);
   } finally {
     globalThis.fetch = originalFetch;
     process.chdir(previous);

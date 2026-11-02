@@ -776,11 +776,29 @@ async function download(host, path) {
   }
 }
 
+function missingFileError(error) {
+  return error?.code === "ENOENT" || error?.code === "ENOTDIR";
+}
+
 export async function loadWasm(value, validate, host = "") {
-  const remote = hostedPath(value) ?? (host && !value.startsWith("./") && !value.startsWith("../") && !isAbsolute(value)
+  const explicit = hostedPath(value);
+  const relative = !explicit && host && !value.startsWith("./") && !value.startsWith("../") && !isAbsolute(value)
     ? hostedPath(`${host}/${value}`)
-    : null);
-  const data = remote ? await download(remote.host, remote.path) : await readFile(value);
+    : null;
+  let data;
+  if (explicit) {
+    data = await download(explicit.host, explicit.path);
+  } else if (relative) {
+    // Like qipx, a leading host only supplies relative files that are missing locally.
+    try {
+      data = await readFile(value);
+    } catch (error) {
+      if (!missingFileError(error)) throw error;
+      data = await download(relative.host, relative.path);
+    }
+  } else {
+    data = await readFile(value);
+  }
   validate(data);
   return data;
 }

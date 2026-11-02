@@ -27,8 +27,10 @@ npx qiptui -u columns=100 ./my-tui.wasm
 `-F` builds one `multipart/form-data` input. Use `name=@path` to send file bytes
 with a filename, or `name=<path` to send them as a regular field without a
 filename. Quote the `<` form so the shell does not treat it as redirection. A
-leading host such as `qip.dev` applies to the TUI and its `.wasm` form fields.
-Hosted files are downloaded into memory on each run. With `-i -`, `-F name=@-`,
+leading host such as `qip.dev` applies to the TUI and its `.wasm` form fields,
+like `qipx`: a relative `.wasm` path is read locally if it exists, and only a
+missing one is downloaded from the host. Downloaded files are kept in memory on
+each run, not saved. With `-i -`, `-F name=@-`,
 or `-F 'name=<-'`, qiptui reads piped stdin once and reads keys from the
 terminal on stderr. These forms require stderr to remain attached to a terminal.
 If a component declares a different input type,
