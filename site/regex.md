@@ -165,6 +165,43 @@ nor running its validator can blow up.
 Other browsers have different regular expression engines, so run the
 benchmark in the browsers you support.
 
+## Compared with a hand-written validator
+
+[`validate-hostname.wasm`](/text/validate-hostname.wasm) is a hand-written
+RFC 1123 hostname validator, written in WAT. Its labels follow the same rules
+as the hostname preset, and it also enforces the 253-character limit, which
+the pattern cannot express. For inputs of up to 252 bytes it gives the same
+accept and reject results as the generated module, including offsets. A test
+checks this on more than 20,000 random names. Both modules pass the strict
+profile, loop and output-size checks.
+
+| | Hand-written | Generated from the preset |
+|---|---|---|
+| Module size | 397 B | 2,066 B |
+| `localhost` (9 B) | 11 ns | 12–13 ns |
+| `api.example.com` (15 B) | 18 ns | 17 ns |
+| Kubernetes service name (52 B) | 39–41 ns | 35–37 ns |
+| 253-byte name of 63-letter labels | 149–150 ns | 272–307 ns |
+
+These are bytes-in times per call in Node 26 on an Apple M5, including the
+copy into Wasm memory. They are the range of two runs, each the median of 7.
+
+- **Size: the generated module is 5 times larger.** Most of the 2 KB is the
+  256-byte class map and the transition table. The `{0,61}` repeat unrolls
+  into one state per label position. The hand-written module keeps a label
+  counter instead and compares byte ranges in code.
+- **Speed: on real hostnames the two are level.** Below about 50 bytes, the
+  call and the copy take most of the time. The hand-written module is about 2
+  times faster on the 253-byte name. Its branches are easy to predict there,
+  because every label is the same letter repeated. The table lookup must wait
+  for the previous lookup to load, so it costs about 1 ns per byte whatever
+  the text.
+
+Write a validator by hand when you need a rule that a pattern cannot express,
+such as a total length limit, or when module size matters. Use the compiler
+for everything else: you get a checked module in one command, with the same
+rejection offsets.
+
 ## Use a validator outside the browser
 
 Compile a pattern with the `qip` CLI, then run the validator on text. The
@@ -201,7 +238,9 @@ Each validator also keeps its source pattern in a custom section named
 - **For checks that are not about shape.** A pattern cannot check that a date
   exists, that a checksum is correct, or that a hostname is at most 253
   characters long. Combine the validator with a component made for that
-  check, such as [`luhn.wasm`](/text/luhn.wasm) for card numbers.
+  check, such as [`luhn.wasm`](/text/luhn.wasm) for card numbers, or use
+  one that does both, such as
+  [`validate-hostname.wasm`](/text/validate-hostname.wasm).
 
 See [text components](/text) for other validators, such as
 [BCP 47 language tags](/text/bcp47-must-be-well-formed.wasm).

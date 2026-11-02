@@ -75,6 +75,7 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 - [`utf8-must-be-ascii.wasm`](/text/utf8-must-be-ascii.wasm) accepts ASCII bytes unchanged and reports the first non-ASCII byte offset.
 - [`luhn.wasm`](/text/luhn.wasm) validates a number with the Luhn checksum and returns its digits without spaces or hyphens.
 - [`tld-validator.wasm`](/text/tld-validator.wasm) validates a top-level domain label.
+- [`validate-hostname.wasm`](/text/validate-hostname.wasm) accepts an RFC 1123 host name unchanged: dot-separated labels of 1 to 63 letters, digits and hyphens, at most 253 characters in total. It reports the offset of the first byte that no host name can continue through.
 - [`bcp47-must-be-well-formed.wasm`](/text/bcp47-must-be-well-formed.wasm) accepts a language tag unchanged if it matches the RFC 5646 grammar, and reports the offset of the first bad subtag.
 - [`bcp47-must-be-valid.wasm`](/text/bcp47-must-be-valid.wasm) also requires every subtag to be in the IANA Language Subtag Registry (2026-09-17 snapshot) and rejects repeated variants and extension singletons.
 - [`i-regexp-to-wasm.wasm`](/text/i-regexp-to-wasm.wasm) compiles an [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485) I-Regexp into a validator component. The validator accepts text unchanged when the pattern matches all of it, and otherwise reports the offset where matching stopped. It returns `application/wasm`.

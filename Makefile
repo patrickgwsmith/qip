@@ -1461,6 +1461,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/dns-message.mjs
 	node --test test/wgsl-to-wasm.mjs
 	node --test test/i-regexp-to-wasm.mjs
+	node --test test/validate-hostname.mjs
 	node --test test/wgsl-pixel-kernels.mjs
 	node --test test/bmp-png.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs
