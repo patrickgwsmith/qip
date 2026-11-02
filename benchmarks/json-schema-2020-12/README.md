@@ -1,7 +1,24 @@
-# JSON Schema 2020-12: QIP component vs @cfworker/json-schema vs ata-validator
+# JSON Schema 2020-12: QIP components vs @cfworker/json-schema vs ata-validator
 
-Compares `application/x-tar/json-schema-2020-12-must-be-valid.wasm` (Zig,
-ReleaseSmall, 60 KB) with two JavaScript validators on correctness and speed.
+Compares two QIP paths with two JavaScript validators on correctness and
+speed:
+
+- `application/json/json-schema-2020-12-must-be-valid.wasm` (Zig,
+  ReleaseSmall, 58 KB) validates an envelope of schema and instance in one
+  render.
+- `application/json/json-schema-to-wasm.wasm` compiles a schema once into its
+  own validator component (about 37 KB plus the schema), which then takes bare
+  instances. See [Compiled schemas](#compiled-schemas-json-schema-to-wasm).
+
+The component takes one JSON envelope and outputs the instance's bytes when it
+conforms:
+
+```json
+{"schemas": {"https://example.com/a.json": {…}}, "schema": {…}, "instance": …}
+```
+
+`"schemas"` is optional and preloads remote `$ref` documents by URI, as ata's
+`schemas` option and cfworker's `addSchema` do. Keys may come in any order.
 
 ```bash
 cd benchmarks/json-schema-2020-12
@@ -12,16 +29,19 @@ node bench.mjs          # timings (about 20 s)
 
 ## Correctness
 
-All three run the same 1,298 cases from the vendored JSON-Schema-Test-Suite
+All four run the same 1,298 cases from the vendored JSON-Schema-Test-Suite
 (`compliance/json-schema-test-suite/`, draft 2020-12, core tests only, no
 `optional/`). `suite.mjs` drives them through the Compliance oracle,
 `compliance/json-schema-2020-12.comply.wasm`, the same Wasm file that
 `make test-comply` runs with `qip comply`. Each library gets a small adapter
-that takes the oracle's TAR input and says accept, reject or error.
+that takes the oracle's envelope input and says accept, reject or error. The
+compiled adapter splits the envelope, compiles its schema (once per distinct
+schema) and runs the instance through the generated module.
 
 | Validator | Passed | |
 | --- | ---: | ---: |
 | QIP (Zig → Wasm) | 1,298 / 1,298 | 100.00% |
+| QIP compiled (json-schema-to-wasm) | 1,298 / 1,298 | 100.00% |
 | ata-validator 1.62.1 | 1,298 / 1,298 | 100.00% |
 | @cfworker/json-schema 4.1.4 | 1,257 / 1,298 | 96.84% |
 
@@ -46,35 +66,39 @@ native accelerator (`@ata-validator/native-darwin-arm64`).
 ## Speed
 
 Node v26.3.0 on darwin-arm64 (Apple Silicon). Each row runs in a fresh
-process: 5 warm-up runs, then the median and fastest of 31. The machine was
-under load (load average about 3), and the medians of the same row moved by up
-to 2× between runs, so read the fastest column and the rough ratios rather
-than the exact values.
+process: 5 warm-up runs, then the median and fastest of 31. Load average was
+about 1.8. Earlier runs under heavier load were up to 3× slower across the
+board, so read the ratios rather than the exact values.
 
 | Workload | Validator | Median | Fastest |
 | --- | --- | ---: | ---: |
-| suite cold (1,298 cases) | QIP (Zig → Wasm) | 6.08 ms | 5.83 ms |
-| suite cold (1,298 cases) | @cfworker/json-schema | 132.60 ms | 93.85 ms |
-| suite cold (1,298 cases) | ata-validator | 59.48 ms | 54.74 ms |
-| suite warm (validate only) | @cfworker/json-schema | 6.30 ms | 5.63 ms |
-| suite warm (validate only) | ata-validator | 430 µs | 359 µs |
-| large cold (4000 orders, 0.75 MB) | QIP (Zig → Wasm) | 16.12 ms | 13.25 ms |
-| large cold (4000 orders, 0.75 MB) | @cfworker/json-schema | 70.83 ms | 59.12 ms |
-| large cold (4000 orders, 0.75 MB) | ata-validator | 6.00 ms | 4.58 ms |
-| large cold (4000 orders, 0.75 MB) | ata-validator isValid(Buffer) | 5.97 ms | 5.12 ms |
-| large warm (validate only) | @cfworker/json-schema | 77.54 ms | 63.00 ms |
-| large warm (validate only) | ata-validator | 1.49 ms | 1.41 ms |
-| large warm (validate only) | ata-validator isValid(Buffer) | 5.04 ms | 4.56 ms |
-| large: JSON.parse alone (reference) | V8 | 3.45 ms | 3.37 ms |
+| suite cold (1,298 cases) | QIP (Zig → Wasm) | 1.85 ms | 1.77 ms |
+| suite cold (1,298 cases) | @cfworker/json-schema | 39.61 ms | 39.16 ms |
+| suite cold (1,298 cases) | ata-validator | 21.05 ms | 19.77 ms |
+| suite warm (validate only) | @cfworker/json-schema | 2.23 ms | 2.02 ms |
+| suite warm (validate only) | ata-validator | 157 µs | 133 µs |
+| suite warm (validate only) | QIP compiled, bytes in | 709 µs | 647 µs |
+| large cold (4000 orders, 0.75 MB) | QIP (Zig → Wasm) | 6.27 ms | 6.18 ms |
+| large cold (4000 orders, 0.75 MB) | @cfworker/json-schema | 25.25 ms | 24.54 ms |
+| large cold (4000 orders, 0.75 MB) | ata-validator | 2.16 ms | 2.03 ms |
+| large cold (4000 orders, 0.75 MB) | ata-validator isValid(Buffer) | 2.35 ms | 2.08 ms |
+| large warm (validate only) | @cfworker/json-schema | 23.36 ms | 22.58 ms |
+| large warm (validate only) | ata-validator | 558 µs | 520 µs |
+| large warm (validate only) | ata-validator isValid(Buffer) | 2.23 ms | 2.03 ms |
+| large warm (validate only) | QIP compiled, bytes in | 2.00 ms | 1.96 ms |
+| compile the order schema | QIP json-schema-to-wasm + instantiate | 109 µs | 81 µs |
+| large: JSON.parse alone (reference) | V8 | 1.55 ms | 1.50 ms |
 
 What the rows mean:
 
 - **cold** starts from bytes or JSON text and compiles the schema every time.
-  This is the only mode the QIP component has: each render reads the TAR,
-  parses both documents, indexes the schema and validates. The JS validators
+  This is the only mode the QIP component has: each render parses the
+  envelope, indexes the schema and validates. The JS validators
   pay `JSON.parse`, `new Validator(...)` and one validation.
-- **warm** reuses a compiled validator on an already-parsed object. QIP has
-  no equivalent because a Content component keeps nothing between renders.
+- **warm** reuses a compiled validator. The JS validators get an
+  already-parsed object, except ata's `isValid(Buffer)`, which parses bytes.
+  The QIP compiled module always gets bytes, so it parses the instance in
+  every render; compiling the schema happened once, outside the timing.
 - **large** is one order book document from `orders.mjs`, using `$ref`,
   four patterns, `enum`, `const`, `if`/`then`, `multipleOf: 0.01`,
   `uniqueItems` and `unevaluatedProperties`. All three agree it's valid, and
@@ -82,18 +106,115 @@ What the rows mean:
 
 Takeaways:
 
-- **Many small schemas, each used once:** QIP is about 8–10× faster than
-  ata and 13–20× faster than cfworker. ata generates JavaScript for each schema, and compiling
-  that is the cost in the cold suite.
-- **One big document, one schema:** ata is about 3× faster than QIP in
-  this harness. In an
-  interleaved in-process run (fastest of 40) QIP took 7.3 ms on this
-  document, close to ata's cold time. About 3.5 ms of that is parsing the JSON,
-  and regular expressions are about a third of the rest.
-- **Reusing a schema:** ata's compiled validator is far ahead (1.5 ms).
-  Matching that in QIP would need a different design, such as a component
-  that compiles a schema into a smaller program for a second stage.
+- **Many small schemas, each used once:** QIP is about 11× faster than ata
+  and 22× faster than cfworker. ata generates JavaScript for each schema, and
+  compiling that is the cost in the cold suite.
+- **One big document, one schema, compiled each time:** ata is about 3×
+  faster than the one-render QIP component. Parsing
+  the JSON is only about 1.4 ms of QIP's 6.2 ms (see the schema `true` row
+  below); validation is the rest, and regular expressions are about a third
+  of it.
+- **Reusing a schema:** compiled with `json-schema-to-wasm`, QIP validates
+  the large document from bytes in 1.96 ms. That's level with ata's bytes API
+  (2.03 ms) and with `JSON.parse` followed by ata's validation (about 2.0 ms). ata on an
+  already-parsed object is still about 3.8× faster (0.52 ms), and on the
+  suite's tiny instances (133 µs against 647 µs), where QIP's cost is mostly
+  copying each instance into Wasm memory and calling render.
 - cfworker is the slowest in every mode here.
+
+## Compiled schemas: json-schema-to-wasm
+
+```bash
+printf '{"schema": {"type": "array", "items": {"type": "integer"}}}' \
+  | qip run -o ints.wasm application/json/json-schema-to-wasm.wasm
+printf '[1, 2, 3]' | qip run ints.wasm      # accepted: prints [1, 2, 3]
+```
+
+The compiler takes the validator's envelope without `"instance"`. Ahead of
+time it parses and indexes every document, resolves each `$ref` and anchor
+to a node, decides which `$dynamicRef`s are dynamic, keeps only the keywords
+of active vocabularies, turns `type` into a bit mask, `minLength`-style
+numbers into integer bounds, `const` and `enum` into value tapes, and checks
+every keyword value and regular expression. A schema it can't compile is
+rejected at that point, so a broken keyword is found before any instance
+reaches it.
+
+The output is `application/json/lib/json-schema-runtime.wasm`, a fixed
+evaluator, with the compiled program added as one more data segment and the
+input kept in a `qip.json-schema` custom section. The generated module for
+the order schema is 45.7 KB. Code isn't specialized per schema yet: each
+module carries the same evaluator, and the schema is data.
+
+Each render parses the instance into a flat token tape instead of a tree,
+with no allocation per value, and each container records where it ends.
+Then the evaluator walks the program over the tape. Patterns run on a lazy
+DFA built over the Pike VM's thread sets, with patterns using `\b`/`\B`
+left on the Pike VM.
+
+Where the 1.96 ms goes on the large document, measured by removing one
+keyword at a time from the order schema (fastest of 31, one process):
+
+| Schema | Time | Difference |
+| --- | ---: | ---: |
+| `true` (copy in + parse only) | 0.61 ms | |
+| order schema | 1.95 ms | |
+| … without `pattern` | 1.66 ms | patterns 0.29 ms |
+| … and without `unevaluatedProperties` | 1.57 ms | 0.09 ms |
+| … and without the `allOf`/`if`/`then` | 1.47 ms | 0.10 ms |
+| … and without `multipleOf` | 1.40 ms | 0.07 ms |
+
+The steps from the first working compiled version (4.9 ms) to 1.96 ms:
+
+| Change | Large document |
+| --- | ---: |
+| first version: tape parser, compiled program, Pike VM | 4.87 ms |
+| lazy DFA for patterns | 3.35 ms |
+| schema numbers pre-parsed as scaled integers; `required` answered from the `properties` pass; no dynamic scope without dynamic anchors | 2.77 ms |
+| strings scanned 8 bytes at a time (SWAR); `$ref`-only nodes followed without a full visit | 2.15 ms |
+| `$` acceptance cached per DFA state; equal-scale numbers compared directly | 1.96 ms |
+
+The runtime is ReleaseSmall (37 KB). ReleaseFast was only about 8% faster
+at about 68 KB, and `simd128` made no difference, so it stays small.
+
+What's left: parsing is about 0.6 ms, already faster than `JSON.parse` on
+the same bytes. Evaluation is about 1.3 ms, roughly 10 ns per keyword visit.
+Getting closer to ata's 0.52 ms would need code generated per schema, so
+that each node's checks are straight-line Wasm instead of a walk over node
+records.
+
+## Input format: why a JSON envelope, not TAR
+
+The component first took a TAR (`schema.json`, `instance.json` and
+`schemas/<scheme>/<rest>` per remote, at commit `2302b32d`). Before
+switching, a benchmark built an envelope variant from the same validation
+code and ran both on the suite, converted case by case, and on the large
+document. The envelope variant passed all 1,298 cases, and the switch made the
+component 58 KB instead of 60 KB.
+
+Both formats run in one process with alternating rounds; fastest of 41, two
+runs agreed within 3%:
+
+| Workload | TAR | Envelope | Envelope / TAR | Input bytes |
+| --- | ---: | ---: | ---: | ---: |
+| suite (1,298 cases), render only | 2.47 ms | 1.77 ms | 0.71× | 4,048,384 → 234,162 |
+| suite, host builds input + render | 10.36 ms | 2.12 ms | 0.21× | |
+| suite, host builds input only | 7.87 ms | 286 µs | 0.04× | |
+| large (0.75 MB), order schema | 6.31 ms | 6.26 ms | 0.99× | 750,592 → 748,466 |
+| large (0.75 MB), schema `true` (framing + parsing) | 1.43 ms | 1.43 ms | 1.00× | |
+| large (0.75 MB), host builds input only | 61 µs | 29 µs | 0.47× | |
+
+- **Small inputs:** the envelope is about 30% faster inside the component.
+  Copying the extra bytes costs only 0.05 ms; most of the 0.7 ms is the TAR
+  reader itself (header checksums, the zero end blocks, remote paths turned
+  back into URIs). Each case's TAR is 17× bigger, mostly 512-byte padding.
+- **Building the input:** the envelope is string concatenation of JSON text
+  the host already has. Writing a TAR in JS took 25× longer, though that
+  writer was simple and a faster one would have narrowed the gap.
+- **Large documents:** no difference. Parsing and validation dominate.
+- **Parsing is smaller than estimated:** with schema `true`, reading and
+  parsing the 0.75 MB document takes 1.43 ms. Validation is the other ~4.9 ms
+  of the 6.3 ms, so a schema-specialized compiler has more room than parsing
+  alone suggested.
 
 ## Why a Compliance oracle helps
 
@@ -106,7 +227,7 @@ in three ways:
    `lib.mjs` binds the same imports to the two JS libraries in about 30
    lines. No library needed its own copy of the suite.
 2. **Reject versus trap is checked.** `must_reject` only passes on a clean
-   rejection. The component traps on a malformed archive, an unresolvable
+   rejection. The component traps on a malformed envelope, an unresolvable
    `$ref`, an unsupported regex or an unknown required vocabulary. So a
    broken schema can't pass the suite's invalid cases by failing for the wrong
    reason. The JS adapters report thrown errors the same way.
@@ -114,9 +235,8 @@ in three ways:
    tools/gen-json-schema-2020-12-fixtures.mjs --check` also fails if the
    fixture drifts from the vendored suite.
 
-A per-case TAR built at compile time would have embedded about 4 MB of
-512-byte blocks. Instead the oracle embeds the 149 KB flattened fixture and
-writes each case's archive into its own buffer at run time. That makes it a
+The oracle embeds the 149 KB flattened fixture and joins each case's envelope
+into its own buffer at run time, with `"instance"` last. That makes it a
 generated oracle rather than a `--straight-line-oracles` one. It still asserts
 that it declared exactly the number of cases the fixture's `cases` line
 promises.

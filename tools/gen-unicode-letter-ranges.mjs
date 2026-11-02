@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Writes application/x-tar/lib/json-schema-unicode-letter.zig: the code point
+// Writes application/json/lib/json-schema-unicode-letter.zig: the code point
 // ranges of Unicode General_Category=Letter (\p{L}, \p{Letter}) as Node's
 // ECMAScript regex engine sees them. JSON Schema patterns are ECMA-262 regular
 // expressions, so the validator matches what JavaScript validators match.
@@ -8,7 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const out = path.join(root, "application/x-tar/lib/json-schema-unicode-letter.zig");
+const out = path.join(root, "application/json/lib/json-schema-unicode-letter.zig");
 const letter = /^\p{L}$/u;
 const ranges = [];
 let start = -1;

@@ -77,7 +77,7 @@ qip comply text/rgb-to-hex.wasm --with compliance/rgb-to-hex.comply.wasm
 qip comply text/base64-decode.wasm --with compliance/base64-decode.comply.wasm
 
 # Runs the 1,298 JSON-Schema-Test-Suite draft 2020-12 core tests: valid instances echo, invalid ones reject.
-qip comply application/x-tar/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
+qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
 ```
 
 ## What It Does

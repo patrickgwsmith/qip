@@ -1,8 +1,8 @@
-// Shared pieces for suite.mjs and bench.mjs: the fixture reader, a minimal
-// ustar reader and writer, the Compliance oracle bridge, and one adapter per
-// validator. Every adapter takes the same TAR input as the QIP component
-// (schema.json, instance.json, schemas/<scheme>/<rest>) so the comply oracle
-// can drive all three.
+// Shared pieces for suite.mjs and bench.mjs: the fixture reader, the JSON
+// envelope writer and reader, the Compliance oracle bridge, and one adapter
+// per validator. Every adapter takes the same envelope input as the QIP
+// component ({"schemas": {uri: …}, "schema": …, "instance": …}) so the comply
+// oracle can drive all three.
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,10 +10,11 @@ import { Validator as CfworkerValidator } from "@cfworker/json-schema";
 import { Validator as AtaValidator } from "ata-validator";
 
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-export const componentPath = path.join(root, "application/x-tar/json-schema-2020-12-must-be-valid.wasm");
+export const componentPath = path.join(root, "application/json/json-schema-2020-12-must-be-valid.wasm");
+export const compilerPath = path.join(root, "application/json/json-schema-to-wasm.wasm");
 export const oraclePath = path.join(root, "compliance/json-schema-2020-12.comply.wasm");
 export const fixturePath = path.join(root, "compliance/json-schema-2020-12.fixtures.txt");
-const metaDir = path.join(root, "application/x-tar/lib/json-schema-2020-12");
+const metaDir = path.join(root, "application/json/lib/json-schema-2020-12");
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -48,99 +49,30 @@ export function readFixture() {
 }
 
 // ---------------------------------------------------------------------------
-// TAR
+// JSON envelope
 
-function octal(header, offset, length, value) {
-  const text = value.toString(8).padStart(length - 1, "0");
-  header.set(encoder.encode(text), offset);
-  header[offset + length - 1] = 0;
+// Joins JSON texts the host already has into one envelope, without parsing
+// or reformatting them. "instance" goes last, as the comply oracle writes it.
+export function writeEnvelope({ schema, instance, schemas = {} }) {
+  const entries = Object.entries(schemas);
+  const parts = [];
+  if (entries.length > 0) parts.push(`"schemas":{${entries.map(([uri, json]) => `${JSON.stringify(uri)}:${json}`).join(",")}}`);
+  parts.push(`"schema":${schema}`, `"instance":${instance}`);
+  return encoder.encode(`{${parts.join(",")}}`);
 }
 
-export function writeTar(files) {
-  const chunks = [];
-  for (const [name, data] of files) {
-    const bytes = typeof data === "string" ? encoder.encode(data) : data;
-    const header = new Uint8Array(512);
-    const nameBytes = encoder.encode(name);
-    if (nameBytes.length > 100) throw new Error(`tar path too long: ${name}`);
-    header.set(nameBytes, 0);
-    octal(header, 100, 8, 0o644);
-    octal(header, 108, 8, 0);
-    octal(header, 116, 8, 0);
-    octal(header, 124, 12, bytes.length);
-    octal(header, 136, 12, 0);
-    header[156] = "0".charCodeAt(0);
-    header.set(encoder.encode("ustar\0"), 257);
-    header.set(encoder.encode("00"), 263);
-    header.fill(0x20, 148, 156);
-    let sum = 0;
-    for (const b of header) sum += b;
-    octal(header, 148, 7, sum);
-    header[155] = 0x20;
-    chunks.push(header, bytes, new Uint8Array((512 - (bytes.length % 512)) % 512));
-  }
-  chunks.push(new Uint8Array(1024));
-  const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
-  let at = 0;
-  for (const c of chunks) {
-    out.set(c, at);
-    at += c.length;
-  }
-  return out;
+export function caseEnvelope(group, data) {
+  return writeEnvelope({ schema: group.schema, instance: data, schemas: Object.fromEntries(group.remotes.map((r) => [r.uri, r.json])) });
 }
 
-function cString(bytes) {
-  const end = bytes.indexOf(0);
-  return decoder.decode(end < 0 ? bytes : bytes.subarray(0, end));
-}
-
-export function readTar(input) {
-  const files = new Map();
-  let pos = 0;
-  while (pos + 512 <= input.length) {
-    const header = input.subarray(pos, pos + 512);
-    if (header.every((b) => b === 0)) break;
-    let name = cString(header.subarray(0, 100));
-    const prefix = cString(header.subarray(345, 500));
-    if (prefix) name = `${prefix}/${name}`;
-    const size = parseInt(cString(header.subarray(124, 136)).trim() || "0", 8);
-    const data = input.subarray(pos + 512, pos + 512 + size);
-    if (header[156] === 0 || header[156] === 0x30) files.set(name.replace(/^(\.\/)+/, ""), data);
-    pos += 512 + Math.ceil(size / 512) * 512;
-  }
-  return files;
-}
-
-export function caseTar(group, data) {
-  const files = [
-    ["schema.json", group.schema],
-    ["instance.json", data],
-  ];
-  for (const remote of group.remotes) {
-    const [scheme, rest] = remote.uri.split("://");
-    files.push([`schemas/${scheme}/${rest}`, remote.json]);
-  }
-  return writeTar(files);
-}
-
-// Splits a case archive into JSON texts: { schema, instance, remotes: {uri: text} }.
+// Splits an envelope into JSON texts: { schemaText, instanceText,
+// instanceBytes, remotes: {uri: text} }. The texts are re-serialized; for the
+// fixture's JSON.stringify output that gives back the same bytes.
 export function unpackCase(input) {
-  const files = readTar(input);
-  const remotes = {};
-  for (const [name, data] of files) {
-    if (!name.startsWith("schemas/")) continue;
-    const rest = name.slice("schemas/".length);
-    const slash = rest.indexOf("/");
-    const first = slash < 0 ? rest : rest.slice(0, slash);
-    const uri = first.includes(":") ? rest : `${first}://${rest.slice(slash + 1)}`;
-    remotes[uri] = decoder.decode(data);
-  }
-  return {
-    schemaText: decoder.decode(files.get("schema.json")),
-    instanceBytes: files.get("instance.json"),
-    instanceText: decoder.decode(files.get("instance.json")),
-    remotes,
-  };
+  const env = JSON.parse(decoder.decode(input));
+  const instanceText = JSON.stringify(env.instance);
+  const remotes = Object.fromEntries(Object.entries(env.schemas ?? {}).map(([uri, doc]) => [uri, JSON.stringify(doc)]));
+  return { schemaText: JSON.stringify(env.schema), instanceText, instanceBytes: encoder.encode(instanceText), remotes };
 }
 
 // The 2020-12 meta-schemas, for libraries that want them registered.
@@ -160,12 +92,12 @@ export function metaSchemas() {
 
 // ---------------------------------------------------------------------------
 // Validators. Each `compile(schemaText, remotes)` returns `(instance) => bool`
-// for an already-parsed instance. `run(input)` is the whole TAR-in path used
+// for an already-parsed instance. `run(input)` is the whole envelope-in path used
 // by the oracle: { status: "accept", output } | { status: "reject" } |
 // { status: "error", message }.
 
-export function qipValidator() {
-  const module = new WebAssembly.Module(fs.readFileSync(componentPath));
+export function qipValidator(wasmPath = componentPath) {
+  const module = new WebAssembly.Module(fs.readFileSync(wasmPath));
   let instance = null;
   let memory = null;
   let inputPtr = 0;
@@ -201,6 +133,84 @@ export function qipValidator() {
         const r = render(input);
         if (!r.accepted) return { status: "reject" };
         return { status: "accept", output: new Uint8Array(memory.buffer, r.ptr, r.size).slice() };
+      } catch (error) {
+        return { status: "error", message: `trap: ${error.message}` };
+      }
+    },
+  };
+}
+
+// Runs a QIP Content component: copy input in, render, read the result.
+// render returns { accepted, ptr, size } or throws on a trap, after which the
+// instance is replaced so the next call starts clean.
+function qipComponent(module) {
+  let instance = null;
+  let memory = null;
+  let inputPtr = 0;
+  let cap = 0;
+  const fresh = () => {
+    instance = new WebAssembly.Instance(module, {});
+    memory = instance.exports.memory;
+    inputPtr = instance.exports.input_ptr();
+    cap = (instance.exports.input_bytes_cap ?? instance.exports.input_utf8_cap)();
+  };
+  fresh();
+  return {
+    render(input) {
+      if (input.length > cap) throw new Error("input over capacity");
+      new Uint8Array(memory.buffer, inputPtr, input.length).set(input);
+      let result;
+      try {
+        result = BigInt.asUintN(64, instance.exports.render(input.length));
+      } catch (error) {
+        fresh();
+        throw error;
+      }
+      if (result >> 63n) return { accepted: false };
+      const ptr = Number((result >> 32n) & 0x7fffffffn);
+      const size = Number(result & 0xffffffffn);
+      return { accepted: true, ptr, size };
+    },
+    bytes: (ptr, size) => new Uint8Array(memory.buffer, ptr, size).slice(),
+  };
+}
+
+// The compiled path: json-schema-to-wasm turns {"schema", "schemas"} into a
+// module, which then validates bare instances. compile() returns a check
+// over instance bytes, with .module and .component for benchmarks.
+export function qipCompiledValidator(wasmPath = compilerPath) {
+  const compiler = qipComponent(new WebAssembly.Module(fs.readFileSync(wasmPath)));
+  const compileModule = (schemaText, remotes = {}) => {
+    const entries = Object.entries(remotes);
+    const parts = [];
+    if (entries.length > 0) parts.push(`"schemas":{${entries.map(([uri, json]) => `${JSON.stringify(uri)}:${json}`).join(",")}}`);
+    parts.push(`"schema":${schemaText}`);
+    const r = compiler.render(encoder.encode(`{${parts.join(",")}}`));
+    if (!r.accepted) throw new Error("json-schema-to-wasm rejected the schema");
+    return new WebAssembly.Module(compiler.bytes(r.ptr, r.size));
+  };
+  const compile = (schemaText, remotes = {}) => {
+    const module = compileModule(schemaText, remotes);
+    const component = qipComponent(module);
+    const check = (bytes) => component.render(bytes).accepted;
+    check.module = module;
+    check.component = component;
+    return check;
+  };
+  const cache = new Map();
+  return {
+    name: "qip compiled (json-schema-to-wasm)",
+    compileModule,
+    compile,
+    run(input) {
+      try {
+        const { schemaText, instanceBytes, remotes } = unpackCase(input);
+        const key = JSON.stringify([schemaText, remotes]);
+        if (!cache.has(key)) cache.set(key, compile(schemaText, remotes));
+        const check = cache.get(key);
+        const r = check.component.render(instanceBytes);
+        if (!r.accepted) return { status: "reject" };
+        return { status: "accept", output: check.component.bytes(r.ptr, r.size) };
       } catch (error) {
         return { status: "error", message: `trap: ${error.message}` };
       }
@@ -246,7 +256,7 @@ export function ataValidator() {
 }
 
 export function allValidators() {
-  return [qipValidator(), cfworkerValidator(), ataValidator()];
+  return [qipValidator(), qipCompiledValidator(), cfworkerValidator(), ataValidator()];
 }
 
 // ---------------------------------------------------------------------------

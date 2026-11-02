@@ -1,116 +1,23 @@
-// Validates a JSON instance against a JSON Schema (draft 2020-12) and, when
-// it conforms, outputs the instance bytes unchanged.
+// Shared JSON Schema 2020-12 machinery: the JSON parser, exact decimal
+// numbers, URI resolution, the ECMA-262 regex subset and its Pike VM, and the
+// schema index that resolves $id, $anchor, $dynamicAnchor and $ref.
 //
-// Input is a TAR archive:
-//
-//   schema.json          the schema to validate against
-//   instance.json        the JSON document to validate
-//   schemas/<uri-path>   optional extra schema documents for remote $ref
-//
-// An extra document's URI comes from its path. The first segment is the URI
-// scheme and the rest follows "://", so
-// schemas/https/example.com/address.json is https://example.com/address.json.
-// When the first segment contains ":" the remainder is the URI as written, as
-// in schemas/urn:example:address. Documents that declare $id are also found
-// by that $id. The 2020-12 meta-schemas are built in. Nothing is fetched.
-//
-// Rejection means one thing: the instance does not conform to the schema.
-// Everything else traps: a malformed archive, invalid JSON, a missing file, a
-// $ref that does not resolve, a regular expression outside the supported
-// subset, a required vocabulary this validator does not know, or a resource
-// limit. That keeps a broken schema from looking like an invalid instance.
-//
-// Keywords follow the core, applicator, unevaluated and validation
-// vocabularies. format, content* and the meta-data keywords are annotations
-// and never fail validation, as the default 2020-12 dialect specifies.
-// Numbers compare exactly by their decimal text, never as floats: 1.0 equals
-// 1, 0.0075 is a multiple of 0.0001, and 1e400 is greater than 1e308. A
-// multipleOf divisor with more than 37 significant digits traps.
-//
-// pattern and patternProperties use ECMA-262 syntax with the u flag, matched
-// by a linear-time Pike VM: literals, ., ^, $, classes, \d \w \s \b and their
-// negations, \p{L}/\p{Letter} and \P{...}, groups, alternation and the
-// greedy or lazy quantifiers * + ? {n} {n,} {n,m}. Lookaround and
-// backreferences are not supported and trap.
-//
-// Validation recurses through the schema, so this component does not satisfy
-// the strict profile's acyclic call graph. Depth is bounded by MAX_DEPTH.
+// json-schema-2020-12-must-be-valid.zig evaluates schemas directly with it.
+// json-schema-to-wasm.zig uses the same index to resolve a schema ahead of
+// time, and lib/json-schema-runtime.zig reuses the number and regex code.
 const std = @import("std");
-const unicode_letter = @import("lib/json-schema-unicode-letter.zig");
+const unicode_letter = @import("json-schema-unicode-letter.zig");
 
-const INPUT_CAP: usize = 4 * 1024 * 1024;
-const ARENA_CAP: usize = 48 * 1024 * 1024;
-const SCRATCH_CAP: usize = 8 * 1024 * 1024;
-const MAX_DEPTH: usize = 512;
-const MAX_REGEX_INSTS: usize = 20_000;
-const INPUT_CONTENT_TYPE = "application/x-tar";
-const OUTPUT_CONTENT_TYPE = "application/json";
-const DEFAULT_BASE = "https://json-schema.invalid/schema.json";
-const DIALECT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
+pub const MAX_DEPTH: usize = 512;
+pub const MAX_REGEX_INSTS: usize = 20_000;
+pub const DEFAULT_BASE = "https://json-schema.invalid/schema.json";
+pub const DIALECT_2020_12 = "https://json-schema.org/draft/2020-12/schema";
 
-var input_buf: [INPUT_CAP]u8 = undefined;
-var arena_buf: [ARENA_CAP]u8 = undefined;
-var scratch_buf: [SCRATCH_CAP]u8 = undefined;
-
-const RenderResult = packed struct(u64) {
-    output_size_or_failure: u32,
-    output_ptr: u31,
-    failed: u1,
-};
-
-export fn input_ptr() u32 {
-    return @intCast(@intFromPtr(&input_buf));
-}
-
-export fn input_bytes_cap() u32 {
-    return INPUT_CAP;
-}
-
-// Accepted output is instance.json, which is part of the input.
-export fn output_utf8_cap() u32 {
-    return INPUT_CAP;
-}
-
-export fn input_content_type_ptr() u32 {
-    return @intCast(@intFromPtr(INPUT_CONTENT_TYPE.ptr));
-}
-
-export fn input_content_type_size() u32 {
-    return INPUT_CONTENT_TYPE.len;
-}
-
-export fn output_content_type_ptr() u32 {
-    return @intCast(@intFromPtr(OUTPUT_CONTENT_TYPE.ptr));
-}
-
-export fn output_content_type_size() u32 {
-    return OUTPUT_CONTENT_TYPE.len;
-}
-
-// Rejection carries no detail: it only says the instance does not conform.
-export fn failure_modes_per_input_offset() u32 {
-    return 0;
-}
-
-export fn render(input_size: u32) RenderResult {
-    if (input_size > INPUT_CAP) @trap();
-    const input = input_buf[0..input_size];
-    const instance = run(input) catch @trap();
-    if (instance) |bytes| {
-        return .{
-            .output_size_or_failure = @intCast(bytes.len),
-            .output_ptr = @intCast(@intFromPtr(bytes.ptr)),
-            .failed = 0,
-        };
-    }
-    return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
-}
-
-const Error = error{
+pub const Error = error{
     OutOfMemory,
-    InvalidTar,
+    InvalidEnvelope,
     InvalidJson,
-    MissingFile,
+    MissingKey,
     BadSchema,
     Unsupported,
     TooDeep,
@@ -119,11 +26,11 @@ const Error = error{
 // ---------------------------------------------------------------------------
 // Built-in meta-schemas
 
-const Embedded = struct { uri: []const u8, json: []const u8 };
+pub const Embedded = struct { uri: []const u8, json: []const u8 };
 
 // The files stay as published; whitespace outside strings is dropped at
 // compile time, which keeps about 3 KB out of the Wasm.
-fn embedMinified(comptime path: []const u8) []const u8 {
+pub fn embedMinified(comptime path: []const u8) []const u8 {
     comptime {
         const src = @embedFile(path);
         @setEvalBranchQuota(src.len * 20);
@@ -153,23 +60,23 @@ fn embedMinified(comptime path: []const u8) []const u8 {
     }
 }
 
-const embedded_schemas = [_]Embedded{
-    .{ .uri = "https://json-schema.org/draft/2020-12/schema", .json = embedMinified("lib/json-schema-2020-12/schema.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/core", .json = embedMinified("lib/json-schema-2020-12/meta-core.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/applicator", .json = embedMinified("lib/json-schema-2020-12/meta-applicator.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/unevaluated", .json = embedMinified("lib/json-schema-2020-12/meta-unevaluated.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/validation", .json = embedMinified("lib/json-schema-2020-12/meta-validation.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/meta-data", .json = embedMinified("lib/json-schema-2020-12/meta-meta-data.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/format-annotation", .json = embedMinified("lib/json-schema-2020-12/meta-format-annotation.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/content", .json = embedMinified("lib/json-schema-2020-12/meta-content.json") },
+pub const embedded_schemas = [_]Embedded{
+    .{ .uri = "https://json-schema.org/draft/2020-12/schema", .json = embedMinified("json-schema-2020-12/schema.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/core", .json = embedMinified("json-schema-2020-12/meta-core.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/applicator", .json = embedMinified("json-schema-2020-12/meta-applicator.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/unevaluated", .json = embedMinified("json-schema-2020-12/meta-unevaluated.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/validation", .json = embedMinified("json-schema-2020-12/meta-validation.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/meta-data", .json = embedMinified("json-schema-2020-12/meta-meta-data.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/format-annotation", .json = embedMinified("json-schema-2020-12/meta-format-annotation.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/content", .json = embedMinified("json-schema-2020-12/meta-content.json") },
 };
 
 // ---------------------------------------------------------------------------
 // JSON values
 
-const Number = struct { text: []const u8 };
+pub const Number = struct { text: []const u8 };
 
-const Value = union(enum) {
+pub const Value = union(enum) {
     null,
     boolean: bool,
     number: Number,
@@ -178,22 +85,22 @@ const Value = union(enum) {
     object: []Member,
 };
 
-const Member = struct { key: []const u8, value: Value };
+pub const Member = struct { key: []const u8, value: Value };
 
-fn get(object: []const Member, key: []const u8) ?*const Value {
+pub fn get(object: []const Member, key: []const u8) ?*const Value {
     for (object) |*member| {
         if (std.mem.eql(u8, member.key, key)) return &member.value;
     }
     return null;
 }
 
-const JsonParser = struct {
+pub const JsonParser = struct {
     src: []const u8,
     pos: usize = 0,
     depth: usize = 0,
     alloc: std.mem.Allocator,
 
-    fn parseDocument(alloc: std.mem.Allocator, src: []const u8) Error!Value {
+    pub fn parseDocument(alloc: std.mem.Allocator, src: []const u8) Error!Value {
         var parser = JsonParser{ .src = src, .alloc = alloc };
         const value = try parser.parseValue();
         parser.skipWs();
@@ -201,7 +108,7 @@ const JsonParser = struct {
         return value;
     }
 
-    fn skipWs(p: *JsonParser) void {
+    pub fn skipWs(p: *JsonParser) void {
         while (p.pos < p.src.len) : (p.pos += 1) {
             switch (p.src[p.pos]) {
                 ' ', '\t', '\n', '\r' => {},
@@ -210,12 +117,12 @@ const JsonParser = struct {
         }
     }
 
-    fn literal(p: *JsonParser, word: []const u8) Error!void {
+    pub fn literal(p: *JsonParser, word: []const u8) Error!void {
         if (!std.mem.startsWith(u8, p.src[p.pos..], word)) return error.InvalidJson;
         p.pos += word.len;
     }
 
-    fn parseValue(p: *JsonParser) Error!Value {
+    pub fn parseValue(p: *JsonParser) Error!Value {
         p.skipWs();
         if (p.pos >= p.src.len) return error.InvalidJson;
         switch (p.src[p.pos]) {
@@ -239,12 +146,12 @@ const JsonParser = struct {
         }
     }
 
-    fn enter(p: *JsonParser) Error!void {
+    pub fn enter(p: *JsonParser) Error!void {
         p.depth += 1;
         if (p.depth > MAX_DEPTH) return error.TooDeep;
     }
 
-    fn parseObject(p: *JsonParser) Error!Value {
+    pub fn parseObject(p: *JsonParser) Error!Value {
         try p.enter();
         defer p.depth -= 1;
         p.pos += 1;
@@ -278,7 +185,7 @@ const JsonParser = struct {
         return .{ .object = members.items };
     }
 
-    fn parseArray(p: *JsonParser) Error!Value {
+    pub fn parseArray(p: *JsonParser) Error!Value {
         try p.enter();
         defer p.depth -= 1;
         p.pos += 1;
@@ -305,7 +212,7 @@ const JsonParser = struct {
         return .{ .array = items.items };
     }
 
-    fn hex4(p: *JsonParser) Error!u21 {
+    pub fn hex4(p: *JsonParser) Error!u21 {
         if (p.pos + 4 > p.src.len) return error.InvalidJson;
         var value: u21 = 0;
         for (p.src[p.pos..][0..4]) |c| {
@@ -321,7 +228,7 @@ const JsonParser = struct {
         return value;
     }
 
-    fn parseString(p: *JsonParser) Error![]const u8 {
+    pub fn parseString(p: *JsonParser) Error![]const u8 {
         p.pos += 1;
         const start = p.pos;
         var escaped = false;
@@ -392,7 +299,7 @@ const JsonParser = struct {
         return out[0..o];
     }
 
-    fn parseNumber(p: *JsonParser) Error!Value {
+    pub fn parseNumber(p: *JsonParser) Error!Value {
         const start = p.pos;
         if (p.src[p.pos] == '-') p.pos += 1;
         if (p.pos >= p.src.len) return error.InvalidJson;
@@ -420,7 +327,7 @@ const JsonParser = struct {
 
 // Lone surrogates from \u escapes keep their 3-byte form (WTF-8), so they
 // still count as one code point and compare equal to themselves.
-fn encodeWtf8(cp: u21, out: []u8) usize {
+pub fn encodeWtf8(cp: u21, out: []u8) usize {
     if (cp < 0x80) {
         out[0] = @intCast(cp);
         return 1;
@@ -443,9 +350,9 @@ fn encodeWtf8(cp: u21, out: []u8) usize {
     return 4;
 }
 
-const Decoded = struct { cp: u21, len: usize };
+pub const Decoded = struct { cp: u21, len: usize };
 
-fn decodeAt(text: []const u8, i: usize) Decoded {
+pub fn decodeAt(text: []const u8, i: usize) Decoded {
     const b = text[i];
     if (b < 0x80) return .{ .cp = b, .len = 1 };
     const len: usize = if (b >= 0xF0) 4 else if (b >= 0xE0) 3 else if (b >= 0xC0) 2 else 1;
@@ -459,7 +366,7 @@ fn decodeAt(text: []const u8, i: usize) Decoded {
     return .{ .cp = cp, .len = len };
 }
 
-fn codePointCount(text: []const u8) usize {
+pub fn codePointCount(text: []const u8) usize {
     var count: usize = 0;
     for (text) |b| {
         if ((b & 0xC0) != 0x80) count += 1;
@@ -471,27 +378,27 @@ fn codePointCount(text: []const u8) usize {
 // Exact decimal view of a JSON number: value = digits * 10^exp, where digits
 // has no leading or trailing zeros (empty means zero).
 
-const Decimal = struct {
+pub const Decimal = struct {
     int: []const u8,
     frac: []const u8,
     lead: usize,
     end: usize,
     exp: i64,
 
-    fn digit(d: Decimal, index: usize) u8 {
+    pub fn digit(d: Decimal, index: usize) u8 {
         return if (index < d.int.len) d.int[index] - '0' else d.frac[index - d.int.len] - '0';
     }
 
-    fn isZero(d: Decimal) bool {
+    pub fn isZero(d: Decimal) bool {
         return d.lead >= d.end;
     }
 
-    fn digitCount(d: Decimal) usize {
+    pub fn digitCount(d: Decimal) usize {
         return d.end - d.lead;
     }
 };
 
-fn decimal(text: []const u8) Decimal {
+pub fn decimal(text: []const u8) Decimal {
     var i: usize = 0;
     if (text[0] == '-') i = 1;
     const int_start = i;
@@ -526,7 +433,7 @@ fn decimal(text: []const u8) Decimal {
     return d;
 }
 
-fn isIntegral(n: Number) bool {
+pub fn isIntegral(n: Number) bool {
     if (std.mem.indexOfAny(u8, n.text, ".eE") == null) return true;
     const d = decimal(n.text);
     return d.isZero() or d.exp >= 0;
@@ -534,7 +441,7 @@ fn isIntegral(n: Number) bool {
 
 // a * b mod m for a, b < m < 2^127. Small moduli multiply directly; larger
 // ones double and add so nothing overflows.
-fn mulMod(a: u128, b: u128, m: u128) u128 {
+pub fn mulMod(a: u128, b: u128, m: u128) u128 {
     if (m <= std.math.maxInt(u64)) return (a * b) % m;
     var result: u128 = 0;
     var x = a;
@@ -546,7 +453,7 @@ fn mulMod(a: u128, b: u128, m: u128) u128 {
     return result;
 }
 
-fn powMod(base: u128, exponent: u64, modulus: u128) u128 {
+pub fn powMod(base: u128, exponent: u64, modulus: u128) u128 {
     var result: u128 = 1 % modulus;
     var b = base % modulus;
     var e = exponent;
@@ -558,7 +465,7 @@ fn powMod(base: u128, exponent: u64, modulus: u128) u128 {
 }
 
 // Orders two JSON numbers by exact value. -0 equals 0.
-fn compareNumbers(a: []const u8, b: []const u8) std.math.Order {
+pub fn compareNumbers(a: []const u8, b: []const u8) std.math.Order {
     if (smallNumber(a)) |x| if (smallNumber(b)) |y| {
         // Scale both to the same number of decimal places, unless that
         // overflows.
@@ -570,7 +477,7 @@ fn compareNumbers(a: []const u8, b: []const u8) std.math.Order {
     return compareDecimals(a, b);
 }
 
-fn compareDecimals(a: []const u8, b: []const u8) std.math.Order {
+pub fn compareDecimals(a: []const u8, b: []const u8) std.math.Order {
     const da = decimal(a);
     const db = decimal(b);
     const sa: i2 = if (da.isZero()) 0 else if (a[0] == '-') -1 else 1;
@@ -581,9 +488,9 @@ fn compareDecimals(a: []const u8, b: []const u8) std.math.Order {
     return if (sa < 0) magnitude.invert() else magnitude;
 }
 
-const SmallNumber = struct { value: i64, places: u8 };
+pub const SmallNumber = struct { value: i64, places: u8 };
 
-const pow10 = blk: {
+pub const pow10 = blk: {
     var t: [19]i64 = undefined;
     t[0] = 1;
     for (1..t.len) |i| t[i] = t[i - 1] * 10;
@@ -592,7 +499,7 @@ const pow10 = blk: {
 
 // The common case: no exponent and at most 18 digits, read as an integer
 // count of 10^-places. Anything else takes the Decimal path.
-fn smallNumber(text: []const u8) ?SmallNumber {
+pub fn smallNumber(text: []const u8) ?SmallNumber {
     var i: usize = 0;
     const negative = text[0] == '-';
     if (negative) i = 1;
@@ -615,7 +522,7 @@ fn smallNumber(text: []const u8) ?SmallNumber {
     return .{ .value = if (negative) -value else value, .places = places };
 }
 
-fn compareMagnitude(a: Decimal, b: Decimal) std.math.Order {
+pub fn compareMagnitude(a: Decimal, b: Decimal) std.math.Order {
     // The leading digit's place value decides first, then digit by digit.
     const pa = a.exp + @as(i64, @intCast(a.digitCount()));
     const pb = b.exp + @as(i64, @intCast(b.digitCount()));
@@ -630,7 +537,7 @@ fn compareMagnitude(a: Decimal, b: Decimal) std.math.Order {
 }
 
 // Orders a count (string length, item count) against a schema number.
-fn compareCount(count: usize, v: *const Value) Error!std.math.Order {
+pub fn compareCount(count: usize, v: *const Value) Error!std.math.Order {
     if (v.* != .number) return error.BadSchema;
     var buf: [20]u8 = undefined;
     var i: usize = buf.len;
@@ -644,7 +551,7 @@ fn compareCount(count: usize, v: *const Value) Error!std.math.Order {
     return compareNumbers(buf[i..], v.number.text);
 }
 
-fn isMultipleOf(x: Number, m: Number) Error!bool {
+pub fn isMultipleOf(x: Number, m: Number) Error!bool {
     const dx = decimal(x.text);
     const dm = decimal(m.text);
     if (dm.isZero()) return false;
@@ -664,7 +571,7 @@ fn isMultipleOf(x: Number, m: Number) Error!bool {
     return r == 0;
 }
 
-fn jsonEqual(a: *const Value, b: *const Value) bool {
+pub fn jsonEqual(a: *const Value, b: *const Value) bool {
     switch (a.*) {
         .null => return b.* == .null,
         .boolean => |x| return b.* == .boolean and b.boolean == x,
@@ -689,118 +596,70 @@ fn jsonEqual(a: *const Value, b: *const Value) bool {
 }
 
 // ---------------------------------------------------------------------------
-// TAR input
+// Envelope input
 
-const Files = struct {
-    schema: ?[]const u8 = null,
-    instance: ?[]const u8 = null,
-    remotes: std.ArrayListUnmanaged(Embedded) = .empty,
+pub const Envelope = struct {
+    schema: ?*const Value = null,
+    instance: ?*const Value = null,
+    instance_bytes: []const u8 = "",
+    schemas: []const Member = &.{},
 };
 
-fn tarNumber(field: []const u8) Error!usize {
-    var value: usize = 0;
-    var seen = false;
-    for (field) |c| {
-        if (c == 0 or c == ' ') {
-            if (seen) break;
+// Parses the envelope object. Each member value is parsed at depth 0, so
+// MAX_DEPTH means the same as it does for a standalone document.
+pub fn parseEnvelope(alloc: std.mem.Allocator, src: []const u8) Error!Envelope {
+    var p = JsonParser{ .src = src, .alloc = alloc };
+    var env = Envelope{};
+    var seen_schemas = false;
+    p.skipWs();
+    if (p.pos >= src.len or src[p.pos] != '{') return error.InvalidEnvelope;
+    p.pos += 1;
+    p.skipWs();
+    if (p.pos < src.len and src[p.pos] == '}') return error.MissingKey;
+    while (true) {
+        p.skipWs();
+        if (p.pos >= src.len or src[p.pos] != '"') return error.InvalidJson;
+        const key = try p.parseString();
+        p.skipWs();
+        if (p.pos >= src.len or src[p.pos] != ':') return error.InvalidJson;
+        p.pos += 1;
+        p.skipWs();
+        const start = p.pos;
+        const value = try alloc.create(Value);
+        value.* = try p.parseValue();
+        if (std.mem.eql(u8, key, "schema")) {
+            if (env.schema != null) return error.InvalidEnvelope;
+            env.schema = value;
+        } else if (std.mem.eql(u8, key, "instance")) {
+            if (env.instance != null) return error.InvalidEnvelope;
+            env.instance = value;
+            env.instance_bytes = src[start..p.pos];
+        } else if (std.mem.eql(u8, key, "schemas")) {
+            if (seen_schemas or value.* != .object) return error.InvalidEnvelope;
+            seen_schemas = true;
+            env.schemas = value.object;
+        } else return error.InvalidEnvelope;
+        p.skipWs();
+        if (p.pos >= src.len) return error.InvalidJson;
+        if (src[p.pos] == ',') {
+            p.pos += 1;
             continue;
         }
-        if (c < '0' or c > '7') return error.InvalidTar;
-        value = std.math.mul(usize, value, 8) catch return error.InvalidTar;
-        value += c - '0';
-        seen = true;
-    }
-    return value;
-}
-
-fn cString(field: []const u8) []const u8 {
-    return field[0 .. std.mem.indexOfScalar(u8, field, 0) orelse field.len];
-}
-
-fn paxPath(data: []const u8) ?[]const u8 {
-    var cursor: usize = 0;
-    var found: ?[]const u8 = null;
-    while (cursor < data.len) {
-        const space = std.mem.indexOfScalarPos(u8, data, cursor, ' ') orelse return found;
-        const len = std.fmt.parseInt(usize, data[cursor..space], 10) catch return found;
-        if (len == 0 or cursor + len > data.len) return found;
-        const record = data[space + 1 .. cursor + len - 1];
-        if (std.mem.startsWith(u8, record, "path=")) found = record[5..];
-        cursor += len;
-    }
-    return found;
-}
-
-fn readTar(alloc: std.mem.Allocator, input: []const u8) Error!Files {
-    var files = Files{};
-    var pos: usize = 0;
-    var long_name: ?[]const u8 = null;
-    while (pos + 512 <= input.len) {
-        const header = input[pos..][0..512];
-        if (std.mem.allEqual(u8, header, 0)) break;
-        var sum: usize = 0;
-        for (header, 0..) |b, index| sum += if (index >= 148 and index < 156) ' ' else b;
-        if (sum != try tarNumber(header[148..156])) return error.InvalidTar;
-        const size = try tarNumber(header[124..136]);
-        const data_start = pos + 512;
-        if (size > input.len - data_start) return error.InvalidTar;
-        const data = input[data_start..][0..size];
-        pos = data_start + std.mem.alignForward(usize, size, 512);
-        const flag = header[156];
-        switch (flag) {
-            'x' => {
-                long_name = paxPath(data);
-                continue;
-            },
-            'L' => {
-                long_name = cString(data);
-                continue;
-            },
-            'g', '5' => {
-                long_name = null;
-                continue;
-            },
-            0, '0', '7' => {},
-            else => return error.InvalidTar,
+        if (src[p.pos] == '}') {
+            p.pos += 1;
+            break;
         }
-        var name: []const u8 = undefined;
-        if (long_name) |n| {
-            name = n;
-        } else {
-            const short = cString(header[0..100]);
-            const prefix = if (std.mem.eql(u8, header[257..262], "ustar")) cString(header[345..500]) else "";
-            name = if (prefix.len > 0) try std.mem.concat(alloc, u8, &.{ prefix, "/", short }) else short;
-        }
-        long_name = null;
-        while (std.mem.startsWith(u8, name, "./")) name = name[2..];
-        const base = name[if (std.mem.lastIndexOfScalar(u8, name, '/')) |slash| slash + 1 else 0..];
-        if (std.mem.startsWith(u8, base, "._")) continue;
-        if (std.mem.eql(u8, name, "schema.json")) {
-            if (files.schema != null) return error.InvalidTar;
-            files.schema = data;
-        } else if (std.mem.eql(u8, name, "instance.json")) {
-            if (files.instance != null) return error.InvalidTar;
-            files.instance = data;
-        } else if (std.mem.startsWith(u8, name, "schemas/")) {
-            const rest = name["schemas/".len..];
-            const slash = std.mem.indexOfScalar(u8, rest, '/');
-            const scheme = rest[0 .. slash orelse rest.len];
-            const uri = if (std.mem.indexOfScalar(u8, scheme, ':') != null)
-                rest
-            else if (slash) |at|
-                try std.mem.concat(alloc, u8, &.{ scheme, "://", rest[at + 1 ..] })
-            else
-                return error.InvalidTar;
-            try files.remotes.append(alloc, .{ .uri = uri, .json = data });
-        } else return error.InvalidTar;
+        return error.InvalidJson;
     }
-    return files;
+    p.skipWs();
+    if (p.pos != src.len) return error.InvalidJson;
+    return env;
 }
 
 // ---------------------------------------------------------------------------
 // URI references (RFC 3986 section 5)
 
-const Uri = struct {
+pub const Uri = struct {
     scheme: ?[]const u8 = null,
     authority: ?[]const u8 = null,
     path: []const u8 = "",
@@ -808,7 +667,7 @@ const Uri = struct {
     fragment: ?[]const u8 = null,
 };
 
-fn parseUri(s: []const u8) Uri {
+pub fn parseUri(s: []const u8) Uri {
     var u = Uri{};
     var rest = s;
     if (std.mem.indexOfScalar(u8, rest, '#')) |hash| {
@@ -836,7 +695,7 @@ fn parseUri(s: []const u8) Uri {
     return u;
 }
 
-fn removeDotSegments(alloc: std.mem.Allocator, path: []const u8) Error![]const u8 {
+pub fn removeDotSegments(alloc: std.mem.Allocator, path: []const u8) Error![]const u8 {
     var out: std.ArrayListUnmanaged(u8) = .empty;
     var input = path;
     while (input.len > 0) {
@@ -864,7 +723,7 @@ fn removeDotSegments(alloc: std.mem.Allocator, path: []const u8) Error![]const u
     return out.items;
 }
 
-fn resolveUri(alloc: std.mem.Allocator, base_text: []const u8, ref_text: []const u8) Error![]const u8 {
+pub fn resolveUri(alloc: std.mem.Allocator, base_text: []const u8, ref_text: []const u8) Error![]const u8 {
     const r = parseUri(ref_text);
     const base = parseUri(base_text);
     var t = Uri{};
@@ -920,12 +779,12 @@ fn resolveUri(alloc: std.mem.Allocator, base_text: []const u8, ref_text: []const
     return out.items;
 }
 
-fn splitFragment(uri: []const u8) struct { base: []const u8, fragment: []const u8 } {
+pub fn splitFragment(uri: []const u8) struct { base: []const u8, fragment: []const u8 } {
     if (std.mem.indexOfScalar(u8, uri, '#')) |hash| return .{ .base = uri[0..hash], .fragment = uri[hash + 1 ..] };
     return .{ .base = uri, .fragment = "" };
 }
 
-fn percentDecode(alloc: std.mem.Allocator, text: []const u8) Error![]const u8 {
+pub fn percentDecode(alloc: std.mem.Allocator, text: []const u8) Error![]const u8 {
     if (std.mem.indexOfScalar(u8, text, '%') == null) return text;
     const out = try alloc.alloc(u8, text.len);
     var o: usize = 0;
@@ -946,13 +805,13 @@ fn percentDecode(alloc: std.mem.Allocator, text: []const u8) Error![]const u8 {
 // ---------------------------------------------------------------------------
 // Regular expressions: ECMA-262 subset compiled for a Pike VM.
 
-const Class = struct {
+pub const Class = struct {
     negated: bool = false,
     letter: bool = false,
     not_letter: bool = false,
     ranges: []const [2]u21 = &.{},
 
-    fn matches(c: Class, cp: u21) bool {
+    pub fn matches(c: Class, cp: u21) bool {
         var hit = false;
         for (c.ranges) |r| {
             if (cp >= r[0] and cp <= r[1]) {
@@ -966,7 +825,7 @@ const Class = struct {
     }
 };
 
-const Inst = union(enum) {
+pub const Inst = union(enum) {
     char: u21,
     any,
     class: Class,
@@ -979,7 +838,7 @@ const Inst = union(enum) {
     match,
 };
 
-const RNode = union(enum) {
+pub const RNode = union(enum) {
     empty,
     char: u21,
     any,
@@ -995,17 +854,17 @@ const RNode = union(enum) {
 
 // anchored: the pattern starts with ^ outside any group, so a match can only
 // begin at offset 0.
-const Regex = struct { insts: []Inst, anchored: bool };
+pub const Regex = struct { insts: []Inst, anchored: bool };
 
-const digit_ranges = [_][2]u21{.{ '0', '9' }};
-const word_ranges = [_][2]u21{ .{ '0', '9' }, .{ 'A', 'Z' }, .{ '_', '_' }, .{ 'a', 'z' } };
-const space_ranges = [_][2]u21{
+pub const digit_ranges = [_][2]u21{.{ '0', '9' }};
+pub const word_ranges = [_][2]u21{ .{ '0', '9' }, .{ 'A', 'Z' }, .{ '_', '_' }, .{ 'a', 'z' } };
+pub const space_ranges = [_][2]u21{
     .{ 0x09, 0x0D }, .{ 0x20, 0x20 },     .{ 0xA0, 0xA0 },     .{ 0x1680, 0x1680 },
     .{ 0x2000, 0x200A }, .{ 0x2028, 0x2029 }, .{ 0x202F, 0x202F }, .{ 0x205F, 0x205F },
     .{ 0x3000, 0x3000 }, .{ 0xFEFF, 0xFEFF },
 };
 
-fn complement(alloc: std.mem.Allocator, ranges: []const [2]u21) Error![]const [2]u21 {
+pub fn complement(alloc: std.mem.Allocator, ranges: []const [2]u21) Error![]const [2]u21 {
     var out: std.ArrayListUnmanaged([2]u21) = .empty;
     var next: u21 = 0;
     for (ranges) |r| {
@@ -1016,21 +875,21 @@ fn complement(alloc: std.mem.Allocator, ranges: []const [2]u21) Error![]const [2
     return out.items;
 }
 
-fn isWordChar(cp: u21) bool {
+pub fn isWordChar(cp: u21) bool {
     return (cp >= '0' and cp <= '9') or (cp >= 'A' and cp <= 'Z') or (cp >= 'a' and cp <= 'z') or cp == '_';
 }
 
-const RegexParser = struct {
+pub const RegexParser = struct {
     pat: []const u21,
     pos: usize = 0,
     depth: usize = 0,
     alloc: std.mem.Allocator,
 
-    fn peek(p: *RegexParser) ?u21 {
+    pub fn peek(p: *RegexParser) ?u21 {
         return if (p.pos < p.pat.len) p.pat[p.pos] else null;
     }
 
-    fn eat(p: *RegexParser, c: u21) bool {
+    pub fn eat(p: *RegexParser, c: u21) bool {
         if (p.peek() == c) {
             p.pos += 1;
             return true;
@@ -1038,7 +897,7 @@ const RegexParser = struct {
         return false;
     }
 
-    fn parseAlt(p: *RegexParser) Error!RNode {
+    pub fn parseAlt(p: *RegexParser) Error!RNode {
         p.depth += 1;
         defer p.depth -= 1;
         if (p.depth > 64) return error.Unsupported;
@@ -1049,7 +908,7 @@ const RegexParser = struct {
         return .{ .alt = branches.items };
     }
 
-    fn parseCat(p: *RegexParser) Error!RNode {
+    pub fn parseCat(p: *RegexParser) Error!RNode {
         var items: std.ArrayListUnmanaged(RNode) = .empty;
         while (p.peek()) |c| {
             if (c == '|' or c == ')') break;
@@ -1060,7 +919,7 @@ const RegexParser = struct {
         return .{ .cat = items.items };
     }
 
-    fn parseInt(p: *RegexParser) ?u32 {
+    pub fn parseInt(p: *RegexParser) ?u32 {
         const start = p.pos;
         var value: u32 = 0;
         while (p.peek()) |c| {
@@ -1072,7 +931,7 @@ const RegexParser = struct {
         return if (p.pos == start) null else value;
     }
 
-    fn parseRepeat(p: *RegexParser) Error!RNode {
+    pub fn parseRepeat(p: *RegexParser) Error!RNode {
         var atom = try p.parseAtom();
         while (p.peek()) |c| {
             var min: u32 = 0;
@@ -1106,7 +965,7 @@ const RegexParser = struct {
         return atom;
     }
 
-    fn hexValue(p: *RegexParser, count: usize) Error!u21 {
+    pub fn hexValue(p: *RegexParser, count: usize) Error!u21 {
         var value: u21 = 0;
         for (0..count) |_| {
             const c = p.peek() orelse return error.Unsupported;
@@ -1124,7 +983,7 @@ const RegexParser = struct {
 
     const Escape = union(enum) { char: u21, class: Class, word_boundary, not_word_boundary };
 
-    fn parseEscape(p: *RegexParser, in_class: bool) Error!Escape {
+    pub fn parseEscape(p: *RegexParser, in_class: bool) Error!Escape {
         const c = p.peek() orelse return error.Unsupported;
         p.pos += 1;
         switch (c) {
@@ -1195,7 +1054,7 @@ const RegexParser = struct {
         }
     }
 
-    fn parseClass(p: *RegexParser) Error!Class {
+    pub fn parseClass(p: *RegexParser) Error!Class {
         var class = Class{ .negated = p.eat('^') };
         var ranges: std.ArrayListUnmanaged([2]u21) = .empty;
         while (true) {
@@ -1237,7 +1096,7 @@ const RegexParser = struct {
         return class;
     }
 
-    fn parseAtom(p: *RegexParser) Error!RNode {
+    pub fn parseAtom(p: *RegexParser) Error!RNode {
         const c = p.peek() orelse return error.Unsupported;
         p.pos += 1;
         switch (c) {
@@ -1272,21 +1131,21 @@ const RegexParser = struct {
     }
 };
 
-const RegexCompiler = struct {
+pub const RegexCompiler = struct {
     insts: std.ArrayListUnmanaged(Inst) = .empty,
     alloc: std.mem.Allocator,
 
-    fn emit(c: *RegexCompiler, inst: Inst) Error!u32 {
+    pub fn emit(c: *RegexCompiler, inst: Inst) Error!u32 {
         if (c.insts.items.len >= MAX_REGEX_INSTS) return error.Unsupported;
         try c.insts.append(c.alloc, inst);
         return @intCast(c.insts.items.len - 1);
     }
 
-    fn here(c: *RegexCompiler) u32 {
+    pub fn here(c: *RegexCompiler) u32 {
         return @intCast(c.insts.items.len);
     }
 
-    fn compile(c: *RegexCompiler, node: RNode) Error!void {
+    pub fn compile(c: *RegexCompiler, node: RNode) Error!void {
         switch (node) {
             .empty => {},
             .char => |ch| _ = try c.emit(.{ .char = ch }),
@@ -1333,7 +1192,7 @@ const RegexCompiler = struct {
     }
 };
 
-fn compileRegex(alloc: std.mem.Allocator, pattern: []const u8) Error!Regex {
+pub fn compileRegex(alloc: std.mem.Allocator, pattern: []const u8) Error!Regex {
     var cps: std.ArrayListUnmanaged(u21) = .empty;
     var i: usize = 0;
     while (i < pattern.len) {
@@ -1355,21 +1214,21 @@ fn compileRegex(alloc: std.mem.Allocator, pattern: []const u8) Error!Regex {
     return .{ .insts = compiler.insts.items, .anchored = anchored };
 }
 
-const PikeVm = struct {
+pub const PikeVm = struct {
     insts: []const Inst,
     text: []const u8,
     marks: []u32,
     stack: []u32,
     gen: u32 = 0,
 
-    fn prevCp(vm: *PikeVm, pos: usize) ?u21 {
+    pub fn prevCp(vm: *PikeVm, pos: usize) ?u21 {
         if (pos == 0) return null;
         var start = pos - 1;
         while (start > 0 and (vm.text[start] & 0xC0) == 0x80) start -= 1;
         return decodeAt(vm.text, start).cp;
     }
 
-    fn atWordBoundary(vm: *PikeVm, pos: usize) bool {
+    pub fn atWordBoundary(vm: *PikeVm, pos: usize) bool {
         const before = if (vm.prevCp(pos)) |cp| isWordChar(cp) else false;
         const after = if (pos < vm.text.len) isWordChar(decodeAt(vm.text, pos).cp) else false;
         return before != after;
@@ -1377,7 +1236,7 @@ const PikeVm = struct {
 
     // Follows jumps and zero-width assertions from pc, adding consuming
     // instructions to list. Returns true if the closure reaches match.
-    fn add(vm: *PikeVm, list: []u32, count: *usize, pc0: u32, pos: usize) bool {
+    pub fn add(vm: *PikeVm, list: []u32, count: *usize, pc0: u32, pos: usize) bool {
         var top: usize = 0;
         vm.stack[top] = pc0;
         top += 1;
@@ -1424,7 +1283,7 @@ const PikeVm = struct {
 };
 
 // Unanchored search: does the pattern match anywhere in text?
-fn regexSearch(scratch: std.mem.Allocator, regex: Regex, text: []const u8) Error!bool {
+pub fn regexSearch(scratch: std.mem.Allocator, regex: Regex, text: []const u8) Error!bool {
     const n = regex.insts.len;
     const buffers = try scratch.alloc(u32, n * 5);
     var vm = PikeVm{
@@ -1465,7 +1324,7 @@ fn regexSearch(scratch: std.mem.Allocator, regex: Regex, text: []const u8) Error
 // ---------------------------------------------------------------------------
 // Schema index
 
-const Vocab = packed struct {
+pub const Vocab = packed struct {
     applicator: bool = true,
     validation: bool = true,
     unevaluated: bool = true,
@@ -1473,7 +1332,7 @@ const Vocab = packed struct {
 
 // Every keyword the evaluator reads, looked up once per schema object when
 // it is indexed rather than by scanning its members on every visit.
-const Keywords = struct {
+pub const Keywords = struct {
     @"$ref": ?*const Value = null,
     @"$dynamicRef": ?*const Value = null,
     allOf: ?*const Value = null,
@@ -1521,7 +1380,7 @@ const Keywords = struct {
         break :blk kvs;
     });
 
-    fn of(alloc: std.mem.Allocator, obj: []const Member) Error!*const Keywords {
+    pub fn of(alloc: std.mem.Allocator, obj: []const Member) Error!*const Keywords {
         const kw = try alloc.create(Keywords);
         kw.* = .{};
         for (obj) |*member| {
@@ -1534,34 +1393,34 @@ const Keywords = struct {
     }
 };
 
-const Info = struct { base: []const u8, vocab: Vocab, kw: ?*const Keywords = null };
+pub const Info = struct { base: []const u8, vocab: Vocab, kw: ?*const Keywords = null };
 
-const InfoSlot = struct { key: usize = 0, info: Info = undefined };
+pub const InfoSlot = struct { key: usize = 0, info: Info = undefined };
 
 // Maps a nonzero address to a nonzero word with open addressing. One
 // non-generic table serves every pointer-keyed lookup (schema info, resolved
 // $ref targets, compiled regexes); values that are not already pointers are
 // stored as pointers into the arena. std.HashMap would instantiate its insert
 // and probe code once per key/value type.
-const PtrTable = struct {
+pub const PtrTable = struct {
     keys: []usize = &.{},
     vals: []usize = &.{},
     len: usize = 0,
 
-    fn slot(t: *const PtrTable, key: usize) usize {
+    pub fn slot(t: *const PtrTable, key: usize) usize {
         const mask = t.keys.len - 1;
         var i = ((key >> 2) *% 0x9E3779B1) & mask;
         while (t.keys[i] != 0 and t.keys[i] != key) i = (i + 1) & mask;
         return i;
     }
 
-    fn get(t: *const PtrTable, key: usize) ?usize {
+    pub fn get(t: *const PtrTable, key: usize) ?usize {
         if (t.keys.len == 0) return null;
         const i = t.slot(key);
         return if (t.keys[i] == key) t.vals[i] else null;
     }
 
-    fn put(t: *PtrTable, alloc: std.mem.Allocator, key: usize, val: usize) Error!void {
+    pub fn put(t: *PtrTable, alloc: std.mem.Allocator, key: usize, val: usize) Error!void {
         if (t.len * 2 >= t.keys.len) {
             const old_keys = t.keys;
             const old_vals = t.vals;
@@ -1586,12 +1445,12 @@ const PtrTable = struct {
 
 // A string-keyed list searched linearly. Schema resources and anchors number
 // in the tens, and the URIs are resolved once per $ref and then cached.
-const StrList = struct {
+pub const StrList = struct {
     items: std.ArrayListUnmanaged(Entry) = .empty,
 
     const Entry = struct { key: []const u8, val: *const Value };
 
-    fn get(l: *const StrList, key: []const u8) ?*const Value {
+    pub fn get(l: *const StrList, key: []const u8) ?*const Value {
         for (l.items.items) |e| {
             if (std.mem.eql(u8, e.key, key)) return e.val;
         }
@@ -1599,7 +1458,7 @@ const StrList = struct {
     }
 
     // Later definitions replace earlier ones, as HashMap.put did.
-    fn put(l: *StrList, alloc: std.mem.Allocator, key: []const u8, val: *const Value) Error!void {
+    pub fn put(l: *StrList, alloc: std.mem.Allocator, key: []const u8, val: *const Value) Error!void {
         for (l.items.items) |*e| {
             if (std.mem.eql(u8, e.key, key)) {
                 e.val = val;
@@ -1610,7 +1469,7 @@ const StrList = struct {
     }
 };
 
-const State = struct {
+pub const State = struct {
     alloc: std.mem.Allocator,
     scratch: *std.heap.FixedBufferAllocator,
     infos: PtrTable = .{}, // *const Value -> *Info
@@ -1619,14 +1478,28 @@ const State = struct {
     resources: StrList = .{},
     anchors: StrList = .{},
     dynamic_anchors: StrList = .{},
-    // Supplied remote documents, parsed the first time they are referenced.
-    pending: []const Embedded = &.{},
     info_cache: [256]InfoSlot = [_]InfoSlot{.{}} ** 256,
     scope: [MAX_DEPTH][]const u8 = undefined,
     scope_len: usize = 0,
     depth: usize = 0,
 
-    fn loadDocument(st: *State, uri: []const u8, json: []const u8) Error!*const Value {
+    // Indexes an envelope's documents and returns its root schema. Supplied
+    // documents come first so a document is also found by the $id it
+    // declares, not only by its key. A URI an earlier document already
+    // claimed through its $id is not loaded again.
+    pub fn loadEnvelope(st: *State, env: Envelope) Error!*const Value {
+        const root = env.schema orelse return error.MissingKey;
+        for (env.schemas) |*member| {
+            if (st.resources.get(member.key) != null) continue;
+            try st.resources.put(st.alloc, member.key, &member.value);
+            try st.index(&member.value, member.key, .{}, true);
+        }
+        try st.resources.put(st.alloc, DEFAULT_BASE, root);
+        try st.index(root, DEFAULT_BASE, .{}, true);
+        return root;
+    }
+
+    pub fn loadDocument(st: *State, uri: []const u8, json: []const u8) Error!*const Value {
         const root = try st.alloc.create(Value);
         root.* = try JsonParser.parseDocument(st.alloc, json);
         try st.resources.put(st.alloc, uri, root);
@@ -1635,15 +1508,9 @@ const State = struct {
     }
 
     // Finds the schema resource for an absolute URI without a fragment,
-    // parsing a supplied or built-in document the first time it is needed.
-    fn resource(st: *State, uri: []const u8) Error!?*const Value {
+    // parsing a built-in document the first time it is needed.
+    pub fn resource(st: *State, uri: []const u8) Error!?*const Value {
         if (st.resources.get(uri)) |root| return root;
-        for (st.pending) |remote| {
-            if (std.mem.eql(u8, remote.uri, uri)) {
-                _ = try st.loadDocument(uri, remote.json);
-                return st.resources.get(uri);
-            }
-        }
         for (embedded_schemas) |e| {
             if (std.mem.eql(u8, e.uri, uri)) {
                 _ = try st.loadDocument(e.uri, e.json);
@@ -1653,7 +1520,7 @@ const State = struct {
         return null;
     }
 
-    fn vocabFor(st: *State, meta_uri: []const u8) Error!Vocab {
+    pub fn vocabFor(st: *State, meta_uri: []const u8) Error!Vocab {
         if (std.mem.eql(u8, meta_uri, DIALECT_2020_12)) return .{};
         const meta = (try st.resource(meta_uri)) orelse return error.Unsupported;
         if (meta.* != .object) return error.BadSchema;
@@ -1680,7 +1547,7 @@ const State = struct {
     // Records the base URI and vocabularies of every subschema, and registers
     // $id, $anchor and $dynamicAnchor. Only keywords whose values are schemas
     // are followed, so an "$id" inside enum or an unknown keyword is ignored.
-    fn index(st: *State, node: *const Value, base_in: []const u8, vocab_in: Vocab, register: bool) Error!void {
+    pub fn index(st: *State, node: *const Value, base_in: []const u8, vocab_in: Vocab, register: bool) Error!void {
         st.depth += 1;
         defer st.depth -= 1;
         if (st.depth > MAX_DEPTH) return error.TooDeep;
@@ -1730,17 +1597,17 @@ const State = struct {
         }
     }
 
-    fn putInfo(st: *State, node: *const Value, info: Info) Error!void {
+    pub fn putInfo(st: *State, node: *const Value, info: Info) Error!void {
         const slot = try st.alloc.create(Info);
         slot.* = info;
         try st.infos.put(st.alloc, @intFromPtr(node), @intFromPtr(slot));
     }
 
-    fn findInfo(st: *const State, key: usize) ?*const Info {
+    pub fn findInfo(st: *const State, key: usize) ?*const Info {
         return @ptrFromInt(st.infos.get(key) orelse return null);
     }
 
-    fn infoOf(st: *State, node: *const Value) Error!Info {
+    pub fn infoOf(st: *State, node: *const Value) Error!Info {
         // A few schemas ($defs entries, items) are visited once per instance
         // node, so a small direct-mapped cache saves most hash lookups.
         const key = @intFromPtr(node);
@@ -1751,7 +1618,7 @@ const State = struct {
         return info;
     }
 
-    fn resolvePointer(st: *State, root: *const Value, pointer: []const u8) Error!*const Value {
+    pub fn resolvePointer(st: *State, root: *const Value, pointer: []const u8) Error!*const Value {
         var node = root;
         var info = try st.infoOf(root);
         var rest = pointer;
@@ -1784,7 +1651,7 @@ const State = struct {
         return node;
     }
 
-    fn resolveRef(st: *State, ref_node: *const Value, base: []const u8) Error!*const Value {
+    pub fn resolveRef(st: *State, ref_node: *const Value, base: []const u8) Error!*const Value {
         if (st.refs.get(@intFromPtr(ref_node))) |cached| return @ptrFromInt(cached);
         if (ref_node.* != .string) return error.BadSchema;
         const uri = try resolveUri(st.alloc, base, ref_node.string);
@@ -1801,7 +1668,7 @@ const State = struct {
         return target;
     }
 
-    fn resolveDynamicRef(st: *State, ref_node: *const Value, base: []const u8) Error!*const Value {
+    pub fn resolveDynamicRef(st: *State, ref_node: *const Value, base: []const u8) Error!*const Value {
         const initial = try st.resolveRef(ref_node, base);
         const uri = try resolveUri(st.alloc, base, ref_node.string);
         const parts = splitFragment(uri);
@@ -1818,7 +1685,7 @@ const State = struct {
         return initial;
     }
 
-    fn regexFor(st: *State, pattern: []const u8) Error!Regex {
+    pub fn regexFor(st: *State, pattern: []const u8) Error!Regex {
         const key = @intFromPtr(pattern.ptr) ^ (pattern.len << 20);
         if (key == 0) return compileRegex(st.alloc, pattern);
         if (st.regexes.get(key)) |r| return @as(*const Regex, @ptrFromInt(r)).*;
@@ -1828,7 +1695,7 @@ const State = struct {
         return r.*;
     }
 
-    fn matches(st: *State, pattern: []const u8, text: []const u8) Error!bool {
+    pub fn matches(st: *State, pattern: []const u8, text: []const u8) Error!bool {
         const regex = try st.regexFor(pattern);
         const mark = st.scratch.end_index;
         defer st.scratch.end_index = mark;
@@ -1844,13 +1711,13 @@ const State = struct {
     // on success paths that its caller keeps; callers isolate branches that
     // may fail without failing the whole schema (anyOf, oneOf, if, not).
 
-    fn newBits(st: *State, len: usize) Error![]u64 {
+    pub fn newBits(st: *State, len: usize) Error![]u64 {
         const bits = try st.scratch.allocator().alloc(u64, (len + 63) / 64);
         @memset(bits, 0);
         return bits;
     }
 
-    fn validate(st: *State, schema: *const Value, inst: *const Value, ann: ?[]u64) Error!bool {
+    pub fn validate(st: *State, schema: *const Value, inst: *const Value, ann: ?[]u64) Error!bool {
         switch (schema.*) {
             .boolean => |b| return b,
             .object => {},
@@ -1919,7 +1786,7 @@ const State = struct {
 
     // Runs a subschema whose failure does not fail the parent, keeping its
     // annotations only when it passes.
-    fn tryBranch(st: *State, sub: *const Value, inst: *const Value, local: ?[]u64) Error!bool {
+    pub fn tryBranch(st: *State, sub: *const Value, inst: *const Value, local: ?[]u64) Error!bool {
         if (local) |bits| {
             const mark = st.scratch.end_index;
             defer st.scratch.end_index = mark;
@@ -1931,7 +1798,7 @@ const State = struct {
         return st.validate(sub, inst, null);
     }
 
-    fn applicators(st: *State, kw: *const Keywords, inst: *const Value, local: ?[]u64, vocab: Vocab) Error!bool {
+    pub fn applicators(st: *State, kw: *const Keywords, inst: *const Value, local: ?[]u64, vocab: Vocab) Error!bool {
         if (kw.@"allOf") |list| {
             if (list.* != .array) return error.BadSchema;
             for (list.array) |*sub| {
@@ -2062,7 +1929,7 @@ const State = struct {
         return true;
     }
 
-    fn assertions(st: *State, kw: *const Keywords, inst: *const Value) Error!bool {
+    pub fn assertions(st: *State, kw: *const Keywords, inst: *const Value) Error!bool {
         if (kw.@"type") |t| {
             switch (t.*) {
                 .string => |name| if (!typeMatches(name, inst)) return false,
@@ -2155,23 +2022,23 @@ const State = struct {
     }
 };
 
-fn sameText(a: []const u8, b: []const u8) bool {
+pub fn sameText(a: []const u8, b: []const u8) bool {
     return (a.ptr == b.ptr and a.len == b.len) or std.mem.eql(u8, a, b);
 }
 
-fn isOneOf(key: []const u8, comptime names: []const []const u8) bool {
+pub fn isOneOf(key: []const u8, comptime names: []const []const u8) bool {
     inline for (names) |name| {
         if (std.mem.eql(u8, key, name)) return true;
     }
     return false;
 }
 
-fn compareTo(n: Number, v: *const Value) Error!std.math.Order {
+pub fn compareTo(n: Number, v: *const Value) Error!std.math.Order {
     if (v.* != .number) return error.BadSchema;
     return compareNumbers(n.text, v.number.text);
 }
 
-fn typeMatches(name: []const u8, inst: *const Value) bool {
+pub fn typeMatches(name: []const u8, inst: *const Value) bool {
     return switch (inst.*) {
         .null => std.mem.eql(u8, name, "null"),
         .boolean => std.mem.eql(u8, name, "boolean"),
@@ -2182,45 +2049,20 @@ fn typeMatches(name: []const u8, inst: *const Value) bool {
     };
 }
 
-fn bitSet(bits: []const u64, i: usize) bool {
+pub fn bitSet(bits: []const u64, i: usize) bool {
     return (bits[i / 64] >> @intCast(i % 64)) & 1 != 0;
 }
 
-fn setBit(bits: []u64, i: usize) void {
+pub fn setBit(bits: []u64, i: usize) void {
     bits[i / 64] |= @as(u64, 1) << @intCast(i % 64);
 }
 
-fn orBits(dst: []u64, src: []const u64) void {
+pub fn orBits(dst: []u64, src: []const u64) void {
     for (dst, src) |*d, s| d.* |= s;
 }
 
-// ---------------------------------------------------------------------------
 
-var arena_fba: std.heap.FixedBufferAllocator = undefined;
-var scratch_fba: std.heap.FixedBufferAllocator = undefined;
-
-// Returns the instance bytes when they conform, or null when they do not.
-fn run(input: []const u8) Error!?[]const u8 {
-    arena_fba = std.heap.FixedBufferAllocator.init(&arena_buf);
-    scratch_fba = std.heap.FixedBufferAllocator.init(&scratch_buf);
-    const alloc = arena_fba.allocator();
-    const files = try readTar(alloc, input);
-    const schema_json = files.schema orelse return error.MissingFile;
-    const instance_json = files.instance orelse return error.MissingFile;
-
-    var st = State{ .alloc = alloc, .scratch = &scratch_fba };
-    st.pending = files.remotes.items;
-    // Index supplied documents up front so a document is also found by the
-    // $id it declares, not only by its path.
-    for (st.pending) |remote| _ = try st.resource(remote.uri);
-    const schema = try st.loadDocument(DEFAULT_BASE, schema_json);
-    const instance = try alloc.create(Value);
-    instance.* = try JsonParser.parseDocument(alloc, instance_json);
-    if (try st.validate(schema, instance, null)) return instance_json;
-    return null;
-}
-
-fn testSearch(pattern: []const u8, text: []const u8) !bool {
+pub fn testSearch(pattern: []const u8, text: []const u8) !bool {
     var buf: [1 << 16]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const regex = try compileRegex(fba.allocator(), pattern);
@@ -2253,7 +2095,7 @@ test "regex search" {
     try std.testing.expect(!try testSearch("^[^#]*#?$", "a#b"));
 }
 
-fn testNumber(text: []const u8) Number {
+pub fn testNumber(text: []const u8) Number {
     return .{ .text = text };
 }
 
@@ -2305,6 +2147,23 @@ test "numbers compare exactly" {
     for (samples) |x| for (samples) |y| {
         try std.testing.expectEqual(compareDecimals(x, y), compareNumbers(x, y));
     };
+}
+
+test "envelope keys come in any order and the instance keeps its bytes" {
+    var buf: [1 << 16]u8 = undefined;
+    var fba = std.heap.FixedBufferAllocator.init(&buf);
+    const a = fba.allocator();
+    const env = try parseEnvelope(a, " {\"instance\" : [1.50, 2] ,\"schemas\":{\"urn:x\":true},\"schema\":{}} ");
+    try std.testing.expectEqualStrings("[1.50, 2]", env.instance_bytes);
+    try std.testing.expect(env.schema != null);
+    try std.testing.expectEqual(@as(usize, 1), env.schemas.len);
+    try std.testing.expectEqualStrings("urn:x", env.schemas[0].key);
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schema\":{},\"schema\":{}}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schema\":{},\"other\":1}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schemas\":[]}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "[]"));
+    try std.testing.expectError(error.MissingKey, parseEnvelope(a, "{}"));
+    try std.testing.expectError(error.InvalidJson, parseEnvelope(a, "{\"schema\":{}} x"));
 }
 
 test "URI references resolve per RFC 3986" {

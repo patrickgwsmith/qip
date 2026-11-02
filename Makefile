@@ -642,9 +642,19 @@ application/x-tar/tar-to-zip.wasm: application/x-tar/tar-to-zip.zig bytes/lib/de
 application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
 application/x-tar/tar-to-sha256sums.wasm: ZIG_WASM_MAX_MEMORY = 184549376
 # Validation recurses through the schema; 4 MiB of stack covers MAX_DEPTH.
-application/x-tar/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 83886080
-application/x-tar/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_FLAGS += --stack 4194304
-application/x-tar/json-schema-2020-12-must-be-valid.wasm: application/x-tar/lib/json-schema-unicode-letter.zig $(wildcard application/x-tar/lib/json-schema-2020-12/*.json)
+application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 83886080
+application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_FLAGS += --stack 4194304
+application/json/json-schema-2020-12-must-be-valid.wasm: application/json/lib/json-schema-2020-12.zig application/json/lib/json-schema-unicode-letter.zig $(wildcard application/json/lib/json-schema-2020-12/*.json)
+# json-schema-to-wasm embeds the runtime that every module it generates is
+# built from; the runtime's buffers (tape, unescaped strings, program) set
+# the generated modules' memory.
+JSON_SCHEMA_LIBS := application/json/lib/json-schema-2020-12.zig application/json/lib/json-schema-program.zig application/json/lib/json-schema-unicode-letter.zig $(wildcard application/json/lib/json-schema-2020-12/*.json)
+application/json/lib/json-schema-runtime.wasm: ZIG_WASM_MAX_MEMORY = 100663296
+application/json/lib/json-schema-runtime.wasm: ZIG_WASM_FLAGS += --stack 4194304
+application/json/lib/json-schema-runtime.wasm: $(JSON_SCHEMA_LIBS)
+application/json/json-schema-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 134217728
+application/json/json-schema-to-wasm.wasm: ZIG_WASM_FLAGS += --stack 4194304
+application/json/json-schema-to-wasm.wasm: application/json/lib/json-schema-runtime.wasm $(JSON_SCHEMA_LIBS)
 application/x-tar/recipes-tar-to-node-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
 application/x-tar/recipes-tar-to-csv.wasm application/x-tar/recipes-tar-to-node-tar.wasm: application/x-tar/%.wasm: application/x-tar/%.zig application/x-tar/lib/recipe-book.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_reader -Mroot=$< -Mwasm_reader=application/wasm/lib/wasm-reader.zig -femit-bin=$@
@@ -1302,6 +1312,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/bytes-to-sha256.mjs
 	node --test test/bytes-to-sri.mjs
 	node --test test/json-schema-2020-12-must-be-valid.mjs
+	node --test test/json-schema-to-wasm.mjs
 	node --test test/gzip-bgzf.mjs
 	node --test test/zstd.mjs
 	node --test test/recipe-finder.mjs
@@ -1529,7 +1540,7 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --with compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
 	node tools/gen-json-schema-2020-12-fixtures.mjs --check
-	$(QIP_BIN) comply application/x-tar/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
+	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
 	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
@@ -1629,7 +1640,7 @@ test-snapshot: qip components
 	@rm -f test/latest-wasm-to-js.txt
 	diff test/expected.txt test/latest.txt && echo "Snapshots pass."
 
-ZIG_TEST_FILES := $(COMPONENT_ZIG_FILES) $(wildcard recipes/text/markdown/*.zig) $(wildcard recipes/application/warc/*.zig) recipes/lib/html-wasm-anchor-type.zig
+ZIG_TEST_FILES := $(COMPONENT_ZIG_FILES) application/json/lib/json-schema-runtime.zig $(wildcard recipes/text/markdown/*.zig) $(wildcard recipes/application/warc/*.zig) recipes/lib/html-wasm-anchor-type.zig
 
 test-zig: $(ZIG_TEST_FILES)
 	@status=0; \

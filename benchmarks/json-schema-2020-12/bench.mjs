@@ -5,8 +5,8 @@
 // 1. The 2020-12 suite (1,298 small cases).
 //    cold: bytes in, schema compiled for every case. This is what the QIP
 //          component does on every render. JS validators get JSON text and
-//          pay JSON.parse + compile + validate; QIP gets the TAR and pays TAR
-//          + JSON parsing + schema indexing + validation.
+//          pay JSON.parse + compile + validate; QIP gets the JSON envelope and
+//          pays JSON parsing + schema indexing + validation.
 //    warm: JS only. Schemas compiled once per group up front, then each
 //          parsed instance validated. QIP has no cross-render schema cache,
 //          so it has no warm number.
@@ -21,7 +21,7 @@
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
-import { ataValidator, caseTar, cfworkerValidator, qipValidator, readFixture, writeTar } from "./lib.mjs";
+import { ataValidator, caseEnvelope, cfworkerValidator, qipCompiledValidator, qipValidator, readFixture, writeEnvelope } from "./lib.mjs";
 import { makeOrders, orderSchema } from "./orders.mjs";
 
 const arg = (name, fallback) => {
@@ -41,11 +41,11 @@ function suiteCold(key) {
   const { cases } = readFixture();
   const v = validators[key]();
   if (key === "qip") {
-    const tars = cases.map(({ group, test }) => caseTar(group, test.data));
+    const inputs = cases.map(({ group, test }) => caseEnvelope(group, test.data));
     return { label: "suite cold (1,298 cases)", validator: v.name, run: () => {
-      for (const tar of tars) {
+      for (const input of inputs) {
         try {
-          v.render(tar);
+          v.render(input);
         } catch {}
       }
     } };
@@ -83,6 +83,24 @@ function suiteWarm(key) {
   } };
 }
 
+// The compiled path: json-schema-to-wasm runs once per schema, outside the
+// timing, and the generated module gets instance bytes.
+function suiteWarmCompiled() {
+  const { groups } = readFixture();
+  const v = qipCompiledValidator();
+  const encoder = new TextEncoder();
+  const compiled = groups.map((group) => ({ check: v.compile(group.schema, remotesOf(group)), inputs: group.tests.map((t) => encoder.encode(t.data)) }));
+  return { label: "suite warm (validate only)", validator: v.name, run: () => {
+    for (const { check, inputs } of compiled) {
+      for (const input of inputs) {
+        try {
+          check(input);
+        } catch {}
+      }
+    }
+  } };
+}
+
 function largeDoc() {
   const doc = makeOrders(ORDERS);
   const text = JSON.stringify(doc);
@@ -93,8 +111,8 @@ function largeCold(key) {
   const d = largeDoc();
   const v = validators[key]();
   if (key === "qip") {
-    const tar = writeTar([["schema.json", d.schemaText], ["instance.json", d.text]]);
-    return { label: `large cold (${d.label})`, validator: v.name, run: () => v.render(tar) };
+    const input = writeEnvelope({ schema: d.schemaText, instance: d.text });
+    return { label: `large cold (${d.label})`, validator: v.name, run: () => v.render(input) };
   }
   return { label: `large cold (${d.label})`, validator: v.name, run: () => v.compile(d.schemaText)(JSON.parse(d.text)) };
 }
@@ -119,6 +137,20 @@ function largeWarmAtaBytes() {
   return { label: "large warm (validate only)", validator: `${v.name} isValid(Buffer)`, run: () => check(d.bytes) };
 }
 
+function largeWarmCompiled() {
+  const d = largeDoc();
+  const check = qipCompiledValidator().compile(d.schemaText);
+  return { label: "large warm (validate only)", validator: "qip compiled, bytes in", run: () => check(d.bytes) };
+}
+
+// Compiling the order schema: json-schema-to-wasm, then WebAssembly.Module
+// and one instantiation of the result.
+function largeCompile() {
+  const d = largeDoc();
+  const v = qipCompiledValidator();
+  return { label: "compile the order schema", validator: "qip json-schema-to-wasm + instantiate", run: () => v.compile(d.schemaText) };
+}
+
 function jsonParse() {
   const d = largeDoc();
   return { label: "large: JSON.parse alone (reference)", validator: "V8", run: () => JSON.parse(d.text) };
@@ -130,6 +162,7 @@ const tasks = {
   "suite-cold-ata": () => suiteCold("ata"),
   "suite-warm-cfworker": () => suiteWarm("cfworker"),
   "suite-warm-ata": () => suiteWarm("ata"),
+  "suite-warm-qip-compiled": suiteWarmCompiled,
   "large-cold-qip": () => largeCold("qip"),
   "large-cold-cfworker": () => largeCold("cfworker"),
   "large-cold-ata": () => largeCold("ata"),
@@ -137,6 +170,8 @@ const tasks = {
   "large-warm-cfworker": () => largeWarm("cfworker"),
   "large-warm-ata": () => largeWarm("ata"),
   "large-warm-ata-bytes": largeWarmAtaBytes,
+  "large-warm-qip-compiled": largeWarmCompiled,
+  "large-compile-qip": largeCompile,
   "json-parse": jsonParse,
 };
 
@@ -161,10 +196,12 @@ function checkVerdicts() {
   const qip = qipValidator();
   const out = {
     [qip.name]: [
-      qip.render(writeTar([["schema.json", d.schemaText], ["instance.json", d.text]])).accepted,
-      qip.render(writeTar([["schema.json", d.schemaText], ["instance.json", badText]])).accepted,
+      qip.render(writeEnvelope({ schema: d.schemaText, instance: d.text })).accepted,
+      qip.render(writeEnvelope({ schema: d.schemaText, instance: badText })).accepted,
     ],
   };
+  const compiled = qipCompiledValidator().compile(d.schemaText);
+  out["qip compiled"] = [compiled(d.bytes), compiled(Buffer.from(badText))];
   for (const v of [cfworkerValidator(), ataValidator()]) out[v.name] = [v.compile(d.schemaText)(d.doc), v.compile(d.schemaText)(bad)];
   return { label: d.label, out };
 }
