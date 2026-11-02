@@ -82,6 +82,8 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 
   The generated module looks up one table entry per input byte, so a pattern cannot make it backtrack, and it passes the strict profile, loop, and output-size checks. The compiler rejects patterns whose DFA needs more than 30,000 states or a 4 MiB table. Patterns that use `\p{..}` categories make much larger modules than ASCII patterns: `\p{L}+\P{N}` is 260 KB.
 
+  Related tool: [regular expression validators](/regex), with ready-made patterns and a speed comparison with the browser's `RegExp`.
+
 ## Unicode 17
 
 - [`unicode-17-normalize-nfc.wasm`](/text/unicode-17-normalize-nfc.wasm) normalizes UTF-8 text to Unicode NFC.
