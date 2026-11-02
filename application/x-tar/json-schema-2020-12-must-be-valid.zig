@@ -23,8 +23,9 @@
 // Keywords follow the core, applicator, unevaluated and validation
 // vocabularies. format, content* and the meta-data keywords are annotations
 // and never fail validation, as the default 2020-12 dialect specifies.
-// Numbers compare as IEEE doubles, except that "integer" and multipleOf use
-// the exact decimal text, so 0.0075 is a multiple of 0.0001.
+// Numbers compare exactly by their decimal text, never as floats: 1.0 equals
+// 1, 0.0075 is a multiple of 0.0001, and 1e400 is greater than 1e308. A
+// multipleOf divisor with more than 37 significant digits traps.
 //
 // pattern and patternProperties use ECMA-262 syntax with the u flag, matched
 // by a linear-time Pike VM: literals, ., ^, $, classes, \d \w \s \b and their
@@ -120,21 +121,53 @@ const Error = error{
 
 const Embedded = struct { uri: []const u8, json: []const u8 };
 
+// The files stay as published; whitespace outside strings is dropped at
+// compile time, which keeps about 3 KB out of the Wasm.
+fn embedMinified(comptime path: []const u8) []const u8 {
+    comptime {
+        const src = @embedFile(path);
+        @setEvalBranchQuota(src.len * 20);
+        var out: [src.len]u8 = undefined;
+        var n: usize = 0;
+        var in_string = false;
+        var escaped = false;
+        for (src) |c| {
+            if (in_string) {
+                if (escaped) {
+                    escaped = false;
+                } else if (c == '\\') {
+                    escaped = true;
+                } else if (c == '"') {
+                    in_string = false;
+                }
+            } else if (c == ' ' or c == '\n' or c == '\r' or c == '\t') {
+                continue;
+            } else if (c == '"') {
+                in_string = true;
+            }
+            out[n] = c;
+            n += 1;
+        }
+        const final = out[0..n].*;
+        return &final;
+    }
+}
+
 const embedded_schemas = [_]Embedded{
-    .{ .uri = "https://json-schema.org/draft/2020-12/schema", .json = @embedFile("lib/json-schema-2020-12/schema.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/core", .json = @embedFile("lib/json-schema-2020-12/meta-core.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/applicator", .json = @embedFile("lib/json-schema-2020-12/meta-applicator.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/unevaluated", .json = @embedFile("lib/json-schema-2020-12/meta-unevaluated.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/validation", .json = @embedFile("lib/json-schema-2020-12/meta-validation.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/meta-data", .json = @embedFile("lib/json-schema-2020-12/meta-meta-data.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/format-annotation", .json = @embedFile("lib/json-schema-2020-12/meta-format-annotation.json") },
-    .{ .uri = "https://json-schema.org/draft/2020-12/meta/content", .json = @embedFile("lib/json-schema-2020-12/meta-content.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/schema", .json = embedMinified("lib/json-schema-2020-12/schema.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/core", .json = embedMinified("lib/json-schema-2020-12/meta-core.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/applicator", .json = embedMinified("lib/json-schema-2020-12/meta-applicator.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/unevaluated", .json = embedMinified("lib/json-schema-2020-12/meta-unevaluated.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/validation", .json = embedMinified("lib/json-schema-2020-12/meta-validation.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/meta-data", .json = embedMinified("lib/json-schema-2020-12/meta-meta-data.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/format-annotation", .json = embedMinified("lib/json-schema-2020-12/meta-format-annotation.json") },
+    .{ .uri = "https://json-schema.org/draft/2020-12/meta/content", .json = embedMinified("lib/json-schema-2020-12/meta-content.json") },
 };
 
 // ---------------------------------------------------------------------------
 // JSON values
 
-const Number = struct { f: f64, text: []const u8 };
+const Number = struct { text: []const u8 };
 
 const Value = union(enum) {
     null,
@@ -381,9 +414,7 @@ const JsonParser = struct {
             while (p.pos < p.src.len and std.ascii.isDigit(p.src[p.pos])) p.pos += 1;
             if (p.pos == digits) return error.InvalidJson;
         }
-        const text = p.src[start..p.pos];
-        const f = std.fmt.parseFloat(f64, text) catch return error.InvalidJson;
-        return .{ .number = .{ .f = f, .text = text } };
+        return .{ .number = .{ .text = p.src[start..p.pos] } };
     }
 };
 
@@ -501,26 +532,125 @@ fn isIntegral(n: Number) bool {
     return d.isZero() or d.exp >= 0;
 }
 
+// a * b mod m for a, b < m < 2^127. Small moduli multiply directly; larger
+// ones double and add so nothing overflows.
+fn mulMod(a: u128, b: u128, m: u128) u128 {
+    if (m <= std.math.maxInt(u64)) return (a * b) % m;
+    var result: u128 = 0;
+    var x = a;
+    var y = b;
+    while (y > 0) : (y >>= 1) {
+        if ((y & 1) != 0) result = (result + x) % m;
+        x = (x + x) % m;
+    }
+    return result;
+}
+
 fn powMod(base: u128, exponent: u64, modulus: u128) u128 {
     var result: u128 = 1 % modulus;
     var b = base % modulus;
     var e = exponent;
     while (e > 0) : (e >>= 1) {
-        if ((e & 1) != 0) result = (result * b) % modulus;
-        b = (b * b) % modulus;
+        if ((e & 1) != 0) result = mulMod(result, b, modulus);
+        b = mulMod(b, b, modulus);
     }
     return result;
 }
 
-fn isMultipleOf(x: Number, m: Number) bool {
+// Orders two JSON numbers by exact value. -0 equals 0.
+fn compareNumbers(a: []const u8, b: []const u8) std.math.Order {
+    if (smallNumber(a)) |x| if (smallNumber(b)) |y| {
+        // Scale both to the same number of decimal places, unless that
+        // overflows.
+        const places = @max(x.places, y.places);
+        const sx = @mulWithOverflow(x.value, pow10[places - x.places]);
+        const sy = @mulWithOverflow(y.value, pow10[places - y.places]);
+        if (sx[1] == 0 and sy[1] == 0) return std.math.order(sx[0], sy[0]);
+    };
+    return compareDecimals(a, b);
+}
+
+fn compareDecimals(a: []const u8, b: []const u8) std.math.Order {
+    const da = decimal(a);
+    const db = decimal(b);
+    const sa: i2 = if (da.isZero()) 0 else if (a[0] == '-') -1 else 1;
+    const sb: i2 = if (db.isZero()) 0 else if (b[0] == '-') -1 else 1;
+    if (sa != sb) return std.math.order(sa, sb);
+    if (sa == 0) return .eq;
+    const magnitude = compareMagnitude(da, db);
+    return if (sa < 0) magnitude.invert() else magnitude;
+}
+
+const SmallNumber = struct { value: i64, places: u8 };
+
+const pow10 = blk: {
+    var t: [19]i64 = undefined;
+    t[0] = 1;
+    for (1..t.len) |i| t[i] = t[i - 1] * 10;
+    break :blk t;
+};
+
+// The common case: no exponent and at most 18 digits, read as an integer
+// count of 10^-places. Anything else takes the Decimal path.
+fn smallNumber(text: []const u8) ?SmallNumber {
+    var i: usize = 0;
+    const negative = text[0] == '-';
+    if (negative) i = 1;
+    var value: i64 = 0;
+    var digits: usize = 0;
+    var places: u8 = 0;
+    var after_point = false;
+    while (i < text.len) : (i += 1) {
+        const c = text[i];
+        if (c == '.') {
+            after_point = true;
+            continue;
+        }
+        if (c < '0' or c > '9') return null;
+        digits += 1;
+        if (digits > 18) return null;
+        value = value * 10 + (c - '0');
+        if (after_point) places += 1;
+    }
+    return .{ .value = if (negative) -value else value, .places = places };
+}
+
+fn compareMagnitude(a: Decimal, b: Decimal) std.math.Order {
+    // The leading digit's place value decides first, then digit by digit.
+    const pa = a.exp + @as(i64, @intCast(a.digitCount()));
+    const pb = b.exp + @as(i64, @intCast(b.digitCount()));
+    if (pa != pb) return std.math.order(pa, pb);
+    const n = @max(a.digitCount(), b.digitCount());
+    for (0..n) |i| {
+        const x: u8 = if (i < a.digitCount()) a.digit(a.lead + i) else 0;
+        const y: u8 = if (i < b.digitCount()) b.digit(b.lead + i) else 0;
+        if (x != y) return std.math.order(x, y);
+    }
+    return .eq;
+}
+
+// Orders a count (string length, item count) against a schema number.
+fn compareCount(count: usize, v: *const Value) Error!std.math.Order {
+    if (v.* != .number) return error.BadSchema;
+    var buf: [20]u8 = undefined;
+    var i: usize = buf.len;
+    var c = count;
+    while (true) {
+        i -= 1;
+        buf[i] = '0' + @as(u8, @intCast(c % 10));
+        c /= 10;
+        if (c == 0) break;
+    }
+    return compareNumbers(buf[i..], v.number.text);
+}
+
+fn isMultipleOf(x: Number, m: Number) Error!bool {
     const dx = decimal(x.text);
     const dm = decimal(m.text);
     if (dm.isZero()) return false;
     if (dx.isZero()) return true;
-    if (dm.digitCount() > 19) {
-        const q = x.f / m.f;
-        return std.math.isFinite(q) and @floor(q) == q;
-    }
+    // Below 10^37 the running remainder times 10 still fits in a u128.
+    if (dm.digitCount() > 37) return error.Unsupported;
     var modulus: u128 = 0;
     for (dm.lead..dm.end) |index| modulus = modulus * 10 + dm.digit(index);
     // x / m = (dx.digits / dm.digits) * 10^(dx.exp - dm.exp). When the
@@ -530,7 +660,7 @@ fn isMultipleOf(x: Number, m: Number) bool {
     if (shift < 0) return false;
     var r: u128 = 0;
     for (dx.lead..dx.end) |index| r = (r * 10 + dx.digit(index)) % modulus;
-    r = (r * powMod(10, @intCast(shift), modulus)) % modulus;
+    r = mulMod(r, powMod(10, @intCast(shift), modulus), modulus);
     return r == 0;
 }
 
@@ -538,7 +668,7 @@ fn jsonEqual(a: *const Value, b: *const Value) bool {
     switch (a.*) {
         .null => return b.* == .null,
         .boolean => |x| return b.* == .boolean and b.boolean == x,
-        .number => |x| return b.* == .number and b.number.f == x.f,
+        .number => |x| return b.* == .number and compareNumbers(x.text, b.number.text) == .eq,
         .string => |x| return b.* == .string and std.mem.eql(u8, x, b.string),
         .array => |x| {
             if (b.* != .array or b.array.len != x.len) return false;
@@ -1408,16 +1538,89 @@ const Info = struct { base: []const u8, vocab: Vocab, kw: ?*const Keywords = nul
 
 const InfoSlot = struct { key: usize = 0, info: Info = undefined };
 
+// Maps a nonzero address to a nonzero word with open addressing. One
+// non-generic table serves every pointer-keyed lookup (schema info, resolved
+// $ref targets, compiled regexes); values that are not already pointers are
+// stored as pointers into the arena. std.HashMap would instantiate its insert
+// and probe code once per key/value type.
+const PtrTable = struct {
+    keys: []usize = &.{},
+    vals: []usize = &.{},
+    len: usize = 0,
+
+    fn slot(t: *const PtrTable, key: usize) usize {
+        const mask = t.keys.len - 1;
+        var i = ((key >> 2) *% 0x9E3779B1) & mask;
+        while (t.keys[i] != 0 and t.keys[i] != key) i = (i + 1) & mask;
+        return i;
+    }
+
+    fn get(t: *const PtrTable, key: usize) ?usize {
+        if (t.keys.len == 0) return null;
+        const i = t.slot(key);
+        return if (t.keys[i] == key) t.vals[i] else null;
+    }
+
+    fn put(t: *PtrTable, alloc: std.mem.Allocator, key: usize, val: usize) Error!void {
+        if (t.len * 2 >= t.keys.len) {
+            const old_keys = t.keys;
+            const old_vals = t.vals;
+            const cap = @max(64, old_keys.len * 2);
+            t.keys = try alloc.alloc(usize, cap);
+            t.vals = try alloc.alloc(usize, cap);
+            @memset(t.keys, 0);
+            for (old_keys, old_vals) |k, v| {
+                if (k != 0) {
+                    const i = t.slot(k);
+                    t.keys[i] = k;
+                    t.vals[i] = v;
+                }
+            }
+        }
+        const i = t.slot(key);
+        if (t.keys[i] == 0) t.len += 1;
+        t.keys[i] = key;
+        t.vals[i] = val;
+    }
+};
+
+// A string-keyed list searched linearly. Schema resources and anchors number
+// in the tens, and the URIs are resolved once per $ref and then cached.
+const StrList = struct {
+    items: std.ArrayListUnmanaged(Entry) = .empty,
+
+    const Entry = struct { key: []const u8, val: *const Value };
+
+    fn get(l: *const StrList, key: []const u8) ?*const Value {
+        for (l.items.items) |e| {
+            if (std.mem.eql(u8, e.key, key)) return e.val;
+        }
+        return null;
+    }
+
+    // Later definitions replace earlier ones, as HashMap.put did.
+    fn put(l: *StrList, alloc: std.mem.Allocator, key: []const u8, val: *const Value) Error!void {
+        for (l.items.items) |*e| {
+            if (std.mem.eql(u8, e.key, key)) {
+                e.val = val;
+                return;
+            }
+        }
+        try l.items.append(alloc, .{ .key = key, .val = val });
+    }
+};
+
 const State = struct {
     alloc: std.mem.Allocator,
     scratch: *std.heap.FixedBufferAllocator,
-    infos: std.AutoHashMapUnmanaged(usize, Info) = .empty,
-    resources: std.StringHashMapUnmanaged(*const Value) = .empty,
-    anchors: std.StringHashMapUnmanaged(*const Value) = .empty,
-    dynamic_anchors: std.StringHashMapUnmanaged(*const Value) = .empty,
-    pending: std.StringHashMapUnmanaged([]const u8) = .empty,
-    refs: std.AutoHashMapUnmanaged(usize, *const Value) = .empty,
-    regexes: std.AutoHashMapUnmanaged(usize, Regex) = .empty,
+    infos: PtrTable = .{}, // *const Value -> *Info
+    refs: PtrTable = .{}, // $ref string node -> *const Value target
+    regexes: PtrTable = .{}, // pattern slice -> *Regex
+    resources: StrList = .{},
+    anchors: StrList = .{},
+    dynamic_anchors: StrList = .{},
+    // Supplied remote documents, parsed the first time they are referenced.
+    pending: []const Embedded = &.{},
     info_cache: [256]InfoSlot = [_]InfoSlot{.{}} ** 256,
     scope: [MAX_DEPTH][]const u8 = undefined,
     scope_len: usize = 0,
@@ -1435,9 +1638,11 @@ const State = struct {
     // parsing a supplied or built-in document the first time it is needed.
     fn resource(st: *State, uri: []const u8) Error!?*const Value {
         if (st.resources.get(uri)) |root| return root;
-        if (st.pending.fetchRemove(uri)) |entry| {
-            _ = try st.loadDocument(uri, entry.value);
-            return st.resources.get(uri);
+        for (st.pending) |remote| {
+            if (std.mem.eql(u8, remote.uri, uri)) {
+                _ = try st.loadDocument(uri, remote.json);
+                return st.resources.get(uri);
+            }
         }
         for (embedded_schemas) |e| {
             if (std.mem.eql(u8, e.uri, uri)) {
@@ -1483,7 +1688,7 @@ const State = struct {
         var vocab = vocab_in;
         switch (node.*) {
             .boolean => {
-                try st.infos.put(st.alloc, @intFromPtr(node), .{ .base = base, .vocab = vocab });
+                try st.putInfo(node, .{ .base = base, .vocab = vocab });
                 return;
             },
             .object => {},
@@ -1511,7 +1716,7 @@ const State = struct {
                 }
             }
         }
-        try st.infos.put(st.alloc, @intFromPtr(node), .{ .base = base, .vocab = vocab, .kw = try Keywords.of(st.alloc, obj) });
+        try st.putInfo(node, .{ .base = base, .vocab = vocab, .kw = try Keywords.of(st.alloc, obj) });
         for (obj) |*member| {
             const k = member.key;
             const v = &member.value;
@@ -1525,13 +1730,23 @@ const State = struct {
         }
     }
 
+    fn putInfo(st: *State, node: *const Value, info: Info) Error!void {
+        const slot = try st.alloc.create(Info);
+        slot.* = info;
+        try st.infos.put(st.alloc, @intFromPtr(node), @intFromPtr(slot));
+    }
+
+    fn findInfo(st: *const State, key: usize) ?*const Info {
+        return @ptrFromInt(st.infos.get(key) orelse return null);
+    }
+
     fn infoOf(st: *State, node: *const Value) Error!Info {
         // A few schemas ($defs entries, items) are visited once per instance
         // node, so a small direct-mapped cache saves most hash lookups.
         const key = @intFromPtr(node);
         const slot = &st.info_cache[(key >> 3) % st.info_cache.len];
         if (slot.key == key) return slot.info;
-        const info = st.infos.get(key) orelse return error.BadSchema;
+        const info = (st.findInfo(key) orelse return error.BadSchema).*;
         slot.* = .{ .key = key, .info = info };
         return info;
     }
@@ -1563,14 +1778,14 @@ const State = struct {
                 },
                 else => return error.BadSchema,
             }
-            if (st.infos.get(@intFromPtr(node))) |found| info = found;
+            if (st.findInfo(@intFromPtr(node))) |found| info = found.*;
         }
-        if (st.infos.get(@intFromPtr(node)) == null) try st.index(node, info.base, info.vocab, false);
+        if (st.findInfo(@intFromPtr(node)) == null) try st.index(node, info.base, info.vocab, false);
         return node;
     }
 
     fn resolveRef(st: *State, ref_node: *const Value, base: []const u8) Error!*const Value {
-        if (st.refs.get(@intFromPtr(ref_node))) |cached| return cached;
+        if (st.refs.get(@intFromPtr(ref_node))) |cached| return @ptrFromInt(cached);
         if (ref_node.* != .string) return error.BadSchema;
         const uri = try resolveUri(st.alloc, base, ref_node.string);
         const parts = splitFragment(uri);
@@ -1582,7 +1797,7 @@ const State = struct {
             try st.resolvePointer(root, fragment)
         else
             st.anchors.get(try std.mem.concat(st.alloc, u8, &.{ parts.base, "#", fragment })) orelse return error.BadSchema;
-        try st.refs.put(st.alloc, @intFromPtr(ref_node), target);
+        try st.refs.put(st.alloc, @intFromPtr(ref_node), @intFromPtr(target));
         return target;
     }
 
@@ -1605,10 +1820,12 @@ const State = struct {
 
     fn regexFor(st: *State, pattern: []const u8) Error!Regex {
         const key = @intFromPtr(pattern.ptr) ^ (pattern.len << 20);
-        if (st.regexes.get(key)) |r| return r;
-        const r = try compileRegex(st.alloc, pattern);
-        try st.regexes.put(st.alloc, key, r);
-        return r;
+        if (key == 0) return compileRegex(st.alloc, pattern);
+        if (st.regexes.get(key)) |r| return @as(*const Regex, @ptrFromInt(r)).*;
+        const r = try st.alloc.create(Regex);
+        r.* = try compileRegex(st.alloc, pattern);
+        try st.regexes.put(st.alloc, key, @intFromPtr(r));
+        return r.*;
     }
 
     fn matches(st: *State, pattern: []const u8, text: []const u8) Error!bool {
@@ -1781,15 +1998,16 @@ const State = struct {
                     }
                     // minContains and maxContains belong to the validation
                     // vocabulary; without it contains needs one match.
-                    var min: f64 = 1;
-                    var max: ?f64 = null;
+                    var min: ?*const Value = null;
+                    var max: ?*const Value = null;
                     if (vocab.validation) {
-                        if (kw.@"minContains") |v| min = try numberOf(v);
-                        if (kw.@"maxContains") |v| max = try numberOf(v);
+                        min = kw.@"minContains";
+                        max = kw.@"maxContains";
                     }
-                    const count: f64 = @floatFromInt(found);
-                    if (count < min) return false;
-                    if (max) |m| if (count > m) return false;
+                    if (min) |m| {
+                        if (try compareCount(found, m) == .lt) return false;
+                    } else if (found < 1) return false;
+                    if (max) |m| if (try compareCount(found, m) == .gt) return false;
                 }
             },
             .object => |members| {
@@ -1877,19 +2095,19 @@ const State = struct {
             .number => |n| {
                 if (kw.@"multipleOf") |m| {
                     if (m.* != .number) return error.BadSchema;
-                    if (!isMultipleOf(n, m.number)) return false;
+                    if (!try isMultipleOf(n, m.number)) return false;
                 }
-                if (kw.@"maximum") |v| if (!(n.f <= try numberOf(v))) return false;
-                if (kw.@"exclusiveMaximum") |v| if (!(n.f < try numberOf(v))) return false;
-                if (kw.@"minimum") |v| if (!(n.f >= try numberOf(v))) return false;
-                if (kw.@"exclusiveMinimum") |v| if (!(n.f > try numberOf(v))) return false;
+                if (kw.@"maximum") |v| if (try compareTo(n, v) == .gt) return false;
+                if (kw.@"exclusiveMaximum") |v| if (try compareTo(n, v) != .lt) return false;
+                if (kw.@"minimum") |v| if (try compareTo(n, v) == .lt) return false;
+                if (kw.@"exclusiveMinimum") |v| if (try compareTo(n, v) != .gt) return false;
             },
             .string => |s| {
                 const needs_length = kw.@"maxLength" != null or kw.@"minLength" != null;
                 if (needs_length) {
-                    const count: f64 = @floatFromInt(codePointCount(s));
-                    if (kw.@"maxLength") |v| if (count > try numberOf(v)) return false;
-                    if (kw.@"minLength") |v| if (count < try numberOf(v)) return false;
+                    const count = codePointCount(s);
+                    if (kw.@"maxLength") |v| if (try compareCount(count, v) == .gt) return false;
+                    if (kw.@"minLength") |v| if (try compareCount(count, v) == .lt) return false;
                 }
                 if (kw.@"pattern") |pattern| {
                     if (pattern.* != .string) return error.BadSchema;
@@ -1897,9 +2115,8 @@ const State = struct {
                 }
             },
             .array => |items| {
-                const count: f64 = @floatFromInt(items.len);
-                if (kw.@"maxItems") |v| if (count > try numberOf(v)) return false;
-                if (kw.@"minItems") |v| if (count < try numberOf(v)) return false;
+                if (kw.@"maxItems") |v| if (try compareCount(items.len, v) == .gt) return false;
+                if (kw.@"minItems") |v| if (try compareCount(items.len, v) == .lt) return false;
                 if (kw.@"uniqueItems") |u| {
                     if (u.* == .boolean and u.boolean) {
                         for (items, 0..) |*a, i| {
@@ -1911,9 +2128,8 @@ const State = struct {
                 }
             },
             .object => |members| {
-                const count: f64 = @floatFromInt(members.len);
-                if (kw.@"maxProperties") |v| if (count > try numberOf(v)) return false;
-                if (kw.@"minProperties") |v| if (count < try numberOf(v)) return false;
+                if (kw.@"maxProperties") |v| if (try compareCount(members.len, v) == .gt) return false;
+                if (kw.@"minProperties") |v| if (try compareCount(members.len, v) == .lt) return false;
                 if (kw.@"required") |r| {
                     if (r.* != .array) return error.BadSchema;
                     for (r.array) |name| {
@@ -1950,9 +2166,9 @@ fn isOneOf(key: []const u8, comptime names: []const []const u8) bool {
     return false;
 }
 
-fn numberOf(v: *const Value) Error!f64 {
+fn compareTo(n: Number, v: *const Value) Error!std.math.Order {
     if (v.* != .number) return error.BadSchema;
-    return v.number.f;
+    return compareNumbers(n.text, v.number.text);
 }
 
 fn typeMatches(name: []const u8, inst: *const Value) bool {
@@ -1993,15 +2209,10 @@ fn run(input: []const u8) Error!?[]const u8 {
     const instance_json = files.instance orelse return error.MissingFile;
 
     var st = State{ .alloc = alloc, .scratch = &scratch_fba };
-    for (files.remotes.items) |remote| try st.pending.put(alloc, remote.uri, remote.json);
+    st.pending = files.remotes.items;
     // Index supplied documents up front so a document is also found by the
     // $id it declares, not only by its path.
-    while (st.pending.count() > 0) {
-        var it = st.pending.iterator();
-        const entry = it.next().?;
-        const uri = entry.key_ptr.*;
-        _ = try st.resource(uri);
-    }
+    for (st.pending) |remote| _ = try st.resource(remote.uri);
     const schema = try st.loadDocument(DEFAULT_BASE, schema_json);
     const instance = try alloc.create(Value);
     instance.* = try JsonParser.parseDocument(alloc, instance_json);
@@ -2014,6 +2225,20 @@ fn testSearch(pattern: []const u8, text: []const u8) !bool {
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const regex = try compileRegex(fba.allocator(), pattern);
     return regexSearch(fba.allocator(), regex, text);
+}
+
+test {
+    // Runs the letter table's packed-lookup test with this file's tests.
+    _ = unicode_letter;
+}
+
+test "embedded meta-schemas are minified and still parse" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    for (embedded_schemas) |e| {
+        try std.testing.expect(std.mem.indexOfScalar(u8, e.json, '\n') == null);
+        _ = try std.json.parseFromSliceLeaky(std.json.Value, arena.allocator(), e.json, .{});
+    }
 }
 
 test "regex search" {
@@ -2029,7 +2254,7 @@ test "regex search" {
 }
 
 fn testNumber(text: []const u8) Number {
-    return .{ .f = std.fmt.parseFloat(f64, text) catch unreachable, .text = text };
+    return .{ .text = text };
 }
 
 test "integers and multipleOf use exact decimals" {
@@ -2038,13 +2263,48 @@ test "integers and multipleOf use exact decimals" {
     try std.testing.expect(isIntegral(testNumber("-0.0")));
     try std.testing.expect(!isIntegral(testNumber("1.5")));
     try std.testing.expect(!isIntegral(testNumber("1.0000000000000000001")));
-    try std.testing.expect(isMultipleOf(testNumber("0.0075"), testNumber("0.0001")));
-    try std.testing.expect(!isMultipleOf(testNumber("0.00751"), testNumber("0.0001")));
-    try std.testing.expect(isMultipleOf(testNumber("19.99"), testNumber("0.01")));
-    try std.testing.expect(isMultipleOf(testNumber("4.5"), testNumber("1.5")));
-    try std.testing.expect(!isMultipleOf(testNumber("1e308"), testNumber("0.123456789")));
-    try std.testing.expect(isMultipleOf(testNumber("12391239123"), testNumber("1e-8")));
-    try std.testing.expect(isMultipleOf(testNumber("0"), testNumber("7")));
+    try std.testing.expect(try isMultipleOf(testNumber("0.0075"), testNumber("0.0001")));
+    try std.testing.expect(!try isMultipleOf(testNumber("0.00751"), testNumber("0.0001")));
+    try std.testing.expect(try isMultipleOf(testNumber("19.99"), testNumber("0.01")));
+    try std.testing.expect(try isMultipleOf(testNumber("4.5"), testNumber("1.5")));
+    try std.testing.expect(!try isMultipleOf(testNumber("1e308"), testNumber("0.123456789")));
+    try std.testing.expect(try isMultipleOf(testNumber("12391239123"), testNumber("1e-8")));
+    try std.testing.expect(try isMultipleOf(testNumber("0"), testNumber("7")));
+    // Divisors past 2^64 take the double-and-add path.
+    try std.testing.expect(try isMultipleOf(testNumber("246913578024691357802469135780"), testNumber("123456789012345678901234567890")));
+    try std.testing.expect(!try isMultipleOf(testNumber("246913578024691357802469135781"), testNumber("123456789012345678901234567890")));
+    try std.testing.expect(try isMultipleOf(testNumber("1.23456789012345678901234567890e40"), testNumber("123456789012345678901234567890")));
+    try std.testing.expectError(error.Unsupported, isMultipleOf(testNumber("1"), testNumber("1.0000000000000000000000000000000000001")));
+}
+
+test "numbers compare exactly" {
+    const O = std.math.Order;
+    try std.testing.expectEqual(O.eq, compareNumbers("1", "1.0"));
+    try std.testing.expectEqual(O.eq, compareNumbers("-0", "0.0e5"));
+    try std.testing.expectEqual(O.eq, compareNumbers("100", "1e2"));
+    try std.testing.expectEqual(O.eq, compareNumbers("0.5", "5E-1"));
+    try std.testing.expectEqual(O.lt, compareNumbers("1", "1.0000000000000000001"));
+    try std.testing.expectEqual(O.gt, compareNumbers("1e400", "1e308"));
+    try std.testing.expectEqual(O.lt, compareNumbers("-1e400", "-1e308"));
+    try std.testing.expectEqual(O.lt, compareNumbers("-2", "1"));
+    try std.testing.expectEqual(O.gt, compareNumbers("0.1", "-0.2"));
+    try std.testing.expectEqual(O.lt, compareNumbers("-0.25", "0"));
+    try std.testing.expectEqual(O.lt, compareNumbers("9.99", "10"));
+    try std.testing.expectEqual(O.gt, compareNumbers("12", "11.999"));
+    try std.testing.expectEqual(O.lt, compareNumbers("-12", "-11.999"));
+    var v = Value{ .number = .{ .text = "2.0" } };
+    try std.testing.expectEqual(O.eq, try compareCount(2, &v));
+    try std.testing.expectEqual(O.lt, try compareCount(1, &v));
+    try std.testing.expectEqual(O.gt, try compareCount(10, &v));
+    v = .{ .number = .{ .text = "0" } };
+    try std.testing.expectEqual(O.eq, try compareCount(0, &v));
+    try std.testing.expectEqual(O.gt, compareNumbers("123456789012345678901", "123456789012345678900"));
+    try std.testing.expectEqual(O.gt, compareNumbers("0.1000000000000000000001", "0.1"));
+    // The small-number fast path agrees with the exact Decimal path.
+    const samples = [_][]const u8{ "0", "-0", "0.0", "1", "-1", "1.0", "1.5", "-1.5", "10", "9.99", "0.01", "0.001", "-0.001", "100", "99.990", "123456789012345678", "-123456789012345678", "0.123456789012345678", "17.25", "17.250000", "-17.25", "1000", "999.999999999999999" };
+    for (samples) |x| for (samples) |y| {
+        try std.testing.expectEqual(compareDecimals(x, y), compareNumbers(x, y));
+    };
 }
 
 test "URI references resolve per RFC 3986" {

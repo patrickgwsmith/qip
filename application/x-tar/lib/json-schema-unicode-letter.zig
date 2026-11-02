@@ -687,16 +687,54 @@ pub const ranges = [_][2]u21{
     .{ 0x31350, 0x33479 },
 };
 
+// Only packed is kept in the Wasm: each range as 16-bit offsets within its
+// 64K plane, grouped by plane, which halves the table. No range crosses a
+// plane and letters stop before plane 4.
+const plane_count = 4;
+const Packed = struct { ranges: [ranges.len][2]u16, starts: [plane_count + 1]usize };
+const packed_ranges: Packed = blk: {
+    var p: Packed = undefined;
+    var plane: usize = 0;
+    p.starts[0] = 0;
+    for (ranges, 0..) |r, i| {
+        if (r[0] >> 16 != r[1] >> 16 or r[1] >> 16 >= plane_count) @compileError("letter range crosses a plane");
+        while (plane < r[0] >> 16) {
+            plane += 1;
+            p.starts[plane] = i;
+        }
+        p.ranges[i] = .{ @truncate(r[0]), @truncate(r[1]) };
+    }
+    while (plane < plane_count) {
+        plane += 1;
+        p.starts[plane] = ranges.len;
+    }
+    break :blk p;
+};
+
 pub fn isLetter(cp: u21) bool {
-    var lo: usize = 0;
-    var hi: usize = ranges.len;
+    const plane = cp >> 16;
+    if (plane >= plane_count) return false;
+    const low: u16 = @truncate(cp);
+    var lo = packed_ranges.starts[plane];
+    var hi = packed_ranges.starts[plane + 1];
     while (lo < hi) {
         const mid = lo + (hi - lo) / 2;
-        if (cp < ranges[mid][0]) {
+        if (low < packed_ranges.ranges[mid][0]) {
             hi = mid;
-        } else if (cp > ranges[mid][1]) {
+        } else if (low > packed_ranges.ranges[mid][1]) {
             lo = mid + 1;
         } else return true;
     }
     return false;
+}
+
+
+test "packed lookup matches the ranges for every code point" {
+    var i: usize = 0;
+    var cp: u32 = 0;
+    while (cp < 0x110000) : (cp += 1) {
+        while (i < ranges.len and ranges[i][1] < cp) i += 1;
+        const expected = i < ranges.len and ranges[i][0] <= cp;
+        try @import("std").testing.expectEqual(expected, isLetter(@intCast(cp)));
+    }
 }

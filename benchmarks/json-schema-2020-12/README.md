@@ -1,7 +1,7 @@
 # JSON Schema 2020-12: QIP component vs @cfworker/json-schema vs ata-validator
 
 Compares `application/x-tar/json-schema-2020-12-must-be-valid.wasm` (Zig,
-ReleaseSmall, 96 KB) with two JavaScript validators on correctness and speed.
+ReleaseSmall, 60 KB) with two JavaScript validators on correctness and speed.
 
 ```bash
 cd benchmarks/json-schema-2020-12
