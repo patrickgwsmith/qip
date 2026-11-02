@@ -147,6 +147,21 @@ page (a ReDoS). The generated validator has no slow input, because it reads
 every byte at most once, whatever the pattern. So you can compile patterns
 that users or configuration files supply.
 
+The compiler avoids backtracking by doing the work before any text arrives.
+It turns the pattern into a deterministic state machine (a DFA). This is a
+table with one row per state and one column per group of similar bytes. A
+state stands for every way the pattern could still match at once. So for each
+byte the table gives exactly one next state, and there is never a second
+choice to come back and try. The validator does one table lookup per byte and
+stops at the first byte that no match can continue through. Its time grows
+in step with the length of the text, for every pattern.
+
+The cost moves to compile time, because some patterns need a very large
+table. `(a|b)*a(a|b){20}` has to remember the last 21 characters, which takes
+about two million states. The compiler stops at 30,000 states or a 4 MiB
+table and reports the pattern as too large. So neither compiling a pattern
+nor running its validator can blow up.
+
 Other browsers have different regular expression engines, so run the
 benchmark in the browsers you support.
 
@@ -179,9 +194,10 @@ Each validator also keeps its source pattern in a custom section named
   and needs no extra file.
 - **For patterns that need lookaround or backreferences.** I-Regexp leaves
   them out on purpose, because they need backtracking.
-- **For large counted repeats.** The compiler rejects patterns whose table
-  needs more than 30,000 states or 4 MiB, for example `(a|b)*a(a|b){20}`. It
-  reports the failure as "too large" and gives the offset.
+- **For patterns that need a huge table.** The compiler rejects patterns
+  whose table needs more than 30,000 states or 4 MiB, such as
+  `(a|b)*a(a|b){20}` (see above), and large counted repeats such as a bounded
+  `\p{L}{0,31}`. It reports the failure as "too large" and gives the offset.
 - **For checks that are not about shape.** A pattern cannot check that a date
   exists, that a checksum is correct, or that a hostname is at most 253
   characters long. Combine the validator with a component made for that
