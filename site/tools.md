@@ -27,6 +27,7 @@ Browse the complete lists of [`text/*` components](/text), [`image/*` components
 - [Currency formatter](/currency) formats decimal amounts using a selected locale and ISO 4217 currency.
 - [Unicode transforms](/unicode) applies Unicode 17 uppercase and lowercase mappings to pasted text.
 - [JSON prettifier](/json-prettify) validates and indents JSON.
+- [JSON Schema validator](/json-schema) checks a document against a draft 2020-12 schema, or compiles the schema into a downloadable WebAssembly validator.
 - [Regular expression validators](/regex) compiles an RFC 9485 I-Regexp into a downloadable WebAssembly validator and checks text against it.
 - [Base64 encoder and decoder](/base64) converts text or bytes to and from Base64.
 - [SRI hash generator](/sri) outputs the subresource integrity value for a script, stylesheet or file, with a copy-ready `integrity` attribute.

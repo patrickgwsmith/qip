@@ -48,6 +48,10 @@ Related tools: [syntax highlighter](/syntax-highlight) and [HTML accessibility t
 ## JSON (`application/json`)
 
 - [`json-prettify.wasm`](/application/json/json-prettify.wasm) formats JSON with indentation and line breaks.
+- [`json-schema-2020-12-must-be-valid.wasm`](/application/json/json-schema-2020-12-must-be-valid.wasm) validates a document against a JSON Schema draft 2020-12 schema. It takes `{"schema": …, "instance": …, "schemas": {…}}` and outputs the document unchanged when it conforms.
+- [`json-schema-to-wasm.wasm`](/application/json/json-schema-to-wasm.wasm) compiles a draft 2020-12 schema into a validator component that takes bare documents. It returns `application/wasm`.
+
+Related tool: [JSON Schema validator](/json-schema), with examples, conformance results and a speed comparison with ata-validator and @cfworker/json-schema.
 
 ## CSS (`text/css`)
 
