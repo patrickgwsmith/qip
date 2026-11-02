@@ -65,6 +65,7 @@ compliance/currency-format-ja-jp.comply.wasm: compliance/currency-format-ja-jp.c
 compliance/currency-format-zh-cn.comply.wasm: compliance/currency-format-zh-cn.comply.zig compliance/currency-format-zh-cn-table.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+text/i-regexp-to-wasm.wasm: text/lib/i-regexp-unicode-categories.zig
 text/currency-format-en-us.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
 text/currency-format-en-us.wasm: text/lib/currency-format-en-us-table.zig
 text/currency-format-en-in.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
@@ -1444,6 +1445,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/tzif-transitions-csv.mjs
 	node --test test/dns-message.mjs
 	node --test test/wgsl-to-wasm.mjs
+	node --test test/i-regexp-to-wasm.mjs
 	node --test test/wgsl-pixel-kernels.mjs
 	node --test test/bmp-png.mjs
 	node --test test/bmp-b8g8r8a8-srgb-webp-lossy.mjs
