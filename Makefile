@@ -121,6 +121,9 @@ compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.
 compliance/html-escape.comply.wasm: compliance/html-escape.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/json-schema-2020-12.comply.wasm: compliance/json-schema-2020-12.comply.zig compliance/json-schema-2020-12.fixtures.txt
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/tldraw-draw-font-metrics-chrome.comply.wasm: compliance/tldraw-draw-font-metrics-chrome.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -187,6 +190,7 @@ compliance: compliance/warc-connect-search-params.comply.wasm
 compliance: compliance/youtube-id-extractor.comply.wasm
 compliance: compliance/shortcode-to-emoji.comply.wasm
 compliance: compliance/html-escape.comply.wasm
+compliance: compliance/json-schema-2020-12.comply.wasm
 compliance: compliance/autolink-https.comply.wasm
 compliance: compliance/html-link-extractor.comply.wasm
 compliance: compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm
@@ -636,6 +640,10 @@ application/x-tar/tar-to-zip.wasm: application/x-tar/tar-to-zip.zig bytes/lib/de
 	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate -Mroot=$< -Mdeflate=bytes/lib/deflate.zig -femit-bin=$@
 application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
 application/x-tar/tar-to-sha256sums.wasm: ZIG_WASM_MAX_MEMORY = 184549376
+# Validation recurses through the schema; 4 MiB of stack covers MAX_DEPTH.
+application/x-tar/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 83886080
+application/x-tar/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_FLAGS += --stack 4194304
+application/x-tar/json-schema-2020-12-must-be-valid.wasm: application/x-tar/lib/json-schema-unicode-letter.zig $(wildcard application/x-tar/lib/json-schema-2020-12/*.json)
 application/x-tar/recipes-tar-to-node-tar.wasm: ZIG_WASM_MAX_MEMORY = 335544320
 application/x-tar/recipes-tar-to-csv.wasm application/x-tar/recipes-tar-to-node-tar.wasm: application/x-tar/%.wasm: application/x-tar/%.zig application/x-tar/lib/recipe-book.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_reader -Mroot=$< -Mwasm_reader=application/wasm/lib/wasm-reader.zig -femit-bin=$@
@@ -1292,6 +1300,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node test/qip-runner-smoke.mjs
 	node --test test/bytes-to-sha256.mjs
 	node --test test/bytes-to-sri.mjs
+	node --test test/json-schema-2020-12-must-be-valid.mjs
 	node --test test/gzip-bgzf.mjs
 	node --test test/zstd.mjs
 	node --test test/recipe-finder.mjs
@@ -1517,6 +1526,8 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/youtube-id-extractor.wasm --with compliance/youtube-id-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --with compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
+	node tools/gen-json-schema-2020-12-fixtures.mjs --check
+	$(QIP_BIN) comply application/x-tar/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
 	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm

@@ -1,0 +1,13 @@
+{
+  "name": "qip-json-schema-2020-12-comparison",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "suite": "node suite.mjs",
+    "bench": "node bench.mjs"
+  },
+  "dependencies": {
+    "@cfworker/json-schema": "4.1.4",
+    "ata-validator": "1.62.1"
+  }
+}
