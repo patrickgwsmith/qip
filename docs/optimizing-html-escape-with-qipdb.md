@@ -124,6 +124,34 @@ The final module is 672 raw bytes and 447 gzip bytes, up from 631 and 428
 bytes. Its fixed linear memory remains 5,696 KiB. The extra 41 raw bytes buy a
 fast path for unchanged text; inputs with escapes still use the old writer.
 
+## Later: Eight-Byte Words
+
+A later rewrite replaced both the sizing pass and the scalar writer. The
+component now reads the input eight bytes at a time as a `u64`. A bit trick
+tests whether any byte in the word is `&`, `<`, `>`, `"` or `'` with three
+compares, because `&` and `'` differ only in bit 0 and `<` and `>` only in
+bit 1. A word with none of them is copied with one 64-bit store. Every byte
+of any other word is written with one 8-byte store from a 256-entry entity
+table, so writing it needs no branches. The output capacity is large enough
+for the worst case, so no sizing pass is needed.
+
+Every timing below copies input and output. Each output matched the previous
+build byte for byte.
+
+| Input and host | Previous | Words | Change |
+| --- | ---: | ---: | ---: |
+| 158 `site-static` HTML pages, Node.js | 9.72 ms | 1.48 ms | 6.5× faster |
+| 261 site and docs markdown pages, Node.js | 3.59 ms | 0.53 ms | 6.7× faster |
+| Plain fixture, Wasmtime | 4.81 µs | 1.99 µs | 2.4× faster |
+| Mixed fixture, Wasmtime | 17.5 µs | 3.15 µs | 5.6× faster |
+| `site-static/index.html`, Wasmtime | 70.7 µs | 11.4 µs | 6.2× faster |
+| `site-static/index.html`, wazero total | | | 5.2× faster |
+
+A `v128` version that tests 16 bytes at a time was about 30% faster again on
+site pages in Node.js. It was not kept, because `qip-component-to-c` does not
+translate SIMD and its native parity test uses this component. The module
+grew to 3,351 bytes, most of it the two lookup tables.
+
 ## Reproduce The Study
 
 The saved original artifact is the tracked Wasm from commit
