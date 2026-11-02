@@ -78,6 +78,9 @@ qip comply text/base64-decode.wasm --with compliance/base64-decode.comply.wasm
 
 # Runs the 1,298 JSON-Schema-Test-Suite draft 2020-12 core tests: valid instances echo, invalid ones reject.
 qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
+
+# Runs the 1,292 of those whose regexes stay within the interoperable subset of core section 6.4 (plus "." and \-escaped syntax characters).
+qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12-interoperable-regex.comply.wasm
 ```
 
 ## What It Does

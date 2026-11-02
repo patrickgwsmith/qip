@@ -122,7 +122,10 @@ compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.
 compliance/html-escape.comply.wasm: compliance/html-escape.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-compliance/json-schema-2020-12.comply.wasm: compliance/json-schema-2020-12.comply.zig compliance/json-schema-2020-12.fixtures.txt
+compliance/json-schema-2020-12.comply.wasm: compliance/json-schema-2020-12.comply.zig compliance/json-schema-2020-12.fixtures.txt compliance/lib/json-schema-2020-12-comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
+compliance/json-schema-2020-12-interoperable-regex.comply.wasm: compliance/json-schema-2020-12-interoperable-regex.comply.zig compliance/json-schema-2020-12-interoperable-regex.fixtures.txt compliance/lib/json-schema-2020-12-comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
 compliance/tldraw-draw-font-metrics-chrome.comply.wasm: compliance/tldraw-draw-font-metrics-chrome.comply.zig
@@ -192,6 +195,7 @@ compliance: compliance/youtube-id-extractor.comply.wasm
 compliance: compliance/shortcode-to-emoji.comply.wasm
 compliance: compliance/html-escape.comply.wasm
 compliance: compliance/json-schema-2020-12.comply.wasm
+compliance: compliance/json-schema-2020-12-interoperable-regex.comply.wasm
 compliance: compliance/autolink-https.comply.wasm
 compliance: compliance/html-link-extractor.comply.wasm
 compliance: compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm
@@ -1541,6 +1545,7 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
 	node tools/gen-json-schema-2020-12-fixtures.mjs --check
 	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
+	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12-interoperable-regex.comply.wasm
 	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm

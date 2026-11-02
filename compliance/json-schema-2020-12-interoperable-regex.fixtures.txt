@@ -1,0 +1,3777 @@
+cases 1292
+group additionalProperties.json additionalProperties being false does not allow other properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{},"bar":{}},"patternProperties":{"^v":{}},"additionalProperties":false}
+valid no additional properties is valid
+{"foo":1}
+invalid an additional property is invalid
+{"foo":1,"bar":2,"quux":"boom"}
+valid ignores arrays
+[1,2,3]
+valid ignores strings
+"foobarbaz"
+valid ignores other non-objects
+12
+valid patternProperties are not additional properties
+{"foo":1,"vroom":2}
+group additionalProperties.json non-ASCII pattern with additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"^á":{}},"additionalProperties":false}
+valid matching the pattern is valid
+{"ármányos":2}
+invalid not matching the pattern is invalid
+{"élmény":2}
+group additionalProperties.json additionalProperties with schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{},"bar":{}},"additionalProperties":{"type":"boolean"}}
+valid no additional properties is valid
+{"foo":1}
+valid an additional valid property is valid
+{"foo":1,"bar":2,"quux":true}
+invalid an additional invalid property is invalid
+{"foo":1,"bar":2,"quux":12}
+group additionalProperties.json additionalProperties can exist by itself
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":{"type":"boolean"}}
+valid an additional valid property is valid
+{"foo":true}
+invalid an additional invalid property is invalid
+{"foo":1}
+group additionalProperties.json additionalProperties are allowed by default
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{},"bar":{}}}
+valid additional properties are allowed
+{"foo":1,"bar":2,"quux":true}
+group additionalProperties.json additionalProperties does not look in applicators
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":{}}}],"additionalProperties":{"type":"boolean"}}
+invalid properties defined in allOf are not examined
+{"foo":1,"bar":true}
+group additionalProperties.json additionalProperties with null valued instance properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","additionalProperties":{"type":"null"}}
+valid allows null values
+{"foo":null}
+group additionalProperties.json additionalProperties with propertyNames
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"maxLength":5},"additionalProperties":{"type":"number"}}
+valid Valid against both keywords
+{"apple":4}
+invalid Valid against propertyNames, but not additionalProperties
+{"fig":2,"pear":"available"}
+group additionalProperties.json dependentSchemas with additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo2":{}},"dependentSchemas":{"foo":{},"foo2":{"properties":{"bar":{}}}},"additionalProperties":false}
+invalid additionalProperties doesn't consider dependentSchemas
+{"foo":""}
+invalid additionalProperties can't see bar
+{"bar":""}
+invalid additionalProperties can't see bar even when foo2 is present
+{"foo2":"","bar":""}
+group allOf.json allOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"bar":{"type":"integer"}},"required":["bar"]},{"properties":{"foo":{"type":"string"}},"required":["foo"]}]}
+valid allOf
+{"foo":"baz","bar":2}
+invalid mismatch second
+{"foo":"baz"}
+invalid mismatch first
+{"bar":2}
+invalid wrong type
+{"foo":"baz","bar":"quux"}
+group allOf.json allOf with base schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"bar":{"type":"integer"}},"required":["bar"],"allOf":[{"properties":{"foo":{"type":"string"}},"required":["foo"]},{"properties":{"baz":{"type":"null"}},"required":["baz"]}]}
+valid valid
+{"foo":"quux","bar":2,"baz":null}
+invalid mismatch base schema
+{"foo":"quux","baz":null}
+invalid mismatch first allOf
+{"bar":2,"baz":null}
+invalid mismatch second allOf
+{"foo":"quux","bar":2}
+invalid mismatch both
+{"bar":2}
+group allOf.json allOf simple types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"maximum":30},{"minimum":20}]}
+valid valid
+25
+invalid mismatch one
+35
+group allOf.json allOf with boolean schemas, all true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[true,true]}
+valid any value is valid
+"foo"
+group allOf.json allOf with boolean schemas, some false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[true,false]}
+invalid any value is invalid
+"foo"
+group allOf.json allOf with boolean schemas, all false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[false,false]}
+invalid any value is invalid
+"foo"
+group allOf.json allOf with one empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{}]}
+valid any data is valid
+1
+group allOf.json allOf with two empty schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{},{}]}
+valid any data is valid
+1
+group allOf.json allOf with the first empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{},{"type":"number"}]}
+valid number is valid
+1
+invalid string is invalid
+"foo"
+group allOf.json allOf with the last empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"type":"number"},{}]}
+valid number is valid
+1
+invalid string is invalid
+"foo"
+group allOf.json nested allOf, to check validation semantics
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"allOf":[{"type":"null"}]}]}
+valid null is valid
+null
+invalid anything non-null is invalid
+123
+group allOf.json allOf combined with anyOf, oneOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"multipleOf":2}],"anyOf":[{"multipleOf":3}],"oneOf":[{"multipleOf":5}]}
+invalid allOf: false, anyOf: false, oneOf: false
+1
+invalid allOf: false, anyOf: false, oneOf: true
+5
+invalid allOf: false, anyOf: true, oneOf: false
+3
+invalid allOf: false, anyOf: true, oneOf: true
+15
+invalid allOf: true, anyOf: false, oneOf: false
+2
+invalid allOf: true, anyOf: false, oneOf: true
+10
+invalid allOf: true, anyOf: true, oneOf: false
+6
+valid allOf: true, anyOf: true, oneOf: true
+30
+group anchor.json Location-independent identifier
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#foo","$defs":{"A":{"$anchor":"foo","type":"integer"}}}
+valid match
+1
+invalid mismatch
+"a"
+group anchor.json Location-independent identifier with absolute URI
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/bar#foo","$defs":{"A":{"$id":"http://localhost:1234/draft2020-12/bar","$anchor":"foo","type":"integer"}}}
+valid match
+1
+invalid mismatch
+"a"
+group anchor.json Location-independent identifier with base URI change in subschema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/root","$ref":"http://localhost:1234/draft2020-12/nested.json#foo","$defs":{"A":{"$id":"nested.json","$defs":{"B":{"$anchor":"foo","type":"integer"}}}}}
+valid match
+1
+invalid mismatch
+"a"
+group anchor.json same $anchor with different base uri
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/foobar","$defs":{"A":{"$id":"child1","allOf":[{"$id":"child2","$anchor":"my_anchor","type":"number"},{"$anchor":"my_anchor","type":"string"}]}},"$ref":"child1#my_anchor"}
+valid $ref resolves to /$defs/A/allOf/1
+"a"
+invalid $ref does not resolve to /$defs/A/allOf/0
+1
+group anyOf.json anyOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[{"type":"integer"},{"minimum":2}]}
+valid first anyOf valid
+1
+valid second anyOf valid
+2.5
+valid both anyOf valid
+3
+invalid neither anyOf valid
+1.5
+group anyOf.json anyOf with base schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"string","anyOf":[{"maxLength":2},{"minLength":4}]}
+invalid mismatch base schema
+3
+valid one anyOf valid
+"foobar"
+invalid both anyOf invalid
+"foo"
+group anyOf.json anyOf with boolean schemas, all true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[true,true]}
+valid any value is valid
+"foo"
+group anyOf.json anyOf with boolean schemas, some true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[true,false]}
+valid any value is valid
+"foo"
+group anyOf.json anyOf with boolean schemas, all false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[false,false]}
+invalid any value is invalid
+"foo"
+group anyOf.json anyOf complex types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[{"properties":{"bar":{"type":"integer"}},"required":["bar"]},{"properties":{"foo":{"type":"string"}},"required":["foo"]}]}
+valid first anyOf valid (complex)
+{"bar":2}
+valid second anyOf valid (complex)
+{"foo":"baz"}
+valid both anyOf valid (complex)
+{"foo":"baz","bar":2}
+invalid neither anyOf valid (complex)
+{"foo":2,"bar":"quux"}
+group anyOf.json anyOf with one empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[{"type":"number"},{}]}
+valid string is valid
+"foo"
+valid number is valid
+123
+group anyOf.json nested anyOf, to check validation semantics
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","anyOf":[{"anyOf":[{"type":"null"}]}]}
+valid null is valid
+null
+invalid anything non-null is invalid
+123
+group boolean_schema.json boolean schema 'true'
+schema
+true
+valid number is valid
+1
+valid string is valid
+"foo"
+valid boolean true is valid
+true
+valid boolean false is valid
+false
+valid null is valid
+null
+valid object is valid
+{"foo":"bar"}
+valid empty object is valid
+{}
+valid array is valid
+["foo"]
+valid empty array is valid
+[]
+group boolean_schema.json boolean schema 'false'
+schema
+false
+invalid number is invalid
+1
+invalid string is invalid
+"foo"
+invalid boolean true is invalid
+true
+invalid boolean false is invalid
+false
+invalid null is invalid
+null
+invalid object is invalid
+{"foo":"bar"}
+invalid empty object is invalid
+{}
+invalid array is invalid
+["foo"]
+invalid empty array is invalid
+[]
+group const.json const validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":2}
+valid same value is valid
+2
+invalid another value is invalid
+5
+invalid another type is invalid
+"a"
+group const.json const with object
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":{"foo":"bar","baz":"bax"}}
+valid same object is valid
+{"foo":"bar","baz":"bax"}
+valid same object with different property order is valid
+{"baz":"bax","foo":"bar"}
+invalid another object is invalid
+{"foo":"bar"}
+invalid another type is invalid
+[1,2]
+group const.json const with array
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":[{"foo":"bar"}]}
+valid same array is valid
+[{"foo":"bar"}]
+invalid another array item is invalid
+[2]
+invalid array with additional items is invalid
+[1,2,3]
+group const.json const with null
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":null}
+valid null is valid
+null
+invalid not null is invalid
+0
+group const.json const with false does not match 0
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":false}
+valid false is valid
+false
+invalid integer zero is invalid
+0
+invalid float zero is invalid
+0
+group const.json const with true does not match 1
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":true}
+valid true is valid
+true
+invalid integer one is invalid
+1
+invalid float one is invalid
+1
+group const.json const with [false] does not match [0]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":[false]}
+valid [false] is valid
+[false]
+invalid [0] is invalid
+[0]
+invalid [0.0] is invalid
+[0]
+group const.json const with [true] does not match [1]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":[true]}
+valid [true] is valid
+[true]
+invalid [1] is invalid
+[1]
+invalid [1.0] is invalid
+[1]
+group const.json const with {"a": false} does not match {"a": 0}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":{"a":false}}
+valid {"a": false} is valid
+{"a":false}
+invalid {"a": 0} is invalid
+{"a":0}
+invalid {"a": 0.0} is invalid
+{"a":0}
+group const.json const with {"a": true} does not match {"a": 1}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":{"a":true}}
+valid {"a": true} is valid
+{"a":true}
+invalid {"a": 1} is invalid
+{"a":1}
+invalid {"a": 1.0} is invalid
+{"a":1}
+group const.json const with 0 does not match other zero-like types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":0}
+invalid false is invalid
+false
+valid integer zero is valid
+0
+valid float zero is valid
+0
+invalid empty object is invalid
+{}
+invalid empty array is invalid
+[]
+invalid empty string is invalid
+""
+group const.json const with 1 does not match true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":1}
+invalid true is invalid
+true
+valid integer one is valid
+1
+valid float one is valid
+1
+group const.json const with -2.0 matches integer and float types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":-2}
+valid integer -2 is valid
+-2
+invalid integer 2 is invalid
+2
+valid float -2.0 is valid
+-2
+invalid float 2.0 is invalid
+2
+invalid float -2.00001 is invalid
+-2.00001
+group const.json float and integers are equal up to 64-bit representation limits
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":9007199254740992}
+valid integer is valid
+9007199254740992
+invalid integer minus one is invalid
+9007199254740991
+valid float is valid
+9007199254740992
+invalid float minus one is invalid
+9007199254740991
+group const.json nul characters in strings
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":"hello\u0000there"}
+valid match string with nul
+"hello\u0000there"
+invalid do not match string lacking nul
+"hellothere"
+group const.json characters with the same visual representation but different codepoint
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":"μ","$comment":"U+03BC"}
+valid character uses the same codepoint
+"μ"
+invalid character looks the same but uses a different codepoint
+"µ"
+group const.json characters with the same visual representation, but different number of codepoints
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","const":"ä","$comment":"U+00E4"}
+valid character uses the same codepoint
+"ä"
+invalid character looks the same but uses combining marks
+"ä"
+group contains.json contains keyword validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"minimum":5}}
+valid array with item matching schema (5) is valid
+[3,4,5]
+valid array with item matching schema (6) is valid
+[3,4,6]
+valid array with two items matching schema (5, 6) is valid
+[3,4,5,6]
+invalid array without items matching schema is invalid
+[2,3,4]
+invalid empty array is invalid
+[]
+valid not array is valid
+{}
+group contains.json contains keyword with const keyword
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":5}}
+valid array with item 5 is valid
+[3,4,5]
+valid array with two items 5 is valid
+[3,4,5,5]
+invalid array without item 5 is invalid
+[1,2,3,4]
+group contains.json contains keyword with boolean schema true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":true}
+valid any non-empty array is valid
+["foo"]
+invalid empty array is invalid
+[]
+group contains.json contains keyword with boolean schema false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":false}
+invalid any non-empty array is invalid
+["foo"]
+invalid empty array is invalid
+[]
+valid non-arrays are valid
+"contains does not apply to strings"
+group contains.json items + contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":{"multipleOf":2},"contains":{"multipleOf":3}}
+invalid matches items, does not match contains
+[2,4,8]
+invalid does not match items, matches contains
+[3,6,9]
+valid matches both items and contains
+[6,12]
+invalid matches neither items nor contains
+[1,5]
+group contains.json contains with false if subschema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"if":false,"else":true}}
+valid any non-empty array is valid
+["foo"]
+invalid empty array is invalid
+[]
+group contains.json contains with null instance elements
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"type":"null"}}
+valid allows null items
+[null]
+group content.json validation of string-encoded content based on media type
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contentMediaType":"application/json"}
+valid a valid JSON document
+"{\"foo\": \"bar\"}"
+valid an invalid JSON document; validates true
+"{:}"
+valid ignores non-strings
+100
+group content.json validation of binary string-encoding
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contentEncoding":"base64"}
+valid a valid base64 string
+"eyJmb28iOiAiYmFyIn0K"
+valid an invalid base64 string (% is not a valid character); validates true
+"eyJmb28iOi%iYmFyIn0K"
+valid ignores non-strings
+100
+group content.json validation of binary-encoded media type documents
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contentMediaType":"application/json","contentEncoding":"base64"}
+valid a valid base64-encoded JSON document
+"eyJmb28iOiAiYmFyIn0K"
+valid a validly-encoded invalid JSON document; validates true
+"ezp9Cg=="
+valid an invalid base64 string that is valid JSON; validates true
+"{}"
+valid ignores non-strings
+100
+group content.json validation of binary-encoded media type documents with schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contentMediaType":"application/json","contentEncoding":"base64","contentSchema":{"type":"object","required":["foo"],"properties":{"foo":{"type":"string"}}}}
+valid a valid base64-encoded JSON document
+"eyJmb28iOiAiYmFyIn0K"
+valid another valid base64-encoded JSON document
+"eyJib28iOiAyMCwgImZvbyI6ICJiYXoifQ=="
+valid an invalid base64-encoded JSON document; validates true
+"eyJib28iOiAyMH0="
+valid an empty object as a base64-encoded JSON document; validates true
+"e30="
+valid an empty array as a base64-encoded JSON document
+"W10="
+valid a validly-encoded invalid JSON document; validates true
+"ezp9Cg=="
+valid an invalid base64 string that is valid JSON; validates true
+"{}"
+valid ignores non-strings
+100
+group default.json invalid type for default
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"integer","default":[]}}}
+valid valid when property is specified
+{"foo":13}
+valid still valid when the invalid default is used
+{}
+group default.json invalid string value for default
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"bar":{"type":"string","minLength":4,"default":"bad"}}}
+valid valid when property is specified
+{"bar":"good"}
+valid still valid when the invalid default is used
+{}
+group default.json the default keyword does not do anything if the property is missing
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"alpha":{"type":"number","maximum":3,"default":5}}}
+valid an explicit property value is checked against maximum (passing)
+{"alpha":1}
+invalid an explicit property value is checked against maximum (failing)
+{"alpha":5}
+valid missing properties are not filled in with the default
+{}
+group defs.json validate definition against metaschema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"https://json-schema.org/draft/2020-12/schema"}
+valid valid definition schema
+{"$defs":{"foo":{"type":"integer"}}}
+invalid invalid definition schema
+{"$defs":{"foo":{"type":1}}}
+group dependentRequired.json single dependency
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentRequired":{"bar":["foo"]}}
+valid neither
+{}
+valid nondependant
+{"foo":1}
+valid with dependency
+{"foo":1,"bar":2}
+invalid missing dependency
+{"bar":2}
+valid ignores arrays
+["bar"]
+valid ignores strings
+"foobar"
+valid ignores other non-objects
+12
+group dependentRequired.json empty dependents
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentRequired":{"bar":[]}}
+valid empty object
+{}
+valid object with one property
+{"bar":2}
+valid non-object is valid
+1
+group dependentRequired.json multiple dependents required
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentRequired":{"quux":["foo","bar"]}}
+valid neither
+{}
+valid nondependants
+{"foo":1,"bar":2}
+valid with dependencies
+{"foo":1,"bar":2,"quux":3}
+invalid missing dependency
+{"foo":1,"quux":2}
+invalid missing other dependency
+{"bar":1,"quux":2}
+invalid missing both dependencies
+{"quux":1}
+group dependentRequired.json dependencies with escaped characters
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentRequired":{"foo\nbar":["foo\rbar"],"foo\"bar":["foo'bar"]}}
+valid CRLF
+{"foo\nbar":1,"foo\rbar":2}
+valid quoted quotes
+{"foo'bar":1,"foo\"bar":2}
+invalid CRLF missing dependent
+{"foo\nbar":1,"foo":2}
+invalid quoted quotes missing dependent
+{"foo\"bar":2}
+group dependentSchemas.json single dependency
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentSchemas":{"bar":{"properties":{"foo":{"type":"integer"},"bar":{"type":"integer"}}}}}
+valid valid
+{"foo":1,"bar":2}
+valid no dependency
+{"foo":"quux"}
+invalid wrong type
+{"foo":"quux","bar":2}
+invalid wrong type other
+{"foo":2,"bar":"quux"}
+invalid wrong type both
+{"foo":"quux","bar":"quux"}
+valid ignores arrays
+["bar"]
+valid ignores strings
+"foobar"
+valid ignores other non-objects
+12
+group dependentSchemas.json boolean subschemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentSchemas":{"foo":true,"bar":false}}
+valid object with property having schema true is valid
+{"foo":1}
+invalid object with property having schema false is invalid
+{"bar":2}
+invalid object with both properties is invalid
+{"foo":1,"bar":2}
+valid empty object is valid
+{}
+group dependentSchemas.json dependencies with escaped characters
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","dependentSchemas":{"foo\tbar":{"minProperties":4},"foo'bar":{"required":["foo\"bar"]}}}
+valid quoted tab
+{"foo\tbar":1,"a":2,"b":3,"c":4}
+invalid quoted quote
+{"foo'bar":{"foo\"bar":1}}
+invalid quoted tab invalid under dependent schema
+{"foo\tbar":1,"a":2}
+invalid quoted quote invalid under dependent schema
+{"foo'bar":1}
+group dependentSchemas.json dependent subschema incompatible with root
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{}},"dependentSchemas":{"foo":{"properties":{"bar":{}},"additionalProperties":false}}}
+invalid matches root
+{"foo":1}
+valid matches dependency
+{"bar":1}
+invalid matches both
+{"foo":1,"bar":2}
+valid no dependency
+{"baz":1}
+group dynamicRef.json A $dynamicRef to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamicRef-dynamicAnchor-same-schema/root","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"foo":{"$dynamicAnchor":"items","type":"string"}}}
+valid An array of strings is valid
+["foo","bar"]
+invalid An array containing non-strings is invalid
+["foo",42]
+group dynamicRef.json A $dynamicRef to an $anchor in the same schema resource behaves like a normal $ref to an $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamicRef-anchor-same-schema/root","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"foo":{"$anchor":"items","type":"string"}}}
+valid An array of strings is valid
+["foo","bar"]
+invalid An array containing non-strings is invalid
+["foo",42]
+group dynamicRef.json A $ref to a $dynamicAnchor in the same schema resource behaves like a normal $ref to an $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/ref-dynamicAnchor-same-schema/root","type":"array","items":{"$ref":"#items"},"$defs":{"foo":{"$dynamicAnchor":"items","type":"string"}}}
+valid An array of strings is valid
+["foo","bar"]
+invalid An array containing non-strings is invalid
+["foo",42]
+group dynamicRef.json A $dynamicRef resolves to the first $dynamicAnchor still in scope that is encountered when the schema is evaluated
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/typical-dynamic-resolution/root","$ref":"list","$defs":{"foo":{"$dynamicAnchor":"items","type":"string"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"items":{"$comment":"This is only needed to satisfy the bookending requirement","$dynamicAnchor":"items"}}}}}
+valid An array of strings is valid
+["foo","bar"]
+invalid An array containing non-strings is invalid
+["foo",42]
+group dynamicRef.json A $dynamicRef without anchor in fragment behaves identical to $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamicRef-without-anchor/root","$ref":"list","$defs":{"foo":{"$dynamicAnchor":"items","type":"string"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#/$defs/items"},"$defs":{"items":{"$comment":"This is only needed to satisfy the bookending requirement","$dynamicAnchor":"items","type":"number"}}}}}
+invalid An array of strings is invalid
+["foo","bar"]
+valid An array of numbers is valid
+[24,42]
+group dynamicRef.json A $dynamicRef with intermediate scopes that don't include a matching $dynamicAnchor does not affect dynamic scope resolution
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-resolution-with-intermediate-scopes/root","$ref":"intermediate-scope","$defs":{"foo":{"$dynamicAnchor":"items","type":"string"},"intermediate-scope":{"$id":"intermediate-scope","$ref":"list"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"items":{"$comment":"This is only needed to satisfy the bookending requirement","$dynamicAnchor":"items"}}}}}
+valid An array of strings is valid
+["foo","bar"]
+invalid An array containing non-strings is invalid
+["foo",42]
+group dynamicRef.json An $anchor with the same name as a $dynamicAnchor is not used for dynamic scope resolution
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-resolution-ignores-anchors/root","$ref":"list","$defs":{"foo":{"$anchor":"items","type":"string"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"items":{"$comment":"This is only needed to satisfy the bookending requirement","$dynamicAnchor":"items"}}}}}
+valid Any array is valid
+["foo",42]
+group dynamicRef.json A $dynamicRef without a matching $dynamicAnchor in the same schema resource behaves like a normal $ref to $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-resolution-without-bookend/root","$ref":"list","$defs":{"foo":{"$dynamicAnchor":"items","type":"string"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"items":{"$comment":"This is only needed to give the reference somewhere to resolve to when it behaves like $ref","$anchor":"items"}}}}}
+valid Any array is valid
+["foo",42]
+group dynamicRef.json A $dynamicRef with a non-matching $dynamicAnchor in the same schema resource behaves like a normal $ref to $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/unmatched-dynamic-anchor/root","$ref":"list","$defs":{"foo":{"$dynamicAnchor":"items","type":"string"},"list":{"$id":"list","type":"array","items":{"$dynamicRef":"#items"},"$defs":{"items":{"$comment":"This is only needed to give the reference somewhere to resolve to when it behaves like $ref","$anchor":"items","$dynamicAnchor":"foo"}}}}}
+valid Any array is valid
+["foo",42]
+group dynamicRef.json A $dynamicRef that initially resolves to a schema with a matching $dynamicAnchor resolves to the first $dynamicAnchor in the dynamic scope
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/relative-dynamic-reference/root","$dynamicAnchor":"meta","type":"object","properties":{"foo":{"const":"pass"}},"$ref":"extended","$defs":{"extended":{"$id":"extended","$dynamicAnchor":"meta","type":"object","properties":{"bar":{"$ref":"bar"}}},"bar":{"$id":"bar","type":"object","properties":{"baz":{"$dynamicRef":"extended#meta"}}}}}
+valid The recursive part is valid against the root
+{"foo":"pass","bar":{"baz":{"foo":"pass"}}}
+invalid The recursive part is not valid against the root
+{"foo":"pass","bar":{"baz":{"foo":"fail"}}}
+group dynamicRef.json A $dynamicRef that initially resolves to a schema without a matching $dynamicAnchor behaves like a normal $ref to $anchor
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/relative-dynamic-reference-without-bookend/root","$dynamicAnchor":"meta","type":"object","properties":{"foo":{"const":"pass"}},"$ref":"extended","$defs":{"extended":{"$id":"extended","$anchor":"meta","type":"object","properties":{"bar":{"$ref":"bar"}}},"bar":{"$id":"bar","type":"object","properties":{"baz":{"$dynamicRef":"extended#meta"}}}}}
+valid The recursive part doesn't need to validate against the root
+{"foo":"pass","bar":{"baz":{"foo":"fail"}}}
+group dynamicRef.json multiple dynamic paths to the $dynamicRef keyword
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-ref-with-multiple-paths/main","if":{"properties":{"kindOfList":{"const":"numbers"}},"required":["kindOfList"]},"then":{"$ref":"numberList"},"else":{"$ref":"stringList"},"$defs":{"genericList":{"$id":"genericList","properties":{"list":{"items":{"$dynamicRef":"#itemType"}}},"$defs":{"defaultItemType":{"$comment":"Only needed to satisfy bookending requirement","$dynamicAnchor":"itemType"}}},"numberList":{"$id":"numberList","$defs":{"itemType":{"$dynamicAnchor":"itemType","type":"number"}},"$ref":"genericList"},"stringList":{"$id":"stringList","$defs":{"itemType":{"$dynamicAnchor":"itemType","type":"string"}},"$ref":"genericList"}}}
+valid number list with number values
+{"kindOfList":"numbers","list":[1.1]}
+invalid number list with string values
+{"kindOfList":"numbers","list":["foo"]}
+invalid string list with number values
+{"kindOfList":"strings","list":[1.1]}
+valid string list with string values
+{"kindOfList":"strings","list":["foo"]}
+group dynamicRef.json after leaving a dynamic scope, it is not used by a $dynamicRef
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-ref-leaving-dynamic-scope/main","if":{"$id":"first_scope","$defs":{"thingy":{"$comment":"this is first_scope#thingy","$dynamicAnchor":"thingy","type":"number"}}},"then":{"$id":"second_scope","$ref":"start","$defs":{"thingy":{"$comment":"this is second_scope#thingy, the final destination of the $dynamicRef","$dynamicAnchor":"thingy","type":"null"}}},"$defs":{"start":{"$comment":"this is the landing spot from $ref","$id":"start","$dynamicRef":"inner_scope#thingy"},"thingy":{"$comment":"this is the first stop for the $dynamicRef","$id":"inner_scope","$dynamicAnchor":"thingy","type":"string"}}}
+invalid string matches /$defs/thingy, but the $dynamicRef does not stop here
+"a string"
+invalid first_scope is not in dynamic scope for the $dynamicRef
+42
+valid /then/$defs/thingy is the final stop for the $dynamicRef
+null
+group dynamicRef.json strict-tree schema, guards against misspelled properties
+remote http://localhost:1234/draft2020-12/tree.json
+{"description":"tree schema, extensible","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/tree.json","$dynamicAnchor":"node","type":"object","properties":{"data":true,"children":{"type":"array","items":{"$dynamicRef":"#node"}}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/strict-tree.json","$dynamicAnchor":"node","$ref":"tree.json","unevaluatedProperties":false}
+invalid instance with misspelled field
+{"children":[{"daat":1}]}
+valid instance with correct field
+{"children":[{"data":1}]}
+group dynamicRef.json tests for implementation dynamic anchor and reference link
+remote http://localhost:1234/draft2020-12/extendible-dynamic-ref.json
+{"description":"extendible array","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json","type":"object","properties":{"elements":{"type":"array","items":{"$dynamicRef":"#elements"}}},"required":["elements"],"additionalProperties":false,"$defs":{"elements":{"$dynamicAnchor":"elements"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/strict-extendible.json","$ref":"extendible-dynamic-ref.json","$defs":{"elements":{"$dynamicAnchor":"elements","properties":{"a":true},"required":["a"],"additionalProperties":false}}}
+invalid incorrect parent schema
+{"a":true}
+invalid incorrect extended schema
+{"elements":[{"b":1}]}
+valid correct extended schema
+{"elements":[{"a":1}]}
+group dynamicRef.json $ref and $dynamicAnchor are independent of order - $defs first
+remote http://localhost:1234/draft2020-12/extendible-dynamic-ref.json
+{"description":"extendible array","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json","type":"object","properties":{"elements":{"type":"array","items":{"$dynamicRef":"#elements"}}},"required":["elements"],"additionalProperties":false,"$defs":{"elements":{"$dynamicAnchor":"elements"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/strict-extendible-allof-defs-first.json","allOf":[{"$ref":"extendible-dynamic-ref.json"},{"$defs":{"elements":{"$dynamicAnchor":"elements","properties":{"a":true},"required":["a"],"additionalProperties":false}}}]}
+invalid incorrect parent schema
+{"a":true}
+invalid incorrect extended schema
+{"elements":[{"b":1}]}
+valid correct extended schema
+{"elements":[{"a":1}]}
+group dynamicRef.json $ref and $dynamicAnchor are independent of order - $ref first
+remote http://localhost:1234/draft2020-12/extendible-dynamic-ref.json
+{"description":"extendible array","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/extendible-dynamic-ref.json","type":"object","properties":{"elements":{"type":"array","items":{"$dynamicRef":"#elements"}}},"required":["elements"],"additionalProperties":false,"$defs":{"elements":{"$dynamicAnchor":"elements"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/strict-extendible-allof-ref-first.json","allOf":[{"$defs":{"elements":{"$dynamicAnchor":"elements","properties":{"a":true},"required":["a"],"additionalProperties":false}}},{"$ref":"extendible-dynamic-ref.json"}]}
+invalid incorrect parent schema
+{"a":true}
+invalid incorrect extended schema
+{"elements":[{"b":1}]}
+valid correct extended schema
+{"elements":[{"a":1}]}
+group dynamicRef.json $ref to $dynamicRef finds detached $dynamicAnchor
+remote http://localhost:1234/draft2020-12/detached-dynamicref.json
+{"$id":"http://localhost:1234/draft2020-12/detached-dynamicref.json","$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"foo":{"$dynamicRef":"#detached"},"detached":{"$dynamicAnchor":"detached","type":"integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/detached-dynamicref.json#/$defs/foo"}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group dynamicRef.json $dynamicRef points to a boolean schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"true":true,"false":false},"properties":{"true":{"$dynamicRef":"#/$defs/true"},"false":{"$dynamicRef":"#/$defs/false"}}}
+valid follow $dynamicRef to a true schema
+{"true":1}
+invalid follow $dynamicRef to a false schema
+{"false":1}
+group dynamicRef.json $dynamicRef skips over intermediate resources - direct reference
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-ref-skips-intermediate-resource/main","type":"object","properties":{"bar-item":{"$ref":"item"}},"$defs":{"bar":{"$id":"bar","type":"array","items":{"$ref":"item"},"$defs":{"item":{"$id":"item","type":"object","properties":{"content":{"$dynamicRef":"#content"}},"$defs":{"defaultContent":{"$dynamicAnchor":"content","type":"integer"}}},"content":{"$dynamicAnchor":"content","type":"string"}}}}}
+valid integer property passes
+{"bar-item":{"content":42}}
+invalid string property fails
+{"bar-item":{"content":"value"}}
+group dynamicRef.json $dynamicRef avoids the root of each schema, but scopes are still registered
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://test.json-schema.org/dynamic-ref-avoids-root-of-each-schema/base","$ref":"first#/$defs/stuff","$defs":{"first":{"$id":"first","$defs":{"stuff":{"$ref":"second#/$defs/stuff"},"length":{"$comment":"unused, because there is no $dynamicAnchor here","maxLength":1}}},"second":{"$id":"second","$defs":{"stuff":{"$ref":"third#/$defs/stuff"},"length":{"$dynamicAnchor":"length","maxLength":2}}},"third":{"$id":"third","$defs":{"stuff":{"$dynamicRef":"#length"},"length":{"$dynamicAnchor":"length","maxLength":3}}}}}
+valid data is sufficient for schema at second#/$defs/length
+"hi"
+invalid data is not sufficient for schema at second#/$defs/length
+"hey"
+group enum.json simple enum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[1,2,3]}
+valid one of the enum is valid
+1
+invalid something else is invalid
+4
+group enum.json heterogeneous enum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[6,"foo",[],true,{"foo":12}]}
+valid one of the enum is valid
+[]
+invalid something else is invalid
+null
+invalid objects are deep compared
+{"foo":false}
+valid valid object matches
+{"foo":12}
+invalid extra properties in object is invalid
+{"foo":12,"boo":42}
+group enum.json heterogeneous enum-with-null validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[6,null]}
+valid null is valid
+null
+valid number is valid
+6
+invalid something else is invalid
+"test"
+group enum.json enums in properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"foo":{"enum":["foo"]},"bar":{"enum":["bar"]}},"required":["bar"]}
+valid both properties are valid
+{"foo":"foo","bar":"bar"}
+invalid wrong foo value
+{"foo":"foot","bar":"bar"}
+invalid wrong bar value
+{"foo":"foo","bar":"bart"}
+valid missing optional property is valid
+{"bar":"bar"}
+invalid missing required property is invalid
+{"foo":"foo"}
+invalid missing all properties is invalid
+{}
+group enum.json enum with escaped characters
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":["foo\nbar","foo\rbar"]}
+valid member 1 is valid
+"foo\nbar"
+valid member 2 is valid
+"foo\rbar"
+invalid another string is invalid
+"abc"
+group enum.json enum with false does not match 0
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[false]}
+valid false is valid
+false
+invalid integer zero is invalid
+0
+invalid float zero is invalid
+0
+group enum.json enum with [false] does not match [0]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[[false]]}
+valid [false] is valid
+[false]
+invalid [0] is invalid
+[0]
+invalid [0.0] is invalid
+[0]
+group enum.json enum with true does not match 1
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[true]}
+valid true is valid
+true
+invalid integer one is invalid
+1
+invalid float one is invalid
+1
+group enum.json enum with [true] does not match [1]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[[true]]}
+valid [true] is valid
+[true]
+invalid [1] is invalid
+[1]
+invalid [1.0] is invalid
+[1]
+group enum.json enum with 0 does not match false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[0]}
+invalid false is invalid
+false
+valid integer zero is valid
+0
+valid float zero is valid
+0
+group enum.json enum with [0] does not match [false]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[[0]]}
+invalid [false] is invalid
+[false]
+valid [0] is valid
+[0]
+valid [0.0] is valid
+[0]
+group enum.json enum with 1 does not match true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[1]}
+invalid true is invalid
+true
+valid integer one is valid
+1
+valid float one is valid
+1
+group enum.json enum with [1] does not match [true]
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[[1]]}
+invalid [true] is invalid
+[true]
+valid [1] is valid
+[1]
+valid [1.0] is valid
+[1]
+group enum.json nul characters in strings
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":["hello\u0000there"]}
+valid match string with nul
+"hello\u0000there"
+invalid do not match string lacking nul
+"hellothere"
+group enum.json empty enum
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":[]}
+invalid string is invalid
+"foo"
+invalid number is invalid
+42
+invalid null is invalid
+null
+invalid object is invalid
+{}
+invalid array is invalid
+[]
+invalid boolean is invalid
+false
+group enum.json characters with the same visual representation, but different number of codepoints
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","enum":["ä"],"$comment":"U+00E4"}
+valid character uses the same codepoint
+"ä"
+invalid character looks the same but uses combining marks
+"ä"
+group exclusiveMaximum.json exclusiveMaximum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","exclusiveMaximum":3}
+valid below the exclusiveMaximum is valid
+2.2
+invalid boundary point is invalid
+3
+invalid above the exclusiveMaximum is invalid
+3.5
+valid ignores non-numbers
+"x"
+group exclusiveMinimum.json exclusiveMinimum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","exclusiveMinimum":1.1}
+valid above the exclusiveMinimum is valid
+1.2
+invalid boundary point is invalid
+1.1
+invalid below the exclusiveMinimum is invalid
+0.6
+valid ignores non-numbers
+"x"
+group format.json email format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"email"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid email string is only an annotation by default
+"2962"
+group format.json idn-email format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"idn-email"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid idn-email string is only an annotation by default
+"2962"
+group format.json regex format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"regex"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid regex string is only an annotation by default
+"^(abc]"
+group format.json ipv4 format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"ipv4"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid ipv4 string is only an annotation by default
+"127.0.0.0.1"
+group format.json ipv6 format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"ipv6"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid ipv6 string is only an annotation by default
+"12345::"
+group format.json idn-hostname format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"idn-hostname"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid idn-hostname string is only an annotation by default
+"〮실례.테스트"
+group format.json hostname format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"hostname"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid hostname string is only an annotation by default
+"-a-host-name-that-starts-with--"
+group format.json date format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"date"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid date string is only an annotation by default
+"06/19/1963"
+group format.json date-time format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"date-time"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid date-time string is only an annotation by default
+"1990-02-31T15:59:60.123-08:00"
+group format.json time format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"time"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid time string is only an annotation by default
+"08:30:06 PST"
+group format.json json-pointer format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"json-pointer"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid json-pointer string is only an annotation by default
+"/foo/bar~"
+group format.json relative-json-pointer format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"relative-json-pointer"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid relative-json-pointer string is only an annotation by default
+"/foo/bar"
+group format.json iri format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"iri"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid iri string is only an annotation by default
+"http://2001:0db8:85a3:0000:0000:8a2e:0370:7334"
+group format.json iri-reference format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"iri-reference"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid iri-reference string is only an annotation by default
+"\\\\WINDOWS\\filëßåré"
+group format.json uri format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"uri"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid uri string is only an annotation by default
+"//foo.bar/?baz=qux#quux"
+group format.json uri-reference format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"uri-reference"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid uri-reference string is only an annotation by default
+"\\\\WINDOWS\\fileshare"
+group format.json uri-template format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"uri-template"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid uri-template string is only an annotation by default
+"http://example.com/dictionary/{term:1}/{term"
+group format.json uuid format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"uuid"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid uuid string is only an annotation by default
+"2eb8aa08-aa98-11ea-b4aa-73b441d1638"
+group format.json duration format
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","format":"duration"}
+valid all string formats ignore integers
+12
+valid all string formats ignore floats
+13.7
+valid all string formats ignore objects
+{}
+valid all string formats ignore arrays
+[]
+valid all string formats ignore booleans
+false
+valid all string formats ignore nulls
+null
+valid invalid duration string is only an annotation by default
+"PT1D"
+group if-then-else.json ignore if without then or else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"const":0}}
+valid valid when valid against lone if
+0
+valid valid when invalid against lone if
+"hello"
+group if-then-else.json ignore then without if
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","then":{"const":0}}
+valid valid when valid against lone then
+0
+valid valid when invalid against lone then
+"hello"
+group if-then-else.json ignore else without if
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","else":{"const":0}}
+valid valid when valid against lone else
+0
+valid valid when invalid against lone else
+"hello"
+group if-then-else.json if and then without else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"exclusiveMaximum":0},"then":{"minimum":-10}}
+valid valid through then
+-1
+invalid invalid through then
+-100
+valid valid when if test fails
+3
+group if-then-else.json if and else without then
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"exclusiveMaximum":0},"else":{"multipleOf":2}}
+valid valid when if test passes
+-1
+valid valid through else
+4
+invalid invalid through else
+3
+group if-then-else.json validate against correct branch, then vs else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"exclusiveMaximum":0},"then":{"minimum":-10},"else":{"multipleOf":2}}
+valid valid through then
+-1
+invalid invalid through then
+-100
+valid valid through else
+4
+invalid invalid through else
+3
+group if-then-else.json non-interference across combined schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"if":{"exclusiveMaximum":0}},{"then":{"minimum":-10}},{"else":{"multipleOf":2}}]}
+valid valid, but would have been invalid through then
+-100
+valid valid, but would have been invalid through else
+3
+group if-then-else.json if with boolean schema true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":true,"then":{"const":"then"},"else":{"const":"else"}}
+valid boolean schema true in if always chooses the then path (valid)
+"then"
+invalid boolean schema true in if always chooses the then path (invalid)
+"else"
+group if-then-else.json if with boolean schema false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":false,"then":{"const":"then"},"else":{"const":"else"}}
+invalid boolean schema false in if always chooses the else path (invalid)
+"then"
+valid boolean schema false in if always chooses the else path (valid)
+"else"
+group if-then-else.json if appears at the end when serialized (keyword processing sequence)
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","then":{"const":"yes"},"else":{"const":"other"},"if":{"maxLength":4}}
+valid yes redirects to then and passes
+"yes"
+valid other redirects to else and passes
+"other"
+invalid no redirects to then and fails
+"no"
+invalid invalid redirects to else and fails
+"invalid"
+group if-then-else.json then: false fails when condition matches
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"const":1},"then":false}
+invalid matches if → then=false → invalid
+1
+valid does not match if → then ignored → valid
+2
+group if-then-else.json else: false fails when condition does not match
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"const":1},"else":false}
+valid matches if → else ignored → valid
+1
+invalid does not match if → else executes → invalid
+2
+group infinite-loop-detection.json evaluating the same schema location against the same data location twice is not a sign of an infinite loop
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"int":{"type":"integer"}},"allOf":[{"properties":{"foo":{"$ref":"#/$defs/int"}}},{"additionalProperties":{"$ref":"#/$defs/int"}}]}
+valid passing case
+{"foo":1}
+invalid failing case
+{"foo":"a string"}
+group items.json a schema given for items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":{"type":"integer"}}
+valid valid items
+[1,2,3]
+invalid wrong type of items
+[1,"x"]
+valid ignores non-arrays
+{"foo":"bar"}
+valid JavaScript pseudo-array is valid
+{"0":"invalid","length":1}
+group items.json items with boolean schema (true)
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":true}
+valid any array is valid
+[1,"foo",true]
+valid empty array is valid
+[]
+group items.json items with boolean schema (false)
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":false}
+invalid any non-empty array is invalid
+[1,"foo",true]
+valid empty array is valid
+[]
+group items.json items and subitems
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"item":{"type":"array","items":false,"prefixItems":[{"$ref":"#/$defs/sub-item"},{"$ref":"#/$defs/sub-item"}]},"sub-item":{"type":"object","required":["foo"]}},"type":"array","items":false,"prefixItems":[{"$ref":"#/$defs/item"},{"$ref":"#/$defs/item"},{"$ref":"#/$defs/item"}]}
+valid valid items
+[[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}]]
+invalid too many items
+[[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}]]
+invalid too many sub-items
+[[{"foo":null},{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}]]
+invalid wrong item
+[{"foo":null},[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}]]
+invalid wrong sub-item
+[[{},{"foo":null}],[{"foo":null},{"foo":null}],[{"foo":null},{"foo":null}]]
+valid fewer items is valid
+[[{"foo":null}],[{"foo":null}]]
+group items.json nested items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"array","items":{"type":"array","items":{"type":"array","items":{"type":"array","items":{"type":"number"}}}}}
+valid valid nested array
+[[[[1]],[[2],[3]]],[[[4],[5],[6]]]]
+invalid nested array with invalid type
+[[[["1"]],[[2],[3]]],[[[4],[5],[6]]]]
+invalid not deep enough
+[[[1],[2],[3]],[[4],[5],[6]]]
+group items.json prefixItems with no additional items allowed
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{},{},{}],"items":false}
+valid empty array
+[]
+valid fewer number of items present (1)
+[1]
+valid fewer number of items present (2)
+[1,2]
+valid equal number of items present
+[1,2,3]
+invalid additional items are not permitted
+[1,2,3,4]
+group items.json items does not look in applicators, valid case
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"prefixItems":[{"minimum":3}]}],"items":{"minimum":5}}
+invalid prefixItems in allOf does not constrain items, invalid case
+[3,5]
+valid prefixItems in allOf does not constrain items, valid case
+[5,5]
+group items.json prefixItems validation adjusts the starting index for items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"string"}],"items":{"type":"integer"}}
+valid valid items
+["x",2,3]
+invalid wrong type of second item
+["x","y"]
+group items.json items with heterogeneous array
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{}],"items":false}
+invalid heterogeneous invalid instance
+["foo","bar",37]
+valid valid instance
+[null]
+group items.json items with null instance elements
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":{"type":"null"}}
+valid allows null elements
+[null]
+group maxContains.json maxContains without contains is ignored
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxContains":1}
+valid one item valid against lone maxContains
+[1]
+valid two items still valid against lone maxContains
+[1,2]
+group maxContains.json maxContains with contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"maxContains":1}
+invalid empty data
+[]
+valid all elements match, valid maxContains
+[1]
+invalid all elements match, invalid maxContains
+[1,1]
+valid some elements match, valid maxContains
+[1,2]
+invalid some elements match, invalid maxContains
+[1,2,1]
+group maxContains.json maxContains with contains, value with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"maxContains":1}
+valid one element matches, valid maxContains
+[1]
+invalid too many elements match, invalid maxContains
+[1,1]
+group maxContains.json minContains < maxContains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":1,"maxContains":3}
+invalid actual < minContains < maxContains
+[]
+valid minContains < actual < maxContains
+[1,1]
+invalid minContains < maxContains < actual
+[1,1,1,1]
+group maxContains.json maxContains = 0 with minContains = 0
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":0,"maxContains":0}
+valid empty array
+[]
+invalid one matching item
+[1]
+group maxItems.json maxItems validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxItems":2}
+valid shorter is valid
+[1]
+valid exact length is valid
+[1,2]
+invalid too long is invalid
+[1,2,3]
+valid ignores non-arrays
+"foobar"
+group maxItems.json maxItems validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxItems":2}
+valid shorter is valid
+[1]
+invalid too long is invalid
+[1,2,3]
+group maxLength.json maxLength validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxLength":2}
+valid shorter is valid
+"f"
+valid exact length is valid
+"fo"
+invalid too long is invalid
+"foo"
+valid ignores non-strings
+100
+valid two graphemes is long enough
+"💩💩"
+group maxLength.json maxLength validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxLength":2}
+valid shorter is valid
+"f"
+invalid too long is invalid
+"foo"
+group maxProperties.json maxProperties validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxProperties":2}
+valid shorter is valid
+{"foo":1}
+valid exact length is valid
+{"foo":1,"bar":2}
+invalid too long is invalid
+{"foo":1,"bar":2,"baz":3}
+valid ignores arrays
+[1,2,3]
+valid ignores strings
+"foobar"
+valid ignores other non-objects
+12
+group maxProperties.json maxProperties validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxProperties":2}
+valid shorter is valid
+{"foo":1}
+invalid too long is invalid
+{"foo":1,"bar":2,"baz":3}
+group maxProperties.json maxProperties = 0 means the object is empty
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maxProperties":0}
+valid no properties is valid
+{}
+invalid one property is invalid
+{"foo":1}
+group maximum.json maximum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maximum":3}
+valid below the maximum is valid
+2.6
+valid boundary point is valid
+3
+invalid above the maximum is invalid
+3.5
+valid ignores non-numbers
+"x"
+group maximum.json maximum validation with unsigned integer
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","maximum":300}
+valid below the maximum is valid
+299.97
+valid boundary point integer is valid
+300
+valid boundary point float is valid
+300
+invalid above the maximum is invalid
+300.5
+group minContains.json minContains without contains is ignored
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minContains":1}
+valid one item valid against lone minContains
+[1]
+valid zero items still valid against lone minContains
+[]
+group minContains.json minContains=1 with contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":1}
+invalid empty data
+[]
+invalid no elements match
+[2]
+valid single element matches, valid minContains
+[1]
+valid some elements match, valid minContains
+[1,2]
+valid all elements match, valid minContains
+[1,1]
+group minContains.json minContains=2 with contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":2}
+invalid empty data
+[]
+invalid all elements match, invalid minContains
+[1]
+invalid some elements match, invalid minContains
+[1,2]
+valid all elements match, valid minContains (exactly as needed)
+[1,1]
+valid all elements match, valid minContains (more than needed)
+[1,1,1]
+valid some elements match, valid minContains
+[1,2,1]
+group minContains.json minContains=2 with contains with a decimal value
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":2}
+invalid one element matches, invalid minContains
+[1]
+valid both elements match, valid minContains
+[1,1]
+group minContains.json maxContains = minContains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"maxContains":2,"minContains":2}
+invalid empty data
+[]
+invalid all elements match, invalid minContains
+[1]
+invalid all elements match, invalid maxContains
+[1,1,1]
+valid all elements match, valid maxContains and minContains
+[1,1]
+group minContains.json maxContains < minContains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"maxContains":1,"minContains":3}
+invalid empty data
+[]
+invalid invalid minContains
+[1]
+invalid invalid maxContains
+[1,1,1]
+invalid invalid maxContains and minContains
+[1,1]
+group minContains.json minContains = 0
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":0}
+valid empty data
+[]
+valid minContains = 0 makes contains always pass
+[2]
+group minContains.json minContains = 0 with maxContains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"const":1},"minContains":0,"maxContains":1}
+valid empty data
+[]
+valid not more than maxContains
+[1]
+invalid too many
+[1,1]
+group minItems.json minItems validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minItems":1}
+valid longer is valid
+[1,2]
+valid exact length is valid
+[1]
+invalid too short is invalid
+[]
+valid ignores non-arrays
+""
+group minItems.json minItems validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minItems":1}
+valid longer is valid
+[1,2]
+invalid too short is invalid
+[]
+group minLength.json minLength validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minLength":2}
+valid longer is valid
+"foo"
+valid exact length is valid
+"fo"
+invalid too short is invalid
+"f"
+valid ignores non-strings
+1
+invalid one grapheme is not long enough
+"💩"
+group minLength.json minLength validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minLength":2}
+valid longer is valid
+"foo"
+invalid too short is invalid
+"f"
+group minProperties.json minProperties validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minProperties":1}
+valid longer is valid
+{"foo":1,"bar":2}
+valid exact length is valid
+{"foo":1}
+invalid too short is invalid
+{}
+valid ignores arrays
+[]
+valid ignores strings
+""
+valid ignores other non-objects
+12
+valid ignores null
+null
+valid ignores booleans
+true
+group minProperties.json minProperties validation with a decimal
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minProperties":1}
+valid longer is valid
+{"foo":1,"bar":2}
+invalid too short is invalid
+{}
+group minimum.json minimum validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minimum":1.1}
+valid above the minimum is valid
+2.6
+valid boundary point is valid
+1.1
+invalid below the minimum is invalid
+0.6
+valid ignores non-numbers
+"x"
+group minimum.json minimum validation with signed integer
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","minimum":-2}
+valid negative above the minimum is valid
+-1
+valid positive above the minimum is valid
+0
+valid boundary point is valid
+-2
+valid boundary point with float is valid
+-2
+invalid float below the minimum is invalid
+-2.0001
+invalid int below the minimum is invalid
+-3
+valid ignores non-numbers
+"x"
+group multipleOf.json by int
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","multipleOf":2}
+valid int by int
+10
+invalid int by int fail
+7
+valid ignores non-numbers
+"foo"
+group multipleOf.json by number
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","multipleOf":1.5}
+valid zero is multiple of anything
+0
+valid 4.5 is multiple of 1.5
+4.5
+valid -4.5 is multiple of 1.5
+-4.5
+invalid 35 is not multiple of 1.5
+35
+group multipleOf.json by small number
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","multipleOf":0.0001}
+valid 0.0075 is multiple of 0.0001
+0.0075
+invalid 0.00751 is not multiple of 0.0001
+0.00751
+group multipleOf.json float division = inf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer","multipleOf":0.123456789}
+invalid always invalid, but naive implementations may raise an overflow error
+1e+308
+group multipleOf.json small multiple of large integer
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer","multipleOf":1e-8}
+valid any integer is a multiple of 1e-8
+12391239123
+group not.json not
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{"type":"integer"}}
+valid allowed
+"foo"
+invalid disallowed
+1
+group not.json not multiple types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{"type":["integer","boolean"]}}
+valid valid
+"foo"
+invalid mismatch
+1
+invalid other mismatch
+true
+group not.json not more complex schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{"type":"object","properties":{"foo":{"type":"string"}}}}
+valid match
+1
+valid other match
+{"foo":1}
+invalid mismatch
+{"foo":"bar"}
+group not.json forbidden property
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"not":{}}}}
+invalid property present
+{"foo":1,"bar":2}
+valid property absent
+{"bar":1,"baz":2}
+group not.json forbid everything with empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{}}
+invalid number is invalid
+1
+invalid string is invalid
+"foo"
+invalid boolean true is invalid
+true
+invalid boolean false is invalid
+false
+invalid null is invalid
+null
+invalid object is invalid
+{"foo":"bar"}
+invalid empty object is invalid
+{}
+invalid array is invalid
+["foo"]
+invalid empty array is invalid
+[]
+group not.json forbid everything with boolean schema true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":true}
+invalid number is invalid
+1
+invalid string is invalid
+"foo"
+invalid boolean true is invalid
+true
+invalid boolean false is invalid
+false
+invalid null is invalid
+null
+invalid object is invalid
+{"foo":"bar"}
+invalid empty object is invalid
+{}
+invalid array is invalid
+["foo"]
+invalid empty array is invalid
+[]
+group not.json allow everything with boolean schema false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":false}
+valid number is valid
+1
+valid string is valid
+"foo"
+valid boolean true is valid
+true
+valid boolean false is valid
+false
+valid null is valid
+null
+valid object is valid
+{"foo":"bar"}
+valid empty object is valid
+{}
+valid array is valid
+["foo"]
+valid empty array is valid
+[]
+group not.json double negation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{"not":{}}}
+valid any value is valid
+"foo"
+group not.json collect annotations inside a 'not', even if collection is disabled
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","not":{"$comment":"this subschema must still produce annotations internally, even though the 'not' will ultimately discard them","anyOf":[true,{"properties":{"foo":true}}],"unevaluatedProperties":false}}
+valid unevaluated property
+{"bar":1}
+invalid annotations are still collected inside a 'not'
+{"foo":1}
+group oneOf.json oneOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"type":"integer"},{"minimum":2}]}
+valid first oneOf valid
+1
+valid second oneOf valid
+2.5
+invalid both oneOf valid
+3
+invalid neither oneOf valid
+1.5
+group oneOf.json oneOf with base schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"string","oneOf":[{"minLength":2},{"maxLength":4}]}
+invalid mismatch base schema
+3
+valid one oneOf valid
+"foobar"
+invalid both oneOf valid
+"foo"
+group oneOf.json oneOf with boolean schemas, all true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[true,true,true]}
+invalid any value is invalid
+"foo"
+group oneOf.json oneOf with boolean schemas, one true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[true,false,false]}
+valid any value is valid
+"foo"
+group oneOf.json oneOf with boolean schemas, more than one true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[true,true,false]}
+invalid any value is invalid
+"foo"
+group oneOf.json oneOf with boolean schemas, all false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[false,false,false]}
+invalid any value is invalid
+"foo"
+group oneOf.json oneOf complex types
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"properties":{"bar":{"type":"integer"}},"required":["bar"]},{"properties":{"foo":{"type":"string"}},"required":["foo"]}]}
+valid first oneOf valid (complex)
+{"bar":2}
+valid second oneOf valid (complex)
+{"foo":"baz"}
+invalid both oneOf valid (complex)
+{"foo":"baz","bar":2}
+invalid neither oneOf valid (complex)
+{"foo":2,"bar":"quux"}
+group oneOf.json oneOf with empty schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"type":"number"},{}]}
+valid one valid - valid
+"foo"
+invalid both valid - invalid
+123
+group oneOf.json oneOf with required
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","oneOf":[{"required":["foo","bar"]},{"required":["foo","baz"]}]}
+invalid both invalid - invalid
+{"bar":2}
+valid first valid - valid
+{"foo":1,"bar":2}
+valid second valid - valid
+{"foo":1,"baz":3}
+invalid both valid - invalid
+{"foo":1,"bar":2,"baz":3}
+group oneOf.json oneOf with missing optional property
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"properties":{"bar":true,"baz":true},"required":["bar"]},{"properties":{"foo":true},"required":["foo"]}]}
+valid first oneOf valid
+{"bar":8}
+valid second oneOf valid
+{"foo":"foo"}
+invalid both oneOf valid
+{"foo":"foo","bar":8}
+invalid neither oneOf valid
+{"baz":"quux"}
+group oneOf.json nested oneOf, to check validation semantics
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","oneOf":[{"oneOf":[{"type":"null"}]}]}
+valid null is valid
+null
+invalid anything non-null is invalid
+123
+group pattern.json pattern validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","pattern":"^a*$"}
+valid a matching pattern is valid
+"aaa"
+invalid a non-matching pattern is invalid
+"abc"
+valid ignores booleans
+true
+valid ignores integers
+123
+valid ignores floats
+1
+valid ignores objects
+{}
+valid ignores arrays
+[]
+valid ignores null
+null
+group pattern.json pattern is not anchored
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","pattern":"a+"}
+valid matches a substring
+"xxaayy"
+group patternProperties.json patternProperties validates properties matching a regex
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"f.*o":{"type":"integer"}}}
+valid a single valid match is valid
+{"foo":1}
+valid multiple valid matches is valid
+{"foo":1,"foooooo":2}
+invalid a single invalid match is invalid
+{"foo":"bar","fooooo":2}
+invalid multiple invalid matches is invalid
+{"foo":"bar","foooooo":"baz"}
+valid ignores arrays
+["foo"]
+valid ignores strings
+"foo"
+valid ignores other non-objects
+12
+group patternProperties.json multiple simultaneous patternProperties are validated
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"a*":{"type":"integer"},"aaa*":{"maximum":20}}}
+valid a single valid match is valid
+{"a":21}
+valid a simultaneous match is valid
+{"aaaa":18}
+valid multiple matches is valid
+{"a":21,"aaaa":18}
+invalid an invalid due to one is invalid
+{"a":"bar"}
+invalid an invalid due to the other is invalid
+{"aaaa":31}
+invalid an invalid due to both is invalid
+{"aaa":"foo","aaaa":31}
+group patternProperties.json regexes are not anchored by default and are case sensitive
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"[0-9]{2,}":{"type":"boolean"},"X_":{"type":"string"}}}
+valid non recognized members are ignored
+{"answer 1":"42"}
+invalid recognized members are accounted for
+{"a31b":null}
+valid regexes are case sensitive
+{"a_x_3":3}
+invalid regexes are case sensitive, 2
+{"a_X_3":3}
+group patternProperties.json patternProperties with boolean schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"f.*":true,"b.*":false}}
+valid object with property matching schema true is valid
+{"foo":1}
+invalid object with property matching schema false is invalid
+{"bar":2}
+invalid object with both properties is invalid
+{"foo":1,"bar":2}
+invalid object with a property matching both true and false is invalid
+{"foobar":1}
+valid empty object is valid
+{}
+group patternProperties.json patternProperties with null valued instance properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"^.*bar$":{"type":"null"}}}
+valid allows null values
+{"foobar":null}
+group prefixItems.json a schema given for prefixItems
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"integer"},{"type":"string"}]}
+valid correct types
+[1,"foo"]
+invalid wrong types
+["foo",1]
+valid incomplete array of items
+[1]
+valid array with additional items
+[1,"foo",true]
+valid empty array
+[]
+valid JavaScript pseudo-array is valid
+{"0":"invalid","1":"valid","length":2}
+group prefixItems.json prefixItems with boolean schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[true,false]}
+valid array with one item is valid
+[1]
+invalid array with two items is invalid
+[1,"foo"]
+valid empty array is valid
+[]
+group prefixItems.json additional items are allowed by default
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"integer"}]}
+valid only the first item is validated
+[1,"foo",false]
+group prefixItems.json prefixItems with null instance elements
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"null"}]}
+valid allows null elements
+[null]
+group properties.json object properties validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"integer"},"bar":{"type":"string"}}}
+valid both properties present and valid is valid
+{"foo":1,"bar":"baz"}
+invalid one property invalid is invalid
+{"foo":1,"bar":{}}
+invalid both properties invalid is invalid
+{"foo":[],"bar":{}}
+valid doesn't invalidate other properties
+{"quux":[]}
+valid ignores arrays
+[]
+valid ignores other non-objects
+12
+group properties.json properties, patternProperties, additionalProperties interaction
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"array","maxItems":3},"bar":{"type":"array"}},"patternProperties":{"f.o":{"minItems":2}},"additionalProperties":{"type":"integer"}}
+valid property validates property
+{"foo":[1,2]}
+invalid property invalidates property
+{"foo":[1,2,3,4]}
+invalid patternProperty invalidates property
+{"foo":[]}
+valid patternProperty validates nonproperty
+{"fxo":[1,2]}
+invalid patternProperty invalidates nonproperty
+{"fxo":[]}
+valid additionalProperty ignores property
+{"bar":[]}
+valid additionalProperty validates others
+{"quux":3}
+invalid additionalProperty invalidates others
+{"quux":"foo"}
+group properties.json properties with boolean schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":true,"bar":false}}
+valid no property present is valid
+{}
+valid only 'true' property present is valid
+{"foo":1}
+invalid only 'false' property present is invalid
+{"bar":2}
+invalid both properties present is invalid
+{"foo":1,"bar":2}
+group properties.json properties with escaped characters
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo\nbar":{"type":"number"},"foo\"bar":{"type":"number"},"foo\\bar":{"type":"number"},"foo\rbar":{"type":"number"},"foo\tbar":{"type":"number"},"foo\fbar":{"type":"number"}}}
+valid object with all numbers is valid
+{"foo\nbar":1,"foo\"bar":1,"foo\\bar":1,"foo\rbar":1,"foo\tbar":1,"foo\fbar":1}
+invalid object with strings is invalid
+{"foo\nbar":"1","foo\"bar":"1","foo\\bar":"1","foo\rbar":"1","foo\tbar":"1","foo\fbar":"1"}
+group properties.json properties with null valued instance properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"null"}}}
+valid allows null values
+{"foo":null}
+group properties.json properties whose names are Javascript object property names
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"__proto__":{"type":"number"},"toString":{"properties":{"length":{"type":"string"}}},"constructor":{"type":"number"}}}
+valid ignores arrays
+[]
+valid ignores other non-objects
+12
+valid none of the properties mentioned
+{}
+invalid __proto__ not valid
+{"__proto__":"foo"}
+invalid toString not valid
+{"toString":{"length":37}}
+invalid constructor not valid
+{"constructor":{"length":37}}
+valid all present and valid
+{"__proto__":12,"toString":{"length":"foo"},"constructor":37}
+group propertyNames.json propertyNames validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"maxLength":3}}
+valid all property names valid
+{"f":{},"foo":{}}
+invalid some property names invalid
+{"foo":{},"foobar":{}}
+valid object without properties is valid
+{}
+valid ignores arrays
+[1,2,3,4]
+valid ignores strings
+"foobar"
+valid ignores other non-objects
+12
+valid ignores null
+null
+valid ignores booleans
+true
+group propertyNames.json propertyNames validation with pattern
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"pattern":"^a+$"}}
+valid matching property names valid
+{"a":{},"aa":{},"aaa":{}}
+invalid non-matching property name is invalid
+{"aaA":{}}
+valid object without properties is valid
+{}
+group propertyNames.json propertyNames with boolean schema true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":true}
+valid object with any properties is valid
+{"foo":1}
+valid empty object is valid
+{}
+group propertyNames.json propertyNames with boolean schema false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":false}
+invalid object with any properties is invalid
+{"foo":1}
+valid empty object is valid
+{}
+group propertyNames.json propertyNames with const
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"const":"foo"}}
+valid object with property foo is valid
+{"foo":1}
+invalid object with any other property is invalid
+{"bar":1}
+valid empty object is valid
+{}
+group propertyNames.json propertyNames with enum
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"enum":["foo","bar"]}}
+valid object with property foo is valid
+{"foo":1}
+valid object with property foo and bar is valid
+{"foo":1,"bar":1}
+invalid object with any other property is invalid
+{"baz":1}
+valid empty object is valid
+{}
+group ref.json root pointer ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"$ref":"#"}},"additionalProperties":false}
+valid match
+{"foo":false}
+valid recursive match
+{"foo":{"foo":false}}
+invalid mismatch
+{"bar":false}
+invalid recursive mismatch
+{"foo":{"bar":false}}
+group ref.json relative pointer ref to object
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"integer"},"bar":{"$ref":"#/properties/foo"}}}
+valid match
+{"bar":3}
+invalid mismatch
+{"bar":true}
+group ref.json relative pointer ref to array
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"integer"},{"$ref":"#/prefixItems/0"}]}
+valid match array
+[1,2]
+invalid mismatch array
+[1,"foo"]
+group ref.json escaped pointer ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"tilde~field":{"type":"integer"},"slash/field":{"type":"integer"},"percent%field":{"type":"integer"}},"properties":{"tilde":{"$ref":"#/$defs/tilde~0field"},"slash":{"$ref":"#/$defs/slash~1field"},"percent":{"$ref":"#/$defs/percent%25field"}}}
+invalid slash invalid
+{"slash":"aoeu"}
+invalid tilde invalid
+{"tilde":"aoeu"}
+invalid percent invalid
+{"percent":"aoeu"}
+valid slash valid
+{"slash":123}
+valid tilde valid
+{"tilde":123}
+valid percent valid
+{"percent":123}
+group ref.json nested refs
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"a":{"type":"integer"},"b":{"$ref":"#/$defs/a"},"c":{"$ref":"#/$defs/b"}},"$ref":"#/$defs/c"}
+valid nested ref valid
+5
+invalid nested ref invalid
+"a"
+group ref.json ref applies alongside sibling keywords
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"reffed":{"type":"array"}},"properties":{"foo":{"$ref":"#/$defs/reffed","maxItems":2}}}
+valid ref valid, maxItems valid
+{"foo":[]}
+invalid ref valid, maxItems invalid
+{"foo":[1,2,3]}
+invalid ref invalid
+{"foo":"string"}
+group ref.json remote ref, containing refs itself
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"https://json-schema.org/draft/2020-12/schema"}
+valid remote ref valid
+{"minLength":1}
+invalid remote ref invalid
+{"minLength":-1}
+group ref.json property named $ref that is not a reference
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"$ref":{"type":"string"}}}
+valid property named $ref valid
+{"$ref":"a"}
+invalid property named $ref invalid
+{"$ref":2}
+group ref.json property named $ref, containing an actual $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"$ref":{"$ref":"#/$defs/is-string"}},"$defs":{"is-string":{"type":"string"}}}
+valid property named $ref valid
+{"$ref":"a"}
+invalid property named $ref invalid
+{"$ref":2}
+group ref.json $ref to boolean schema true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#/$defs/bool","$defs":{"bool":true}}
+valid any value is valid
+"foo"
+group ref.json $ref to boolean schema false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#/$defs/bool","$defs":{"bool":false}}
+invalid any value is invalid
+"foo"
+group ref.json Recursive references between schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/tree","description":"tree of nodes","type":"object","properties":{"meta":{"type":"string"},"nodes":{"type":"array","items":{"$ref":"node"}}},"required":["meta","nodes"],"$defs":{"node":{"$id":"http://localhost:1234/draft2020-12/node","description":"node","type":"object","properties":{"value":{"type":"number"},"subtree":{"$ref":"tree"}},"required":["value"]}}}
+valid valid tree
+{"meta":"root","nodes":[{"value":1,"subtree":{"meta":"child","nodes":[{"value":1.1},{"value":1.2}]}},{"value":2,"subtree":{"meta":"child","nodes":[{"value":2.1},{"value":2.2}]}}]}
+invalid invalid tree
+{"meta":"root","nodes":[{"value":1,"subtree":{"meta":"child","nodes":[{"value":"string is invalid"},{"value":1.2}]}},{"value":2,"subtree":{"meta":"child","nodes":[{"value":2.1},{"value":2.2}]}}]}
+group ref.json refs with quote
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo\"bar":{"$ref":"#/$defs/foo%22bar"}},"$defs":{"foo\"bar":{"type":"number"}}}
+valid object with numbers is valid
+{"foo\"bar":1}
+invalid object with strings is invalid
+{"foo\"bar":"1"}
+group ref.json ref creates new scope when adjacent to keywords
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"A":{"unevaluatedProperties":false}},"properties":{"prop1":{"type":"string"}},"$ref":"#/$defs/A"}
+invalid referenced subschema doesn't see annotations from properties
+{"prop1":"match"}
+group ref.json naive replacement of $ref with its destination is not correct
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"a_string":{"type":"string"}},"enum":[{"$ref":"#/$defs/a_string"}]}
+invalid do not evaluate the $ref inside the enum, matching any string
+"this is a string"
+invalid do not evaluate the $ref inside the enum, definition exact match
+{"type":"string"}
+valid match the enum exactly
+{"$ref":"#/$defs/a_string"}
+group ref.json refs with relative uris and defs
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://example.com/schema-relative-uri-defs1.json","properties":{"foo":{"$id":"schema-relative-uri-defs2.json","$defs":{"inner":{"properties":{"bar":{"type":"string"}}}},"$ref":"#/$defs/inner"}},"$ref":"schema-relative-uri-defs2.json"}
+invalid invalid on inner field
+{"foo":{"bar":1},"bar":"a"}
+invalid invalid on outer field
+{"foo":{"bar":"a"},"bar":1}
+valid valid on both fields
+{"foo":{"bar":"a"},"bar":"a"}
+group ref.json relative refs with absolute uris and defs
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://example.com/schema-refs-absolute-uris-defs1.json","properties":{"foo":{"$id":"http://example.com/schema-refs-absolute-uris-defs2.json","$defs":{"inner":{"properties":{"bar":{"type":"string"}}}},"$ref":"#/$defs/inner"}},"$ref":"schema-refs-absolute-uris-defs2.json"}
+invalid invalid on inner field
+{"foo":{"bar":1},"bar":"a"}
+invalid invalid on outer field
+{"foo":{"bar":"a"},"bar":1}
+valid valid on both fields
+{"foo":{"bar":"a"},"bar":"a"}
+group ref.json $id must be resolved against nearest parent, not just immediate parent
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://example.com/a.json","$defs":{"x":{"$id":"http://example.com/b/c.json","not":{"$defs":{"y":{"$id":"d.json","type":"number"}}}}},"allOf":[{"$ref":"http://example.com/b/d.json"}]}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group ref.json order of evaluation: $id and $ref
+schema
+{"$comment":"$id must be evaluated before $ref to get the proper $ref destination","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/draft2020-12/ref-and-id1/base.json","$ref":"int.json","$defs":{"bigint":{"$comment":"canonical uri: https://example.com/ref-and-id1/int.json","$id":"int.json","maximum":10},"smallint":{"$comment":"canonical uri: https://example.com/ref-and-id1-int.json","$id":"/draft2020-12/ref-and-id1-int.json","maximum":2}}}
+valid data is valid against first definition
+5
+invalid data is invalid against first definition
+50
+group ref.json order of evaluation: $id and $anchor and $ref
+schema
+{"$comment":"$id must be evaluated before $ref to get the proper $ref destination","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/draft2020-12/ref-and-id2/base.json","$ref":"#bigint","$defs":{"bigint":{"$comment":"canonical uri: /ref-and-id2/base.json#/$defs/bigint; another valid uri for this location: /ref-and-id2/base.json#bigint","$anchor":"bigint","maximum":10},"smallint":{"$comment":"canonical uri: https://example.com/ref-and-id2#/$defs/smallint; another valid uri for this location: https://example.com/ref-and-id2/#bigint","$id":"https://example.com/draft2020-12/ref-and-id2/","$anchor":"bigint","maximum":2}}}
+valid data is valid against first definition
+5
+invalid data is invalid against first definition
+50
+group ref.json order of evaluation: $id and $ref on nested schema
+schema
+{"$comment":"$id must be evaluated before $ref to get the proper $ref destination","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/draft2020-12/ref-and-id3/base.json","$ref":"nested/foo.json","$defs":{"foo":{"$comment":"canonical uri: https://example.com/draft2020-12/ref-and-id3/nested/foo.json","$id":"nested/foo.json","$ref":"./bar.json"},"bar":{"$comment":"canonical uri: https://example.com/draft2020-12/ref-and-id3/nested/bar.json","$id":"nested/bar.json","type":"number"}}}
+valid data is valid against nested sibling
+5
+invalid data is invalid against nested sibling
+"a"
+group ref.json simple URN base URI with $ref via the URN
+schema
+{"$comment":"URIs do not have to have HTTP(s) schemes","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:uuid:deadbeef-1234-ffff-ffff-4321feebdaed","minimum":30,"properties":{"foo":{"$ref":"urn:uuid:deadbeef-1234-ffff-ffff-4321feebdaed"}}}
+valid valid under the URN IDed schema
+{"foo":37}
+invalid invalid under the URN IDed schema
+{"foo":12}
+group ref.json simple URN base URI with JSON pointer
+schema
+{"$comment":"URIs do not have to have HTTP(s) schemes","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:uuid:deadbeef-1234-00ff-ff00-4321feebdaed","properties":{"foo":{"$ref":"#/$defs/bar"}},"$defs":{"bar":{"type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN base URI with NSS
+schema
+{"$comment":"RFC 8141 §2.2","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:example:1/406/47452/2","properties":{"foo":{"$ref":"#/$defs/bar"}},"$defs":{"bar":{"type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN base URI with r-component
+schema
+{"$comment":"RFC 8141 §2.3.1","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:example:foo-bar-baz-qux?+CCResolve:cc=uk","properties":{"foo":{"$ref":"#/$defs/bar"}},"$defs":{"bar":{"type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN base URI with q-component
+schema
+{"$comment":"RFC 8141 §2.3.2","$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:example:weather?=op=map&lat=39.56&lon=-104.85&datetime=1969-07-21T02:56:15Z","properties":{"foo":{"$ref":"#/$defs/bar"}},"$defs":{"bar":{"type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN base URI with URN and JSON pointer ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:uuid:deadbeef-1234-0000-0000-4321feebdaed","properties":{"foo":{"$ref":"urn:uuid:deadbeef-1234-0000-0000-4321feebdaed#/$defs/bar"}},"$defs":{"bar":{"type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN base URI with URN and anchor ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"urn:uuid:deadbeef-1234-ff00-00ff-4321feebdaed","properties":{"foo":{"$ref":"urn:uuid:deadbeef-1234-ff00-00ff-4321feebdaed#something"}},"$defs":{"bar":{"$anchor":"something","type":"string"}}}
+valid a string is valid
+{"foo":"bar"}
+invalid a non-string is invalid
+{"foo":12}
+group ref.json URN ref with nested pointer ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"urn:uuid:deadbeef-4321-ffff-ffff-1234feebdaed","$defs":{"foo":{"$id":"urn:uuid:deadbeef-4321-ffff-ffff-1234feebdaed","$defs":{"bar":{"type":"string"}},"$ref":"#/$defs/bar"}}}
+valid a string is valid
+"bar"
+invalid a non-string is invalid
+12
+group ref.json ref to if
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://example.com/ref/if","if":{"$id":"http://example.com/ref/if","type":"integer"}}
+invalid a non-integer is invalid due to the $ref
+"foo"
+valid an integer is valid
+12
+group ref.json ref to then
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://example.com/ref/then","then":{"$id":"http://example.com/ref/then","type":"integer"}}
+invalid a non-integer is invalid due to the $ref
+"foo"
+valid an integer is valid
+12
+group ref.json ref to else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://example.com/ref/else","else":{"$id":"http://example.com/ref/else","type":"integer"}}
+invalid a non-integer is invalid due to the $ref
+"foo"
+valid an integer is valid
+12
+group ref.json ref with absolute-path-reference
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://example.com/ref/absref.json","$defs":{"a":{"$id":"http://example.com/ref/absref/foobar.json","type":"number"},"b":{"$id":"http://example.com/absref/foobar.json","type":"string"}},"$ref":"/absref/foobar.json"}
+valid a string is valid
+"foo"
+invalid an integer is invalid
+12
+group ref.json $id with file URI still resolves pointers - *nix
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"file:///folder/file.json","$defs":{"foo":{"type":"number"}},"$ref":"#/$defs/foo"}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group ref.json $id with file URI still resolves pointers - windows
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"file:///c:/folder/file.json","$defs":{"foo":{"type":"number"}},"$ref":"#/$defs/foo"}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group ref.json empty tokens in $ref json-pointer
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"":{"$defs":{"":{"type":"number"}}}},"allOf":[{"$ref":"#/$defs//$defs/"}]}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group refRemote.json remote ref
+remote http://localhost:1234/draft2020-12/integer.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/integer.json"}
+valid remote ref valid
+1
+invalid remote ref invalid
+"a"
+group refRemote.json fragment within remote ref
+remote http://localhost:1234/draft2020-12/subSchemas.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"integer":{"type":"integer"},"refToInteger":{"$ref":"#/$defs/integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/subSchemas.json#/$defs/integer"}
+valid remote fragment valid
+1
+invalid remote fragment invalid
+"a"
+group refRemote.json anchor within remote ref
+remote http://localhost:1234/draft2020-12/locationIndependentIdentifier.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"refToInteger":{"$ref":"#foo"},"A":{"$anchor":"foo","type":"integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/locationIndependentIdentifier.json#foo"}
+valid remote anchor valid
+1
+invalid remote anchor invalid
+"a"
+group refRemote.json ref within remote ref
+remote http://localhost:1234/draft2020-12/subSchemas.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"integer":{"type":"integer"},"refToInteger":{"$ref":"#/$defs/integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/subSchemas.json#/$defs/refToInteger"}
+valid ref within ref valid
+1
+invalid ref within ref invalid
+"a"
+group refRemote.json base URI change
+remote http://localhost:1234/draft2020-12/baseUriChange/folderInteger.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/","items":{"$id":"baseUriChange/","items":{"$ref":"folderInteger.json"}}}
+valid base URI change ref valid
+[[1]]
+invalid base URI change ref invalid
+[["a"]]
+group refRemote.json base URI change - change folder
+remote http://localhost:1234/draft2020-12/baseUriChangeFolder/folderInteger.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/scope_change_defs1.json","type":"object","properties":{"list":{"$ref":"baseUriChangeFolder/"}},"$defs":{"baz":{"$id":"baseUriChangeFolder/","type":"array","items":{"$ref":"folderInteger.json"}}}}
+valid number is valid
+{"list":[1]}
+invalid string is invalid
+{"list":["a"]}
+group refRemote.json base URI change - change folder in subschema
+remote http://localhost:1234/draft2020-12/baseUriChangeFolderInSubschema/folderInteger.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/scope_change_defs2.json","type":"object","properties":{"list":{"$ref":"baseUriChangeFolderInSubschema/#/$defs/bar"}},"$defs":{"baz":{"$id":"baseUriChangeFolderInSubschema/","$defs":{"bar":{"type":"array","items":{"$ref":"folderInteger.json"}}}}}}
+valid number is valid
+{"list":[1]}
+invalid string is invalid
+{"list":["a"]}
+group refRemote.json root ref in remote ref
+remote http://localhost:1234/draft2020-12/name-defs.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"orNull":{"anyOf":[{"type":"null"},{"$ref":"#"}]}},"type":"string"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/object","type":"object","properties":{"name":{"$ref":"name-defs.json#/$defs/orNull"}}}
+valid string is valid
+{"name":"foo"}
+valid null is valid
+{"name":null}
+invalid object is invalid
+{"name":{"name":null}}
+group refRemote.json remote ref with ref to defs
+remote http://localhost:1234/draft2020-12/ref-and-defs.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/ref-and-defs.json","$defs":{"inner":{"properties":{"bar":{"type":"string"}}}},"$ref":"#/$defs/inner"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/schema-remote-ref-ref-defs1.json","$ref":"ref-and-defs.json"}
+invalid invalid
+{"bar":1}
+valid valid
+{"bar":"a"}
+group refRemote.json Location-independent identifier in remote ref
+remote http://localhost:1234/draft2020-12/locationIndependentIdentifier.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"refToInteger":{"$ref":"#foo"},"A":{"$anchor":"foo","type":"integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/locationIndependentIdentifier.json#/$defs/refToInteger"}
+valid integer is valid
+1
+invalid string is invalid
+"foo"
+group refRemote.json retrieved nested refs resolve relative to their URI not $id
+remote http://localhost:1234/draft2020-12/nested/foo-ref-string.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"foo":{"$ref":"string.json"}}}
+remote http://localhost:1234/draft2020-12/nested/string.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"string"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/some-id","properties":{"name":{"$ref":"nested/foo-ref-string.json"}}}
+invalid number is invalid
+{"name":{"foo":1}}
+valid string is valid
+{"name":{"foo":"a"}}
+group refRemote.json remote HTTP ref with different $id
+remote http://localhost:1234/draft2020-12/different-id-ref-string.json
+{"$id":"http://localhost:1234/draft2020-12/real-id-ref-string.json","$defs":{"bar":{"type":"string"}},"$ref":"#/$defs/bar"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/different-id-ref-string.json"}
+invalid number is invalid
+1
+valid string is valid
+"foo"
+group refRemote.json remote HTTP ref with different URN $id
+remote http://localhost:1234/draft2020-12/urn-ref-string.json
+{"$id":"urn:uuid:feebdaed-ffff-0000-2020-1200deadbeef","$defs":{"bar":{"type":"string"}},"$ref":"#/$defs/bar"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/urn-ref-string.json"}
+invalid number is invalid
+1
+valid string is valid
+"foo"
+group refRemote.json remote HTTP ref with nested absolute ref
+remote http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json
+{"$defs":{"bar":{"$id":"http://localhost:1234/draft2020-12/the-nested-id.json","type":"string"}},"$ref":"http://localhost:1234/draft2020-12/the-nested-id.json"}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/nested-absolute-ref-to-string.json"}
+invalid number is invalid
+1
+valid string is valid
+"foo"
+group refRemote.json $ref to $ref finds detached $anchor
+remote http://localhost:1234/draft2020-12/detached-ref.json
+{"$id":"http://localhost:1234/draft2020-12/detached-ref.json","$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"foo":{"$ref":"#detached"},"detached":{"$anchor":"detached","type":"integer"}}}
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"http://localhost:1234/draft2020-12/detached-ref.json#/$defs/foo"}
+valid number is valid
+1
+invalid non-number is invalid
+"a"
+group required.json required validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{},"bar":{}},"required":["foo"]}
+valid present required property is valid
+{"foo":1}
+invalid non-present required property is invalid
+{"bar":1}
+valid ignores arrays
+[]
+valid ignores strings
+""
+valid ignores other non-objects
+12
+valid ignores null
+null
+valid ignores boolean
+true
+group required.json required default validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{}}}
+valid not required by default
+{}
+group required.json required with empty array
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{}},"required":[]}
+valid property not required
+{}
+group required.json required with escaped characters
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","required":["foo\nbar","foo\"bar","foo\\bar","foo\rbar","foo\tbar","foo\fbar"]}
+valid object with all properties present is valid
+{"foo\nbar":1,"foo\"bar":1,"foo\\bar":1,"foo\rbar":1,"foo\tbar":1,"foo\fbar":1}
+invalid object with some properties missing is invalid
+{"foo\nbar":"1","foo\"bar":"1"}
+group required.json required properties whose names are Javascript object property names
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","required":["__proto__","toString","constructor"]}
+valid ignores arrays
+[]
+valid ignores other non-objects
+12
+invalid none of the properties mentioned
+{}
+invalid __proto__ present
+{"__proto__":"foo"}
+invalid toString present
+{"toString":{"length":37}}
+invalid constructor present
+{"constructor":{"length":37}}
+valid all present
+{"__proto__":12,"toString":{"length":"foo"},"constructor":37}
+group type.json integer type matches integers
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"integer"}
+valid an integer is an integer
+1
+valid a float with zero fractional part is an integer
+1
+invalid a float is not an integer
+1.1
+invalid a string is not an integer
+"foo"
+invalid a string is still not an integer, even if it looks like one
+"1"
+invalid an object is not an integer
+{}
+invalid an array is not an integer
+[]
+invalid a boolean is not an integer
+true
+invalid null is not an integer
+null
+group type.json number type matches numbers
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"number"}
+valid an integer is a number
+1
+valid a float with zero fractional part is a number (and an integer)
+1
+valid a float is a number
+1.1
+invalid a string is not a number
+"foo"
+invalid a string is still not a number, even if it looks like one
+"1"
+invalid an object is not a number
+{}
+invalid an array is not a number
+[]
+invalid a boolean is not a number
+true
+invalid null is not a number
+null
+group type.json string type matches strings
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"string"}
+invalid 1 is not a string
+1
+invalid a float is not a string
+1.1
+valid a string is a string
+"foo"
+valid a string is still a string, even if it looks like a number
+"1"
+valid an empty string is still a string
+""
+invalid an object is not a string
+{}
+invalid an array is not a string
+[]
+invalid a boolean is not a string
+true
+invalid null is not a string
+null
+group type.json object type matches objects
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object"}
+invalid an integer is not an object
+1
+invalid a float is not an object
+1.1
+invalid a string is not an object
+"foo"
+valid an object is an object
+{}
+invalid an array is not an object
+[]
+invalid a boolean is not an object
+true
+invalid null is not an object
+null
+group type.json array type matches arrays
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"array"}
+invalid an integer is not an array
+1
+invalid a float is not an array
+1.1
+invalid a string is not an array
+"foo"
+invalid an object is not an array
+{}
+valid an array is an array
+[]
+invalid a boolean is not an array
+true
+invalid null is not an array
+null
+group type.json boolean type matches booleans
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"boolean"}
+invalid an integer is not a boolean
+1
+invalid zero is not a boolean
+0
+invalid a float is not a boolean
+1.1
+invalid a string is not a boolean
+"foo"
+invalid an empty string is not a boolean
+""
+invalid an object is not a boolean
+{}
+invalid an array is not a boolean
+[]
+valid true is a boolean
+true
+valid false is a boolean
+false
+invalid null is not a boolean
+null
+group type.json null type matches only the null object
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"null"}
+invalid an integer is not null
+1
+invalid a float is not null
+1.1
+invalid zero is not null
+0
+invalid a string is not null
+"foo"
+invalid an empty string is not null
+""
+invalid an object is not null
+{}
+invalid an array is not null
+[]
+invalid true is not null
+true
+invalid false is not null
+false
+valid null is null
+null
+group type.json multiple types can be specified in an array
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":["integer","string"]}
+valid an integer is valid
+1
+valid a string is valid
+"foo"
+invalid a float is invalid
+1.1
+invalid an object is invalid
+{}
+invalid an array is invalid
+[]
+invalid a boolean is invalid
+true
+invalid null is invalid
+null
+group type.json type as array with one item
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":["string"]}
+valid string is valid
+"foo"
+invalid number is invalid
+123
+group type.json type: array or object
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":["array","object"]}
+valid array is valid
+[1,2,3]
+valid object is valid
+{"foo":123}
+invalid number is invalid
+123
+invalid string is invalid
+"foo"
+invalid null is invalid
+null
+group type.json type: array, object or null
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":["array","object","null"]}
+valid array is valid
+[1,2,3]
+valid object is valid
+{"foo":123}
+valid null is valid
+null
+invalid number is invalid
+123
+invalid string is invalid
+"foo"
+group unevaluatedItems.json unevaluatedItems true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":true}
+valid with no unevaluated items
+[]
+valid with unevaluated items
+["foo"]
+group unevaluatedItems.json unevaluatedItems false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":false}
+valid with no unevaluated items
+[]
+invalid with unevaluated items
+["foo"]
+group unevaluatedItems.json unevaluatedItems as schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":{"type":"string"}}
+valid with no unevaluated items
+[]
+valid with valid unevaluated items
+["foo"]
+invalid with invalid unevaluated items
+[42]
+group unevaluatedItems.json unevaluatedItems with uniform items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":{"type":"string"},"unevaluatedItems":false}
+valid unevaluatedItems doesn't apply
+["foo","bar"]
+group unevaluatedItems.json unevaluatedItems with tuple
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"string"}],"unevaluatedItems":false}
+valid with no unevaluated items
+["foo"]
+invalid with unevaluated items
+["foo","bar"]
+group unevaluatedItems.json unevaluatedItems with items and prefixItems
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"string"}],"items":true,"unevaluatedItems":false}
+valid unevaluatedItems doesn't apply
+["foo",42]
+group unevaluatedItems.json unevaluatedItems with items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","items":{"type":"number"},"unevaluatedItems":{"type":"string"}}
+valid valid under items
+[5,6,7,8]
+invalid invalid under items
+["foo","bar","baz"]
+group unevaluatedItems.json unevaluatedItems with nested tuple
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"string"}],"allOf":[{"prefixItems":[true,{"type":"number"}]}],"unevaluatedItems":false}
+valid with no unevaluated items
+["foo",42]
+invalid with unevaluated items
+["foo",42,true]
+group unevaluatedItems.json unevaluatedItems with nested items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":{"type":"boolean"},"anyOf":[{"items":{"type":"string"}},true]}
+valid with only (valid) additional items
+[true,false]
+valid with no additional items
+["yes","no"]
+invalid with invalid additional item
+["yes",false]
+group unevaluatedItems.json unevaluatedItems with nested prefixItems and items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"prefixItems":[{"type":"string"}],"items":true}],"unevaluatedItems":false}
+valid with no additional items
+["foo"]
+valid with additional items
+["foo",42,true]
+group unevaluatedItems.json unevaluatedItems with nested unevaluatedItems
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"prefixItems":[{"type":"string"}]},{"unevaluatedItems":true}],"unevaluatedItems":false}
+valid with no additional items
+["foo"]
+valid with additional items
+["foo",42,true]
+group unevaluatedItems.json unevaluatedItems with anyOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"const":"foo"}],"anyOf":[{"prefixItems":[true,{"const":"bar"}]},{"prefixItems":[true,true,{"const":"baz"}]}],"unevaluatedItems":false}
+valid when one schema matches and has no unevaluated items
+["foo","bar"]
+invalid when one schema matches and has unevaluated items
+["foo","bar",42]
+valid when two schemas match and has no unevaluated items
+["foo","bar","baz"]
+invalid when two schemas match and has unevaluated items
+["foo","bar","baz",42]
+group unevaluatedItems.json unevaluatedItems with oneOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"const":"foo"}],"oneOf":[{"prefixItems":[true,{"const":"bar"}]},{"prefixItems":[true,{"const":"baz"}]}],"unevaluatedItems":false}
+valid with no unevaluated items
+["foo","bar"]
+invalid with unevaluated items
+["foo","bar",42]
+group unevaluatedItems.json unevaluatedItems with not
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"const":"foo"}],"not":{"not":{"prefixItems":[true,{"const":"bar"}]}},"unevaluatedItems":false}
+invalid with unevaluated items
+["foo","bar"]
+group unevaluatedItems.json unevaluatedItems with if/then/else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"const":"foo"}],"if":{"prefixItems":[true,{"const":"bar"}]},"then":{"prefixItems":[true,true,{"const":"then"}]},"else":{"prefixItems":[true,true,true,{"const":"else"}]},"unevaluatedItems":false}
+valid when if matches and it has no unevaluated items
+["foo","bar","then"]
+invalid when if matches and it has unevaluated items
+["foo","bar","then","else"]
+valid when if doesn't match and it has no unevaluated items
+["foo",42,42,"else"]
+invalid when if doesn't match and it has unevaluated items
+["foo",42,42,"else",42]
+group unevaluatedItems.json unevaluatedItems with boolean schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[true],"unevaluatedItems":false}
+valid with no unevaluated items
+[]
+invalid with unevaluated items
+["foo"]
+group unevaluatedItems.json unevaluatedItems with $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#/$defs/bar","prefixItems":[{"type":"string"}],"unevaluatedItems":false,"$defs":{"bar":{"prefixItems":[true,{"type":"string"}]}}}
+valid with no unevaluated items
+["foo","bar"]
+invalid with unevaluated items
+["foo","bar","baz"]
+group unevaluatedItems.json unevaluatedItems before $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":false,"prefixItems":[{"type":"string"}],"$ref":"#/$defs/bar","$defs":{"bar":{"prefixItems":[true,{"type":"string"}]}}}
+valid with no unevaluated items
+["foo","bar"]
+invalid with unevaluated items
+["foo","bar","baz"]
+group unevaluatedItems.json unevaluatedItems with $dynamicRef
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/unevaluated-items-with-dynamic-ref/derived","$ref":"./baseSchema","$defs":{"derived":{"$dynamicAnchor":"addons","prefixItems":[true,{"type":"string"}]},"baseSchema":{"$id":"./baseSchema","$comment":"unevaluatedItems comes first so it's more likely to catch bugs with implementations that are sensitive to keyword ordering","unevaluatedItems":false,"type":"array","prefixItems":[{"type":"string"}],"$dynamicRef":"#addons","$defs":{"defaultAddons":{"$comment":"Needed to satisfy the bookending requirement","$dynamicAnchor":"addons"}}}}}
+valid with no unevaluated items
+["foo","bar"]
+invalid with unevaluated items
+["foo","bar","baz"]
+group unevaluatedItems.json unevaluatedItems can't see inside cousins
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"prefixItems":[true]},{"unevaluatedItems":false}]}
+invalid always fails
+[1]
+group unevaluatedItems.json item is evaluated in an uncle schema to unevaluatedItems
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"prefixItems":[{"type":"string"}],"unevaluatedItems":false}},"anyOf":[{"properties":{"foo":{"prefixItems":[true,{"type":"string"}]}}}]}
+valid no extra items
+{"foo":["test"]}
+invalid uncle keyword evaluation is not significant
+{"foo":["test","test"]}
+group unevaluatedItems.json unevaluatedItems depends on adjacent contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[true],"contains":{"type":"string"},"unevaluatedItems":false}
+valid second item is evaluated by contains
+[1,"foo"]
+invalid contains fails, second item is not evaluated
+[1,2]
+invalid contains passes, second item is not evaluated
+[1,2,"foo"]
+group unevaluatedItems.json unevaluatedItems depends on multiple nested contains
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"contains":{"multipleOf":2}},{"contains":{"multipleOf":3}}],"unevaluatedItems":{"multipleOf":5}}
+valid 5 not evaluated, passes unevaluatedItems
+[2,3,4,5,6]
+invalid 7 not evaluated, fails unevaluatedItems
+[2,3,4,7,8]
+group unevaluatedItems.json unevaluatedItems and contains interact to control item dependency relationship
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"contains":{"const":"a"}},"then":{"if":{"contains":{"const":"b"}},"then":{"if":{"contains":{"const":"c"}}}},"unevaluatedItems":false}
+valid empty array is valid
+[]
+valid only a's are valid
+["a","a"]
+valid a's and b's are valid
+["a","b","a","b","a"]
+valid a's, b's and c's are valid
+["c","a","c","c","b","a"]
+invalid only b's are invalid
+["b","b"]
+invalid only c's are invalid
+["c","c"]
+invalid only b's and c's are invalid
+["c","b","c","b","c"]
+invalid only a's and c's are invalid
+["c","a","c","a","c"]
+group unevaluatedItems.json unevaluatedItems with minContains = 0
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","contains":{"type":"string"},"minContains":0,"unevaluatedItems":false}
+valid empty array is valid
+[]
+invalid no items evaluated by contains
+[0]
+invalid some but not all items evaluated by contains
+["foo",0]
+valid all items evaluated by contains
+["foo","bar"]
+group unevaluatedItems.json non-array instances are valid
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":false}
+valid ignores booleans
+true
+valid ignores integers
+123
+valid ignores floats
+1
+valid ignores objects
+{}
+valid ignores strings
+"foo"
+valid ignores null
+null
+group unevaluatedItems.json unevaluatedItems with null instance elements
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedItems":{"type":"null"}}
+valid allows null elements
+[null]
+group unevaluatedItems.json unevaluatedItems can see annotations from if without then and else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"prefixItems":[{"const":"a"}]},"unevaluatedItems":false}
+valid valid in case if is evaluated
+["a"]
+invalid invalid in case if is evaluated
+["b"]
+group unevaluatedItems.json Evaluated items collection needs to consider instance location
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"prefixItems":[true,{"type":"string"}]}],"unevaluatedItems":false}
+invalid with an unevaluated item that exists at another location
+[["foo","bar"],"bar"]
+group unevaluatedProperties.json unevaluatedProperties true
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":true}
+valid with no unevaluated properties
+{}
+valid with unevaluated properties
+{"foo":"foo"}
+group unevaluatedProperties.json unevaluatedProperties schema
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":{"type":"string","minLength":3}}
+valid with no unevaluated properties
+{}
+valid with valid unevaluated properties
+{"foo":"foo"}
+invalid with invalid unevaluated properties
+{"foo":"fo"}
+group unevaluatedProperties.json unevaluatedProperties false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":false}
+valid with no unevaluated properties
+{}
+invalid with unevaluated properties
+{"foo":"foo"}
+group unevaluatedProperties.json unevaluatedProperties with adjacent properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"unevaluatedProperties":false}
+valid with no unevaluated properties
+{"foo":"foo"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with adjacent patternProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","patternProperties":{"^foo":{"type":"string"}},"unevaluatedProperties":false}
+valid with no unevaluated properties
+{"foo":"foo"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with adjacent bool additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"foo":{"type":"string"}},"additionalProperties":true,"unevaluatedProperties":false}
+valid with no additional properties
+{"foo":"foo"}
+valid with additional properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with adjacent non-bool additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","properties":{"foo":{"type":"string"}},"additionalProperties":{"type":"string"},"unevaluatedProperties":false}
+valid with no additional properties
+{"foo":"foo"}
+valid with additional properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with nested properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"properties":{"bar":{"type":"string"}}}],"unevaluatedProperties":false}
+valid with no additional properties
+{"foo":"foo","bar":"bar"}
+invalid with additional properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with nested patternProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"patternProperties":{"^bar":{"type":"string"}}}],"unevaluatedProperties":false}
+valid with no additional properties
+{"foo":"foo","bar":"bar"}
+invalid with additional properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with nested additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"additionalProperties":true}],"unevaluatedProperties":false}
+valid with no additional properties
+{"foo":"foo"}
+valid with additional properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with nested unevaluatedProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"unevaluatedProperties":true}],"unevaluatedProperties":{"type":"string","maxLength":2}}
+valid with no nested unevaluated properties
+{"foo":"foo"}
+valid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with anyOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"anyOf":[{"properties":{"bar":{"const":"bar"}},"required":["bar"]},{"properties":{"baz":{"const":"baz"}},"required":["baz"]},{"properties":{"quux":{"const":"quux"}},"required":["quux"]}],"unevaluatedProperties":false}
+valid when one matches and has no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid when one matches and has unevaluated properties
+{"foo":"foo","bar":"bar","baz":"not-baz"}
+valid when two match and has no unevaluated properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+invalid when two match and has unevaluated properties
+{"foo":"foo","bar":"bar","baz":"baz","quux":"not-quux"}
+group unevaluatedProperties.json unevaluatedProperties with oneOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"oneOf":[{"properties":{"bar":{"const":"bar"}},"required":["bar"]},{"properties":{"baz":{"const":"baz"}},"required":["baz"]}],"unevaluatedProperties":false}
+valid with no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar","quux":"quux"}
+group unevaluatedProperties.json unevaluatedProperties with not
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"not":{"not":{"properties":{"bar":{"const":"bar"}},"required":["bar"]}},"unevaluatedProperties":false}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with if/then/else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"properties":{"foo":{"const":"then"}},"required":["foo"]},"then":{"properties":{"bar":{"type":"string"}},"required":["bar"]},"else":{"properties":{"baz":{"type":"string"}},"required":["baz"]},"unevaluatedProperties":false}
+valid when if is true and has no unevaluated properties
+{"foo":"then","bar":"bar"}
+invalid when if is true and has unevaluated properties
+{"foo":"then","bar":"bar","baz":"baz"}
+valid when if is false and has no unevaluated properties
+{"baz":"baz"}
+invalid when if is false and has unevaluated properties
+{"foo":"else","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with if/then/else, then not defined
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"properties":{"foo":{"const":"then"}},"required":["foo"]},"else":{"properties":{"baz":{"type":"string"}},"required":["baz"]},"unevaluatedProperties":false}
+valid when if is true and has no unevaluated properties
+{"foo":"then"}
+invalid when if is true and has unevaluated properties
+{"foo":"then","bar":"bar"}
+valid when if is false and has no unevaluated properties
+{"baz":"baz"}
+invalid when if is false and has unevaluated properties
+{"foo":"else","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with if/then/else, else not defined
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"properties":{"foo":{"const":"then"}},"required":["foo"]},"then":{"properties":{"bar":{"type":"string"}},"required":["bar"]},"unevaluatedProperties":false}
+valid when if is true and has no unevaluated properties
+{"foo":"then","bar":"bar"}
+invalid when if is true and has unevaluated properties
+{"foo":"then","bar":"bar","baz":"baz"}
+invalid when if is false and has no unevaluated properties
+{"baz":"baz"}
+invalid when if is false and has unevaluated properties
+{"foo":"else","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with dependentSchemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"dependentSchemas":{"foo":{"properties":{"bar":{"const":"bar"}},"required":["bar"]}},"unevaluatedProperties":false}
+valid with no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid with unevaluated properties
+{"bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with boolean schemas
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[true],"unevaluatedProperties":false}
+valid with no unevaluated properties
+{"foo":"foo"}
+invalid with unevaluated properties
+{"bar":"bar"}
+group unevaluatedProperties.json unevaluatedProperties with $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$ref":"#/$defs/bar","properties":{"foo":{"type":"string"}},"unevaluatedProperties":false,"$defs":{"bar":{"properties":{"bar":{"type":"string"}}}}}
+valid with no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties before $ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":false,"properties":{"foo":{"type":"string"}},"$ref":"#/$defs/bar","$defs":{"bar":{"properties":{"bar":{"type":"string"}}}}}
+valid with no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties with $dynamicRef
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://example.com/unevaluated-properties-with-dynamic-ref/derived","$ref":"./baseSchema","$defs":{"derived":{"$dynamicAnchor":"addons","properties":{"bar":{"type":"string"}}},"baseSchema":{"$id":"./baseSchema","$comment":"unevaluatedProperties comes first so it's more likely to catch bugs with implementations that are sensitive to keyword ordering","unevaluatedProperties":false,"properties":{"foo":{"type":"string"}},"$dynamicRef":"#addons","$defs":{"defaultAddons":{"$comment":"Needed to satisfy the bookending requirement","$dynamicAnchor":"addons"}}}}}
+valid with no unevaluated properties
+{"foo":"foo","bar":"bar"}
+invalid with unevaluated properties
+{"foo":"foo","bar":"bar","baz":"baz"}
+group unevaluatedProperties.json unevaluatedProperties can't see inside cousins
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":true}},{"unevaluatedProperties":false}]}
+invalid always fails
+{"foo":1}
+group unevaluatedProperties.json unevaluatedProperties can't see inside cousins (reverse order)
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"unevaluatedProperties":false},{"properties":{"foo":true}}]}
+invalid always fails
+{"foo":1}
+group unevaluatedProperties.json nested unevaluatedProperties, outer false, inner true, properties outside
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"unevaluatedProperties":true}],"unevaluatedProperties":false}
+valid with no nested unevaluated properties
+{"foo":"foo"}
+valid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json nested unevaluatedProperties, outer false, inner true, properties inside
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":{"type":"string"}},"unevaluatedProperties":true}],"unevaluatedProperties":false}
+valid with no nested unevaluated properties
+{"foo":"foo"}
+valid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json nested unevaluatedProperties, outer true, inner false, properties outside
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"type":"string"}},"allOf":[{"unevaluatedProperties":false}],"unevaluatedProperties":true}
+invalid with no nested unevaluated properties
+{"foo":"foo"}
+invalid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json nested unevaluatedProperties, outer true, inner false, properties inside
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":{"type":"string"}},"unevaluatedProperties":false}],"unevaluatedProperties":true}
+valid with no nested unevaluated properties
+{"foo":"foo"}
+invalid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json cousin unevaluatedProperties, true and false, true with properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":{"type":"string"}},"unevaluatedProperties":true},{"unevaluatedProperties":false}]}
+invalid with no nested unevaluated properties
+{"foo":"foo"}
+invalid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json cousin unevaluatedProperties, true and false, false with properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"unevaluatedProperties":true},{"properties":{"foo":{"type":"string"}},"unevaluatedProperties":false}]}
+valid with no nested unevaluated properties
+{"foo":"foo"}
+invalid with nested unevaluated properties
+{"foo":"foo","bar":"bar"}
+group unevaluatedProperties.json property is evaluated in an uncle schema to unevaluatedProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"properties":{"bar":{"type":"string"}},"unevaluatedProperties":false}},"anyOf":[{"properties":{"foo":{"properties":{"faz":{"type":"string"}}}}}]}
+valid no extra properties
+{"foo":{"bar":"test"}}
+invalid uncle keyword evaluation is not significant
+{"foo":{"bar":"test","faz":"test"}}
+group unevaluatedProperties.json in-place applicator siblings, allOf has unevaluated
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":true},"unevaluatedProperties":false}],"anyOf":[{"properties":{"bar":true}}]}
+invalid base case: both properties present
+{"foo":1,"bar":1}
+valid in place applicator siblings, bar is missing
+{"foo":1}
+invalid in place applicator siblings, foo is missing
+{"bar":1}
+group unevaluatedProperties.json in-place applicator siblings, anyOf has unevaluated
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","allOf":[{"properties":{"foo":true}}],"anyOf":[{"properties":{"bar":true},"unevaluatedProperties":false}]}
+invalid base case: both properties present
+{"foo":1,"bar":1}
+invalid in place applicator siblings, bar is missing
+{"foo":1}
+valid in place applicator siblings, foo is missing
+{"bar":1}
+group unevaluatedProperties.json unevaluatedProperties + single cyclic ref
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"x":{"$ref":"#"}},"unevaluatedProperties":false}
+valid Empty is valid
+{}
+valid Single is valid
+{"x":{}}
+invalid Unevaluated on 1st level is invalid
+{"x":{},"y":{}}
+valid Nested is valid
+{"x":{"x":{}}}
+invalid Unevaluated on 2nd level is invalid
+{"x":{"x":{},"y":{}}}
+valid Deep nested is valid
+{"x":{"x":{"x":{}}}}
+invalid Unevaluated on 3rd level is invalid
+{"x":{"x":{"x":{},"y":{}}}}
+group unevaluatedProperties.json unevaluatedProperties + ref inside allOf / oneOf
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"one":{"properties":{"a":true}},"two":{"required":["x"],"properties":{"x":true}}},"allOf":[{"$ref":"#/$defs/one"},{"properties":{"b":true}},{"oneOf":[{"$ref":"#/$defs/two"},{"required":["y"],"properties":{"y":true}}]}],"unevaluatedProperties":false}
+invalid Empty is invalid (no x or y)
+{}
+invalid a and b are invalid (no x or y)
+{"a":1,"b":1}
+invalid x and y are invalid
+{"x":1,"y":1}
+valid a and x are valid
+{"a":1,"x":1}
+valid a and y are valid
+{"a":1,"y":1}
+valid a and b and x are valid
+{"a":1,"b":1,"x":1}
+valid a and b and y are valid
+{"a":1,"b":1,"y":1}
+invalid a and b and x and y are invalid
+{"a":1,"b":1,"x":1,"y":1}
+group unevaluatedProperties.json dynamic evaluation inside nested refs
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$defs":{"one":{"oneOf":[{"$ref":"#/$defs/two"},{"required":["b"],"properties":{"b":true}},{"required":["xx"],"patternProperties":{"x":true}},{"required":["all"],"unevaluatedProperties":true}]},"two":{"oneOf":[{"required":["c"],"properties":{"c":true}},{"required":["d"],"properties":{"d":true}}]}},"oneOf":[{"$ref":"#/$defs/one"},{"required":["a"],"properties":{"a":true}}],"unevaluatedProperties":false}
+invalid Empty is invalid
+{}
+valid a is valid
+{"a":1}
+valid b is valid
+{"b":1}
+valid c is valid
+{"c":1}
+valid d is valid
+{"d":1}
+invalid a + b is invalid
+{"a":1,"b":1}
+invalid a + c is invalid
+{"a":1,"c":1}
+invalid a + d is invalid
+{"a":1,"d":1}
+invalid b + c is invalid
+{"b":1,"c":1}
+invalid b + d is invalid
+{"b":1,"d":1}
+invalid c + d is invalid
+{"c":1,"d":1}
+valid xx is valid
+{"xx":1}
+valid xx + foox is valid
+{"xx":1,"foox":1}
+invalid xx + foo is invalid
+{"xx":1,"foo":1}
+invalid xx + a is invalid
+{"xx":1,"a":1}
+invalid xx + b is invalid
+{"xx":1,"b":1}
+invalid xx + c is invalid
+{"xx":1,"c":1}
+invalid xx + d is invalid
+{"xx":1,"d":1}
+valid all is valid
+{"all":1}
+valid all + foo is valid
+{"all":1,"foo":1}
+invalid all + a is invalid
+{"all":1,"a":1}
+group unevaluatedProperties.json non-object instances are valid
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":false}
+valid ignores booleans
+true
+valid ignores integers
+123
+valid ignores floats
+1
+valid ignores arrays
+[]
+valid ignores strings
+"foo"
+valid ignores null
+null
+group unevaluatedProperties.json unevaluatedProperties with null valued instance properties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","unevaluatedProperties":{"type":"null"}}
+valid allows null valued properties
+{"foo":null}
+group unevaluatedProperties.json unevaluatedProperties not affected by propertyNames
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","propertyNames":{"maxLength":1},"unevaluatedProperties":{"type":"number"}}
+valid allows only number properties
+{"a":1}
+invalid string property is invalid
+{"a":"b"}
+group unevaluatedProperties.json unevaluatedProperties can see annotations from if without then and else
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","if":{"patternProperties":{"foo":{"type":"string"}}},"unevaluatedProperties":false}
+valid valid in case if is evaluated
+{"foo":"a"}
+invalid invalid in case if is evaluated
+{"bar":"a"}
+group unevaluatedProperties.json dependentSchemas with unevaluatedProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo2":{}},"dependentSchemas":{"foo":{},"foo2":{"properties":{"bar":{}}}},"unevaluatedProperties":false}
+invalid unevaluatedProperties doesn't consider dependentSchemas
+{"foo":""}
+invalid unevaluatedProperties doesn't see bar when foo2 is absent
+{"bar":""}
+valid unevaluatedProperties sees bar when foo2 is present
+{"foo2":"","bar":""}
+group unevaluatedProperties.json Evaluated properties collection needs to consider instance location
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"properties":{"bar":{"type":"string"}}}},"unevaluatedProperties":false}
+invalid with an unevaluated property that exists at another location
+{"foo":{"bar":"foo"},"bar":"bar"}
+group unevaluatedProperties.json Evaluated properties collection needs to consider instance location with patternProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"patternProperties":{"^bar$":{"type":"string"}}}},"unevaluatedProperties":false}
+valid with only the nested evaluated property
+{"foo":{"bar":"foo"}}
+invalid with an unevaluated property that exists at another location
+{"foo":{"bar":"foo"},"bar":"bar"}
+group unevaluatedProperties.json Evaluated properties collection needs to consider instance location with additionalProperties
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"foo":{"additionalProperties":{"type":"string"}}},"unevaluatedProperties":false}
+valid with only the nested evaluated property
+{"foo":{"bar":"foo"}}
+invalid with an unevaluated property that exists at another location
+{"foo":{"bar":"foo"},"bar":"bar"}
+group uniqueItems.json uniqueItems validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","uniqueItems":true}
+valid unique array of integers is valid
+[1,2]
+invalid non-unique array of integers is invalid
+[1,1]
+invalid non-unique array of more than two integers is invalid
+[1,2,1]
+invalid numbers are unique if mathematically unequal
+[1,1,1]
+valid false is not equal to zero
+[0,false]
+valid true is not equal to one
+[1,true]
+valid unique array of strings is valid
+["foo","bar","baz"]
+invalid non-unique array of strings is invalid
+["foo","bar","foo"]
+valid unique array of objects is valid
+[{"foo":"bar"},{"foo":"baz"}]
+invalid non-unique array of objects is invalid
+[{"foo":"bar"},{"foo":"bar"}]
+invalid property order of array of objects is ignored
+[{"foo":"bar","bar":"foo"},{"bar":"foo","foo":"bar"}]
+valid unique array of nested objects is valid
+[{"foo":{"bar":{"baz":true}}},{"foo":{"bar":{"baz":false}}}]
+invalid non-unique array of nested objects is invalid
+[{"foo":{"bar":{"baz":true}}},{"foo":{"bar":{"baz":true}}}]
+valid unique array of arrays is valid
+[["foo"],["bar"]]
+invalid non-unique array of arrays is invalid
+[["foo"],["foo"]]
+invalid non-unique array of more than two arrays is invalid
+[["foo"],["bar"],["foo"]]
+valid [1] and [true] are unique
+[[1],[true]]
+valid [0] and [false] are unique
+[[0],[false]]
+valid nested [1] and [true] are unique
+[[[1],"foo"],[[true],"foo"]]
+valid nested [0] and [false] are unique
+[[[0],"foo"],[[false],"foo"]]
+valid unique heterogeneous types are valid
+[{},[1],true,null,1,"{}"]
+invalid non-unique heterogeneous types are invalid
+[{},[1],true,null,{},1]
+valid different objects are unique
+[{"a":1,"b":2},{"a":2,"b":1}]
+invalid objects are non-unique despite key order
+[{"a":1,"b":2},{"b":2,"a":1}]
+valid {"a": false} and {"a": 0} are unique
+[{"a":false},{"a":0}]
+valid {"a": true} and {"a": 1} are unique
+[{"a":true},{"a":1}]
+group uniqueItems.json uniqueItems with an array of items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"boolean"},{"type":"boolean"}],"uniqueItems":true}
+valid [false, true] from items array is valid
+[false,true]
+valid [true, false] from items array is valid
+[true,false]
+invalid [false, false] from items array is not valid
+[false,false]
+invalid [true, true] from items array is not valid
+[true,true]
+valid unique array extended from [false, true] is valid
+[false,true,"foo","bar"]
+valid unique array extended from [true, false] is valid
+[true,false,"foo","bar"]
+invalid non-unique array extended from [false, true] is not valid
+[false,true,"foo","foo"]
+invalid non-unique array extended from [true, false] is not valid
+[true,false,"foo","foo"]
+group uniqueItems.json uniqueItems with an array of items and additionalItems=false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"boolean"},{"type":"boolean"}],"uniqueItems":true,"items":false}
+valid [false, true] from items array is valid
+[false,true]
+valid [true, false] from items array is valid
+[true,false]
+invalid [false, false] from items array is not valid
+[false,false]
+invalid [true, true] from items array is not valid
+[true,true]
+invalid extra items are invalid even if unique
+[false,true,null]
+group uniqueItems.json uniqueItems=false validation
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","uniqueItems":false}
+valid unique array of integers is valid
+[1,2]
+valid non-unique array of integers is valid
+[1,1]
+valid numbers are unique if mathematically unequal
+[1,1,1]
+valid false is not equal to zero
+[0,false]
+valid true is not equal to one
+[1,true]
+valid unique array of objects is valid
+[{"foo":"bar"},{"foo":"baz"}]
+valid non-unique array of objects is valid
+[{"foo":"bar"},{"foo":"bar"}]
+valid unique array of nested objects is valid
+[{"foo":{"bar":{"baz":true}}},{"foo":{"bar":{"baz":false}}}]
+valid non-unique array of nested objects is valid
+[{"foo":{"bar":{"baz":true}}},{"foo":{"bar":{"baz":true}}}]
+valid unique array of arrays is valid
+[["foo"],["bar"]]
+valid non-unique array of arrays is valid
+[["foo"],["foo"]]
+valid unique heterogeneous types are valid
+[{},[1],true,null,1]
+valid non-unique heterogeneous types are valid
+[{},[1],true,null,{},1]
+group uniqueItems.json uniqueItems=false with an array of items
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"boolean"},{"type":"boolean"}],"uniqueItems":false}
+valid [false, true] from items array is valid
+[false,true]
+valid [true, false] from items array is valid
+[true,false]
+valid [false, false] from items array is valid
+[false,false]
+valid [true, true] from items array is valid
+[true,true]
+valid unique array extended from [false, true] is valid
+[false,true,"foo","bar"]
+valid unique array extended from [true, false] is valid
+[true,false,"foo","bar"]
+valid non-unique array extended from [false, true] is valid
+[false,true,"foo","foo"]
+valid non-unique array extended from [true, false] is valid
+[true,false,"foo","foo"]
+group uniqueItems.json uniqueItems=false with an array of items and additionalItems=false
+schema
+{"$schema":"https://json-schema.org/draft/2020-12/schema","prefixItems":[{"type":"boolean"},{"type":"boolean"}],"uniqueItems":false,"items":false}
+valid [false, true] from items array is valid
+[false,true]
+valid [true, false] from items array is valid
+[true,false]
+valid [false, false] from items array is valid
+[false,false]
+valid [true, true] from items array is valid
+[true,true]
+invalid extra items are invalid even if unique
+[false,true,null]
+group vocabulary.json schema that uses custom metaschema with with no validation vocabulary
+remote http://localhost:1234/draft2020-12/metaschema-no-validation.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/metaschema-no-validation.json","$vocabulary":{"https://json-schema.org/draft/2020-12/vocab/applicator":true,"https://json-schema.org/draft/2020-12/vocab/core":true},"$dynamicAnchor":"meta","allOf":[{"$ref":"https://json-schema.org/draft/2020-12/meta/applicator"},{"$ref":"https://json-schema.org/draft/2020-12/meta/core"}]}
+schema
+{"$id":"https://schema/using/no/validation","$schema":"http://localhost:1234/draft2020-12/metaschema-no-validation.json","properties":{"badProperty":false,"numberProperty":{"minimum":10}}}
+invalid applicator vocabulary still works
+{"badProperty":"this property should not exist"}
+valid no validation: valid number
+{"numberProperty":20}
+valid no validation: invalid number, but it still validates
+{"numberProperty":1}
+group vocabulary.json ignore unrecognized optional vocabulary
+remote http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json
+{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json","$vocabulary":{"https://json-schema.org/draft/2020-12/vocab/validation":true,"https://json-schema.org/draft/2020-12/vocab/core":true,"http://localhost:1234/draft/2020-12/vocab/custom":false},"$dynamicAnchor":"meta","allOf":[{"$ref":"https://json-schema.org/draft/2020-12/meta/validation"},{"$ref":"https://json-schema.org/draft/2020-12/meta/core"}]}
+schema
+{"$schema":"http://localhost:1234/draft2020-12/metaschema-optional-vocabulary.json","type":"number"}
+invalid string value
+"foobar"
+valid number value
+20
