@@ -78,14 +78,14 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 - [`validate-hostname.wasm`](/text/validate-hostname.wasm) accepts an RFC 1123 host name unchanged: dot-separated labels of 1 to 63 letters, digits and hyphens, at most 253 characters in total. It reports the offset of the first byte that no host name can continue through.
 - [`bcp47-must-be-well-formed.wasm`](/text/bcp47-must-be-well-formed.wasm) accepts a language tag unchanged if it matches the RFC 5646 grammar, and reports the offset of the first bad subtag.
 - [`bcp47-must-be-valid.wasm`](/text/bcp47-must-be-valid.wasm) also requires every subtag to be in the IANA Language Subtag Registry (2026-09-17 snapshot) and rejects repeated variants and extension singletons.
-- [`i-regexp-to-wasm.wasm`](/text/i-regexp-to-wasm.wasm) compiles an [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485) I-Regexp into a validator component. The validator accepts text unchanged when the pattern matches all of it, and otherwise reports the offset where matching stopped. It returns `application/wasm`.
+- [`i-regexp-to-wasm.wasm`](/text/i-regexp-to-wasm.wasm) compiles an [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485) I-Regexp into a validator component. The validator accepts text unchanged when the pattern matches all of it, and otherwise reports the offset where matching stopped. It returns `application/wasm`. By default it emits the smaller of two encodings. Set `-u prefer_table=1` to always emit a transition table, which is larger but often faster. See [regex](/regex#smaller-code-or-a-table).
 
   ```sh
   printf '[a-z]{2,8}(-[a-z0-9]+)*' | qip run -o lang.wasm text/i-regexp-to-wasm.wasm
   printf 'en-gb' | qip run lang.wasm
   ```
 
-  The generated module looks up one table entry per input byte, so a pattern cannot make it backtrack, and it passes the strict profile, loop, and output-size checks. The compiler rejects patterns whose DFA needs more than 30,000 states or a 4 MiB table. Patterns that use `\p{..}` categories make much larger modules than ASCII patterns: `\p{L}+\P{N}` is 260 KB.
+  The generated module looks up one table entry per input byte, so a pattern cannot make it backtrack, and it passes the strict profile, loop, and output-size checks. The compiler rejects patterns whose DFA needs more than 30,000 states or a 4 MiB table. Patterns that use `\p{..}` categories make much larger modules than ASCII patterns: `\p{L}+\P{N}` is 41 KB, or 260 KB as a table.
 
   Related tool: [regular expression validators](/regex), with ready-made patterns and a speed comparison with the browser's `RegExp`.
 

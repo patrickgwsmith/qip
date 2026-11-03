@@ -32,6 +32,7 @@ td code { overflow-wrap: anywhere; }
   <label>I-Regexp pattern
     <input id="regex-pattern" type="text" spellcheck="false" autocomplete="off" aria-describedby="regex-compile-status">
   </label>
+  <label class="regex-row"><input id="regex-prefer-table" type="checkbox"> Always use a transition table (<code>prefer_table=1</code>)</label>
   <output id="regex-compile-status" class="regex-row" aria-live="polite">Loading the compiler…</output>
   <label>Text to check
     <textarea id="regex-text" spellcheck="false" aria-describedby="regex-verdict"></textarea>
@@ -49,25 +50,26 @@ such as `\d`. Write `[0-9]` instead.
 
 These patterns check the shape of common identifiers. Pick one in the menu
 above to try it, then download the validator. Sizes are for the generated
-`.wasm` module.
+`.wasm` module, first with the default settings and then with
+[`prefer_table=1`](#smaller-code-or-a-table).
 
 <table id="regex-patterns">
-<thead><tr><th scope="col">Pattern for</th><th scope="col">I-Regexp</th><th scope="col">Module size</th><th scope="col">Does not check</th></tr></thead>
+<thead><tr><th scope="col">Pattern for</th><th scope="col">I-Regexp</th><th scope="col">Module size</th><th scope="col">With <code>prefer_table</code></th><th scope="col">Does not check</th></tr></thead>
 <tbody>
-<tr><td>UUID</td><td><code>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}</code></td><td>1.2 KB</td><td>Version and variant bits</td></tr>
-<tr><td>Semantic version 2.0.0</td><td><code>(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?</code></td><td>1.3 KB</td><td>—</td></tr>
-<tr><td>URL slug</td><td><code>[a-z0-9]+(-[a-z0-9]+)*</code></td><td>1.0 KB</td><td>Length</td></tr>
-<tr><td>Hex color</td><td><code>#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})</code></td><td>1.1 KB</td><td>—</td></tr>
-<tr><td>ISO 8601 calendar date</td><td><code>[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])</code></td><td>1.1 KB</td><td>Days per month, so <code>2025-02-31</code> passes</td></tr>
-<tr><td>IPv4 address</td><td><code>((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])</code></td><td>1.3 KB</td><td>—</td></tr>
-<tr><td>Hostname (RFC 1123)</td><td><code>[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*</code></td><td>2.1 KB</td><td>253-character total length</td></tr>
-<tr><td>Email address (HTML <code>type=email</code>)</td><td><code>[A-Za-z0-9.!#$%&amp;'*+/=?^_`{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*</code></td><td>2.6 KB</td><td>Whether the mailbox exists</td></tr>
-<tr><td>Kubernetes label name (DNS-1123 label)</td><td><code>[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?</code></td><td>1.8 KB</td><td>—</td></tr>
-<tr><td>Kubernetes resource name (DNS-1123 subdomain)</td><td><code>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*</code></td><td>1.0 KB</td><td>253-character total length</td></tr>
-<tr><td>Environment variable name</td><td><code>[A-Za-z_][A-Za-z0-9_]*</code></td><td>1.0 KB</td><td>—</td></tr>
-<tr><td>Git object ID (SHA-1 or SHA-256)</td><td><code>[0-9a-f]{40}([0-9a-f]{24})?</code></td><td>1.1 KB</td><td>That the object exists</td></tr>
-<tr><td>Docker image tag</td><td><code>[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}</code></td><td>1.8 KB</td><td>—</td></tr>
-<tr><td>Unicode username</td><td><code>\p{L}(\p{L}|\p{Nd}|[_.-])*</code></td><td>147 KB</td><td>Length, confusable characters</td></tr>
+<tr><td>UUID</td><td><code>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}</code></td><td>1.1 KB</td><td>Same</td><td>Version and variant bits</td></tr>
+<tr><td>Semantic version 2.0.0</td><td><code>(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\+[0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*)?</code></td><td>995 B</td><td>1.1 KB</td><td>—</td></tr>
+<tr><td>URL slug</td><td><code>[a-z0-9]+(-[a-z0-9]+)*</code></td><td>487 B</td><td>956 B</td><td>Length</td></tr>
+<tr><td>Hex color</td><td><code>#([0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})</code></td><td>773 B</td><td>980 B</td><td>—</td></tr>
+<tr><td>ISO 8601 calendar date</td><td><code>[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])</code></td><td>715 B</td><td>1.1 KB</td><td>Days per month, so <code>2025-02-31</code> passes</td></tr>
+<tr><td>IPv4 address</td><td><code>((25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])\.){3}(25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9]?[0-9])</code></td><td>1.1 KB</td><td>Same</td><td>—</td></tr>
+<tr><td>Hostname (RFC 1123)</td><td><code>[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*</code></td><td>2.0 KB</td><td>Same</td><td>253-character total length</td></tr>
+<tr><td>Email address (HTML <code>type=email</code>)</td><td><code>[A-Za-z0-9.!#$%&amp;'*+/=?^_`{|}~-]+@[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*</code></td><td>2.5 KB</td><td>Same</td><td>Whether the mailbox exists</td></tr>
+<tr><td>Kubernetes label name (DNS-1123 label)</td><td><code>[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?</code></td><td>1.7 KB</td><td>Same</td><td>—</td></tr>
+<tr><td>Kubernetes resource name (DNS-1123 subdomain)</td><td><code>[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*</code></td><td>534 B</td><td>963 B</td><td>253-character total length</td></tr>
+<tr><td>Environment variable name</td><td><code>[A-Za-z_][A-Za-z0-9_]*</code></td><td>504 B</td><td>956 B</td><td>—</td></tr>
+<tr><td>Git object ID (SHA-1 or SHA-256)</td><td><code>[0-9a-f]{40}([0-9a-f]{24})?</code></td><td>1.1 KB</td><td>Same</td><td>That the object exists</td></tr>
+<tr><td>Docker image tag</td><td><code>[a-zA-Z0-9_][a-zA-Z0-9_.-]{0,127}</code></td><td>1.7 KB</td><td>Same</td><td>—</td></tr>
+<tr><td>Unicode username</td><td><code>\p{L}(\p{L}|\p{Nd}|[_.-])*</code></td><td>21.5 KB</td><td>147 KB</td><td>Length, confusable characters</td></tr>
 </tbody>
 </table>
 
@@ -75,10 +77,10 @@ The HTML email and Kubernetes patterns are the ones those specifications
 publish. The HTML pattern accepts `a@b` and rejects quoted local parts and
 internationalized domain names, as browsers do.
 
-The Unicode username module is more than 100 times the size of the others.
-The generated table works on UTF-8 bytes, so it needs states for the partly
-read bytes of every letter and digit in Unicode 17. Use `\p{..}` only when you
-need it.
+The Unicode username module is 10 to 40 times the size of the others, and
+147 KB as a table. The validator works on UTF-8 bytes, so it needs states for
+the partly read bytes of every letter and digit in Unicode 17. Use `\p{..}`
+only when you need it.
 
 ## Speed compared with the browser's RegExp
 
@@ -86,7 +88,8 @@ The benchmark checks the same text with the generated validator and with the
 browser's built-in `RegExp`. Each I-Regexp becomes `new RegExp("^(?:…)$", "u")`
 with the [RFC 9485 §5.3](https://www.rfc-editor.org/rfc/rfc9485#section-5.3)
 mapping. Before it times anything, the page confirms that both engines agree
-on every sample.
+on every sample. It compiles every validator with `prefer_table=1`, the
+encoding the recorded results were measured with.
 
 It has three parts:
 
@@ -165,6 +168,44 @@ nor running its validator can blow up.
 Other browsers have different regular expression engines, so run the
 benchmark in the browsers you support.
 
+## Smaller code or a table
+
+The compiler can write the state machine into the module in two ways. As a
+table, `render` looks up each byte's group in a 256-byte map and then looks
+up the next state in the table. As code, `render` jumps to the current state's
+code with `br_table`. That code compares the byte with the ranges that state
+accepts, using `select` rather than branches. Both run the same minimized
+state machine, so they accept the same text and reject at the same offsets.
+
+By default the compiler measures both modules and writes the smaller one, so
+7 of the 14 ready-made patterns compile to code. Patterns with long counted
+repeats, such as the hostname's `{0,61}`, need one state per position, and
+there the table is smaller. Set the `prefer_table` uniform to always get a
+table:
+
+```sh
+printf '[a-z0-9]+(-[a-z0-9]+)*' | qip run -o slug.wasm text/i-regexp-to-wasm.wasm -u prefer_table=1
+```
+
+The smaller module is often the slower one. In Node 26 on an Apple M5, with
+UTF-8 bytes in:
+
+| | Code (default) | Table (`prefer_table=1`) |
+|---|---|---|
+| URL slug, `my-first-blog-post` | 32 ns, 487 B | 21 ns, 956 B |
+| Unicode username, `Zoë_Ångström.42` | 96 ns, 21.5 KB | 21 ns, 147 KB |
+| 1 MiB of lowercase words | 1.9 GB/s, 445 B | 3.5 GB/s, 951 B |
+| 1 MiB of Base64 | 1.0 GB/s, 649 B | 3.5 GB/s, 968 B |
+| 1 MiB of Unicode letters and spaces | 269 MB/s, 15.4 KB | 676 MB/s, 58.3 KB |
+
+Each value is the best of several rounds. The code jumps through `br_table`
+on every byte and evaluates every range test of the current state. The table
+does two loads per byte, whatever the pattern. Use the default for modules
+that you ship to browsers or store in many places. Set `prefer_table=1` for
+validators that check a lot of text. The name describes what it does, not a
+speed promise: a large table can miss the CPU cache, so measure on the
+machines you care about.
+
 ## Compared with a hand-written validator
 
 [`validate-hostname.wasm`](/text/validate-hostname.wasm) is a hand-written
@@ -177,7 +218,7 @@ profile, loop and output-size checks.
 
 | | Hand-written | Generated from the preset |
 |---|---|---|
-| Module size | 397 B | 2,066 B |
+| Module size | 397 B | 1,956 B |
 | `localhost` (9 B) | 11 ns | 12–13 ns |
 | `api.example.com` (15 B) | 18 ns | 17 ns |
 | Kubernetes service name (52 B) | 39–41 ns | 35–37 ns |
@@ -186,7 +227,7 @@ profile, loop and output-size checks.
 These are bytes-in times per call in Node 26 on an Apple M5, including the
 copy into Wasm memory. They are the range of two runs, each the median of 7.
 
-- **Size: the generated module is 5 times larger.** Most of the 2 KB is the
+- **Size: the generated module is 5 times larger.** Nearly all of the 2 KB is the
   256-byte class map and the transition table. The `{0,61}` repeat unrolls
   into one state per label position. The hand-written module keeps a label
   counter instead and compares byte ranges in code.
@@ -220,8 +261,8 @@ results, including offsets. A JavaScript `RegExp`, a Go `regexp` and a
 Python `re` can disagree on the same pattern. RFC 9485 exists to give one
 pattern one meaning.
 
-Each validator also keeps its source pattern in a custom section named
-`qip.i-regexp`, so you can see which pattern a `.wasm` file checks.
+Add `-u prefer_table=1` after the compiler to always get a transition table
+(see [above](#smaller-code-or-a-table)).
 
 ## When not to use this
 
@@ -340,7 +381,9 @@ function callRender(exports, bytes) {
 }
 
 // Returns { bytes } or { offset, mode } where mode is "syntax" or "too large".
-function compile(pattern) {
+// preferTable sets the compiler's prefer_table uniform for this one render.
+function compile(pattern, preferTable = false) {
+  if (preferTable) compiler.uniform_set_prefer_table(1);
   const r = callRender(compiler, encoder.encode(pattern));
   if (r.failed) return { offset: r.detail >> 1, mode: r.detail & 1 ? "too large" : "syntax" };
   return { bytes: r.bytes.slice() };
@@ -405,6 +448,23 @@ function toJsRegExp(pattern) {
   return new RegExp(`^(?:${out})$`, "u");
 }
 
+// A table module has a data section (id 11); a code module has none.
+function encodingOf(bytes) {
+  let at = 8;
+  while (at < bytes.length) {
+    const id = bytes[at++];
+    let size = 0;
+    for (let shift = 0; ; shift += 7) {
+      const b = bytes[at++];
+      size |= (b & 0x7f) << shift;
+      if (!(b & 0x80)) break;
+    }
+    if (id === 11) return "a table";
+    at += size;
+  }
+  return "code";
+}
+
 function formatBytes(n) {
   return n < 1000 ? `${n} B` : `${(n / 1000).toFixed(n < 10000 ? 2 : 1)} KB`;
 }
@@ -419,6 +479,7 @@ const presetSelect = document.querySelector("#regex-preset");
 const patternInput = document.querySelector("#regex-pattern");
 const textInput = document.querySelector("#regex-text");
 const compileStatus = document.querySelector("#regex-compile-status");
+const preferTableInput = document.querySelector("#regex-prefer-table");
 const verdict = document.querySelector("#regex-verdict");
 
 presetSelect.append(new Option("Custom pattern", ""));
@@ -432,7 +493,7 @@ function compilePattern() {
   current = null;
   if (downloadURL) URL.revokeObjectURL(downloadURL);
   downloadURL = null;
-  const result = compile(pattern);
+  const result = compile(pattern, preferTableInput.checked);
   if (!result.bytes) {
     const at = decoder.decode(encoder.encode(pattern).subarray(0, result.offset)).length;
     compileStatus.innerHTML = result.mode === "syntax"
@@ -446,7 +507,7 @@ function compilePattern() {
   current = { validator: validator(result.bytes), js };
   downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: "application/wasm" }));
   const name = (presetSelect.value || "i-regexp") + ".wasm";
-  compileStatus.innerHTML = `<span>Compiled to ${formatBytes(result.bytes.length)}.</span> <a href="${downloadURL}" download="${name}">Download ${name}</a>`;
+  compileStatus.innerHTML = `<span>Compiled to ${formatBytes(result.bytes.length)} as ${encodingOf(result.bytes)}.</span> <a href="${downloadURL}" download="${name}">Download ${name}</a>`;
   checkText();
 }
 
@@ -492,6 +553,7 @@ patternInput.addEventListener("input", () => {
   compilePattern();
 });
 textInput.addEventListener("input", checkText);
+preferTableInput.addEventListener("change", compilePattern);
 presetSelect.value = "semver";
 choosePreset();
 
@@ -530,7 +592,7 @@ async function benchShort(progress) {
   const rows = [];
   for (const preset of PRESETS) {
     progress(`Short strings: ${preset.name}`);
-    const v = validator(compile(preset.pattern).bytes);
+    const v = validator(compile(preset.pattern, true).bytes);
     const re = toJsRegExp(preset.pattern);
     const samples = [...preset.good, ...preset.bad];
     const sampleBytes = samples.map((s) => encoder.encode(s));
@@ -556,7 +618,7 @@ async function benchLong(progress) {
     const unitBytes = encoder.encode(test.unit).length;
     const text = test.unit.repeat(Math.floor((1 << 20) / unitBytes)) + (test.tail ?? "");
     const bytes = encoder.encode(text);
-    const v = validator(compile(test.pattern).bytes);
+    const v = validator(compile(test.pattern, true).bytes);
     const re = toJsRegExp(test.pattern);
     if (!v.testString(text) || !v.testBytes(bytes) || !re.test(text)) throw Error(`${test.name}: an engine rejected the long text.`);
     const mbps = (ms) => bytes.length / 1e6 / (ms / 1000);
@@ -598,7 +660,7 @@ function benchBacktrackRegExp(progress) {
 }
 
 async function benchBacktrack(progress) {
-  const v = validator(compile(BACKTRACK.pattern).bytes);
+  const v = validator(compile(BACKTRACK.pattern, true).bytes);
   const wasm = new Map();
   for (const n of BACKTRACK.lengths) {
     const text = BACKTRACK.char.repeat(n) + BACKTRACK.tail;

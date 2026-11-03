@@ -19,12 +19,22 @@
 //!
 //! How it works: the pattern becomes a Thompson NFA over UTF-8 bytes, subset
 //! construction turns that NFA into a DFA over byte classes, and partition
-//! refinement minimizes the DFA. The generated `render` makes one table lookup
-//! per input byte, so its time is linear in the text and independent of the
-//! pattern. It stops at the first byte after which no match is possible.
-//! There is no backtracking, so no pattern can make matching slow. The
-//! generated module passes wasm-strict-profile, wasm-bounded-loops and
-//! wasm-bounded-output. A `qip.i-regexp` custom section holds the pattern.
+//! refinement minimizes the DFA. The generated `render` takes one DFA step
+//! per input byte, so its time is linear in the text. It stops at the first
+//! byte after which no match is possible. There is no backtracking, so no
+//! pattern can make matching slow. The generated module passes
+//! wasm-strict-profile, wasm-bounded-loops and wasm-bounded-output. The
+//! module does not record its source pattern: a recorded pattern could not
+//! be trusted to describe what the module checks, and it would cost bytes.
+//!
+//! The DFA is emitted in one of two encodings. The table encoding stores a
+//! 256-byte class map and a transition table in a data section, and each step
+//! is two loads. The code encoding dispatches on the state with br_table and
+//! picks the next state with compares and `select`, with no data section.
+//! By default the compiler measures both modules with counting passes and
+//! emits the smaller, with ties going to the table. The `prefer_table`
+//! uniform (0 or 1, default 0) always emits the table, which costs the same
+//! per byte for every pattern and is often faster, though not always.
 //!
 //! The cost moves to compile time. A DFA can need exponentially more states
 //! than its pattern has characters, as in `(a|b)*a(a|b){20}`. Such patterns
@@ -63,6 +73,9 @@ const RUN_INPUT_CAP: u32 = 4 * 1024 * 1024;
 const RUN_MAP_PTR: u32 = 0;
 const RUN_TABLE_PTR: u32 = 512;
 const PAGE: u32 = 64 * 1024;
+// The code encoding nests one block per state; above this many states it is
+// never considered, as the table is smaller by then anyway.
+const MAX_CODE_STATES: u32 = 4096;
 
 var input_buf: [INPUT_CAP]u8 = undefined;
 var output_buf: [OUTPUT_CAP]u8 = undefined;
@@ -932,17 +945,28 @@ fn finalize(dfa: Dfa) CompileError!Final {
 // ---------------------------------------------------------------------------
 // Module assembly
 
+// With `counting` set, a Buf writes nothing and only advances `len`, so the
+// emitters can measure a module's exact size before writing it.
 const Buf = struct {
     bytes: []u8,
     len: usize = 0,
+    counting: bool = false,
 
     fn byte(self: *Buf, b: u8) CompileError!void {
+        if (self.counting) {
+            self.len += 1;
+            return;
+        }
         if (self.len >= self.bytes.len) return fail(0, .too_large);
         self.bytes[self.len] = b;
         self.len += 1;
     }
 
     fn raw(self: *Buf, data: []const u8) CompileError!void {
+        if (self.counting) {
+            self.len += data.len;
+            return;
+        }
         if (self.len + data.len > self.bytes.len) return fail(0, .too_large);
         @memcpy(self.bytes[self.len..][0..data.len], data);
         self.len += data.len;
@@ -987,6 +1011,7 @@ const Buf = struct {
     }
 
     fn endSize(self: *Buf, at: usize) void {
+        if (self.counting) return;
         var size: u32 = @intCast(self.len - at - 5);
         for (0..5) |i| {
             const b: u8 = @truncate(size & 0x7f);
@@ -1014,7 +1039,18 @@ fn emitGetter(w: *Buf, value: u32) CompileError!void {
     w.endSize(at);
 }
 
-fn emitModule(f: Final, pattern: []const u8) CompileError!usize {
+const Encoding = enum { table, code };
+
+// The table layout: entry width, row size, and where the input region starts.
+const TableLayout = struct {
+    width: u32,
+    row_size: u32,
+    table_size: u32,
+    wide_map: bool,
+    run_input_ptr: u32,
+};
+
+fn tableLayout(f: Final) CompileError!TableLayout {
     // Entry width: rows are stored premultiplied as byte offsets into the
     // table, so the loop adds the class offset and loads the next row.
     const row_bytes_1 = @as(u64, f.classes);
@@ -1022,12 +1058,35 @@ fn emitModule(f: Final, pattern: []const u8) CompileError!usize {
     const row_size: u32 = f.classes * width;
     const table_size: u32 = f.states * row_size;
     if (table_size > TABLE_CAP) return fail(0, .too_large);
-    // The class map holds class * width; u8 entries when they fit.
-    const wide_map = (f.classes - 1) * width > 0xFF;
-    const run_input_ptr = std.mem.alignForward(u32, RUN_TABLE_PTR + table_size, PAGE);
+    return .{
+        .width = width,
+        .row_size = row_size,
+        .table_size = table_size,
+        // The class map holds class * width; u8 entries when they fit.
+        .wide_map = (f.classes - 1) * width > 0xFF,
+        .run_input_ptr = std.mem.alignForward(u32, RUN_TABLE_PTR + table_size, PAGE),
+    };
+}
+
+// Picks the encoding to emit. With prefer_table set it is always the table.
+// Otherwise both modules are measured with counting passes and the smaller
+// one wins, with ties going to the table.
+fn chooseEncoding(f: Final, table_only: bool) CompileError!Encoding {
+    if (table_only or f.states > MAX_CODE_STATES) return .table;
+    var table = Buf{ .bytes = &.{}, .counting = true };
+    try emitModule(&table, f, .table);
+    try spend(@as(u64, f.states) * 256);
+    var code = Buf{ .bytes = &.{}, .counting = true };
+    try emitModule(&code, f, .code);
+    return if (code.len < table.len) .code else .table;
+}
+
+fn emitModule(w: *Buf, f: Final, encoding: Encoding) CompileError!void {
+    const layout = try tableLayout(f);
+    // The code encoding has no data, so its input starts at address 0.
+    const run_input_ptr = if (encoding == .table) layout.run_input_ptr else 0;
     const pages = (run_input_ptr + RUN_INPUT_CAP) / PAGE;
 
-    var w = Buf{ .bytes = &output_buf };
     try w.raw(&.{ 0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00 });
 
     try w.byte(1); // type section
@@ -1063,89 +1122,70 @@ fn emitModule(f: Final, pattern: []const u8) CompileError!usize {
     try w.byte(10); // code section
     at = try w.beginSize();
     try w.uleb(5);
-    try emitGetter(&w, run_input_ptr);
-    try emitGetter(&w, RUN_INPUT_CAP);
-    try emitGetter(&w, RUN_INPUT_CAP);
-    try emitGetter(&w, 1);
-    try emitRender(&w, f, width, row_size, wide_map, run_input_ptr);
+    try emitGetter(w, run_input_ptr);
+    try emitGetter(w, RUN_INPUT_CAP);
+    try emitGetter(w, RUN_INPUT_CAP);
+    try emitGetter(w, 1);
+    switch (encoding) {
+        .table => try emitTableRender(w, f, layout),
+        .code => try emitCodeRender(w, f),
+    }
     w.endSize(at);
 
-    try w.byte(11); // data section: class map and transition table
-    at = try w.beginSize();
-    try w.raw(&.{ 1, 0 });
-    try w.i32Const(RUN_MAP_PTR);
-    try w.byte(0x0b);
-    try w.uleb(RUN_TABLE_PTR + table_size);
-    var map_bytes: [RUN_TABLE_PTR]u8 = @splat(0);
-    for (f.map, 0..) |c, b| {
-        const v: u32 = @as(u32, c) * width;
-        if (wide_map) {
-            std.mem.writeInt(u16, map_bytes[b * 2 ..][0..2], @intCast(v), .little);
+    if (encoding == .table) {
+        try w.byte(11); // data section: class map and transition table
+        at = try w.beginSize();
+        try w.raw(&.{ 1, 0 });
+        try w.i32Const(RUN_MAP_PTR);
+        try w.byte(0x0b);
+        try w.uleb(RUN_TABLE_PTR + layout.table_size);
+        var map_bytes: [RUN_TABLE_PTR]u8 = @splat(0);
+        for (f.map, 0..) |c, b| {
+            const v: u32 = @as(u32, c) * layout.width;
+            if (layout.wide_map) {
+                std.mem.writeInt(u16, map_bytes[b * 2 ..][0..2], @intCast(v), .little);
+            } else {
+                map_bytes[b] = @intCast(v);
+            }
+        }
+        try w.raw(&map_bytes);
+        if (w.counting) {
+            w.len += layout.table_size;
         } else {
-            map_bytes[b] = @intCast(v);
+            if (w.len + layout.table_size > w.bytes.len) return fail(0, .too_large);
+            for (f.trans) |t| {
+                const v = t * layout.row_size;
+                switch (layout.width) {
+                    1 => w.bytes[w.len] = @intCast(v),
+                    2 => std.mem.writeInt(u16, w.bytes[w.len..][0..2], @intCast(v), .little),
+                    else => std.mem.writeInt(u32, w.bytes[w.len..][0..4], v, .little),
+                }
+                w.len += layout.width;
+            }
         }
+        w.endSize(at);
     }
-    try w.raw(&map_bytes);
-    if (w.len + table_size > w.bytes.len) return fail(0, .too_large);
-    for (f.trans) |t| {
-        const v = t * row_size;
-        switch (width) {
-            1 => w.bytes[w.len] = @intCast(v),
-            2 => std.mem.writeInt(u16, w.bytes[w.len..][0..2], @intCast(v), .little),
-            else => std.mem.writeInt(u32, w.bytes[w.len..][0..4], v, .little),
-        }
-        w.len += width;
-    }
-    w.endSize(at);
-
-    try w.byte(0); // custom section: the source pattern
-    at = try w.beginSize();
-    try w.name("qip.i-regexp");
-    try w.raw(pattern);
-    w.endSize(at);
-
-    return w.len;
 }
 
-// render(n): locals 1 = i, 2 = row, 3 = size or failure offset, 4 = high word.
-fn emitRender(w: *Buf, f: Final, width: u32, row_size: u32, wide_map: bool, run_input_ptr: u32) CompileError!void {
-    const at = try w.beginSize();
-    try w.raw(&.{ 1, 4, 0x7f });
+// The input-cap guard at the start of both render bodies.
+fn emitInputGuard(w: *Buf) CompileError!void {
     // A host that exceeds the input capacity violates the contract.
     try w.raw(&.{ 0x20, 0 });
     try w.i32Const(RUN_INPUT_CAP);
     try w.raw(&.{ 0x4b, 0x04, 0x40, 0x00, 0x0b }); // i32.gt_u if unreachable end
-    try w.i32Const(f.start * row_size);
-    try w.raw(&.{ 0x21, 2 });
-    // block loop: i >= n exits; row = table[row + map[input[i]]]; row == 0
-    // (dead) exits with i < n; i += 1.
-    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
-    try w.raw(&.{ 0x20, 1, 0x20, 0, 0x4f, 0x0d, 1 }); // i >= n: br_if 1
-    try w.raw(&.{ 0x20, 2, 0x20, 1 });
-    try w.load(OP_LOAD8_U, 0, run_input_ptr);
-    if (wide_map) {
-        try w.raw(&.{ 0x41, 1, 0x74 }); // i32.const 1 i32.shl
-        try w.load(OP_LOAD16_U, 1, RUN_MAP_PTR);
-    } else {
-        try w.load(OP_LOAD8_U, 0, RUN_MAP_PTR);
-    }
-    try w.byte(0x6a); // i32.add
-    switch (width) {
-        1 => try w.load(OP_LOAD8_U, 0, RUN_TABLE_PTR),
-        2 => try w.load(OP_LOAD16_U, 1, RUN_TABLE_PTR),
-        else => try w.load(OP_LOAD32, 2, RUN_TABLE_PTR),
-    }
-    try w.raw(&.{ 0x22, 2, 0x45, 0x0d, 1 }); // local.tee row i32.eqz br_if 1
-    try w.raw(&.{ 0x20, 1, 0x41, 1, 0x6a, 0x21, 1 }); // i += 1
-    try w.raw(&.{ 0x0c, 0, 0x0b, 0x0b }); // br 0 end end
+}
 
+// The shared epilogue. Expects local 1 = i and local `state` = the final
+// state (a row offset for the table, an index for code), with `accept_at`
+// the first accepting value in the same units.
+fn emitEpilogue(w: *Buf, state: u8, accept_at: u32, run_input_ptr: u32) CompileError!void {
     // Success: size = n, high word = input pointer.
     try w.raw(&.{ 0x20, 0, 0x21, 3 });
     try w.i32Const(run_input_ptr);
     try w.raw(&.{ 0x21, 4 });
-    // row < accept_from: reject at i, backed up to its code point's first byte.
-    try w.raw(&.{ 0x20, 2 });
-    try w.i32Const(f.accept_from * row_size);
+    // state < accept_at: reject at i, backed up to its code point's first byte.
+    try w.raw(&.{ 0x20, state });
+    try w.i32Const(accept_at);
     try w.raw(&.{ 0x49, 0x04, 0x40 }); // i32.lt_u if
     try w.i32Const(0x80000000);
     try w.raw(&.{ 0x21, 4, 0x20, 1, 0x21, 3 });
@@ -1162,6 +1202,152 @@ fn emitRender(w: *Buf, f: Final, width: u32, row_size: u32, wide_map: bool, run_
     try w.i32Const(RUN_INPUT_CAP);
     try w.raw(&.{ 0x4b, 0x04, 0x40, 0x00, 0x0b });
     try w.raw(&.{ 0x20, 4, 0xad, 0x42, 32, 0x86, 0x20, 3, 0xad, 0x84, 0x0b });
+}
+
+// The code encoding's render(n): locals 1 = i, 2 = state, 3 = size or
+// failure offset, 4 = high word, 5 = the current byte. Each iteration
+// dispatches on the state with br_table. Each state's case starts from its
+// most common next state and, for every other next state, uses `select` to
+// replace it when the byte falls in that state's byte ranges. The cases have
+// no branches of their own, and the loop has the same counter and exit as
+// the table encoding.
+fn emitCodeRender(w: *Buf, f: Final) CompileError!void {
+    const at = try w.beginSize();
+    try w.raw(&.{ 1, 5, 0x7f });
+    try emitInputGuard(w);
+    try w.i32Const(f.start);
+    try w.raw(&.{ 0x21, 2 });
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 }); // block loop
+    try w.raw(&.{ 0x20, 1, 0x20, 0, 0x4f, 0x0d, 1 }); // i >= n: br_if 1
+    try w.raw(&.{ 0x20, 1 });
+    try w.load(OP_LOAD8_U, 0, 0);
+    try w.raw(&.{ 0x21, 5 });
+    // One block for the switch's exit, then one per state.
+    const k = f.states;
+    try w.raw(&.{ 0x02, 0x40 });
+    for (0..k) |_| try w.raw(&.{ 0x02, 0x40 });
+    try w.raw(&.{ 0x20, 2, 0x0e });
+    try w.uleb(k - 1);
+    for (0..k - 1) |s| try w.uleb(s);
+    try w.uleb(k - 1);
+    for (0..k) |s| {
+        try w.byte(0x0b); // end of state s's block: its case follows
+        try emitCase(w, f, @intCast(s));
+        try w.raw(&.{ 0x21, 2 });
+        if (s + 1 < k) {
+            try w.byte(0x0c); // br to the switch's exit
+            try w.uleb(k - 1 - s);
+        }
+    }
+    try w.byte(0x0b); // end of the switch
+    try w.raw(&.{ 0x20, 2, 0x45, 0x0d, 1 }); // state == 0 (dead): br_if 1
+    try w.raw(&.{ 0x20, 1, 0x41, 1, 0x6a, 0x21, 1 }); // i += 1
+    try w.raw(&.{ 0x0c, 0, 0x0b, 0x0b }); // br 0 end end
+    try emitEpilogue(w, 2, f.accept_from, 0);
+    w.endSize(at);
+}
+
+// Pushes state s's next state for the byte in local 5.
+fn emitCase(w: *Buf, f: Final, s: u32) CompileError!void {
+    var next: [256]u32 = undefined;
+    for (0..256) |b| next[b] = f.trans[s * f.classes + f.map[b]];
+    // The next state covering the most bytes is the starting value.
+    var targets: [256]u32 = undefined;
+    var counts: [256]u32 = undefined;
+    var distinct: usize = 0;
+    for (next) |t| {
+        const i = std.mem.indexOfScalar(u32, targets[0..distinct], t) orelse blk: {
+            targets[distinct] = t;
+            counts[distinct] = 0;
+            distinct += 1;
+            break :blk distinct - 1;
+        };
+        counts[i] += 1;
+    }
+    var best: u32 = targets[0];
+    var best_count: u32 = 0;
+    for (targets[0..distinct], counts[0..distinct]) |t, c| {
+        if (c > best_count) {
+            best = t;
+            best_count = c;
+        }
+    }
+    try w.i32Const(best);
+    // Every other next state, in byte order of first appearance.
+    var done: [256]bool = @splat(false);
+    for (0..256) |b0| {
+        const t = next[b0];
+        if (t == best or done[b0]) continue;
+        try w.i32Const(t);
+        // Condition: the byte is outside every range that leads to t, ANDed
+        // over the ranges, so `select` keeps the value below it.
+        var ranges: u32 = 0;
+        var b: usize = b0;
+        while (b < 256) {
+            if (next[b] != t) {
+                b += 1;
+                continue;
+            }
+            const lo = b;
+            while (b < 256 and next[b] == t) : (b += 1) done[b] = true;
+            const hi = b - 1;
+            try w.raw(&.{ 0x20, 5 });
+            if (lo == hi) {
+                try w.i32Const(@intCast(lo));
+                try w.byte(0x47); // i32.ne
+            } else if (lo == 0) {
+                try w.i32Const(@intCast(hi));
+                try w.byte(0x4b); // i32.gt_u
+            } else if (hi == 255) {
+                try w.i32Const(@intCast(lo));
+                try w.byte(0x49); // i32.lt_u
+            } else {
+                try w.i32Const(@intCast(lo));
+                try w.byte(0x6b); // i32.sub
+                try w.i32Const(@intCast(hi - lo));
+                try w.byte(0x4b); // i32.gt_u
+            }
+            if (ranges > 0) try w.byte(0x71); // i32.and
+            ranges += 1;
+        }
+        try w.byte(0x1b); // select
+    }
+}
+
+// The table encoding's render(n): locals 1 = i, 2 = row, 3 = size or
+// failure offset, 4 = high word.
+fn emitTableRender(w: *Buf, f: Final, layout: TableLayout) CompileError!void {
+    const width = layout.width;
+    const row_size = layout.row_size;
+    const run_input_ptr = layout.run_input_ptr;
+    const at = try w.beginSize();
+    try w.raw(&.{ 1, 4, 0x7f });
+    try emitInputGuard(w);
+    try w.i32Const(f.start * row_size);
+    try w.raw(&.{ 0x21, 2 });
+    // block loop: i >= n exits; row = table[row + map[input[i]]]; row == 0
+    // (dead) exits with i < n; i += 1.
+    try w.raw(&.{ 0x02, 0x40, 0x03, 0x40 });
+    try w.raw(&.{ 0x20, 1, 0x20, 0, 0x4f, 0x0d, 1 }); // i >= n: br_if 1
+    try w.raw(&.{ 0x20, 2, 0x20, 1 });
+    try w.load(OP_LOAD8_U, 0, run_input_ptr);
+    if (layout.wide_map) {
+        try w.raw(&.{ 0x41, 1, 0x74 }); // i32.const 1 i32.shl
+        try w.load(OP_LOAD16_U, 1, RUN_MAP_PTR);
+    } else {
+        try w.load(OP_LOAD8_U, 0, RUN_MAP_PTR);
+    }
+    try w.byte(0x6a); // i32.add
+    switch (width) {
+        1 => try w.load(OP_LOAD8_U, 0, RUN_TABLE_PTR),
+        2 => try w.load(OP_LOAD16_U, 1, RUN_TABLE_PTR),
+        else => try w.load(OP_LOAD32, 2, RUN_TABLE_PTR),
+    }
+    try w.raw(&.{ 0x22, 2, 0x45, 0x0d, 1 }); // local.tee row i32.eqz br_if 1
+    try w.raw(&.{ 0x20, 1, 0x41, 1, 0x6a, 0x21, 1 }); // i += 1
+    try w.raw(&.{ 0x0c, 0, 0x0b, 0x0b }); // br 0 end end
+
+    try emitEpilogue(w, 2, f.accept_from * row_size, run_input_ptr);
     w.endSize(at);
 }
 
@@ -1181,11 +1367,24 @@ fn compile(src: []const u8) CompileError!usize {
     computeClasses();
     const dfa = try determinize(start);
     const f = try finalize(dfa);
-    return emitModule(f, src);
+    const encoding = try chooseEncoding(f, prefer_table);
+    var w = Buf{ .bytes = &output_buf };
+    try emitModule(&w, f, encoding);
+    return w.len;
 }
 
 // ---------------------------------------------------------------------------
 // QIP exports
+
+// Uniform `prefer_table`: 0 (the default) emits whichever encoding gives the
+// smaller module; 1 always emits the transition table. Like every content
+// uniform it applies to one render.
+var prefer_table: bool = false;
+
+export fn uniform_set_prefer_table(value: u32) u32 {
+    prefer_table = value != 0;
+    return @intFromBool(prefer_table);
+}
 
 export fn input_ptr() u32 {
     return @intCast(@intFromPtr(&input_buf));
@@ -1213,6 +1412,7 @@ export fn failure_modes_per_input_offset() u32 {
 
 export fn render(input_size: u32) RenderResult {
     if (input_size > INPUT_CAP) @trap();
+    defer prefer_table = false;
     const size = compile(input_buf[0..input_size]) catch {
         return .{
             .output_size_or_failure = fail_offset * FAILURE_MODES + @intFromEnum(fail_mode),

@@ -31,14 +31,33 @@ function callRender(exports, bytes) {
 }
 
 // Compiles a pattern; returns the module bytes, or { offset, mode } on rejection.
-function compile(pattern) {
+function compile(pattern, { preferTable = false } = {}) {
+  if (preferTable) assert.equal(compiler.uniform_set_prefer_table(1), 1);
   const r = callRender(compiler, encoder.encode(pattern));
   if (r.failed) return { offset: r.detail >> 1, mode: r.detail & 1 ? "too_large" : "syntax" };
   return { bytes: r.bytes };
 }
 
-function matcher(pattern) {
-  const c = compile(pattern);
+// "table" when the module has a data section (the class map and transition
+// table), "code" when the transitions are compiled into render.
+function encodingOf(bytes) {
+  let at = 8;
+  while (at < bytes.length) {
+    const id = bytes[at++];
+    let size = 0;
+    for (let shift = 0; ; shift += 7) {
+      const b = bytes[at++];
+      size |= (b & 0x7f) << shift;
+      if (!(b & 0x80)) break;
+    }
+    if (id === 11) return "table";
+    at += size;
+  }
+  return "code";
+}
+
+function matcher(pattern, options) {
+  const c = compile(pattern, options);
   assert.ok(c.bytes, `${JSON.stringify(pattern)} should compile, got ${JSON.stringify(c)}`);
   const exports = new WebAssembly.Instance(new WebAssembly.Module(c.bytes)).exports;
   return (text) => {
@@ -78,22 +97,56 @@ test("rejection offsets point at the first byte of the code point", () => {
 });
 
 test("generated modules pass the strict profile, loop and output proofs", async () => {
-  // u8 rows, u16 rows with a u8 class map, and u32 rows with a u16 class map.
-  for (const pattern of ["", "a", ".*", "[a-z]{2,8}(-[a-z0-9]+)*", "(.{0,5}x){3}", "[^ab]{300}", "\\p{L}+\\P{N}"]) {
-    const c = compile(pattern);
-    assert.ok(c.bytes, pattern);
-    await checkStrict(c.bytes);
+  // u8 rows, u16 rows with a u8 class map, and u32 rows with a u16 class map,
+  // then the same patterns with whichever encoding is smaller. The last two
+  // match nothing, so their start state is the dead state.
+  const patterns = ["", "a", ".*", "[a-z]{2,8}(-[a-z0-9]+)*", "(.{0,5}x){3}", "[^ab]{300}", "\\p{L}+\\P{N}", "[^\\p{L}\\P{L}]", "[^\\p{L}\\P{L}]*a"];
+  for (const preferTable of [true, false]) {
+    for (const pattern of patterns) {
+      const c = compile(pattern, { preferTable });
+      assert.ok(c.bytes, pattern);
+      if (preferTable) assert.equal(encodingOf(c.bytes), "table", pattern);
+      await checkStrict(c.bytes);
+    }
   }
 });
 
-test("output is deterministic and records the pattern", () => {
+test("the smaller encoding is the default and prefer_table forces the table", () => {
+  for (const pattern of ["[a-z ]*", "[a-z0-9]+(-[a-z0-9]+)*", "\\p{L}(\\p{L}|\\p{Nd}|[_.-])*", "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}", "[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?"]) {
+    const smaller = compile(pattern).bytes;
+    const table = compile(pattern, { preferTable: true }).bytes;
+    assert.equal(encodingOf(table), "table", pattern);
+    assert.ok(smaller.length <= table.length, pattern);
+    if (smaller.length < table.length) assert.equal(encodingOf(smaller), "code", pattern);
+    else assert.deepEqual(smaller, table, pattern);
+  }
+  assert.equal(encodingOf(compile("[a-z ]*").bytes), "code");
+  assert.equal(encodingOf(compile("[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?").bytes), "table");
+  // Like every content uniform, prefer_table applies to one render only, and
+  // a rejected pattern resets it too.
+  compile("[a-z ]*", { preferTable: true });
+  assert.equal(encodingOf(compile("[a-z ]*").bytes), "code");
+  assert.equal(compile("[^]", { preferTable: true }).mode, "syntax");
+  assert.equal(encodingOf(compile("[a-z ]*").bytes), "code");
+  assert.equal(compiler.uniform_set_prefer_table(7), 1);
+  assert.equal(compiler.uniform_set_prefer_table(0), 0);
+});
+
+test("output is deterministic and has no custom sections", () => {
   const pattern = "(\\p{L}|[0-9_])+";
   const a = compile(pattern).bytes;
   const b = compile(pattern).bytes;
   assert.deepEqual(a, b);
-  const sections = WebAssembly.Module.customSections(new WebAssembly.Module(a), "qip.i-regexp");
-  assert.equal(sections.length, 1);
-  assert.equal(decoder.decode(sections[0]), pattern);
+  // Bytes 8.. are sections; id 0 is a custom section.
+  const module = new WebAssembly.Module(a);
+  assert.equal(WebAssembly.Module.customSections(module, "qip.i-regexp").length, 0);
+  for (let p = 8; p < a.length;) {
+    assert.notEqual(a[p], 0, `custom section at byte ${p}`);
+    let size = 0, shift = 0, byte;
+    p++;
+    do { byte = a[p++]; size |= (byte & 0x7f) << shift; shift += 7; } while (byte & 0x80);
+    p += size;
+  }
 });
 
 test("the qip CLI runs the compiler and the generated component", async () => {
@@ -153,10 +206,12 @@ test("Unicode categories agree with the JavaScript engine", () => {
   for (const name of names) {
     for (const negate of [false, true]) {
       const escape = `\\${negate ? "P" : "p"}{${name}}`;
-      const m = matcher(escape);
       const oracle = new RegExp(`^${escape}$`, "u");
-      for (const s of samples) {
-        assert.equal(m(s).match, oracle.test(s), `${escape} U+${s.codePointAt(0).toString(16)}`);
+      for (const preferTable of [false, true]) {
+        const m = matcher(escape, { preferTable });
+        for (const s of samples) {
+          assert.equal(m(s).match, oracle.test(s), `${escape} U+${s.codePointAt(0).toString(16)}`);
+        }
       }
     }
   }
@@ -294,6 +349,7 @@ test("random patterns agree with ECMAScript regexps", () => {
     if (c.mode === "too_large") continue;
     assert.ok(c.bytes, `${JSON.stringify(pattern)} should compile, got ${JSON.stringify(c)}`);
     const m = matcher(pattern);
+    const mt = matcher(pattern, { preferTable: true });
     const oracle = new RegExp(`^(?:${render(node, true)})$`, "u");
     const texts = new Set([""]);
     for (let j = 0; j < 12; j++) texts.add(sample(node, r));
@@ -305,7 +361,10 @@ test("random patterns agree with ECMAScript regexps", () => {
     }
     for (const text of texts) {
       const expected = oracle.test(text);
-      assert.equal(m(text).match, expected, `${JSON.stringify(pattern)} on ${JSON.stringify(text)}`);
+      const got = m(text);
+      assert.equal(got.match, expected, `${JSON.stringify(pattern)} on ${JSON.stringify(text)}`);
+      // Both encodings run the same DFA, so they also reject at the same offset.
+      assert.deepEqual(mt(text), got, `${JSON.stringify(pattern)} on ${JSON.stringify(text)} with prefer_table`);
       matches += expected ? 1 : 0;
       checks += 1;
     }
