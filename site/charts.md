@@ -3,6 +3,8 @@
 Chart-focused QIP components:
 
 - [Time series CSV to SVG polylines](/text/csv/time-series-csv-to-svg-polylines.wasm) renders a `date` or UTC `timestamp` column plus one or more numeric columns as a vector SVG chart. [Exponential moving average](/image/svg+xml/svg-polylines-exponential-moving-average.wasm) and [rolling mean](/image/svg+xml/svg-polylines-rolling-mean.wasm) transform every emitted data polyline independently. [Add mean lines](/image/svg+xml/svg-polylines-add-mean-lines.wasm) adds a same-colour dashed arithmetic mean for each polyline.
+- [Fiscal quarter CSV to SVG bars](/text/csv/fiscal-quarter-csv-to-svg-bars.wasm) renders one bar per fiscal quarter (`FY2026Q4`). Separate passes add a [y axis](/image/svg+xml/svg-bars-add-y-axis.wasm) with round-step gridlines, a [quarter x axis](/image/svg+xml/svg-bars-add-quarter-x-axis.wasm) (`Q1`–`Q4` with `’26` under each fiscal year), and a [rolling mean](/image/svg+xml/svg-bars-add-rolling-mean.wasm) line, such as a four-quarter average.
+- Quarterly revenue from SEC filings: [Apple (AAPL)](/charts/AAPL), [Alphabet (GOOG)](/charts/GOOG), [NVIDIA (NVDA)](/charts/NVDA)
 - [OpenAI vs Anthropic ARR (KTX2 and SVG)](/chart-openai-anthropic-arr), with an [SVG DOM update benchmark](/svg-dom-update-benchmark)
 - [Shutterstock Earnings Overlay](/play-shutterstock-earnings)
 
@@ -143,6 +145,89 @@ cat series.csv | npx @qip.dev/qipx qip.dev run \
   image/svg+xml/svg-polylines-add-mean-lines.wasm \
   image/svg+xml/svg-polylines-exponential-moving-average.wasm -u window_size=3 \
   > chart-ema-with-mean.svg
+```
+
+</copy-code>
+  </form>
+</div>
+
+## Fiscal quarter CSV to SVG bars
+
+Quarterly earnings read best as one bar per reported quarter, labelled by
+fiscal quarter, with a trailing four-quarter average to smooth seasonality. The
+CSV has a `fiscal_quarter` column (`FY2027Q1`) and one value column. Rows must
+be consecutive quarters. Fiscal years are whatever the company reports:
+NVIDIA's fiscal 2027 began in February 2026.
+
+Text around each number is the label format. `$81.615B` makes the y axis print
+`$20B`, `$40B` and so on. Every row must use the same prefix and suffix. The
+bars component writes the prefix, suffix, plot area and value domain to
+`data-*` attributes on the root `<svg>`. Each later pass reads those
+attributes, so you can add or remove passes independently:
+
+- `svg-bars-add-y-axis` draws labelled gridlines behind the bars at the
+  domain's round step. The `tick_count` uniform picks a different step.
+- `svg-bars-add-quarter-x-axis` labels each bar `Q1`–`Q4` and adds `’27`
+  under each fiscal year's first quarter.
+- `svg-bars-add-rolling-mean` draws the trailing mean of `window_size` bars
+  (default 4). The line starts at the first full window.
+
+<div class="time-series-examples">
+  <form class="time-series-example" aria-labelledby="fiscal-quarter-bars-heading">
+    <h3 id="fiscal-quarter-bars-heading">NVIDIA quarterly revenue with a four-quarter average</h3>
+    <qip-edit>
+      <qip-step name="bars">
+        <source src="/text/csv/fiscal-quarter-csv-to-svg-bars.wasm" type="application/wasm" />
+      </qip-step>
+      <qip-step name="y-axis">
+        <source src="/image/svg+xml/svg-bars-add-y-axis.wasm" type="application/wasm" />
+      </qip-step>
+      <qip-step name="quarter-x-axis">
+        <source src="/image/svg+xml/svg-bars-add-quarter-x-axis.wasm" type="application/wasm" />
+      </qip-step>
+      <qip-step name="rolling-mean">
+        <source src="/image/svg+xml/svg-bars-add-rolling-mean.wasm" type="application/wasm" data-uniform-window_size="4" />
+      </qip-step>
+      <label>CSV
+        <textarea name="input" rows="10" spellcheck="false">fiscal_quarter,revenue
+FY2021Q1,$3.08B
+FY2021Q2,$3.866B
+FY2021Q3,$4.726B
+FY2021Q4,$5.003B
+FY2022Q1,$5.661B
+FY2022Q2,$6.507B
+FY2022Q3,$7.103B
+FY2022Q4,$7.643B
+FY2023Q1,$8.288B
+FY2023Q2,$6.704B
+FY2023Q3,$5.931B
+FY2023Q4,$6.051B
+FY2024Q1,$7.192B
+FY2024Q2,$13.507B
+FY2024Q3,$18.12B
+FY2024Q4,$22.103B
+FY2025Q1,$26.044B
+FY2025Q2,$30.04B
+FY2025Q3,$35.082B
+FY2025Q4,$39.331B
+FY2026Q1,$44.062B
+FY2026Q2,$46.743B
+FY2026Q3,$57.006B
+FY2026Q4,$68.127B
+FY2027Q1,$81.615B
+</textarea>
+      </label>
+      <output name="output"><img alt="NVIDIA quarterly revenue as vertical bars by fiscal quarter, with a four-quarter average line" /></output>
+    </qip-edit>
+<copy-code>
+
+```sh
+cat quarters.csv | npx @qip.dev/qipx qip.dev run \
+  text/csv/fiscal-quarter-csv-to-svg-bars.wasm \
+  image/svg+xml/svg-bars-add-y-axis.wasm \
+  image/svg+xml/svg-bars-add-quarter-x-axis.wasm \
+  image/svg+xml/svg-bars-add-rolling-mean.wasm -u window_size=4 \
+  > chart.svg
 ```
 
 </copy-code>

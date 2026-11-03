@@ -311,6 +311,9 @@ image/svg+xml/svg-polylines-rolling-mean.wasm: image/svg+xml/svg-polylines-rolli
 image/svg+xml/svg-polylines-add-mean-lines.wasm: image/svg+xml/svg-polylines-add-mean-lines.zig image/svg+xml/lib/polyline-smoothing.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep polyline_smoothing -Mroot=$< -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig -femit-bin=$@
 
+text/csv/fiscal-quarter-csv-to-svg-bars.wasm image/svg+xml/svg-bars-add-y-axis.wasm image/svg+xml/svg-bars-add-quarter-x-axis.wasm image/svg+xml/svg-bars-add-rolling-mean.wasm: %.wasm: %.zig image/svg+xml/lib/svg-bars.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep svg_bars -Mroot=$< -Msvg_bars=image/svg+xml/lib/svg-bars.zig -femit-bin=$@
+
 image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm: image/ktx2/%.wasm: image/ktx2/%.zig image/ktx2/lib/resize-rgba8-srgb.zig image/lib/ktx2-rgba8-srgb.zig image/lib/ktx2-rgba32float.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig -femit-bin=$@
 
@@ -1348,6 +1351,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/time-zone-converter-tui.mjs
 	node --test test/svg-rasterizer-content.mjs
 	node --test test/time-series-polylines.mjs
+	node --test test/fiscal-quarter-bars.mjs
 	node --test test/svg-to-pdf-inter-font.mjs
 	node --test test/svg-rasterizer-rgba32float-simd.mjs
 	node --test test/svg-rasterizer-features.mjs
@@ -1675,6 +1679,9 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ttf --dep inter_regular --dep inter_bold --dep inter_italic --dep inter_bold_italic -Mroot="$$f" -Mttf=font/ttf/lib/ttf.zig -Minter_regular=fixtures/inter-4.1/inter-display-regular.zig -Minter_bold=fixtures/inter-4.1/inter-display-bold.zig -Minter_italic=fixtures/inter-4.1/inter-display-italic.zig -Minter_bold_italic=fixtures/inter-4.1/inter-display-bold-italic.zig || status=1; \
 		elif [ "$$f" = "image/svg+xml/svg-polylines-exponential-moving-average.zig" ] || [ "$$f" = "image/svg+xml/svg-polylines-rolling-mean.zig" ] || [ "$$f" = "image/svg+xml/svg-polylines-add-mean-lines.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep polyline_smoothing -Mroot="$$f" -Mpolyline_smoothing=image/svg+xml/lib/polyline-smoothing.zig || status=1; \
+		elif [ "$$f" = "text/csv/fiscal-quarter-csv-to-svg-bars.zig" ] || [ "$$f" = "image/svg+xml/svg-bars-add-y-axis.zig" ] || [ "$$f" = "image/svg+xml/svg-bars-add-quarter-x-axis.zig" ] || [ "$$f" = "image/svg+xml/svg-bars-add-rolling-mean.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep svg_bars -Mroot="$$f" -Msvg_bars=image/svg+xml/lib/svg-bars.zig || status=1; \
+			if [ "$$f" = "text/csv/fiscal-quarter-csv-to-svg-bars.zig" ]; then $(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) image/svg+xml/lib/svg-bars.zig || status=1; fi; \
 		elif [ "$$f" = "application/x-tar/tar-to-zip.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig || status=1; \
 		elif [ "$$f" = "application/warc/warc-add-open-graph-image-inter-png.zig" ]; then \
