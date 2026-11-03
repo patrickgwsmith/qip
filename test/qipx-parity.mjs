@@ -5,16 +5,52 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
-// Every test runs against both qipx hosts. Where output is deterministic, the hosts must
-// produce the same exit status, stdout, and stderr byte for byte.
+// Every test runs against both qipx hosts, and the run and dry run tests also run against
+// qipdo, a separate implementation of `qipx run`. Where output is deterministic, they must
+// produce the same exit status, stdout, and stderr byte for byte, apart from the program name.
+// Tests are written as qipx invocations; qipdoArgs translates the ones qipdo supports.
 const root = resolve(".");
+const qipxArgs = (args) => args;
+
+// qipdo has no subcommand: `[host ...] run …` becomes `[host ...] …`, `dry run` becomes
+// --dry-run, and --capacities-must-fit is spelled --strict-capacities. Other commands and
+// help are qipx-only, so they return null.
+function qipdoArgs(args) {
+  const commandIndex = args.findIndex((arg) => ["run", "dry", "dry-run", "tui", "bench", "comply"].includes(arg));
+  if (commandIndex < 0) return null;
+  const hosts = args.slice(0, commandIndex);
+  let rest;
+  if (args[commandIndex] === "run") rest = args.slice(commandIndex + 1);
+  else if (args[commandIndex] === "dry" && args[commandIndex + 1] === "run") rest = ["--dry-run", ...args.slice(commandIndex + 2)];
+  else return null;
+  if (rest.includes("--help") || rest.includes("-h")) return null;
+  const dashDash = rest.indexOf("--");
+  return [...hosts, ...rest.map((arg, index) =>
+    arg === "--capacities-must-fit" && (dashDash < 0 || index < dashDash) ? "--strict-capacities" : arg)];
+}
+
 const implementations = [
-  { name: "Node", command: process.execPath, prefix: [resolve("npm/qipx/cli.mjs")] },
-  { name: "Rust", command: resolve("rust/qipx/target/debug/qipx"), prefix: [] },
+  { name: "Node", command: process.execPath, prefix: [resolve("npm/qipx/cli.mjs")], translate: qipxArgs },
+  { name: "Rust", command: resolve("rust/qipx/target/debug/qipx"), prefix: [], translate: qipxArgs },
+  { name: "qipdo", command: process.execPath, prefix: [resolve("npm/qipdo/qipdo.mjs")], translate: qipdoArgs, program: "qipdo" },
 ];
+const qipxImplementations = implementations.filter((implementation) => implementation.translate === qipxArgs);
+
+// The implementations that support a qipx invocation.
+function supporting(args, candidates = implementations) {
+  return candidates.filter((implementation) => implementation.translate(args) !== null);
+}
+
+// Error messages start with the program name, which is the one expected difference.
+function normalizeStderr(implementation, stderr) {
+  const text = stderr.toString();
+  return implementation.program ? text.replaceAll(new RegExp(`^${implementation.program}: `, "gm"), "qipx: ") : text;
+}
 
 function run(implementation, args, { input = Buffer.alloc(0), cwd = root, timeout = 10000 } = {}) {
-  const result = spawnSync(implementation.command, [...implementation.prefix, ...args], {
+  const translated = implementation.translate(args);
+  assert.notEqual(translated, null, `${implementation.name} does not support ${args.join(" ")}`);
+  const result = spawnSync(implementation.command, [...implementation.prefix, ...translated], {
     cwd,
     input,
     timeout,
@@ -23,15 +59,17 @@ function run(implementation, args, { input = Buffer.alloc(0), cwd = root, timeou
   return result;
 }
 
-// expectSame runs args in every host, checks that status, stdout, and stderr match, and
-// returns the shared result with text helpers.
-function expectSame(args, options = {}) {
-  const [first, ...rest] = implementations.map((implementation) => run(implementation, args, options));
+// expectSame runs args in every implementation that supports them, checks that status,
+// stdout, and stderr match, and returns the shared result with text helpers. Pass
+// `implementations: qipxImplementations` for qipx behavior qipdo deliberately does not share.
+function expectSame(args, { implementations: candidates = implementations, ...options } = {}) {
+  const targets = supporting(args, candidates);
+  const [first, ...rest] = targets.map((implementation) => run(implementation, args, options));
   for (const [index, result] of rest.entries()) {
-    const name = implementations[index + 1].name;
-    assert.equal(result.status, first.status, `${name} status for ${args.join(" ")}: ${result.stderr}`);
-    assert.deepEqual(result.stdout, first.stdout, `${name} stdout for ${args.join(" ")}`);
-    assert.equal(result.stderr.toString(), first.stderr.toString(), `${name} stderr for ${args.join(" ")}`);
+    const implementation = targets[index + 1];
+    assert.equal(result.status, first.status, `${implementation.name} status for ${args.join(" ")}: ${result.stderr}`);
+    assert.deepEqual(result.stdout, first.stdout, `${implementation.name} stdout for ${args.join(" ")}`);
+    assert.equal(normalizeStderr(implementation, result.stderr), first.stderr.toString(), `${implementation.name} stderr for ${args.join(" ")}`);
   }
   return { status: first.status, stdout: first.stdout, out: first.stdout.toString(), err: first.stderr.toString() };
 }
@@ -100,7 +138,7 @@ sys.exit(1)
 function runInTerminal(implementation, args, { cwd = root, steps = [] } = {}) {
   const result = spawnSync("python3", [
     "-c", ptyScript, cwd, JSON.stringify(steps),
-    implementation.command, ...implementation.prefix, ...args,
+    implementation.command, ...implementation.prefix, ...implementation.translate(args),
   ], { encoding: "utf8", timeout: 8000 });
   assert.equal(result.error, undefined, `${implementation.name}: ${result.error?.message}`);
   assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}\n${result.stdout}`);
@@ -114,7 +152,7 @@ const multipartBoundary = "--uuid-00000000-0000-0000-0000-000000000000";
 test("qipx hosts print the same command help", () => {
   for (const args of [[], ["--help"], ["help"], ["run", "--help"], ["dry", "run", "--help"], ["dry", "--help"],
     ["tui", "--help"], ["bench", "--help"], ["comply", "--help"]]) {
-    const result = expectSuccess(args);
+    const result = expectSuccess(args, { implementations: qipxImplementations });
     assert.match(result.out, /Usage: qipx/, args.join(" "));
   }
 });
@@ -140,7 +178,7 @@ test("qipx hosts report the same usage errors", () => {
   expectFailure(["nothing"], /^qipx: requires a subcommand: run, dry run, tui, bench, or comply\n$/);
   expectFailure(["dry"], /^qipx: dry must be followed by run\n$/);
   expectFailure(["bad_host", "run", "text/hello.wasm"], /invalid host "bad_host"/);
-  expectFailure(["run"], /component/);
+  expectFailure(["run"], /component/, { implementations: qipxImplementations });
   expectFailure(["run", "--bogus", "text/hello.wasm"], /^qipx: unknown option --bogus\n$/);
   expectFailure(["run", "--max-memory"], /^qipx: --max-memory requires <bytes>\n$/);
   expectFailure(["run", "-u", "a", "text/hello.wasm"], /^qipx: -u must follow a component path\n$/);
@@ -150,6 +188,7 @@ test("qipx hosts report the same usage errors", () => {
   expectFailure(["bench", "bytes/identity.wasm"], /^qipx: bench requires -i <input> or -F <name=value>\n$/);
   expectFailure(["comply"], /^qipx: comply requires at least one file or directory\n$/);
   expectFailure(["comply", "--bogus", "bytes"], /^qipx: unknown option --bogus\n$/);
+  expectFailure(["comply", "--suite"], /^qipx: --suite requires a path\n$/);
   expectFailure(["comply", "--with"], /^qipx: --with requires a path\n$/);
   expectFailure(["comply", "--seed"], /^qipx: --seed requires <n>\n$/);
   expectFailure(["comply", "README.md"], /^qipx: README\.md is not a \.wasm file\n$/);
@@ -269,7 +308,7 @@ test("qipx hosts apply uniforms to the preceding stage", () => {
       assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
       return readFileSync(output);
     });
-    assert.deepEqual(outputs[1], outputs[0]);
+    for (const output of outputs.slice(1)) assert.deepEqual(output, outputs[0]);
     assert.equal(outputs[0].length, 240);
     assert.equal(outputs[0].readUInt32LE(20), 1);
     assert.equal(outputs[0].readUInt32LE(24), 1);
@@ -367,6 +406,9 @@ test("qipx hosts check pipeline capacity", () => {
     /expected image\/png, but pipeline content type is unspecified/);
   expectFailure(["dry", "run", "--capacities-must-fit", "text/ansi-sgr-to-svg.wasm", "text/rgb-to-hex.wasm"],
     /input capacity 64\.0 KiB \(65536 bytes\) cannot fit .* output capacity 8\.0 MiB \(8388608 bytes\)/);
+  assert.equal(expectSuccess(["run", "--strict-capacities", "text/trim.wasm", "bytes/identity.wasm"], { input: Buffer.from(" hello ") }).out, "hello");
+  expectFailure(["dry", "run", "--strict-capacities", "text/ansi-sgr-to-svg.wasm", "text/rgb-to-hex.wasm"],
+    /input capacity 64\.0 KiB \(65536 bytes\) cannot fit .* output capacity 8\.0 MiB \(8388608 bytes\)/);
 });
 
 test("qipx hosts print the same dry run plan without reading stdin", () => {
@@ -405,7 +447,7 @@ test("qipx hosts benchmark a verified Content result", () => {
   withTemporaryDirectory("bench", (directory) => {
     const input = join(directory, "input.txt");
     writeFileSync(input, "hello");
-    for (const implementation of implementations) {
+    for (const implementation of supporting(["bench"])) {
       const result = run(implementation, ["bench", "-i", input, "--runs", "1", "--warmup", "0", "bytes/identity.wasm"]);
       assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
       assert.match(result.stdout.toString(), /Output SHA-256: 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824/, implementation.name);
@@ -415,7 +457,7 @@ test("qipx hosts benchmark a verified Content result", () => {
 });
 
 test("qipx hosts report the same benchmark environment", () => {
-  const environments = implementations.map((implementation) => {
+  const environments = supporting(["bench"]).map((implementation) => {
     const result = run(implementation, ["bench", "-F", "message=hello", "--runs", "1", "--warmup", "0", "bytes/identity.wasm"]);
     assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
     const block = /^Environment:\n  OS: (.+)\n  Architecture: (.+)\n  CPU: (.+)\n  Runtime: (.+)$/m.exec(result.stdout.toString());
@@ -429,7 +471,7 @@ test("qipx hosts report the same benchmark environment", () => {
 });
 
 test("qipx hosts benchmark multipart input for a short target duration", () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["bench"])) {
     const result = run(implementation, ["bench", "-F", "message=hello", "--warmup", "0", "--benchtime=1ms", "bytes/identity.wasm"]);
     assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
     assert.match(result.stdout.toString(), /Measured: 1ms target\/component/, implementation.name);
@@ -442,28 +484,50 @@ test("qipx hosts agree on Compliance outcomes", () => {
   const directory = expectSuccess(["comply", "bytes"]);
   assert.match(directory.out, /PASS bytes\/identity\.wasm/);
   assert.match(directory.out, /pass=\d+ fail=0 total=\d+/);
-  const oracle = expectSuccess(["comply", "bytes/identity.wasm", "--with", "compliance/preserve-empty.wasm"]);
-  assert.match(oracle.out, /PASS bytes\/identity\.wasm --with compliance\/preserve-empty\.wasm \(1 cases\)/);
+  const oracle = expectSuccess(["comply", "bytes/identity.wasm", "--suite", "compliance/preserve-empty.wasm"]);
+  assert.match(oracle.out, /PASS bytes\/identity\.wasm --suite compliance\/preserve-empty\.wasm \(1 cases\)/);
   assert.match(oracle.out, /pass=2 fail=0 total=2/);
+  // --with is an alias for --suite.
+  assert.equal(expectSuccess(["comply", "bytes/identity.wasm", "--with", "compliance/preserve-empty.wasm"]).out, oracle.out);
   // A declared rejection is not a trap.
-  assert.match(expectSuccess(["comply", "text/utf8-must-be-valid.wasm", "--with", "compliance/reject-invalid-utf8.wasm"]).out,
+  assert.match(expectSuccess(["comply", "text/utf8-must-be-valid.wasm", "--suite", "compliance/reject-invalid-utf8.wasm"]).out,
     /compliance\/reject-invalid-utf8\.wasm \(10 cases\)/);
-  assert.match(expectSuccess(["comply", "bytes/identity.wasm", "--with", "test/fixtures/qipx-rust-render-into.wasm"]).out,
+  assert.match(expectSuccess(["comply", "bytes/identity.wasm", "--suite", "test/fixtures/qipx-rust-render-into.wasm"]).out,
     /render-into\.wasm \(1 cases\)/);
-  assert.match(expectSuccess(["comply", "--seed", "4217", "text/currency-format-en-us.wasm", "--with", "compliance/currency-format-en-us.comply.wasm"]).out,
+  assert.match(expectSuccess(["comply", "--seed", "4217", "text/currency-format-en-us.wasm", "--suite", "compliance/currency-format-en-us.comply.wasm"]).out,
     /currency-format-en-us\.comply\.wasm \(\d+ cases\)/);
 });
 
+test("qipx hosts seed Compliance oracles randomly unless --seed is given", () => {
+  const args = ["text/currency-format-en-us.wasm", "--suite", "compliance/currency-format-en-us.comply.wasm"];
+  // An explicit seed is reported so the summary is the same however the run was started.
+  assert.match(expectSuccess(["comply", "--seed", "4217", ...args]).out, /\npass=2 fail=0 total=2 seed=4217\n$/);
+  // Without --seed, each host picks and prints a random u32 seed that repeats the run.
+  for (const implementation of qipxImplementations) {
+    const result = run(implementation, ["comply", ...args]);
+    assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
+    const seed = /\npass=2 fail=0 total=2 seed=(\d+)\n$/.exec(result.stdout.toString())?.[1];
+    assert.ok(seed !== undefined && Number(seed) <= 0xffffffff, `${implementation.name}: ${result.stdout}`);
+    assert.equal(run(implementation, ["comply", "--seed", seed, ...args]).stdout.toString(), result.stdout.toString(), implementation.name);
+  }
+  // Oracles without uniform_set_seed are unseeded by default, so no seed is reported,
+  // but an explicit --seed still requires the setter.
+  assert.equal(expectSuccess(["comply", "bytes/identity.wasm", "--suite", "compliance/preserve-empty.wasm"]).out,
+    "PASS bytes/identity.wasm\nPASS bytes/identity.wasm --suite compliance/preserve-empty.wasm (1 cases)\n\npass=2 fail=0 total=2\n");
+  assert.match(expectSame(["comply", "--seed", "1", "bytes/identity.wasm", "--suite", "compliance/preserve-empty.wasm"]).out,
+    /--seed given but Compliance oracle does not export uniform_set_seed\n\npass=1 fail=1 total=2\n$/);
+});
+
 test("qipx hosts report failed Compliance checks only in the summary", () => {
-  const trap = expectSame(["comply", "bytes/identity.wasm", "--with", "compliance/trap-empty-input.wasm"]);
+  const trap = expectSame(["comply", "bytes/identity.wasm", "--suite", "compliance/trap-empty-input.wasm"]);
   assert.equal(trap.status, 1);
   assert.equal(trap.err, "");
   assert.match(trap.out, /case 0: expected trap, got output/);
   assert.match(trap.out, /pass=1 fail=1 total=2/);
   // Oracles resolve before any file is checked, so a missing one fails once.
-  const missing = expectFailure(["comply", "text/hello.wasm", "--with", "missing-oracle.wasm"], /^qipx: missing-oracle\.wasm is unavailable from every source\n$/);
+  const missing = expectFailure(["comply", "text/hello.wasm", "--suite", "missing-oracle.wasm"], /^qipx: missing-oracle\.wasm is unavailable from every source\n$/);
   assert.equal(missing.out, "");
-  expectFailure(["comply", "text/hello.wasm", "--with", "README.md"], /^qipx: README\.md is not a WebAssembly binary module\n$/);
+  expectFailure(["comply", "text/hello.wasm", "--suite", "README.md"], /^qipx: README\.md is not a WebAssembly binary module\n$/);
 });
 
 test("qipx hosts do not follow symlinks found during Compliance scans", { skip: process.platform === "win32" }, () => {
@@ -527,7 +591,7 @@ test("qipx hosts use empty input for an unused terminal", { skip: process.platfo
 });
 
 test("qipx hosts render the same TUI rows at column zero", { skip: process.platform === "win32" }, () => {
-  const frames = implementations.map((implementation) => {
+  const frames = supporting(["tui"]).map((implementation) => {
     const { output } = runInTerminal(implementation, ["tui", "tui/emoji-finder-old.wasm"], {
       steps: [["Type to filter", ctrlC]],
     });
@@ -544,7 +608,7 @@ test("qipx hosts render the same TUI rows at column zero", { skip: process.platf
 });
 
 test("qipx hosts handle an arrow key in the TUI", { skip: process.platform === "win32" }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["tui"])) {
     const { output, exitCode } = runInTerminal(implementation, ["tui", "tui/calendar-gregorian.wasm"], {
       steps: [["January 2024", downArrow], ["February 2024", ctrlC]],
     });
@@ -555,7 +619,7 @@ test("qipx hosts handle an arrow key in the TUI", { skip: process.platform === "
 });
 
 test("qipx hosts reject unsafe TUI output and restore the screen", { skip: process.platform === "win32" }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["tui"])) {
     const { output } = runInTerminal(implementation, ["tui", "test/fixtures/qipx-rust-unsafe-tui.wasm"]);
     assert.match(output, /unsupported CSI sequence/, implementation.name);
     assert.match(output, /\x1b\[\?1049l/, implementation.name);
@@ -564,7 +628,7 @@ test("qipx hosts reject unsafe TUI output and restore the screen", { skip: proce
 });
 
 test("qipx hosts render a scheduled TUI wake without a key", { skip: process.platform === "win32" }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["tui"])) {
     const { output, exitCode } = runInTerminal(implementation, ["tui", "test/fixtures/qipx-rust-wake-tui.wasm"], {
       steps: [["after", ctrlC]],
     });
@@ -576,7 +640,7 @@ test("qipx hosts render a scheduled TUI wake without a key", { skip: process.pla
 });
 
 test("qipx hosts restore the screen on SIGTERM", { skip: process.platform === "win32" }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["tui"])) {
     const { output, exitCode } = runInTerminal(implementation, ["tui", "tui/calendar-gregorian.wasm"], {
       steps: [["January 2024", "SIGTERM"]],
     });

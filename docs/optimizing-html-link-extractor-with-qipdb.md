@@ -114,7 +114,7 @@ make -j \
 
 ./qip comply \
   text/html/html-link-extractor.wasm \
-  --with compliance/html-link-extractor.comply.wasm \
+  --suite compliance/html-link-extractor.comply.wasm \
   --straight-line-oracles
 
 node --test test/html-link-extractor.mjs

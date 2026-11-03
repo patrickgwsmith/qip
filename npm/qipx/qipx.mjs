@@ -74,6 +74,7 @@ function usage() {
     `  -o, --output <path>             Write output to a file instead of stdout\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
     `  --capacities-must-fit           Reject stages whose max output cannot fit next input\n` +
+    `  --strict-capacities             Alias for --capacities-must-fit\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n` +
     `  dry run                         Validate the pipeline without reading input or rendering\n` +
     `  -h, --help                      Show this help\n\n` +
@@ -95,7 +96,8 @@ function tuiUsage() {
     `Execution:\n` +
     `  -u, --uniform <name=value>      Set a uniform on the preceding component\n` +
     `  --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n` +
-    `  --capacities-must-fit           Check capacity between Content stages\n\n` +
+    `  --capacities-must-fit           Check capacity between Content stages\n` +
+    `  --strict-capacities             Alias for --capacities-must-fit\n\n` +
     `The first component must be Interactive. Later components transform each\n` +
     `frame as ordinary Content stages; the final output must be UTF-8 text.\n` +
     `With hosts, missing safe relative .wasm files used by -F are downloaded.\n\n` +
@@ -375,11 +377,14 @@ function benchUsage() {
 function complyUsage() {
   return `Usage: qipx [host ...] comply [options] <file-or-dir> [...]\n\n` +
     `Options:\n` +
-    `  --with <compliance.wasm>        Run a Compliance oracle (repeatable)\n` +
+    `  --suite <suite.wasm>            Run a Compliance suite (repeatable)\n` +
+    `  --with <suite.wasm>             Alias for --suite\n` +
     `  --seed <n>                      Call uniform_set_seed(u32) on each oracle\n` +
     `  --max-memory <bytes>            Reject implementation memory above bytes\n` +
     `  -h, --help                      Show this help\n\n` +
     `Checks QIP Content ABI compliance and the Strict Wasm Profile subset.\n` +
+    `Without --seed, oracles that export uniform_set_seed get a random seed,\n` +
+    `printed in the summary so the run can be repeated.\n` +
     `Documentation: https://qip.dev/docs/comply\n`;
 }
 
@@ -1373,7 +1378,7 @@ async function discoverWasmFiles(paths) {
 }
 
 function parseComplyCLI(argv) {
-  // TODO: Add --straight-line-oracles for --with oracles so JS comply can
+  // TODO: Add --straight-line-oracles for --suite oracles so JS comply can
   // match Go's audit mode for fixture-style Compliance oracles.
   const options = { maxMemory: undefined, with: [], seed: undefined };
   const paths = [];
@@ -1384,9 +1389,9 @@ function parseComplyCLI(argv) {
       process.exit(0);
     } else if (arg === "--max-memory") {
       options.maxMemory = parseMaxMemory(argv[++index]);
-    } else if (arg === "--with") {
+    } else if (arg === "--suite" || arg === "--with") {
       const value = argv[++index];
-      if (!value) throw new Error("--with requires a path");
+      if (!value) throw new Error(`${arg} requires a path`);
       options.with.push(value);
     } else if (arg === "--seed") {
       options.seed = parseU32Flag("--seed", argv[++index]);
@@ -1398,6 +1403,10 @@ function parseComplyCLI(argv) {
   }
   if (paths.length === 0) throw new Error("comply requires at least one file or directory");
   options.with.sort(compareCodeUnits);
+  // Without --seed, seed oracles that accept one randomly and report it in the summary.
+  options.seedExplicit = options.seed !== undefined;
+  if (!options.seedExplicit) options.seed = globalThis.crypto.getRandomValues(new Uint32Array(1))[0];
+  options.seedUsed = false;
   return { options, paths };
 }
 
@@ -1638,9 +1647,12 @@ async function runComplianceOracle(implWasm, implPath, oraclePath, oracleWasm, o
     },
   };
   oracleInstance = instantiateComplianceOracle(oracleWasm, oraclePath, { qip });
-  if (options.seed !== undefined) {
-    const seedSetterName = uniformSetterNames(Object.keys(oracleInstance.exports), oraclePath).get("seed");
-    if (seedSetterName === undefined) throw new Error(`${oraclePath}: --seed given but Compliance oracle does not export uniform_set_seed`);
+  const seedSetterName = uniformSetterNames(Object.keys(oracleInstance.exports), oraclePath).get("seed");
+  if (seedSetterName === undefined && options.seedExplicit) {
+    throw new Error(`${oraclePath}: --seed given but Compliance oracle does not export uniform_set_seed`);
+  }
+  if (seedSetterName !== undefined && options.seed !== undefined) {
+    options.seedUsed = true;
     try {
       oracleInstance.exports[seedSetterName](options.seed >>> 0);
     } catch (error) {
@@ -1698,15 +1710,16 @@ async function complyCommand(argv, hosts) {
     for (const oracle of oracles) {
       try {
         const result = await runComplianceOracle(wasm, file, oracle.path, oracle.wasm, options);
-        console.log(`PASS ${displayText(file)} --with ${displayText(oracle.path)} (${result.cases} cases)`);
+        console.log(`PASS ${displayText(file)} --suite ${displayText(oracle.path)} (${result.cases} cases)`);
         pass += 1;
       } catch (error) {
-        console.log(`FAIL ${displayText(file)} --with ${displayText(oracle.path)}: ${displayText(error.message ?? error)}`);
+        console.log(`FAIL ${displayText(file)} --suite ${displayText(oracle.path)}: ${displayText(error.message ?? error)}`);
         fail += 1;
       }
     }
   }
-  console.log(`\npass=${pass} fail=${fail} total=${pass + fail}`);
+  const seedReport = options.seedUsed ? ` seed=${options.seed >>> 0}` : "";
+  console.log(`\npass=${pass} fail=${fail} total=${pass + fail}${seedReport}`);
   if (fail > 0) process.exitCode = 1;
 }
 
@@ -1776,7 +1789,7 @@ function parseCLI(argv) {
       options.output = argv[++index];
     } else if (arg === "--max-memory") {
       options.maxMemory = parseMaxMemory(argv[++index]);
-    } else if (arg === "--capacities-must-fit") {
+    } else if (arg === "--capacities-must-fit" || arg === "--strict-capacities") {
       options.capacitiesMustFit = true;
     } else if (arg === "-u" || arg === "--uniform") {
       components.push(arg);

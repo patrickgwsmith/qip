@@ -1337,6 +1337,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-tui.mjs
 	node --test test/qipx-uniforms.mjs
 	node --test test/qiptui.mjs
+	node --test test/qipdo.mjs
 	node --test test/epub-reader-tui.mjs
 	node --test test/plist-viewer-tui.mjs
 	node --test test/calendar-gregorian-tui.mjs
@@ -1512,67 +1513,67 @@ test-deno: qip components
 	deno test --allow-read --allow-write --allow-run --allow-sys --allow-env test/qip-play-debug-stats.mjs test/qip-edit-stats.mjs test/sudoku-ui.mjs test/html-id-validator.mjs test/html-adjacent.mjs test/html-to-accessibility-tree.mjs test/luhn.mjs test/trace-with.mjs test/wasm-trap-instance-continues.mjs
 
 test-comply: qip components compliance
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-tsx.wasm --with compliance/syntax-highlight-javascript.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/javascript/js-syntax-highlight-html.wasm --with compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-html.wasm --with compliance/syntax-highlight-html.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-css.wasm --with compliance/syntax-highlight-css.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply recipes/text/markdown/25-html-code-syntax-highlight-python.wasm --with compliance/syntax-highlight-python.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply recipes/text/markdown/26-html-code-syntax-highlight-java.wasm --with compliance/syntax-highlight-java.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply recipes/text/markdown/27-html-code-syntax-highlight-csharp.wasm --with compliance/syntax-highlight-csharp.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-swift.wasm --with compliance/syntax-highlight-swift.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-ruby.wasm --with compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-go.wasm --with compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-rust.wasm --with compliance/syntax-highlight-rust.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wgsl.wasm --with compliance/syntax-highlight-wgsl.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-c.wasm --with compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --with compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --with compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-code-syntax-highlight-zig.wasm --with compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/vnd.mermaid/mermaid-to-unicode-html.wasm --with compliance/mermaid-to-unicode-html.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --with compliance/commonmark-spec-0.31.2.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/commonmark-0.31.2-gfm.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
-	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --with compliance/html5-entities.comply.wasm --with compliance/unicode-17-casefold-labels.comply.wasm --with compliance/commonmark-differential-corpus.comply.wasm
-	$(QIP_BIN) comply text/luhn.wasm --with compliance/luhn.comply.wasm
-	$(QIP_BIN) comply text/rgb-to-hex.wasm --with compliance/rgb-to-hex.comply.wasm
-	$(QIP_BIN) comply text/base64-decode.wasm --with compliance/base64-decode.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/css/css-class-validator.wasm --with compliance/css-class-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-id-validator.wasm --with compliance/html-id-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-input-name-validator.wasm --with compliance/html-input-name-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-tag-validator.wasm --with compliance/html-tag-validator.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/e164.wasm --with compliance/e164.comply.wasm
-	$(QIP_BIN) comply bytes/base64-encode.wasm --with compliance/base64-encode.comply.wasm
-	$(QIP_BIN) comply bytes/crc32-hex.wasm --with compliance/crc32-hex.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/trim.wasm --with compliance/trim.comply.wasm
-	$(QIP_BIN) comply text/markdown/extract-title-text.wasm --with compliance/extract-title-text.comply.wasm
-	$(QIP_BIN) comply text/youtube-id-extractor.wasm --with compliance/youtube-id-extractor.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --with compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-tsx.wasm --suite compliance/syntax-highlight-javascript.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/javascript/js-syntax-highlight-html.wasm --suite compliance/syntax-highlight-javascript-semantic.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-html.wasm --suite compliance/syntax-highlight-html.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-css.wasm --suite compliance/syntax-highlight-css.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply recipes/text/markdown/25-html-code-syntax-highlight-python.wasm --suite compliance/syntax-highlight-python.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply recipes/text/markdown/26-html-code-syntax-highlight-java.wasm --suite compliance/syntax-highlight-java.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply recipes/text/markdown/27-html-code-syntax-highlight-csharp.wasm --suite compliance/syntax-highlight-csharp.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-swift.wasm --suite compliance/syntax-highlight-swift.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-ruby.wasm --suite compliance/syntax-highlight-ruby.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-go.wasm --suite compliance/syntax-highlight-go.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-rust.wasm --suite compliance/syntax-highlight-rust.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wgsl.wasm --suite compliance/syntax-highlight-wgsl.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-c.wasm --suite compliance/syntax-highlight-c.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --suite compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --suite compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-zig.wasm --suite compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/vnd.mermaid/mermaid-to-unicode-html.wasm --suite compliance/mermaid-to-unicode-html.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --suite compliance/commonmark-spec-0.31.2.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --suite compliance/commonmark-0.31.2-gfm.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --suite compliance/html5-entities.comply.wasm --suite compliance/unicode-17-casefold-labels.comply.wasm --suite compliance/commonmark-differential-corpus.comply.wasm
+	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --suite compliance/html5-entities.comply.wasm --suite compliance/unicode-17-casefold-labels.comply.wasm --suite compliance/commonmark-differential-corpus.comply.wasm
+	$(QIP_BIN) comply text/luhn.wasm --suite compliance/luhn.comply.wasm
+	$(QIP_BIN) comply text/rgb-to-hex.wasm --suite compliance/rgb-to-hex.comply.wasm
+	$(QIP_BIN) comply text/base64-decode.wasm --suite compliance/base64-decode.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/css/css-class-validator.wasm --suite compliance/css-class-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-id-validator.wasm --suite compliance/html-id-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-input-name-validator.wasm --suite compliance/html-input-name-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-tag-validator.wasm --suite compliance/html-tag-validator.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/e164.wasm --suite compliance/e164.comply.wasm
+	$(QIP_BIN) comply bytes/base64-encode.wasm --suite compliance/base64-encode.comply.wasm
+	$(QIP_BIN) comply bytes/crc32-hex.wasm --suite compliance/crc32-hex.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/trim.wasm --suite compliance/trim.comply.wasm
+	$(QIP_BIN) comply text/markdown/extract-title-text.wasm --suite compliance/extract-title-text.comply.wasm
+	$(QIP_BIN) comply text/youtube-id-extractor.wasm --suite compliance/youtube-id-extractor.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/shortcode-to-emoji.wasm --suite compliance/shortcode-to-emoji.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-escape.wasm --suite compliance/html-escape.comply.wasm --straight-line-oracles
 	node tools/gen-json-schema-2020-12-fixtures.mjs --check
-	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
-	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12-interoperable-regex.comply.wasm
-	$(QIP_BIN) comply text/html/autolink-https.wasm --with compliance/autolink-https.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/html/html-link-extractor.wasm --with compliance/html-link-extractor.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
-	$(QIP_BIN) comply text/utf8-must-be-ascii.wasm --with compliance/reject-non-ascii.wasm --with compliance/preserve-ascii.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
-	$(QIP_BIN) comply text/unicode-17-lowercase.wasm --with compliance/unicode-17-lowercase.comply.wasm
-	$(QIP_BIN) comply text/unicode-17-uppercase.wasm --with compliance/unicode-17-uppercase.comply.wasm
-	$(QIP_BIN) comply text/unicode-17-normalize-nfc.wasm --with compliance/unicode-17-normalize-nfc.comply.wasm
-	$(QIP_BIN) comply text/currency-format-usd-en-us.wasm --with compliance/currency-format-usd-en-us.comply.wasm
-	$(QIP_BIN) comply text/currency-format-en-us.wasm --with compliance/currency-format-en-us.comply.wasm
-	$(QIP_BIN) comply text/currency-format-en-in.wasm --with compliance/currency-format-en-in.comply.wasm
-	$(QIP_BIN) comply text/currency-format-es-es.wasm --with compliance/currency-format-es-es.comply.wasm
-	$(QIP_BIN) comply text/currency-format-de-de.wasm --with compliance/currency-format-de-de.comply.wasm
-	$(QIP_BIN) comply text/currency-format-ar-eg.wasm --with compliance/currency-format-ar-eg.comply.wasm
-	$(QIP_BIN) comply text/currency-format-fr-fr.wasm --with compliance/currency-format-fr-fr.comply.wasm
-	$(QIP_BIN) comply text/currency-format-pt-br.wasm --with compliance/currency-format-pt-br.comply.wasm
-	$(QIP_BIN) comply text/currency-format-ja-jp.wasm --with compliance/currency-format-ja-jp.comply.wasm
-	$(QIP_BIN) comply text/currency-format-zh-cn.wasm --with compliance/currency-format-zh-cn.comply.wasm
-	$(QIP_BIN) comply text/iso-4217-alpha-to-numeric.wasm --with compliance/iso-4217-alpha-to-numeric.comply.wasm
-	$(QIP_BIN) comply image/svg+xml/svg-to-data-uri.wasm --with compliance/svg-to-data-uri.comply.wasm
-	$(QIP_BIN) comply image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm --with compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm --with compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm --straight-line-oracles
-	$(QIP_BIN) comply text/uri-list/data-uri-to-css-url.wasm --with compliance/data-uri-to-css-url.comply.wasm
+	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compliance/json-schema-2020-12.comply.wasm
+	$(QIP_BIN) comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compliance/json-schema-2020-12-interoperable-regex.comply.wasm
+	$(QIP_BIN) comply text/html/autolink-https.wasm --suite compliance/autolink-https.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-link-extractor.wasm --suite compliance/html-link-extractor.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/utf8-must-be-valid.wasm --suite compliance/reject-invalid-utf8.wasm --suite compliance/preserve-ascii.wasm --suite compliance/preserve-empty.wasm --suite compliance/preserve-whitespace.wasm
+	$(QIP_BIN) comply text/utf8-must-be-ascii.wasm --suite compliance/reject-non-ascii.wasm --suite compliance/preserve-ascii.wasm --suite compliance/preserve-empty.wasm --suite compliance/preserve-whitespace.wasm
+	$(QIP_BIN) comply text/unicode-17-lowercase.wasm --suite compliance/unicode-17-lowercase.comply.wasm
+	$(QIP_BIN) comply text/unicode-17-uppercase.wasm --suite compliance/unicode-17-uppercase.comply.wasm
+	$(QIP_BIN) comply text/unicode-17-normalize-nfc.wasm --suite compliance/unicode-17-normalize-nfc.comply.wasm
+	$(QIP_BIN) comply text/currency-format-usd-en-us.wasm --suite compliance/currency-format-usd-en-us.comply.wasm
+	$(QIP_BIN) comply text/currency-format-en-us.wasm --suite compliance/currency-format-en-us.comply.wasm
+	$(QIP_BIN) comply text/currency-format-en-in.wasm --suite compliance/currency-format-en-in.comply.wasm
+	$(QIP_BIN) comply text/currency-format-es-es.wasm --suite compliance/currency-format-es-es.comply.wasm
+	$(QIP_BIN) comply text/currency-format-de-de.wasm --suite compliance/currency-format-de-de.comply.wasm
+	$(QIP_BIN) comply text/currency-format-ar-eg.wasm --suite compliance/currency-format-ar-eg.comply.wasm
+	$(QIP_BIN) comply text/currency-format-fr-fr.wasm --suite compliance/currency-format-fr-fr.comply.wasm
+	$(QIP_BIN) comply text/currency-format-pt-br.wasm --suite compliance/currency-format-pt-br.comply.wasm
+	$(QIP_BIN) comply text/currency-format-ja-jp.wasm --suite compliance/currency-format-ja-jp.comply.wasm
+	$(QIP_BIN) comply text/currency-format-zh-cn.wasm --suite compliance/currency-format-zh-cn.comply.wasm
+	$(QIP_BIN) comply text/iso-4217-alpha-to-numeric.wasm --suite compliance/iso-4217-alpha-to-numeric.comply.wasm
+	$(QIP_BIN) comply image/svg+xml/svg-to-data-uri.wasm --suite compliance/svg-to-data-uri.comply.wasm
+	$(QIP_BIN) comply image/jpeg/jpeg-to-bmp-b8g8r8a8-srgb.wasm --suite compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm --suite compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/uri-list/data-uri-to-css-url.wasm --suite compliance/data-uri-to-css-url.comply.wasm
 
 test-snapshot: qip components
 	@mkdir -p test

@@ -118,7 +118,7 @@ make -j \
 
 ./qip comply \
   text/html/autolink-https.wasm \
-  --with compliance/autolink-https.comply.wasm \
+  --suite compliance/autolink-https.comply.wasm \
   --straight-line-oracles
 
 node --test test/html-adjacent.mjs

@@ -106,11 +106,11 @@ make -j \
 
 ./qip comply \
   text/unicode-17-normalize-nfc.wasm \
-  --with compliance/unicode-17-normalize-nfc.comply.wasm
+  --suite compliance/unicode-17-normalize-nfc.comply.wasm
 
 ./qip comply \
   text/uri-list/data-uri-to-css-url.wasm \
-  --with compliance/data-uri-to-css-url.comply.wasm
+  --suite compliance/data-uri-to-css-url.comply.wasm
 ```
 
 Download the published Unicode suite and run every NFC relationship:

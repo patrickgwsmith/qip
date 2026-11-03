@@ -161,7 +161,7 @@ repo becomes its own declared component kind, and the compiler emits exactly
 the allowlisted imports and required exports for that kind — nothing else
 is reachable from language code.
 
-**Classic `--with` checkers.** The kind declaration gives typed access to
+**Classic `--suite` checkers.** The kind declaration gives typed access to
 the implementation and generates the `impl.*` imports plus
 `positive()`/`negative()`:
 

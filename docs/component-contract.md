@@ -63,7 +63,7 @@ path:
    component receives keyboard events. `qip tui` and `qipx tui` currently run
    eventful TUIs in a native terminal. Later CLI stages are finite Content
    transforms over each rendered frame.
-4. `qip comply --with` uses Compliance and requires an exported `memory` and
+4. `qip comply --suite` uses Compliance and requires an exported `memory` and
    `comply() -> i32` entry point.
 
 `qip run` invokes only Content. It can perform the initial render of a

@@ -33,7 +33,7 @@ read stdin in the corresponding mode. Combine `-i root.svg` with
 component declares the root type. `-F` alone builds form data. Add
 `-u name=value` after the component that
 receives the uniform. `--max-memory` checks the module's declared memory, and
-`--capacities-must-fit` checks each stage's maximum output against the next
+`--capacities-must-fit` (or its alias `--strict-capacities`) checks each stage's maximum output against the next
 stage's input capacity.
 
 `qipx dry run` checks locally available stages and shows the ordered source
@@ -55,7 +55,7 @@ only printable UTF-8, line feeds, and a narrow set of ANSI SGR styles. Use
 ## Check and benchmark components
 
 ```sh
-qipx comply bytes/identity.wasm --with compliance/preserve-empty.wasm
+qipx comply bytes/identity.wasm --suite compliance/preserve-empty.wasm
 qipx bench -i input.txt --runs 100 before.wasm after.wasm
 qipx bench -F input=hello --benchtime=3s before.wasm after.wasm
 ```

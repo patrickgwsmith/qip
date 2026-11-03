@@ -8,7 +8,7 @@ import (
 func TestNormalizeComplyArgs(t *testing.T) {
 	in := []string{
 		"impl.wasm",
-		"--with",
+		"--suite",
 		"a.wasm",
 		"--with",
 		"b.wasm",
@@ -18,7 +18,7 @@ func TestNormalizeComplyArgs(t *testing.T) {
 	}
 	got := normalizeComplyArgs(in)
 	want := []string{
-		"--with",
+		"--suite",
 		"a.wasm",
 		"--with",
 		"b.wasm",

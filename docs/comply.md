@@ -51,36 +51,41 @@ same bug.
 qip comply [options] <file-or-dir> [...]
 
 Options:
-  --with <oracle.wasm>             Run a Compliance oracle (repeatable)
+  --suite <suite.wasm>            Run a Compliance suite (repeatable)
+  --with <suite.wasm>             Alias for --suite
   --seed <n>                      Call uniform_set_seed(u32) on each oracle
   --max-memory <bytes>            Reject implementation memory above bytes
-  --straight-line-oracles         Require each --with oracle to use straight-line oracle calls
+  --straight-line-oracles         Require each --suite oracle to use straight-line oracle calls
   -v, --verbose                   Print detailed validation logs
 ```
+
+Without `--seed`, oracles that export `uniform_set_seed` get a random seed,
+printed in the summary (`pass=2 fail=0 total=2 seed=4217`) so the run can be
+repeated with `--seed 4217`.
 
 ## Examples In This Repo
 
 ```bash
 # Expects that text/e164.wasm produces normalized phone numbers, and preserves empty input.
-qip comply text/e164.wasm --with compliance/e164.comply.wasm
+qip comply text/e164.wasm --suite compliance/e164.comply.wasm
 
 # Expects rejection for invalid UTF-8 and accepts whitespace or empty strings unchanged.
-qip comply text/utf8-must-be-valid.wasm --with compliance/reject-invalid-utf8.wasm --with compliance/preserve-empty.wasm --with compliance/preserve-whitespace.wasm
+qip comply text/utf8-must-be-valid.wasm --suite compliance/reject-invalid-utf8.wasm --suite compliance/preserve-empty.wasm --suite compliance/preserve-whitespace.wasm
 
 # Expects that text/luhn.wasm accepts normalized Luhn-valid input and rejects invalid input.
-qip comply text/luhn.wasm --with compliance/luhn.comply.wasm
+qip comply text/luhn.wasm --suite compliance/luhn.comply.wasm
 
 # Expects decimal RGB and rgb(...) forms to render as lowercase hexadecimal colors.
-qip comply text/rgb-to-hex.wasm --with compliance/rgb-to-hex.comply.wasm
+qip comply text/rgb-to-hex.wasm --suite compliance/rgb-to-hex.comply.wasm
 
 # Expects canonical RFC 4648 output for valid quartets and rejection for malformed Base64.
-qip comply text/base64-decode.wasm --with compliance/base64-decode.comply.wasm
+qip comply text/base64-decode.wasm --suite compliance/base64-decode.comply.wasm
 
 # Runs the 1,298 JSON-Schema-Test-Suite draft 2020-12 core tests: valid instances echo, invalid ones reject.
-qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12.comply.wasm
+qip comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compliance/json-schema-2020-12.comply.wasm
 
 # Runs the 1,292 of those whose regexes stay within the interoperable subset of core section 6.4 (plus "." and \-escaped syntax characters).
-qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compliance/json-schema-2020-12-interoperable-regex.comply.wasm
+qip comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compliance/json-schema-2020-12-interoperable-regex.comply.wasm
 ```
 
 ## What It Does
@@ -96,11 +101,11 @@ qip comply application/json/json-schema-2020-12-must-be-valid.wasm --with compli
   and optional failure metadata
 - function exports must be vanilla sequences: no calls, no loops, no dynamic control flow
 
-3. Optional behavior checks (`--with`):
+3. Optional behavior checks (`--suite`):
 
 - each Compliance oracle is executed against the implementation component
 - directory inputs are walked in sorted order and duplicate paths are removed
-- repeated `--with` oracles run in sorted order
+- repeated `--suite` oracles run in sorted order
 - all checks must pass
 
 ## Base Contract Rules
@@ -137,7 +142,7 @@ formatter oracle can keep `392` as its private JPY selection, but it sets the
 implementation currency again before every JPY case.
 
 Every oracle call has a sequential `u64` ordinal starting at zero. `comply()`
-returns the number of declared cases. Separate `--with` oracles run against
+returns the number of declared cases. Separate `--suite` oracles run against
 independent implementation instances, so an oracle must carry its own fixtures
 and setup.
 
@@ -260,7 +265,7 @@ runtime decisions. It requires one `comply` function containing only constants,
 direct oracle calls, drops, and its final `end`:
 
 ```bash
-qip comply impl.wasm --with oracle.wasm --straight-line-oracles
+qip comply impl.wasm --suite oracle.wasm --straight-line-oracles
 ```
 
 The validation inspects the final Wasm, not the source language. It permits one
@@ -281,13 +286,13 @@ That parser can branch because it does not become part of the Wasm. An
 `inline for` emits the resulting cases as a flat sequence of calls, and the
 straight-line oracle validation verifies that the compiler preserved that shape.
 
-This rule applies to the oracle supplied with `--with`, not to the
+This rule applies to the oracle supplied with `--suite`, not to the
 implementation being tested. See [Hard Limits](/docs/hard-limits) for the
 central map of artifact, runtime, and oracle validation.
 
 ### Fixture Archives
 
-A future `--with` input can be a TAR fixture archive for straight-line cases
+A future `--suite` input can be a TAR fixture archive for straight-line cases
 that do not need Wasm oracle logic. This keeps binary inputs and outputs in a
 portable format and makes cases easy to inspect with `tar -tf`.
 
@@ -440,7 +445,7 @@ identify the source case.
 3. Keep input, expected output, and must_render_into buffers in oracle-owned memory.
 4. Give each oracle call its next sequential ordinal.
 5. Build the implementation and compliance module.
-6. Run `qip comply impl.wasm --with compliance.wasm`.
+6. Run `qip comply impl.wasm --suite compliance.wasm`.
 7. Add the command to `make -j test` coverage when the contract should protect
    the repo permanently.
 

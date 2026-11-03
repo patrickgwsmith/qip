@@ -38,7 +38,7 @@ Test its declared behavior with a reusable Compliance oracle:
 ```sh
 npx @qip.dev/qipx qip.dev comply \
   text/rgb-to-hex.wasm \
-  --with oracles/rgb-to-hex.comply.wasm
+  --suite oracles/rgb-to-hex.comply.wasm
 ```
 
 Then open the same component in the interactive debugger:
@@ -78,6 +78,7 @@ Options:
   -o, --output <path>             Write output to a file instead of stdout
   --max-memory <bytes>            Reject modules whose declared memory exceeds bytes
   --capacities-must-fit           Reject stages whose max output cannot fit next input
+  --strict-capacities             Alias for --capacities-must-fit
   -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)
 ```
 
@@ -203,17 +204,22 @@ Check QIP Content compliance for files or directories:
 qipx [host ...] comply [options] <file-or-dir> [...]
 
 Options:
-  --with <compliance.wasm>        Run a Compliance oracle (repeatable)
+  --suite <suite.wasm>            Run a Compliance suite (repeatable)
+  --with <suite.wasm>             Alias for --suite
   --seed <n>                      Call uniform_set_seed(u32) on each oracle
   --max-memory <bytes>            Reject implementation memory above bytes
 ```
+
+Without `--seed`, oracles that export `uniform_set_seed` get a random seed,
+printed in the summary (`pass=2 fail=0 total=2 seed=4217`) so the run can be
+repeated with `--seed 4217`.
 
 Load a component and a reusable oracle, then check them together:
 
 ```sh
 npx @qip.dev/qipx qip.dev comply \
   text/utf8-must-be-valid.wasm \
-  --with oracles/reject-invalid-utf8.wasm
+  --suite oracles/reject-invalid-utf8.wasm
 ```
 
 `comply` accepts files and directories. Directories are searched recursively
@@ -221,7 +227,7 @@ without following symlinks found inside them.
 Each `.wasm` file is checked against the Strict Wasm Profile subset, static QIP
 ABI exports, and QIP Content ABI.
 
-Use `--with` to add one or more Compliance oracles. `qipx` runs the built-in
+Use `--suite` (or its alias `--suite`) to add one or more Compliance oracles. `qipx` runs the built-in
 checks first, then runs each oracle through the `qip` bridge.
 
 A Compliance oracle can also test a non-QIP implementation. A JS test can
@@ -232,7 +238,7 @@ the oracle bridge.
 
 ```text
 PASS text/trim.wasm
-PASS text/trim.wasm --with compliance/preserve-empty.wasm (1 cases)
+PASS text/trim.wasm --suite compliance/preserve-empty.wasm (1 cases)
 
 pass=2 fail=0 total=2
 ```
@@ -417,7 +423,7 @@ When validation or execution fails, the library throws an `Error` or
 | Instantiation and ABI | `newComponent(wasm, instance, contract)` | module bytes or instance missing; instance exports a uniform setter the bytes do not; exported memory is missing; `render` is missing; the input pointer or input/output capacity exports are missing or ambiguous; declared content type is invalid |
 | Recipe validation | `createRecipe(...)` | a stage expects a different content type than the previous stage produced; recipe content type is unspecified for a stage that declares an input type; `capacitiesMustFit` finds producer output capacity larger than consumer input capacity |
 | Execution | `render(componentOrRecipe, input)` | input bytes do not fit the stage input buffer; the component rejects input or traps; returned output length exceeds the advertised output capacity or memory bounds |
-| Compliance bridge | `qipx comply impl.wasm --with oracle.wasm` | oracle does not export `memory` or `comply`; oracle imports other than the `qip` bridge; bridge ordinals are not sequential; expected output does not match actual output; expected trap does not trap; must_render_into protocol is not closed |
+| Compliance bridge | `qipx comply impl.wasm --suite oracle.wasm` | oracle does not export `memory` or `comply`; oracle imports other than the `qip` bridge; bridge ordinals are not sequential; expected output does not match actual output; expected trap does not trap; must_render_into protocol is not closed |
 
 Example `maxMemory` failure:
 

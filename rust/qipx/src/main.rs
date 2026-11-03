@@ -158,7 +158,7 @@ fn run() -> Result<(), String> {
                 }
                 max_memory = Some(cap);
             }
-            "--capacities-must-fit" => capacities_must_fit = true,
+            "--capacities-must-fit" | "--strict-capacities" => capacities_must_fit = true,
             "-o" | "--output" => {
                 index += 1;
                 output_path = args.get(index).ok_or("--output requires a path")?;
@@ -343,6 +343,7 @@ Options:\n  \
 -o, --output <path>             Write output to a file instead of stdout\n  \
 --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n  \
 --capacities-must-fit           Reject stages whose max output cannot fit next input\n  \
+--strict-capacities             Alias for --capacities-must-fit\n  \
 -u, --uniform <name=value>      Set a uniform on the preceding component (repeatable)\n  \
 dry run                         Validate the pipeline without reading input or rendering\n  \
 -h, --help                      Show this help\n\n{}\n\
@@ -366,7 +367,8 @@ Input:\n  \
 Execution:\n  \
 -u, --uniform <name=value>      Set a uniform on the preceding component\n  \
 --max-memory <bytes>            Reject modules whose declared memory exceeds bytes\n  \
---capacities-must-fit           Check capacity between Content stages\n\n\
+--capacities-must-fit           Check capacity between Content stages\n  \
+--strict-capacities             Alias for --capacities-must-fit\n\n\
 The first component must be Interactive. Later components transform each\n\
 frame as ordinary Content stages; the final output must be UTF-8 text.\n\
 With hosts, missing safe relative .wasm files used by -F are downloaded.\n\n{}",
@@ -397,11 +399,14 @@ Every output must match the first component byte for byte.\n\n{}",
 fn comply_usage() -> String {
     "Usage: qipx [host ...] comply [options] <file-or-dir> [...]\n\n\
 Options:\n  \
---with <compliance.wasm>        Run a Compliance oracle (repeatable)\n  \
+--suite <suite.wasm>            Run a Compliance suite (repeatable)\n  \
+--with <suite.wasm>             Alias for --suite\n  \
 --seed <n>                      Call uniform_set_seed(u32) on each oracle\n  \
 --max-memory <bytes>            Reject implementation memory above bytes\n  \
 -h, --help                      Show this help\n\n\
 Checks QIP Content ABI compliance and the Strict Wasm Profile subset.\n\
+Without --seed, oracles that export uniform_set_seed get a random seed,\n\
+printed in the summary so the run can be repeated.\n\
 Documentation: https://qip.dev/docs/comply\n"
         .into()
 }
@@ -516,7 +521,7 @@ fn dry_run(args: &[String], hosts: &[String]) -> Result<(), String> {
                 }
                 max_memory = Some(cap);
             }
-            "--capacities-must-fit" => capacities_must_fit = true,
+            "--capacities-must-fit" | "--strict-capacities" => capacities_must_fit = true,
             flag @ ("-u" | "--uniform") => {
                 index += 1;
                 push_uniform(flag, args.get(index), &mut stages)?;
@@ -1744,7 +1749,7 @@ fn run_oracle(
     implementation: &str,
     oracle: &str,
     module: &Module,
-    seed: Option<u32>,
+    seed: &mut ComplySeed,
     max_memory: Option<u64>,
     hosts: &[String],
 ) -> Result<u64, String> {
@@ -2049,18 +2054,21 @@ fn run_oracle(
     instance
         .get_memory(&mut store, "memory")
         .ok_or_else(|| format!("{oracle} Compliance oracle must export memory"))?;
-    if let Some(seed) = seed {
-        let (export, function) = uniform_setter(&instance, &mut store, oracle, "seed")?
-            .ok_or_else(|| {
-                format!(
-                    "{oracle}: --seed given but Compliance oracle does not export uniform_set_seed"
-                )
-            })?;
-        function
-            .typed::<i32, ()>(&store)
-            .map_err(|_| format!("{oracle}: {export} must take one i32 and return nothing"))?
-            .call(&mut store, seed as i32)
-            .map_err(|e| format!("{oracle}: {export} failed: {e}"))?;
+    match uniform_setter(&instance, &mut store, oracle, "seed")? {
+        Some((export, function)) => {
+            seed.used = true;
+            function
+                .typed::<i32, ()>(&store)
+                .map_err(|_| format!("{oracle}: {export} must take one i32 and return nothing"))?
+                .call(&mut store, seed.value as i32)
+                .map_err(|e| format!("{oracle}: {export} failed: {e}"))?;
+        }
+        None if seed.explicit => {
+            return Err(format!(
+                "{oracle}: --seed given but Compliance oracle does not export uniform_set_seed"
+            ));
+        }
+        None => {}
     }
     let function = instance
         .get_typed_func::<(), i32>(&mut store, "comply")
@@ -2092,6 +2100,15 @@ fn run_oracle(
     Ok(state.next)
 }
 
+// ComplySeed is the seed passed to each oracle's uniform_set_seed. An explicit --seed requires
+// every oracle to export the setter; a random default seeds only those that do, and used records
+// whether any did, so the summary can report it.
+struct ComplySeed {
+    value: u32,
+    explicit: bool,
+    used: bool,
+}
+
 fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
     let mut files = Vec::new();
     let mut oracles = Vec::new();
@@ -2100,9 +2117,13 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
     let mut index = 0;
     while index < args.len() {
         match args[index].as_str() {
-            "--with" => {
+            flag @ ("--suite" | "--with") => {
                 index += 1;
-                oracles.push(args.get(index).ok_or("--with requires a path")?.as_str());
+                oracles.push(
+                    args.get(index)
+                        .ok_or_else(|| format!("{flag} requires a path"))?
+                        .as_str(),
+                );
             }
             "--seed" => {
                 index += 1;
@@ -2137,6 +2158,23 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
         return Err("comply requires at least one file or directory".into());
     }
     oracles.sort();
+    let mut seed = match seed {
+        Some(value) => ComplySeed {
+            value,
+            explicit: true,
+            used: false,
+        },
+        None => {
+            let mut bytes = [0; 4];
+            getrandom::getrandom(&mut bytes)
+                .map_err(|e| format!("cannot choose a random seed: {e}"))?;
+            ComplySeed {
+                value: u32::from_le_bytes(bytes),
+                explicit: false,
+                used: false,
+            }
+        }
+    };
     let mut expanded = Vec::new();
     for file in files {
         match fs::metadata(file) {
@@ -2188,10 +2226,10 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
             }
         }
         for (oracle, module) in &oracles {
-            match run_oracle(&engine, file, oracle, module, seed, max_memory, hosts) {
+            match run_oracle(&engine, file, oracle, module, &mut seed, max_memory, hosts) {
                 Ok(cases) => {
                     println!(
-                        "PASS {} --with {} ({cases} cases)",
+                        "PASS {} --suite {} ({cases} cases)",
                         file.display_text(),
                         oracle.display_text()
                     );
@@ -2199,7 +2237,7 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
                 }
                 Err(error) => {
                     println!(
-                        "FAIL {} --with {}: {}",
+                        "FAIL {} --suite {}: {}",
                         file.display_text(),
                         oracle.display_text(),
                         error.display_text()
@@ -2209,7 +2247,15 @@ fn comply(args: &[String], hosts: &[String]) -> Result<(), String> {
             }
         }
     }
-    println!("\npass={pass} fail={fail} total={}", pass + fail);
+    let seed_report = if seed.used {
+        format!(" seed={}", seed.value)
+    } else {
+        String::new()
+    };
+    println!(
+        "\npass={pass} fail={fail} total={}{seed_report}",
+        pass + fail
+    );
     if fail != 0 {
         // The summary above already reports failures, as Node qipx does.
         io::stdout()

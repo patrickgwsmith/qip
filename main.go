@@ -167,11 +167,15 @@ Output:
 const helpComply = `Usage: qip [host ...] comply [options] <file-or-dir> [...]
 
 Options:
-  --with <compliance.wasm>        Run a Compliance oracle (repeatable)
+  --suite <suite.wasm>            Run a Compliance suite (repeatable)
+  --with <suite.wasm>             Alias for --suite
   --seed <n>                      Call uniform_set_seed(u32) on each oracle
   --max-memory <bytes>            Reject implementation memory above bytes
-  --straight-line-oracles         Require each --with oracle to use straight-line oracle calls
+  --straight-line-oracles         Require each --suite oracle to use straight-line oracle calls
   -v, --verbose                   Print detailed validation logs
+
+Without --seed, oracles that export uniform_set_seed get a random seed,
+printed in the summary so the run can be repeated.
 
 What qip comply does:
   1) Base Content ABI validation on impl.wasm (always):
@@ -185,13 +189,13 @@ What qip comply does:
      - qip contract functions (for example input_ptr/capacity getters) must be
        vanilla instruction sequences with no calls, loops, or dynamic control flow
 
-  3) Executes each --with Compliance oracle:
+  3) Executes each --suite Compliance oracle:
      - oracle imports only the qip oracle bridge
      - implementation and oracle memory remain separate
      - all oracles must pass
 
 Oracle structure:
-  --straight-line-oracles requires every --with component to define one comply
+  --straight-line-oracles requires every --suite component to define one comply
   function containing only constants, direct oracle calls, drops, and its final
   end. These oracles declare cases without runtime control flow.
 
@@ -214,8 +218,8 @@ Case rules:
 
 Example:
   qip comply text/utf8-must-be-valid.wasm \
-    --with compliance/preserve-empty.wasm \
-    --with compliance/reject-invalid-utf8.wasm`
+    --suite compliance/preserve-empty.wasm \
+    --suite compliance/reject-invalid-utf8.wasm`
 
 func main() {
 	args := os.Args[1:]

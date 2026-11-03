@@ -77,7 +77,7 @@ make -j \
 
 ./qip comply \
   text/rgb-to-hex.wasm \
-  --with compliance/rgb-to-hex.comply.wasm
+  --suite compliance/rgb-to-hex.comply.wasm
 ```
 
 Open the representative input in qipdb:

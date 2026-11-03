@@ -1,0 +1,24 @@
+{
+  "name": "qipdo",
+  "version": "0.1.0",
+  "description": "Run a chain of QIP components on input",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/royalicing/qip.git",
+    "directory": "npm/qipdo"
+  },
+  "type": "module",
+  "bin": {
+    "qipdo": "qipdo.mjs"
+  },
+  "files": ["qipdo.mjs"],
+  "keywords": ["qip", "webassembly", "wasm", "cli", "components", "pipeline"],
+  "homepage": "https://qip.dev",
+  "bugs": {
+    "url": "https://github.com/royalicing/qip/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0"
+}

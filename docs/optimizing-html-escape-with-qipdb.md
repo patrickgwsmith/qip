@@ -162,7 +162,7 @@ Recover it and build the final component and oracle:
 ```sh
 git show 63e9af619ec7014e209c046704f3d8e1bfb6603a:text/html/html-escape.wasm > /tmp/html-escape-before.wasm
 make -j text/html/html-escape.wasm compliance/html-escape.comply.wasm
-./qip comply text/html/html-escape.wasm --with compliance/html-escape.comply.wasm --straight-line-oracles
+./qip comply text/html/html-escape.wasm --suite compliance/html-escape.comply.wasm --straight-line-oracles
 ```
 
 Generate the benchmark inputs with Node.js:

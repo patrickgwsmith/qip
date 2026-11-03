@@ -80,7 +80,7 @@ test("qipx Compliance supports must_reject", () => {
     "npm/qipx/cli.mjs",
     "comply",
     "text/utf8-must-be-valid.wasm",
-    "--with",
+    "--suite",
     "compliance/reject-invalid-utf8.wasm",
   ], { encoding: "utf8" });
 

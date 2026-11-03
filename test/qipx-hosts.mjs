@@ -398,7 +398,7 @@ test("qipx resolves bench components and comply oracles through the same hosts",
         "components.example",
         "comply",
         "impl/utf8-must-be-valid.wasm",
-        "--with",
+        "--suite",
         "oracles/reject-invalid-utf8.wasm",
       ]));
     });

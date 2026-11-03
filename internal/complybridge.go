@@ -172,7 +172,7 @@ func (s *bridgeState) renderImpl(ctx context.Context, input []byte) (bridgeRende
 
 // The named return matters: out.duration is assigned in a defer, which only
 // reaches the caller's copy through the named result.
-func runBridgeComplianceModule(implWasm []byte, compliance complianceSpec, seed *int32) (out complianceOutcomes) {
+func runBridgeComplianceModule(implWasm []byte, compliance complianceSpec, seed *complySeed) (out complianceOutcomes) {
 	out = complianceOutcomes{index: compliance.index, path: compliance.path}
 	start := time.Now()
 	defer func() { out.duration = time.Since(start) }()
@@ -435,13 +435,16 @@ func runBridgeComplianceModule(implWasm []byte, compliance complianceSpec, seed 
 			return out
 		}
 		seedExport, ok := oracleSetters[bridgeUniformSeed]
-		if !ok {
+		if !ok && seed.explicit {
 			out.err = fmt.Errorf("--seed given but Compliance oracle does not export uniform_set_%s", bridgeUniformSeed)
 			return out
 		}
-		if _, err := oracleMod.ExportedFunction(seedExport).Call(ctx, uint64(uint32(*seed))); err != nil {
-			out.err = fmt.Errorf("%s failed: %w", seedExport, err)
-			return out
+		if ok {
+			seed.used = true
+			if _, err := oracleMod.ExportedFunction(seedExport).Call(ctx, uint64(uint32(seed.value))); err != nil {
+				out.err = fmt.Errorf("%s failed: %w", seedExport, err)
+				return out
+			}
 		}
 	}
 

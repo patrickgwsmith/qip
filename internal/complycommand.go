@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,7 +23,7 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const usageComply = "Usage: qip comply [options] <file-or-dir> [...]\n\nOptions:\n  --with <compliance.wasm>        Run a Compliance oracle (repeatable)\n  --seed <n>                      Call uniform_set_seed(u32) on each oracle\n  --max-memory <bytes>            Reject implementation memory above bytes\n  --straight-line-oracles         Require each --with oracle to use straight-line oracle calls\n  -v, --verbose                   Print detailed validation logs"
+const usageComply = "Usage: qip comply [options] <file-or-dir> [...]\n\nOptions:\n  --suite <suite.wasm>            Run a Compliance suite (repeatable)\n  --with <suite.wasm>             Alias for --suite\n  --seed <n>                      Call uniform_set_seed(u32) on each oracle\n  --max-memory <bytes>            Reject implementation memory above bytes\n  --straight-line-oracles         Require each --suite oracle to use straight-line oracle calls\n  -v, --verbose                   Print detailed validation logs"
 
 var ErrComplyFailed = errors.New("compliance failed")
 
@@ -45,7 +46,7 @@ func (s *stringListFlag) String() string {
 
 func (s *stringListFlag) Set(v string) error {
 	if strings.TrimSpace(v) == "" {
-		return errors.New("--with path must not be empty")
+		return errors.New("--suite path must not be empty")
 	}
 	*s = append(*s, v)
 	return nil
@@ -92,10 +93,11 @@ func RunComplyCommandWithHosts(args []string, hosts []ComponentHost) error {
 	var seed uint32
 	var seedSet bool
 	var maxMemory uint64
-	fs.Var(&withCompliances, "with", "Compliance oracle (repeatable)")
+	fs.Var(&withCompliances, "suite", "Compliance suite (repeatable)")
+	fs.Var(&withCompliances, "with", "alias for --suite")
 	fs.BoolVar(&verbose, "v", false, "enable verbose logging")
 	fs.BoolVar(&verbose, "verbose", false, "enable verbose logging")
-	fs.BoolVar(&straightLineOracles, "straight-line-oracles", false, "require each --with oracle to use straight-line oracle calls")
+	fs.BoolVar(&straightLineOracles, "straight-line-oracles", false, "require each --suite oracle to use straight-line oracle calls")
 	fs.Func("seed", "call uniform_set_seed(u32) on each oracle", func(v string) error {
 		n, err := strconv.ParseUint(v, 10, 32)
 		if err != nil {
@@ -141,14 +143,14 @@ func RunComplyCommandWithHosts(args []string, hosts []ComponentHost) error {
 			return validateComplianceOracleContract(body, label)
 		})
 		if err != nil {
-			return fmt.Errorf("failed to read --with %q: %w", path, err)
+			return fmt.Errorf("failed to read --suite %q: %w", path, err)
 		}
 		if straightLineOracles {
 			if err := wasminspect.ValidateStraightLineComplyOracle(body); err != nil {
 				return fmt.Errorf("Compliance oracle %q: %w", path, err)
 			}
 			if verbose {
-				fmt.Fprintf(os.Stderr, "comply: straight-line oracle PASS --with %s\n", path)
+				fmt.Fprintf(os.Stderr, "comply: straight-line oracle PASS --suite %s\n", path)
 			}
 		}
 		if verbose {
@@ -158,18 +160,23 @@ func RunComplyCommandWithHosts(args []string, hosts []ComponentHost) error {
 		compliances = append(compliances, complianceSpec{index: i, path: path, wasm: body})
 	}
 
-	var seedPtr *int32
-	if seedSet {
-		s := int32(seed)
-		seedPtr = &s
+	// Without --seed, oracles that export uniform_set_seed get a random seed,
+	// reported in the summary so the run can be repeated.
+	if !seedSet {
+		seed = rand.Uint32()
 	}
+	seeding := &complySeed{value: int32(seed), explicit: seedSet}
 	pass, fail := 0, 0
 	for _, implPath := range implPaths {
-		implPass, implFail := runComplyForImplementation(implPath, compliances, seedPtr, maxMemory, verbose, hosts)
+		implPass, implFail := runComplyForImplementation(implPath, compliances, seeding, maxMemory, verbose, hosts)
 		pass += implPass
 		fail += implFail
 	}
-	fmt.Printf("\npass=%d fail=%d total=%d\n", pass, fail, pass+fail)
+	seedReport := ""
+	if seeding.used {
+		seedReport = fmt.Sprintf(" seed=%d", seed)
+	}
+	fmt.Printf("\npass=%d fail=%d total=%d%s\n", pass, fail, pass+fail, seedReport)
 	if fail > 0 {
 		return ErrComplyFailed
 	}
@@ -234,7 +241,16 @@ func discoverComplyWasmFilesWithHosts(paths []string, hosts []ComponentHost) ([]
 	return files, nil
 }
 
-func runComplyForImplementation(implPath string, compliances []complianceSpec, seed *int32, maxMemory uint64, verbose bool, hosts []ComponentHost) (pass int, fail int) {
+// complySeed is the seed passed to each oracle's uniform_set_seed. An explicit
+// --seed requires every oracle to export the setter; a random default seeds
+// only those that do, and used records whether any did.
+type complySeed struct {
+	value    int32
+	explicit bool
+	used     bool
+}
+
+func runComplyForImplementation(implPath string, compliances []complianceSpec, seed *complySeed, maxMemory uint64, verbose bool, hosts []ComponentHost) (pass int, fail int) {
 	implWasm, err := readComplyModulePath(implPath, hosts, func(body []byte, label string) error {
 		if maxMemory > 0 {
 			if err := wasminspect.ValidateModulePolicy(body, wasminspect.ModulePolicy{MaxMemoryBytes: maxMemory}); err != nil {
@@ -308,11 +324,11 @@ func runComplyForImplementation(implPath string, compliances []complianceSpec, s
 	for _, compliance := range compliances {
 		out := runComplianceModule(implWasm, compliance, seed)
 		if out.passed {
-			fmt.Printf("PASS %s --with %s (%d cases)\n", implPath, out.path, out.cases)
+			fmt.Printf("PASS %s --suite %s (%d cases)\n", implPath, out.path, out.cases)
 			pass++
 			continue
 		}
-		fmt.Printf("FAIL %s --with %s: %v\n", implPath, out.path, out.err)
+		fmt.Printf("FAIL %s --suite %s: %v\n", implPath, out.path, out.err)
 		if verbose && out.detail != "" {
 			fmt.Fprintf(os.Stderr, "%s\n", out.detail)
 		}
@@ -323,6 +339,7 @@ func runComplyForImplementation(implPath string, compliances []complianceSpec, s
 
 func normalizeComplyArgs(args []string) []string {
 	flagsWithValue := map[string]struct{}{
+		"--suite":      {},
 		"--with":       {},
 		"--seed":       {},
 		"--max-memory": {},
@@ -516,7 +533,7 @@ func getExportedI32(ctx context.Context, mod api.Module, name string) (int32, bo
 	return 0, false, nil
 }
 
-func runComplianceModule(implWasm []byte, compliance complianceSpec, seed *int32) complianceOutcomes {
+func runComplianceModule(implWasm []byte, compliance complianceSpec, seed *complySeed) complianceOutcomes {
 	return runBridgeComplianceModule(implWasm, compliance, seed)
 }
 

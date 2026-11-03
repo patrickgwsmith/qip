@@ -51,7 +51,7 @@ Test behavior complies with a reusable oracle that checks a range of expected ou
 ```sh
 npx @qip.dev/qipx qip.dev comply \
   text/rgb-to-hex.wasm \
-  --with oracles/rgb-to-hex.comply.wasm
+  --suite oracles/rgb-to-hex.comply.wasm
 ```
 
 Then open the same component in the interactive qipdb debugger:
@@ -675,7 +675,7 @@ echo "World" | NODE_OPTIONS=--expose-gc qipx bench -i - --benchtime=2s text/hell
 - [ ] Add `warc-latency-estimator.wasm` that takes a WARC and then for each route calculates largest-contentful-paint and time-to-interaction and so forth.
 - [ ] Investigate lighter router `HEAD` handling. Today `HEAD` follows the full `GET` path so WARC recipes can add derived routes, change headers, and set the final content length correctly. Many WARC recipes need the full site to understand links, but usually do not change status or headers other than `content-length`. Find a safe way for `HEAD` to avoid unnecessary body work when recipes can declare that behavior.
 - [ ] Update to latest Zig
-- [ ] Add TAR fixture archives for straight-line Content Compliance cases. Accept them through `qip comply --with fixtures.tar` and `qipx comply --with fixtures.tar`; support `must_render_exactly`, `must_trap`, explicit per-case uniforms in the case directory name, deterministic path sorting, duplicate-key rejection, and unknown-entry failures.
+- [ ] Add TAR fixture archives for straight-line Content Compliance cases. Accept them through `qip comply --suite fixtures.tar` and `qipx comply --suite fixtures.tar`; support `must_render_exactly`, `must_trap`, explicit per-case uniforms in the case directory name, deterministic path sorting, duplicate-key rejection, and unknown-entry failures.
 - [ ] Add Compliance sidecar recording for Wasm oracles. Start with `--record-failures failures.tar` for fuzz/debug repro cases, then consider `--record-cases cases.tar` for exporting all observed `must_render_exactly` and `must_trap` oracle calls into the TAR fixture archive format. Include a record limit so fuzzers cannot produce unbounded archives.
 - [ ] Retire `qip comply --straight-line-oracles` after TAR fixture archives cover the audit use case. Procedural Wasm Compliance oracles can keep normal control flow; fixture archives provide the no-branching format.
 - [ ] Design `<qip-step>`, `<qip-connect-search-params>`, `<qip-render>`, and pre-rendered `<qip-view>` together as the finite-rendering markup.

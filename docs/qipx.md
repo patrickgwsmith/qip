@@ -15,7 +15,7 @@ npx @qip.dev/qipx --help
 | `qipx [host ...] run [options] <component.wasm> [...]` | Run one Content component or a left-to-right component pipeline. Piped input comes from stdin; a terminal with no input option supplies empty input. Output goes to stdout. |
 | `qipx [host ...] dry run [options] <component.wasm> [...]` | Show the complete source plan and validate locally available pipeline stages without network requests, input reads, or rendering. |
 | `qipx [host ...] tui [options] <tui.wasm> [content.wasm ...]` | Run one TUI component in a terminal, with optional Content transforms after it. |
-| `qipx [host ...] comply [options] <file-or-dir> [...]` | Check the Content ABI and strict WebAssembly subset, then run any Compliance oracles supplied with `--with`. |
+| `qipx [host ...] comply [options] <file-or-dir> [...]` | Check the Content ABI and strict WebAssembly subset, then run any Compliance oracles supplied with `--suite`. |
 | `qipx [host ...] bench (-i <input> \| -F <name=value>) [options] <component.wasm> [...]` | Compare warmed Content components on Node/V8 or Bun/JavaScriptCore. Every candidate must return the same type and bytes as the first component. |
 
 Run `npx @qip.dev/qipx --help` for the current options. Uniform options follow the component they configure:
@@ -45,7 +45,7 @@ The component path produces this ordered source chain:
 
 An existing local file always wins. If the file is missing, qipx requests the same relative path from each host in order. A successful response is validated and saved at the original relative path. qipx creates missing parent directories, but it never replaces an existing file. Later commands use the local file without a request.
 
-Only missing, safe relative paths that end in `.wasm` can use a host. Absolute paths, parent segments such as `..`, backslashes, queries, fragments, and local directories are never fetched. Direct `.wasm` arguments to `comply` and its `--with` oracles use the same resolution rules.
+Only missing, safe relative paths that end in `.wasm` can use a host. Absolute paths, parent segments such as `..`, backslashes, queries, fragments, and local directories are never fetched. Direct `.wasm` arguments to `comply` and its `--suite` oracles use the same resolution rules.
 
 Host fallback handles unavailable sources: connection and TLS failures, timeouts, HTTP 404 or 410, and HTTP 5xx responses. Other HTTP errors stop resolution. A response that is not valid for its command also stops resolution and is not saved. This prevents a bad first host from being hidden by a later mirror.
 
