@@ -68,12 +68,14 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 - [`hex-to-rgb.wasm`](/text/hex-to-rgb.wasm) converts a hexadecimal color to RGB text.
 - [`rgb-to-hex.wasm`](/text/rgb-to-hex.wasm) converts RGB text to a hexadecimal color.
 - [`youtube-id-extractor.wasm`](/text/youtube-id-extractor.wasm) extracts YouTube video IDs from text.
+- [`cve-extract-as-cve-org-uris.wasm`](/text/cve-extract-as-cve-org-uris.wasm) finds every CVE ID in text and emits a `text/uri-list` of CVE.org record URLs. [`cve-extract-as-nvd-nist-uris.wasm`](/text/cve-extract-as-nvd-nist-uris.wasm) emits NVD detail URLs instead.
 
 ## Validation
 
 - [`utf8-must-be-valid.wasm`](/text/utf8-must-be-valid.wasm) accepts valid UTF-8 bytes unchanged and reports the first invalid byte offset. [`utf8-must-be-valid-odin.wasm`](/text/utf8-must-be-valid-odin.wasm) is the Odin implementation.
 - [`utf8-must-be-ascii.wasm`](/text/utf8-must-be-ascii.wasm) accepts ASCII bytes unchanged and reports the first non-ASCII byte offset.
 - [`luhn.wasm`](/text/luhn.wasm) validates a number with the Luhn checksum and returns its digits without spaces or hyphens.
+- [`cve.wasm`](/text/cve.wasm) validates one CVE ID (`CVE-YYYY-NNNN`, year 1999 or later, 4 to 19 sequence digits) and returns it with an uppercase prefix. It reports the offset of the first bad byte.
 - [`tld-validator.wasm`](/text/tld-validator.wasm) validates a top-level domain label.
 - [`validate-hostname.wasm`](/text/validate-hostname.wasm) accepts an RFC 1123 host name unchanged: dot-separated labels of 1 to 63 letters, digits and hyphens, at most 253 characters in total. It reports the offset of the first byte that no host name can continue through.
 - [`bcp47-must-be-well-formed.wasm`](/text/bcp47-must-be-well-formed.wasm) accepts a language tag unchanged if it matches the RFC 5646 grammar, and reports the offset of the first bad subtag.

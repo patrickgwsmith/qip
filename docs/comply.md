@@ -75,6 +75,9 @@ qip comply text/utf8-must-be-valid.wasm --suite compliance/reject-invalid-utf8.w
 # Expects that text/luhn.wasm accepts normalized Luhn-valid input and rejects invalid input.
 qip comply text/luhn.wasm --suite compliance/luhn.comply.wasm
 
+# Expects that text/cve.wasm accepts CVE IDs in canonical uppercase and rejects malformed or pre-1999 IDs.
+qip comply text/cve.wasm --suite compliance/cve.comply.wasm
+
 # Expects decimal RGB and rgb(...) forms to render as lowercase hexadecimal colors.
 qip comply text/rgb-to-hex.wasm --suite compliance/rgb-to-hex.comply.wasm
 

@@ -116,6 +116,9 @@ compliance/warc-connect-search-params.comply.wasm: compliance/warc-connect-searc
 compliance/youtube-id-extractor.comply.wasm: compliance/youtube-id-extractor.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/cve-extract-as-cve-org-uris.comply.wasm compliance/cve-extract-as-nvd-nist-uris.comply.wasm: compliance/%.wasm: compliance/%.zig compliance/cve-extract-cases.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -192,6 +195,8 @@ compliance: compliance/rgb-to-hex.comply.wasm
 compliance: compliance/mermaid-to-unicode-html.comply.wasm
 compliance: compliance/warc-connect-search-params.comply.wasm
 compliance: compliance/youtube-id-extractor.comply.wasm
+compliance: compliance/cve-extract-as-cve-org-uris.comply.wasm
+compliance: compliance/cve-extract-as-nvd-nist-uris.comply.wasm
 compliance: compliance/shortcode-to-emoji.comply.wasm
 compliance: compliance/html-escape.comply.wasm
 compliance: compliance/json-schema-2020-12.comply.wasm
@@ -1535,6 +1540,9 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --suite compliance/html5-entities.comply.wasm --suite compliance/unicode-17-casefold-labels.comply.wasm --suite compliance/commonmark-differential-corpus.comply.wasm
 	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --suite compliance/html5-entities.comply.wasm --suite compliance/unicode-17-casefold-labels.comply.wasm --suite compliance/commonmark-differential-corpus.comply.wasm
 	$(QIP_BIN) comply text/luhn.wasm --suite compliance/luhn.comply.wasm
+	$(QIP_BIN) comply text/cve.wasm --suite compliance/cve.comply.wasm
+	$(QIP_BIN) comply text/cve-extract-as-cve-org-uris.wasm --suite compliance/cve-extract-as-cve-org-uris.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/cve-extract-as-nvd-nist-uris.wasm --suite compliance/cve-extract-as-nvd-nist-uris.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/rgb-to-hex.wasm --suite compliance/rgb-to-hex.comply.wasm
 	$(QIP_BIN) comply text/base64-decode.wasm --suite compliance/base64-decode.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/css/css-class-validator.wasm --suite compliance/css-class-validator.comply.wasm --straight-line-oracles
