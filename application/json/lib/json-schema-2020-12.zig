@@ -6,7 +6,7 @@
 // json-schema-to-wasm.zig uses the same index to resolve a schema ahead of
 // time, and lib/json-schema-runtime.zig reuses the number and regex code.
 const std = @import("std");
-const unicode_letter = @import("json-schema-unicode-letter.zig");
+pub const unicode_letter = @import("json-schema-unicode-letter.zig");
 
 pub const MAX_DEPTH: usize = 512;
 pub const MAX_REGEX_INSTS: usize = 20_000;

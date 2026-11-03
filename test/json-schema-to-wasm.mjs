@@ -241,6 +241,69 @@ test("compiled modules agree with the validator on random instances", () => {
   assert.ok(compared > 1800);
 });
 
+// The compiler sorts properties keys; the runtime scans up to 16 and binary
+// searches longer lists, and required maps to the sorted index for up to 64.
+test("properties lookups agree with the validator at every list size", () => {
+  const rand = mulberry32(1123);
+  // Mixed lengths, many of the same length, written out of sorted order.
+  const pool = ["zz", "a", "b", "id", "ab", "ba", "é", "ée", "name", "nAme", "x-y", "", "price", "tags", "z", "aa", "ä", "😀"];
+  for (let i = 0; pool.length < 90; i++) pool.push(`k${(i * 37) % 97}`, `key_${i}`);
+  // Over 16 keys the runtime binary-searches each key's tag (its length
+  // capped at 255 and first three bytes), then scans the entries sharing it.
+  // These keys all share one tag, so the scan does all the work.
+  const alike = Array.from({ length: 30 }, (_, i) => `pref${10 + i}suff`);
+  // From 255 bytes the tag no longer holds the exact length. These share
+  // their tag and last four bytes, and differ in length or in the middle.
+  const long = [254, 255, 256, 300].flatMap((n) => [`abc${"m".repeat(n - 7)}tail`, `abc${"n".repeat(n - 7)}tail`]);
+  const sets = [3, 16, 17, 40, 64, 65, 90].map((size) => pool.slice(0, size).reverse());
+  sets.push(alike.slice(0, 17), [...alike, ...pool.slice(0, 10)].reverse());
+  sets.push([...long].reverse(), [...long, ...pool.slice(0, 20)].reverse());
+  for (const names of sets) {
+    const size = names.length;
+    const schema = {
+      type: "object",
+      properties: Object.fromEntries(names.map((k, i) => [k, { type: i % 3 ? "integer" : "string" }])),
+      required: [names[0], names[size >> 1], names[size - 1]],
+      additionalProperties: { type: "boolean" },
+    };
+    const schemaText = JSON.stringify(schema);
+    const check = component(compile(schema));
+    const candidates = [...names, "absent", "k", "key_", "zzz", "Name", "ab ", "b\u0000", "pref99suff", "pref1suff", `abc${"m".repeat(250)}tail`, `abc${"o".repeat(293)}tail`, `abc${"m".repeat(253)}`, `abc${"n".repeat(260)}`];
+    const good = (k) => {
+      const type = Object.hasOwn(schema.properties, k) ? schema.properties[k].type : "boolean";
+      return type === "string" ? "s" : type === "integer" ? 1 : true;
+    };
+    const bad = (k) => (good(k) === "s" ? 1 : "s");
+    let accepted = 0;
+    for (let n = 0; n < 200; n++) {
+      const obj = {};
+      for (const k of candidates) if (rand() < 0.3) obj[k] = good(k);
+      for (const k of schema.required) if (k in schema.properties && rand() < 0.9) obj[k] = good(k);
+      // About half the instances get one value of the wrong type.
+      const keys = Object.keys(obj);
+      if (keys.length && rand() < 0.5) {
+        const k = keys[Math.floor(rand() * keys.length)];
+        obj[k] = bad(k);
+      }
+      const text = JSON.stringify(obj);
+      const want = render(validatorModule, envelope({ schema: schemaText, instance: text })).accepted;
+      assert.equal(check(text), want, `size ${size} on ${text}`);
+      if (want) accepted += 1;
+    }
+    assert.ok(accepted > 30 && accepted < 170, `size ${size}: ${accepted} of 200 accepted`);
+  }
+  // A repeated properties key: both use the first, whether the list is
+  // scanned or binary-searched.
+  const filler = Array.from({ length: 20 }, (_, i) => `"f${i}": true, `).join("");
+  for (const extra of ["", filler]) {
+    const repeated = `{"properties": {${extra}"b": {"type": "string"}, "a": true, "b": {"type": "integer"}}, "required": ["b"]}`;
+    const check = component(compileText(envelope({ schema: repeated })));
+    for (const text of ['{"b": "x"}', '{"b": 1}', '{"a": 1}']) {
+      assert.equal(check(text), render(validatorModule, envelope({ schema: repeated, instance: text })).accepted, text);
+    }
+  }
+});
+
 test("the order book document validates the same as the validator", () => {
   const check = component(compile(orderSchema));
   const doc = makeOrders(300);

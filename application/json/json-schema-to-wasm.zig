@@ -151,7 +151,7 @@ const Compiler = struct {
     toks: std.ArrayListUnmanaged(Tok) = .empty,
     bytes: std.ArrayListUnmanaged(u8) = .empty,
     dyns: std.ArrayListUnmanaged(prog.DynAnchor) = .empty,
-    regexes: std.ArrayListUnmanaged(Str) = .empty,
+    regexes: std.ArrayListUnmanaged(u32) = .empty,
     nums: std.ArrayListUnmanaged(prog.Num) = .empty,
     regex_sources: Interner = .{},
     node_of: js.PtrTable = .{},
@@ -181,14 +181,16 @@ const Compiler = struct {
         return .{ .off = off, .len = @intCast(items.len / stride) };
     }
 
+    // Compiles the pattern here and writes its instructions into the word
+    // array, so the runtime carries no regex parser. See RegexHead.
     fn regex(c: *Compiler, pattern: []const u8) Error!u32 {
         if (c.regex_sources.find(pattern)) |i| return i;
-        // Compiled here only to reject what the runtime could not run.
         const mark = c.st.scratch.end_index;
         defer c.st.scratch.end_index = mark;
-        _ = try js.compileRegex(c.st.scratch.allocator(), pattern);
+        const scratch = c.st.scratch.allocator();
+        const head = try prog.appendRegex(c.alloc, scratch, &c.words, try js.compileRegex(scratch, pattern));
         const i = try c.regex_sources.id(c.alloc, pattern);
-        try c.regexes.append(c.alloc, try c.str(pattern));
+        try c.regexes.append(c.alloc, head);
         return i;
     }
 
@@ -228,17 +230,34 @@ const Compiler = struct {
         return c.list(ids, 1);
     }
 
-    // (key, node) pairs for properties and dependentSchemas.
-    fn keyed(c: *Compiler, v: *const Value) Error!List {
+    // (key, node) pairs for properties and dependentSchemas. properties is
+    // sorted by prog.keyOrder so the runtime can binary search it;
+    // dependentSchemas is only ever walked in order.
+    fn keyed(c: *Compiler, v: *const Value, sorted: bool) Error!List {
         if (v.* != .object) return error.BadSchema;
-        const out = try c.alloc.alloc(u32, v.object.len * 3);
-        for (v.object, 0..) |*m, i| {
-            const key = try c.str(m.key);
-            out[i * 3] = key.off;
-            out[i * 3 + 1] = key.len;
-            out[i * 3 + 2] = try c.nodeFor(&m.value);
+        // Pointers into the schema, not copies: nodeFor finds subschemas by
+        // address.
+        const members = try c.alloc.alloc(*const Member, v.object.len);
+        for (v.object, members) |*m, *slot| slot.* = m;
+        if (sorted) {
+            // Insertion sort: stable, and small next to std's block sort.
+            std.sort.insertion(*const Member, members, {}, struct {
+                fn lessThan(_: void, a: *const Member, b: *const Member) bool {
+                    return prog.keyOrder(a.key, b.key) == .lt;
+                }
+            }.lessThan);
         }
-        return c.list(out, 3);
+        const stride: usize = if (sorted) 4 else 3;
+        const out = try c.alloc.alloc(u32, members.len * stride);
+        for (members, 0..) |m, i| {
+            const key = try c.str(m.key);
+            const e = out[i * stride ..][0..stride];
+            e[0] = key.off;
+            e[1] = key.len;
+            if (sorted) e[2] = prog.keyTag(m.key);
+            e[stride - 1] = try c.nodeFor(&m.value);
+        }
+        return c.list(out, stride);
     }
 
     fn names(c: *Compiler, v: *const Value) Error!List {
@@ -268,8 +287,9 @@ const Compiler = struct {
     }
 
     // required names, each with the index of the same key in this node's
-    // properties (or NONE), so the runtime can answer from the properties
-    // pass instead of searching the object again.
+    // sorted properties (or NONE), so the runtime can answer from the
+    // properties pass instead of searching the object again. That index is
+    // how many keys sort before it, which is also the first of any repeats.
     fn required(c: *Compiler, v: *const Value, properties: ?*const Value) Error!List {
         if (v.* != .array) return error.BadSchema;
         const out = try c.alloc.alloc(u32, v.array.len * 3);
@@ -280,12 +300,14 @@ const Compiler = struct {
             out[i * 3 + 1] = s.len;
             out[i * 3 + 2] = NONE;
             if (properties) |p| if (p.* == .object and p.object.len <= 64) {
-                for (p.object, 0..) |m, k| {
-                    if (std.mem.eql(u8, m.key, name.string)) {
-                        out[i * 3 + 2] = @intCast(k);
-                        break;
-                    }
-                }
+                var before: u32 = 0;
+                var found = false;
+                for (p.object) |m| switch (prog.keyOrder(m.key, name.string)) {
+                    .lt => before += 1,
+                    .eq => found = true,
+                    .gt => {},
+                };
+                if (found) out[i * 3 + 2] = before;
             };
         }
         return c.list(out, 3);
@@ -342,7 +364,7 @@ const Compiler = struct {
                     if (kw.@"maxContains") |m| n.contains_bounds.max_excl = (try countBounds(m)).max_excl;
                 }
             }
-            if (kw.@"properties") |p| n.properties = try c.keyed(p);
+            if (kw.@"properties") |p| n.properties = try c.keyed(p, true);
             if (kw.@"patternProperties") |p| {
                 if (p.* != .object) return error.BadSchema;
                 const out = try c.alloc.alloc(u32, p.object.len * 2);
@@ -353,7 +375,7 @@ const Compiler = struct {
                 n.pattern_properties = try c.list(out, 2);
             }
             if (kw.@"additionalProperties") |s| n.additional = try c.nodeFor(s);
-            if (kw.@"dependentSchemas") |d| n.dependent_schemas = try c.keyed(d);
+            if (kw.@"dependentSchemas") |d| n.dependent_schemas = try c.keyed(d, false);
             if (kw.@"propertyNames") |s| n.property_names = try c.nodeFor(s);
         }
         if (vocab.unevaluated) {
@@ -473,7 +495,7 @@ const Compiler = struct {
         off += c.dyns.items.len * @sizeOf(prog.DynAnchor);
         h.regex_count = @intCast(c.regexes.items.len);
         h.regexes_off = @intCast(off);
-        off += c.regexes.items.len * @sizeOf(Str);
+        off += c.regexes.items.len * 4;
         h.num_count = @intCast(c.nums.items.len);
         h.nums_off = @intCast(off);
         off += c.nums.items.len * @sizeOf(prog.Num);
@@ -487,7 +509,7 @@ const Compiler = struct {
         @memcpy(out[h.words_off..][0 .. c.words.items.len * 4], std.mem.sliceAsBytes(c.words.items));
         @memcpy(out[h.toks_off..][0 .. c.toks.items.len * @sizeOf(Tok)], std.mem.sliceAsBytes(c.toks.items));
         @memcpy(out[h.dyn_off..][0 .. c.dyns.items.len * @sizeOf(prog.DynAnchor)], std.mem.sliceAsBytes(c.dyns.items));
-        @memcpy(out[h.regexes_off..][0 .. c.regexes.items.len * @sizeOf(Str)], std.mem.sliceAsBytes(c.regexes.items));
+        @memcpy(out[h.regexes_off..][0 .. c.regexes.items.len * 4], std.mem.sliceAsBytes(c.regexes.items));
         @memcpy(out[h.nums_off..][0 .. c.nums.items.len * @sizeOf(prog.Num)], std.mem.sliceAsBytes(c.nums.items));
         @memcpy(out[h.bytes_off..][0..c.bytes.items.len], c.bytes.items);
         return out[0..off];

@@ -728,6 +728,15 @@ pub fn isLetter(cp: u21) bool {
     return false;
 }
 
+// The i-th range, read from the packed table, for code that expands
+// \p{Letter} into a class without keeping the u21 table.
+pub fn range(i: usize) [2]u21 {
+    var plane: u21 = 0;
+    while (i >= packed_ranges.starts[plane + 1]) plane += 1;
+    const r = packed_ranges.ranges[i];
+    return .{ plane << 16 | r[0], plane << 16 | r[1] };
+}
+
 
 test "packed lookup matches the ranges for every code point" {
     var i: usize = 0;
@@ -737,4 +746,5 @@ test "packed lookup matches the ranges for every code point" {
         const expected = i < ranges.len and ranges[i][0] <= cp;
         try @import("std").testing.expectEqual(expected, isLetter(@intCast(cp)));
     }
+    for (ranges, 0..) |r, k| try @import("std").testing.expectEqual(r, range(k));
 }

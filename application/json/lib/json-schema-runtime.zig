@@ -12,7 +12,8 @@
 // allocations; containers record where they end so a subtree is skipped in
 // one step), then walks the program over the tape. Every $ref, keyword and
 // count bound was resolved by the compiler, so evaluation does no lookups by
-// name. Regular expressions are compiled on first use in a render.
+// name. Regular expressions arrive compiled; their DFA states are built on
+// first use in a render.
 const std = @import("std");
 const js = @import("json-schema-2020-12.zig");
 const prog = @import("json-schema-program.zig");
@@ -23,6 +24,7 @@ const Str = prog.Str;
 const List = prog.List;
 const Bounds = prog.Bounds;
 const NONE = prog.NONE;
+const PROPERTY_SCAN_MAX = 16;
 
 const INPUT_CAP: usize = 4 * 1024 * 1024;
 // A token covers at least two input bytes, apart from a lone scalar.
@@ -101,7 +103,7 @@ const Program = struct {
     words: [*]const u32,
     toks: [*]const Tok,
     dyns: []const prog.DynAnchor,
-    regexes: []const Str,
+    regexes: []const u32, // word indices of RegexHeads
     nums: [*]const prog.Num,
     bytes: [*]const u8,
     root: u32,
@@ -117,7 +119,7 @@ fn loadProgram() Error!Program {
         .words = @ptrCast(@alignCast(base + h.words_off)),
         .toks = @ptrCast(@alignCast(base + h.toks_off)),
         .dyns = @as([*]const prog.DynAnchor, @ptrCast(@alignCast(base + h.dyn_off)))[0..h.dyn_count],
-        .regexes = @as([*]const Str, @ptrCast(@alignCast(base + h.regexes_off)))[0..h.regex_count],
+        .regexes = @as([*]const u32, @ptrCast(@alignCast(base + h.regexes_off)))[0..h.regex_count],
         .nums = @ptrCast(@alignCast(base + h.nums_off)),
         .bytes = base + h.bytes_off,
         .root = h.root,
@@ -368,18 +370,19 @@ const Parser = struct {
 };
 
 // ---------------------------------------------------------------------------
-// Regular expressions: a lazy DFA over the Pike VM program
+// Regular expressions: a lazy DFA over the compiled program
 //
-// A DFA state is the set of Pike VM threads alive after some prefix of the
-// text: the consuming instructions they wait at, plus $ assertions that can
-// only pass at the end. States and their ASCII transitions are built on
-// first use and kept for the rest of the render, so each ASCII byte after
-// that is one table lookup. A step on a non-ASCII code point is computed
-// without caching. Search semantics match js.regexSearch: an unanchored
-// pattern starts a new thread at every position, and reaching match anywhere
-// means the pattern matches. Patterns with \b or \B, which look at the next
-// code point, use the Pike VM, as does any regex whose DFA outgrows
-// MAX_DFA_STATES or the arena.
+// json-schema-to-wasm compiles each pattern into RInsts (see RegexHead), so
+// no pattern is parsed here. A DFA state is the set of threads alive after
+// some prefix of the text: the consuming instructions they wait at, plus $
+// assertions that can only pass at the end. States and their ASCII
+// transitions are built on first use and kept for the rest of the render, so
+// each ASCII byte after that is one table lookup. A step on a non-ASCII code
+// point is computed without caching. An unanchored pattern starts a new
+// thread at every position, and reaching match anywhere means the pattern
+// matches. Patterns with \b or \B, which look at the next code point, and
+// any regex whose DFA outgrows MAX_DFA_STATES or the arena, run the same
+// thread sets without caching (a Pike VM).
 
 const MAX_DFA_STATES: usize = 2048;
 const UNKNOWN: u32 = 0;
@@ -393,34 +396,79 @@ const DState = struct {
     next: [128]u32 = [_]u32{UNKNOWN} ** 128, // state index + 1, or MATCHED
 };
 
+// Zero-width context for a closure. In DFA mode the end is unknown, so $ is
+// kept pending; \b never appears there.
+const Ctx = struct { at_start: bool, at_end: bool = false, boundary: bool = false };
+
 const Matcher = struct {
-    regex: js.Regex,
+    insts: []const prog.RInst,
+    words: [*]const u32,
+    anchored: bool,
     dfa: bool,
     states: std.ArrayListUnmanaged(DState) = .empty,
     start: u32 = UNKNOWN,
     marks: []u32,
     stack: []u32,
     set: []u32,
+    other: []u32,
     gen: u32 = 0,
 
-    fn init(regex: js.Regex) Error!*Matcher {
+    fn init(p: Program, regex: u32) Error!*Matcher {
         const a = arena_fba.allocator();
-        const n = regex.insts.len;
+        const at = p.regexes[regex];
+        const head: *const prog.RegexHead = @ptrCast(@alignCast(p.words + at));
+        const n = head.inst_count;
+        const insts = @as([*]const prog.RInst, @ptrCast(@alignCast(p.words + at + 2)))[0..n];
         const m = try a.create(Matcher);
-        var dfa = true;
-        for (regex.insts) |inst| {
-            if (inst == .word_boundary or inst == .not_word_boundary) dfa = false;
-        }
-        const buffers = try a.alloc(u32, n * 4);
-        m.* = .{ .regex = regex, .dfa = dfa, .marks = buffers[0..n], .stack = buffers[n .. 3 * n], .set = buffers[3 * n ..] };
+        const buffers = try a.alloc(u32, n * 5);
+        m.* = .{
+            .insts = insts,
+            .words = p.words,
+            .anchored = head.flags & prog.R_ANCHORED != 0,
+            .dfa = head.flags & prog.R_BOUNDARY == 0,
+            .marks = buffers[0..n],
+            .stack = buffers[n .. 3 * n],
+            .set = buffers[3 * n .. 4 * n],
+            .other = buffers[4 * n ..],
+        };
         @memset(m.marks, 0);
         return m;
     }
 
-    // Adds the threads reachable from pc without consuming input. Returns
-    // true when one reaches match. ^ passes only at the start; $ is kept in
-    // the set, unresolved, unless at_end.
-    fn closure(m: *Matcher, count: *usize, pc0: u32, at_start: bool, at_end: bool) bool {
+    fn classHit(m: *const Matcher, inst: prog.RInst, cp: u21) bool {
+        const count = inst.b & ~prog.CLASS_NEGATED;
+        const ranges = m.words + inst.a;
+        // Ranges are sorted and disjoint: binary search.
+        var lo: u32 = 0;
+        var hi: u32 = count;
+        var hit = false;
+        while (lo < hi) {
+            const mid = lo + (hi - lo) / 2;
+            if (cp < ranges[mid * 2]) {
+                hi = mid;
+            } else if (cp > ranges[mid * 2 + 1]) {
+                lo = mid + 1;
+            } else {
+                hit = true;
+                break;
+            }
+        }
+        return hit != (inst.b & prog.CLASS_NEGATED != 0);
+    }
+
+    fn consumes(m: *const Matcher, inst: prog.RInst, cp: u21) bool {
+        return switch (inst.op) {
+            prog.OP_CHAR => inst.a == cp,
+            prog.OP_ANY => cp != '\n' and cp != '\r' and cp != 0x2028 and cp != 0x2029,
+            prog.OP_CLASS => m.classHit(inst, cp),
+            else => false,
+        };
+    }
+
+    // Adds the threads reachable from pc without consuming input to out.
+    // Returns true when one reaches match. ^ passes only at the start; $ is
+    // kept in the set, unresolved, unless at_end.
+    fn closure(m: *Matcher, out: []u32, count: *usize, pc0: u32, ctx: Ctx) bool {
         var top: usize = 1;
         m.stack[0] = pc0;
         while (top > 0) {
@@ -428,33 +476,39 @@ const Matcher = struct {
             const pc = m.stack[top];
             if (m.marks[pc] == m.gen) continue;
             m.marks[pc] = m.gen;
-            switch (m.regex.insts[pc]) {
-                .match => return true,
-                .jmp => |target| {
-                    m.stack[top] = target;
+            const inst = m.insts[pc];
+            var follow: ?u32 = null;
+            switch (inst.op) {
+                prog.OP_MATCH => return true,
+                prog.OP_JMP => follow = inst.a,
+                prog.OP_SPLIT => {
+                    m.stack[top] = inst.b;
                     top += 1;
+                    follow = inst.a;
                 },
-                .split => |targets| {
-                    m.stack[top] = targets[1];
-                    m.stack[top + 1] = targets[0];
-                    top += 2;
+                prog.OP_BOL => if (ctx.at_start) {
+                    follow = pc + 1;
                 },
-                .bol => if (at_start) {
-                    m.stack[top] = pc + 1;
-                    top += 1;
-                },
-                .eol => if (at_end) {
-                    m.stack[top] = pc + 1;
-                    top += 1;
+                prog.OP_EOL => if (ctx.at_end) {
+                    follow = pc + 1;
                 } else {
-                    m.set[count.*] = pc;
+                    out[count.*] = pc;
                     count.* += 1;
                 },
-                .word_boundary, .not_word_boundary => unreachable,
+                prog.OP_WORD_BOUNDARY => if (ctx.boundary) {
+                    follow = pc + 1;
+                },
+                prog.OP_NOT_WORD_BOUNDARY => if (!ctx.boundary) {
+                    follow = pc + 1;
+                },
                 else => {
-                    m.set[count.*] = pc;
+                    out[count.*] = pc;
                     count.* += 1;
                 },
+            }
+            if (follow) |next| {
+                m.stack[top] = next;
+                top += 1;
             }
         }
         return false;
@@ -485,7 +539,7 @@ const Matcher = struct {
         if (m.start == UNKNOWN) {
             m.gen += 1;
             var count: usize = 0;
-            m.start = if (m.closure(&count, 0, true, false)) MATCHED else try m.intern(count);
+            m.start = if (m.closure(m.set, &count, 0, .{ .at_start = true })) MATCHED else try m.intern(count);
         }
         return m.start;
     }
@@ -495,15 +549,9 @@ const Matcher = struct {
         var count: usize = 0;
         const pcs = m.states.items[state - 1].pcs;
         for (pcs) |pc| {
-            const hit = switch (m.regex.insts[pc]) {
-                .char => |ch| ch == cp,
-                .any => cp != '\n' and cp != '\r' and cp != 0x2028 and cp != 0x2029,
-                .class => |cl| cl.matches(cp),
-                else => false,
-            };
-            if (hit and m.closure(&count, pc + 1, false, false)) return MATCHED;
+            if (m.consumes(m.insts[pc], cp) and m.closure(m.set, &count, pc + 1, .{ .at_start = false })) return MATCHED;
         }
-        if (!m.regex.anchored and m.closure(&count, 0, false, false)) return MATCHED;
+        if (!m.anchored and m.closure(m.set, &count, 0, .{ .at_start = false })) return MATCHED;
         return m.intern(count);
     }
 
@@ -512,7 +560,7 @@ const Matcher = struct {
         m.gen += 1;
         var count: usize = 0;
         for (m.states.items[state - 1].pcs) |pc| {
-            if (m.regex.insts[pc] == .eol and m.closure(&count, pc + 1, at_start, true)) return true;
+            if (m.insts[pc].op == prog.OP_EOL and m.closure(m.set, &count, pc + 1, .{ .at_start = at_start, .at_end = true })) return true;
         }
         return false;
     }
@@ -520,14 +568,12 @@ const Matcher = struct {
     fn search(m: *Matcher, text: []const u8) Error!bool {
         if (m.dfa) {
             if (m.searchDfa(text)) |found| return found else |err| switch (err) {
-                // The DFA grew too large: this regex uses the Pike VM from now on.
+                // The DFA grew too large: this regex uses thread sets from now on.
                 error.OutOfMemory => m.dfa = false,
                 else => return err,
             }
         }
-        const mark = scratch_fba.end_index;
-        defer scratch_fba.end_index = mark;
-        return js.regexSearch(scratch_fba.allocator(), m.regex, text);
+        return m.searchSets(text);
     }
 
     fn searchDfa(m: *Matcher, text: []const u8) Error!bool {
@@ -535,7 +581,7 @@ const Matcher = struct {
         var pos: usize = 0;
         while (true) {
             if (state == MATCHED) return true;
-            if (m.regex.anchored and m.states.items[state - 1].pcs.len == 0) return false;
+            if (m.anchored and m.states.items[state - 1].pcs.len == 0) return false;
             if (pos >= text.len) {
                 if (pos == 0) return m.acceptsAtEnd(state, true);
                 const st = &m.states.items[state - 1];
@@ -557,6 +603,40 @@ const Matcher = struct {
                 pos += d.len;
             }
         }
+    }
+
+    fn boundaryAt(text: []const u8, pos: usize, prev_word: bool) bool {
+        const next_word = pos < text.len and js.isWordChar(js.decodeAt(text, pos).cp);
+        return prev_word != next_word;
+    }
+
+    // The same thread sets as the DFA, without caching, and with the exact
+    // position known so \b, \B and $ resolve as they go.
+    fn searchSets(m: *Matcher, text: []const u8) bool {
+        var clist = m.set;
+        var nlist = m.other;
+        m.gen += 1;
+        var ccount: usize = 0;
+        if (m.closure(clist, &ccount, 0, .{ .at_start = true, .at_end = text.len == 0, .boundary = boundaryAt(text, 0, false) })) return true;
+        var pos: usize = 0;
+        while (pos < text.len) {
+            const d = js.decodeAt(text, pos);
+            const npos = pos + d.len;
+            const ctx = Ctx{ .at_start = false, .at_end = npos == text.len, .boundary = boundaryAt(text, npos, js.isWordChar(d.cp)) };
+            m.gen += 1;
+            var ncount: usize = 0;
+            for (clist[0..ccount]) |pc| {
+                if (m.consumes(m.insts[pc], d.cp) and m.closure(nlist, &ncount, pc + 1, ctx)) return true;
+            }
+            if (!m.anchored and m.closure(nlist, &ncount, 0, ctx)) return true;
+            if (m.anchored and ncount == 0) return false;
+            const tmp = clist;
+            clist = nlist;
+            nlist = tmp;
+            ccount = ncount;
+            pos = npos;
+        }
+        return false;
     }
 };
 
@@ -594,7 +674,7 @@ const Eval = struct {
 
     fn matches(e: *Eval, regex: u32, s: []const u8) Error!bool {
         const m = e.regex_cache[regex] orelse blk: {
-            const m = try Matcher.init(try js.compileRegex(arena_fba.allocator(), e.pstr(e.p.regexes[regex])));
+            const m = try Matcher.init(e.p, regex);
             e.regex_cache[regex] = m;
             break :blk m;
         };
@@ -731,6 +811,46 @@ const Eval = struct {
         return e.validate(sub, v, null);
     }
 
+    // The first properties entry named name. Lists over PROPERTY_SCAN_MAX
+    // entries binary-search the keyTag words alone, then scan the entries
+    // sharing that tag; shorter lists are scanned. Both compare the stored
+    // keyTag before reading any key bytes. Keys are sorted by tag first, so
+    // the scan from the lower bound finds the first of any repeated key.
+    inline fn propertyOf(e: *const Eval, n: *const Node, name: []const u8) ?usize {
+        return e.property(n.properties, name);
+    }
+
+    // Scanning measured faster than binary search up to 16 entries, and
+    // stopping the scan early once keys get longer than name slower still.
+    inline fn property(e: *const Eval, props: List, name: []const u8) ?usize {
+        const tag = prog.keyTag(name);
+        var lo: usize = 0;
+        if (props.len > PROPERTY_SCAN_MAX) {
+            var hi: usize = props.len;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                if (e.word(props, mid * 4 + 2) < tag) lo = mid + 1 else hi = mid;
+            }
+            while (lo < props.len and e.word(props, lo * 4 + 2) == tag) : (lo += 1) {
+                if (e.keyEql(props, lo, name, tag)) return lo;
+            }
+            return null;
+        }
+        while (lo < props.len) : (lo += 1) {
+            if (e.keyEql(props, lo, name, tag)) return lo;
+        }
+        return null;
+    }
+
+    // Whether entry k is name, whose keyTag is tag. Equal tags mean equal
+    // lengths below 255 bytes, and equal keys up to three bytes.
+    inline fn keyEql(e: *const Eval, props: List, k: usize, name: []const u8, tag: u32) bool {
+        if (e.word(props, k * 4 + 2) != tag) return false;
+        if (name.len <= 3) return true;
+        if (name.len >= 255 and e.word(props, k * 4 + 1) != name.len) return false;
+        return std.mem.order(u8, e.p.bytes[e.word(props, k * 4) + 3 ..][0 .. name.len - 3], name[3..]) == .eq;
+    }
+
     // seen collects which properties entries (the first 64) the object has,
     // for required.
     fn applicators(e: *Eval, n: *const Node, v: u32, t: Tok, local: ?[]u64, seen: *u64) Error!bool {
@@ -801,17 +921,12 @@ const Eval = struct {
                     const next = e.inst.toks[value].end;
                     const name = e.text(e.inst.toks[i]);
                     var matched = false;
-                    var k: usize = 0;
-                    while (k < n.properties.len) : (k += 1) {
-                        const key = Str{ .off = e.word(n.properties, k * 3), .len = e.word(n.properties, k * 3 + 1) };
-                        if (key.len == name.len and std.mem.eql(u8, e.pstr(key), name)) {
-                            matched = true;
-                            if (k < 64) seen.* |= @as(u64, 1) << @intCast(k);
-                            if (!try e.validate(e.word(n.properties, k * 3 + 2), value, null)) return false;
-                            break;
-                        }
+                    if (e.propertyOf(n, name)) |k| {
+                        matched = true;
+                        if (k < 64) seen.* |= @as(u64, 1) << @intCast(k);
+                        if (!try e.validate(e.word(n.properties, k * 4 + 3), value, null)) return false;
                     }
-                    k = 0;
+                    var k: usize = 0;
                     while (k < n.pattern_properties.len) : (k += 1) {
                         if (try e.matches(e.word(n.pattern_properties, k * 2), name)) {
                             matched = true;
@@ -1092,19 +1207,27 @@ test "eight-byte string scan agrees with a byte loop" {
     }
 }
 
-test "lazy DFA agrees with the Pike VM" {
-    const patterns = [_][]const u8{ "^[A-Z]{3}-\\d{4}$", "^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$", "a+", "f.o", "^$", "$", "^", "", "[0-9]{2,}", "^(cat|dog)s?$", "x$|^y", "^\\p{Letter}+$", "é+", "(a|b)*a(a|b){3}" };
-    const texts = [_][]const u8{ "", "a", "ABC-1234", "ABC-12345", "user@example.com", "u@e.c", "foo", "f\no", "xx12", "dogs", "cat", "x", "y", "zy", "éé", "πλ", "bbbabab", "aaaa", "ab\u{2028}c" };
+test "compiled regexes agree with the shared Pike VM, cached and uncached" {
+    const patterns = [_][]const u8{ "^[A-Z]{3}-\\d{4}$", "^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$", "a+", "f.o", "^$", "$", "^", "", "[0-9]{2,}", "^(cat|dog)s?$", "x$|^y", "^\\p{Letter}+$", "\\P{Letter}", "[^\\p{Letter}\\d]", "é+", "(a|b)*a(a|b){3}", "\\bcat\\b", "\\Bat", "^\\w+\\b$", "\\b" };
+    const texts = [_][]const u8{ "", "a", "ABC-1234", "ABC-12345", "user@example.com", "u@e.c", "foo", "f\no", "xx12", "dogs", "cat", "a cat!", "concat", "x", "y", "zy", "éé", "πλ", "bbbabab", "aaaa", "ab\u{2028}c", "1", " ", "é1" };
     for (patterns) |pattern| {
         arena_fba = std.heap.FixedBufferAllocator.init(&arena_buf);
         scratch_fba = std.heap.FixedBufferAllocator.init(&scratch_buf);
-        const regex = try js.compileRegex(arena_fba.allocator(), pattern);
-        const m = try Matcher.init(regex);
-        try std.testing.expect(m.dfa);
+        const a = arena_fba.allocator();
+        const regex = try js.compileRegex(a, pattern);
+        var words: std.ArrayListUnmanaged(u32) = .empty;
+        const head = try prog.appendRegex(a, a, &words, regex);
+        const p = Program{ .nodes = undefined, .words = words.items.ptr, .toks = undefined, .dyns = &.{}, .regexes = &.{head}, .nums = undefined, .bytes = undefined, .root = 0 };
+        const cached = try Matcher.init(p, 0);
+        const uncached = try Matcher.init(p, 0);
+        uncached.dfa = false;
         // Twice, so the second pass runs on cached transitions.
         for (0..2) |_| for (texts) |text| {
+            const mark = scratch_fba.end_index;
             const want = try js.regexSearch(scratch_fba.allocator(), regex, text);
-            try std.testing.expectEqual(want, try m.search(text));
+            scratch_fba.end_index = mark;
+            try std.testing.expectEqual(want, try cached.search(text));
+            try std.testing.expectEqual(want, try uncached.search(text));
         };
     }
 }
