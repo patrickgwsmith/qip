@@ -110,7 +110,7 @@ zig build-exe echo.zig \
 Run it:
 
 ```bash
-printf 'hello' | qip run echo.wasm
+printf 'hello' | npx qipdo echo.wasm
 ```
 
 ## Minimal Fallible Content Component
@@ -453,7 +453,7 @@ export fn uniform_set_color_rgba(value: u32) u32 {
 Callers pass uniforms next to the module path:
 
 ```bash
-qip run image/svg+xml/svg-recolor-current-color.wasm -u color_rgba=0xff5511ff
+npx qipdo qip.dev image/svg+xml/svg-recolor-current-color.wasm -u color_rgba=0xff5511ff
 ```
 
 Use packed integer uniforms for compact settings like colors, flags, and modes. Use `f32` uniforms for image math where fractional values are natural.
@@ -529,10 +529,10 @@ Zig uses `--max-memory=...`; `zig cc` passes `-Wl,--max-memory=...` to the Wasm 
 
 ## Testing And Review
 
-Each component should have at least one direct smoke test through `qip`.
+Each component should have at least one direct smoke test through `qipdo`.
 
 ```bash
-printf 'hello' | qip run text/your-module.wasm
+printf 'hello' | npx qipdo text/your-module.wasm
 ```
 
 Use inline Zig `test` blocks for checks tied to the implementation. They are
@@ -559,15 +559,15 @@ capacity for every implementation.
 For binary modules, round-trip through files or compare bytes:
 
 ```bash
-qip run -i input.bin -- bytes/your-module.wasm > /tmp/out.bin
+npx qipdo -i input.bin -- bytes/your-module.wasm > /tmp/out.bin
 cmp expected.bin /tmp/out.bin
 ```
 
 For validators, test both success and failure:
 
 ```bash
-printf 'valid' | qip run text/your-validator.wasm
-printf '\xff' | qip run text/your-validator.wasm
+printf 'valid' | npx qipdo text/your-validator.wasm
+printf '\xff' | npx qipdo text/your-validator.wasm
 ```
 
 For a fallible validator, test recovery on a reused instance: reject a range of
@@ -580,7 +580,7 @@ Review the binary shape before trusting the source shape:
 
 ```bash
 wasm-objdump -x bytes/your-module.wasm
-qip run -i application/wasm/your-module.wasm -- \
+npx qipdo qip.dev -i application/wasm/your-module.wasm -- \
   application/wasm/wasm-validate-core-2.0.wasm \
   application/wasm/wasm-strict-profile.wasm \
   application/wasm/wasm-bounded-loops.wasm
@@ -610,4 +610,4 @@ an optional optimized component such as a SIMD variant.
 - Compile with `--max-memory`.
 - Run `wasm-objdump -x` and confirm `max=...` is present.
 - Check for accidental imports, indirect calls, tables, and recursion.
-- Smoke test with `qip run`.
+- Smoke test with `npx qipdo`.

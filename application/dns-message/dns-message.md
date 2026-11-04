@@ -12,10 +12,10 @@ Use them with `curl` to make a DoH request without base64 or `hexdump`:
 
 ```bash
 printf 'cloudflare.com HTTPS' |
-  qip run application/dns-message/dns-query-to-dns-message.wasm -u dnssec_ok=1 |
+  npx qipdo qip.dev application/dns-message/dns-query-to-dns-message.wasm -u dnssec_ok=1 |
   curl -s --header 'content-type: application/dns-message' \
     --data-binary @- https://cloudflare-dns.com/dns-query |
-  qip run application/dns-message/dns-message-to-text.wasm
+  npx qipdo qip.dev application/dns-message/dns-message-to-text.wasm
 ```
 
 The output has the header, the EDNS options, and each section, with one record

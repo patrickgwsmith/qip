@@ -33,8 +33,7 @@ The exported uniforms are:
 For example:
 
 ```sh
-./qip run \
-  --timeout-ms 180000 \
+npx qipdo qip.dev \
   --max-memory 1073741824 \
   -i input.bmp -o output.avif -- \
   image/bmp/bmp-b8g8r8a8-srgb-to-avif-lossy.wasm \

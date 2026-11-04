@@ -126,8 +126,8 @@ Takeaways:
 
 ```bash
 printf '{"schema": {"type": "array", "items": {"type": "integer"}}}' \
-  | qip run -o ints.wasm application/json/json-schema-to-wasm.wasm
-printf '[1, 2, 3]' | qip run ints.wasm      # accepted: prints [1, 2, 3]
+  | npx qipdo qip.dev -o ints.wasm application/json/json-schema-to-wasm.wasm
+printf '[1, 2, 3]' | npx qipdo ints.wasm      # accepted: prints [1, 2, 3]
 ```
 
 The compiler takes the validator's envelope without `"instance"`. Ahead of

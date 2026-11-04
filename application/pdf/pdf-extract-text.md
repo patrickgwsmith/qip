@@ -15,7 +15,7 @@ by `FlateDecode`. Simple fonts use WinAnsi decoding; composite fonts need a
 `bfrange` forms.
 
 ```sh
-./qip run -i document.pdf -o document.txt -- \
+npx qipdo qip.dev -i document.pdf -o document.txt -- \
   application/pdf/pdf-extract-text.wasm
 ```
 

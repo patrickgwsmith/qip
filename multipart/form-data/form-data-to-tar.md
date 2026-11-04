@@ -26,5 +26,5 @@ content.
 
 ```sh
 make multipart/form-data/form-data-to-tar.wasm
-qip run multipart/form-data/form-data-to-tar.wasm < body.multipart > files.tar
+npx qipdo qip.dev multipart/form-data/form-data-to-tar.wasm < body.multipart > files.tar
 ```

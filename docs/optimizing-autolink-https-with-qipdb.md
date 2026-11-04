@@ -130,7 +130,7 @@ node --test test/html-adjacent.mjs
   /tmp/autolink-https-before.wasm \
   text/html/autolink-https.wasm
 
-./qip run \
+npx qipdo qip.dev \
   -i text/html/autolink-https.wasm \
   -- application/wasm/wasm-counts.wasm
 ```

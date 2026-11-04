@@ -35,8 +35,7 @@ from 281 MB to 445 MB and time from 3.1 to 26.8 seconds. Opaque images still
 use method 6 when requested.
 
 ```sh
-./qip run \
-  --timeout-ms 180000 \
+npx qipdo qip.dev \
   --max-memory 1275068416 \
   -i input.bmp -o output.webp -- \
   image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy.wasm \
@@ -84,8 +83,9 @@ build took 3.85--4.03 seconds. The output is byte-identical between those
 builds and to native libwebp 1.6.0 with the same configuration.
 
 The Go CLI's wazero interpreter/JIT path is substantially slower for this
-calculation-heavy component, so the command example allows three minutes. The
-timeout is a host policy rather than a component memory or image-size limit.
+calculation-heavy component; `qip run` needs a `--timeout-ms` of about three
+minutes. The timeout is a host policy rather than a component memory or
+image-size limit.
 
 A 5000x5000 opaque photograph with the defaults took about 8.0 seconds under
 Node and peaked at 212.60 MB of simultaneously live arena allocations.

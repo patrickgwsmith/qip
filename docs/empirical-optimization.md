@@ -157,7 +157,7 @@ make -j text/rgb-to-hex.wasm
   /tmp/rgb-to-hex-before.wasm \
   text/rgb-to-hex.wasm
 
-./qip run \
+npx qipdo qip.dev \
   -i text/rgb-to-hex.wasm \
   -- application/wasm/wasm-counts.wasm
 ```

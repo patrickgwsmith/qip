@@ -11,7 +11,7 @@ assumption. Use a colour-managed boundary when another source colour space
 must be converted or preserved.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/avif/avif-to-ktx2-r8g8b8a8-srgb.wasm \
   -i input.avif -o output.ktx2
 ```

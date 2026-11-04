@@ -14,7 +14,7 @@ advance.
 
 ```bash
 printf '%s' 'A monospaced text layer without ligatures.' |
-  qip run text/text-to-svg-jetbrains-mono-v2.304.wasm \
+  npx qipdo qip.dev text/text-to-svg-jetbrains-mono-v2.304.wasm \
     -u font_size=64 -u measure=1080 -u alignment=0.5 \
   > text.svg
 ```
@@ -47,7 +47,7 @@ To set an explicit color, follow this component with
 
 ```bash
 printf '%s' 'A colored monospaced text layer.' |
-  qip run \
+  npx qipdo qip.dev \
     text/text-to-svg-jetbrains-mono-v2.304.wasm \
     image/svg+xml/svg-recolor-current-color.wasm \
       -u color_rgba=0x2563ebff \

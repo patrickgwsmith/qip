@@ -10,7 +10,7 @@ blue while the encoder fills its bounded row buffer. The component preserves
 alpha and RGB values beneath transparent pixels.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-png.wasm \
   -i input.ktx2 -o output.png
 ```

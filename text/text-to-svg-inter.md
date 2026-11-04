@@ -8,7 +8,7 @@ text, or vertically center the result. The paths inherit `currentColor`.
 
 ```bash
 printf '%s' 'A transparent text layer that wraps onto additional lines.' |
-  qip run text/text-to-svg-inter.wasm \
+  npx qipdo qip.dev text/text-to-svg-inter.wasm \
     -u font_size=64 -u measure=1080 -u alignment=0.5 \
   > text.svg
 ```
@@ -41,7 +41,7 @@ To set an explicit color, follow this component with
 
 ```bash
 printf '%s' 'A colored text layer.' |
-  qip run \
+  npx qipdo qip.dev \
     text/text-to-svg-inter.wasm \
     image/svg+xml/svg-recolor-current-color.wasm \
       -u color_rgba=0x2563ebff \

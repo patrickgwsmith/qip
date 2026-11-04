@@ -17,7 +17,7 @@ identify a labelable control, `input[list]` must identify a `datalist`, and
 
 ```bash
 printf '%s' '<label for="email">Email</label><input id="email">' \
-  | qip run text/html/html-id-reference-validator.wasm
+  | npx qipdo qip.dev text/html/html-id-reference-validator.wasm
 ```
 
 Use `html-unique-id-validator.wasm` before this component. ARIA specifies that

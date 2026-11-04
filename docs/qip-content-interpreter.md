@@ -5,9 +5,9 @@ multipart form data. It executes that component in the same bounded Zig
 interpreter used by qipdb, then returns the component's output bytes.
 
 ```sh
-make -j qip application/wasm/qip-content-interpreter.wasm
+make -j application/wasm/qip-content-interpreter.wasm
 
-qip run \
+npx qipdo qip.dev \
   -F component=@image/svg+xml/svg-recolor-current-color.wasm \
   -F 'input=<svg xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d="M0 0"/></svg>' \
   -F 'uniforms[color_rgba]=0x654ff0ff' \
@@ -27,7 +27,7 @@ and calls each `uniform_set_<key>` export before `render`. Setter instructions
 and render instructions share the outer component's instruction budget:
 
 ```sh
-qip run \
+npx qipdo qip.dev \
   -F component=@image/svg+xml/svg-recolor-current-color.wasm \
   -F input=@qip-logo.svg \
   -F 'uniforms[color_rgba]=0x654ff0ff' \

@@ -80,7 +80,7 @@ the copies. This keeps composition visible in a command, recipe, or host
 program:
 
 ```bash
-qip run text/markdown/commonmark.0.31.2.wasm \
+npx qipdo qip.dev text/markdown/commonmark.0.31.2.wasm \
   text/html/html-page-wrap.wasm < page.md
 ```
 

@@ -18,7 +18,7 @@ Neither route is a general WebAssembly-to-Swift translator.
 Generate the component as C:
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   -i text/trim.wasm \
   -o trim.h \
   application/wasm/qip-component-to-c.wasm
@@ -32,7 +32,7 @@ generated component implementation in Swift.
 
 ```sh
 make -j application/wasm/qip-component-to-swift.wasm
-./qip run \
+npx qipdo qip.dev \
   -i text/trim.wasm \
   -o trim.swift \
   application/wasm/qip-component-to-swift.wasm

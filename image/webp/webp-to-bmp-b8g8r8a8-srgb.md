@@ -9,10 +9,10 @@ the existing PNG, ICO, WebP, palette, metrics, and image-processing components
 without giving the host a separate pixel-buffer ABI.
 
 ```bash
-qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+npx qipdo qip.dev image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
   < input.webp > output.bmp
 
-qip run image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
+npx qipdo qip.dev image/webp/webp-to-bmp-b8g8r8a8-srgb.wasm \
   image/bmp/bmp-to-png.wasm \
   < input.webp > output.png
 ```

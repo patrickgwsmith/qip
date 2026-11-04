@@ -9,7 +9,7 @@ declares sRGB and decodes to the same bytes, including RGB under fully
 transparent pixels.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossless.wasm \
   -u effort=2 \
   -i input.ktx2 -o output.jxl

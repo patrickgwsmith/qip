@@ -15,7 +15,7 @@ Build the translator and run it like any other QIP Content component:
 ```sh
 make -j application/wasm/qip-component-to-c.wasm
 wasm-validate text/markdown/commonmark.0.31.2.wasm
-./qip run \
+npx qipdo qip.dev \
   -i text/markdown/commonmark.0.31.2.wasm \
   -o commonmark.h \
   application/wasm/qip-component-to-c.wasm

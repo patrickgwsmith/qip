@@ -17,7 +17,7 @@ use six. Consumers can reference a glyph with `<use href="#u-0041"/>` and
 apply their own translation and scale.
 
 ```bash
-qip run \
+npx qipdo qip.dev \
   -i fixtures/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf \
   -o dejavu-sans-paths.svg \
   -- font/ttf/ttf-to-svg-path-defs.wasm \

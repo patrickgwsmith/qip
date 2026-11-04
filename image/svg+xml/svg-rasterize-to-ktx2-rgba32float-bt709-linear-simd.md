@@ -15,7 +15,7 @@ The `width` and `height` uniforms override the output dimensions, which is
 useful for viewBox-only documents:
 
 ```sh
-./qip run -i tiger.svg -o tiger.ktx2 \
+npx qipdo qip.dev -i tiger.svg -o tiger.ktx2 \
   image/svg+xml/svg-rasterize-to-ktx2-rgba32float-bt709-linear-simd.wasm \
   -u width=512 -u height=512
 ```

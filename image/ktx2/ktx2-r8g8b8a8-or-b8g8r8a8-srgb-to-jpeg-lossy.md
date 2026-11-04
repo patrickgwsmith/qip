@@ -9,7 +9,7 @@ The uniforms are `quality` from 0 through 100 (default 85), `subsample` from
 0 through 2, and `background_color_rgb` as `0xRRGGBB` (default white).
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jpeg-lossy.wasm \
   -u quality=85 -u background_color_rgb=0xffffff \
   -i input.ktx2 -o output.jpg

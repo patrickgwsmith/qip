@@ -48,7 +48,7 @@ suite (`get-vanilla`, the path normalization and query ordering cases).
 
 ```sh
 make multipart/form-data/aws-sigv4-sign.wasm
-qip run \
+npx qipdo qip.dev \
   -F method=GET \
   -F url='https://examplebucket.s3.amazonaws.com/?lifecycle' \
   -F region=us-east-1 -F service=s3 \

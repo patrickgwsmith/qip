@@ -11,7 +11,7 @@ it does not depend on a font file, browser font selection, CSS file, image, or
 network request.
 
 ```bash
-qip run \
+npx qipdo qip.dev \
   -i test/fixtures/html-to-svg-inter-paths/daring-fireball-mobile.html \
   text/html/html-to-svg-inter-paths.wasm \
   image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \

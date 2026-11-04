@@ -10,7 +10,7 @@ format:
 
 ```sh
 COPYFILE_DISABLE=1 tar -cf images.tar reference.bmp candidate.bmp
-./qip run -i images.tar -- image/bmp/bmp-rgb-metrics.wasm
+npx qipdo qip.dev -i images.tar -- image/bmp/bmp-rgb-metrics.wasm
 ```
 
 The input content type is `application/x-tar`; output is JSON. The component

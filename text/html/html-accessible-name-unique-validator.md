@@ -19,7 +19,7 @@ their text is reached through a naming reference.
 
 ```bash
 printf '%s' '<button>Save</button><button>Cancel</button>' \
-  | qip run text/html/html-accessible-name-unique-validator.wasm
+  | npx qipdo qip.dev text/html/html-accessible-name-unique-validator.wasm
 ```
 
 This stricter project policy is not an ARIA conformance requirement. Repeated

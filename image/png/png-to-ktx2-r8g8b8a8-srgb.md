@@ -14,7 +14,7 @@ The decoder writes unfiltered rows directly to their final top-down KTX2
 positions. It does not create a BMP, reverse rows, or swap red and blue.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/png/png-to-ktx2-r8g8b8a8-srgb.wasm \
   -i input.png -o output.ktx2
 ```

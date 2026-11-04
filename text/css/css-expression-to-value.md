@@ -4,7 +4,7 @@
 
 ```bash
 printf %s 'calc(1rem * 50%%)' | \
-  qip run text/css/css-expression-to-value.wasm \
+  npx qipdo qip.dev text/css/css-expression-to-value.wasm \
   -u root_font_size=16 -u root_line_height=24 \
   -u viewport_width=1440 -u viewport_height=900
 # 8px

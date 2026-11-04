@@ -16,8 +16,7 @@ more exhaustive search for the smallest output without changing decoded
 pixels.
 
 ```sh
-./qip run \
-  --timeout-ms 180000 \
+npx qipdo qip.dev \
   --max-memory 1610612736 \
   -i input.bmp -o output.webp -- \
   image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossless.wasm -u level=6

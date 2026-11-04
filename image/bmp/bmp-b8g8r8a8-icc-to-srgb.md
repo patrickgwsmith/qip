@@ -25,8 +25,7 @@ optional code, but the baseline still includes the general ICC parser and
 transform engine.
 
 ```sh
-./qip run \
-  --timeout-ms 180000 \
+npx qipdo qip.dev \
   --max-memory 536870912 \
   -i input.bmp -o output.bmp -- \
   image/bmp/bmp-b8g8r8a8-icc-to-srgb.wasm

@@ -6,7 +6,7 @@ crate, version 0.7.4), the Rust decoder that Chromium and Firefox use for
 JPEG XL. jxl-rs writes top-down RGBA rows directly into the KTX2 payload.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/jxl/jxl-to-ktx2-r8g8b8a8-srgb.wasm \
   -i input.jxl -o output.ktx2
 ```

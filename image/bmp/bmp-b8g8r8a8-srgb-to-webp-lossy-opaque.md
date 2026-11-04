@@ -9,8 +9,7 @@ legacy `BI_RGB` byte four is padding and is deliberately ignored.
 The background defaults to white and is configurable as `0xRRGGBB`:
 
 ```sh
-./qip run \
-  --timeout-ms 180000 \
+npx qipdo qip.dev \
   --max-memory 469762048 \
   -i input.bmp -o output.webp -- \
   image/bmp/bmp-b8g8r8a8-srgb-to-webp-lossy-opaque.wasm \

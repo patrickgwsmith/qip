@@ -10,7 +10,7 @@ It needs no GPU, JavaScript runtime, host fonts, or filesystem.
 Pass the SVG with `-i` and each font with a typed `-F` part:
 
 ```sh
-qip run -i chart.svg \
+npx qipdo qip.dev -i chart.svg \
   -F 'regular=@fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf;type=font/ttf' \
   -F 'bold=@fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf;type=font/ttf' \
   -F 'italic=@fixtures/inter-4.1/ttf/InterDisplay-Italic.ttf;type=font/ttf' \

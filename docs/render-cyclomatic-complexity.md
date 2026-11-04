@@ -6,9 +6,9 @@ reads a WebAssembly module and emits one unsigned decimal integer, with no
 trailing newline in the output file.
 
 ```sh
-make -j qip application/wasm/render-cyclomatic-complexity.wasm
+make -j application/wasm/render-cyclomatic-complexity.wasm
 
-qip run -i text/e164.wasm \
+npx qipdo qip.dev -i text/e164.wasm \
   -o complexity.txt \
   -- application/wasm/render-cyclomatic-complexity.wasm
 

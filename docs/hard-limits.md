@@ -91,7 +91,7 @@ statically inspectable Wasm subset. It is not the normal CLI module policy.
 Run both strict-tier stages on a Wasm file:
 
 ```bash
-qip run -i component.wasm -- \
+npx qipdo qip.dev -i component.wasm -- \
   application/wasm/wasm-strict-profile.wasm \
   application/wasm/wasm-bounded-loops.wasm
 ```
@@ -99,7 +99,7 @@ qip run -i component.wasm -- \
 For untrusted Wasm bytes, validate the core module first:
 
 ```bash
-qip run -i component.wasm -- \
+npx qipdo qip.dev -i component.wasm -- \
   application/wasm/wasm-validate-core-2.0.wasm \
   application/wasm/wasm-strict-profile.wasm \
   application/wasm/wasm-bounded-loops.wasm
@@ -168,7 +168,7 @@ component's `render(i32) -> i64`. It proves that the returned output size is
 not larger than the static `output_utf8_cap()` or `output_bytes_cap()` value.
 
 ```bash
-qip run -i component.wasm -- \
+npx qipdo qip.dev -i component.wasm -- \
   application/wasm/wasm-bounded-output.wasm
 ```
 
@@ -287,7 +287,7 @@ inspect the final artifact:
 RUSTFLAGS="-C link-arg=--initial-memory=1048576 -C link-arg=--max-memory=1048576" \
   cargo build --release --target wasm32v1-none
 
-qip run target/wasm32v1-none/release/component.wasm
+npx qipdo target/wasm32v1-none/release/component.wasm
 ```
 
 QIP hosts reject a component that contains `memory.grow`, so replace a

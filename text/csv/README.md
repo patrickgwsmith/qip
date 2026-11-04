@@ -14,7 +14,7 @@ C,SIMD,22.0
 Run it with:
 
 ```sh
-./qip run -i results.csv -o chart.svg text/csv/name-group-value-to-svg-bars.wasm
+npx qipdo qip.dev -i results.csv -o chart.svg text/csv/name-group-value-to-svg-bars.wasm
 ```
 
 `name` identifies a category and `group` identifies a series. The header can

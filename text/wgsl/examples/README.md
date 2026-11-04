@@ -5,8 +5,8 @@ Content component that runs once per input element, and its `override`s
 become uniforms. `test/wgsl-to-wasm.mjs` checks every example.
 
 ```bash
-qip run -i life.wgsl -o life.wasm ../wgsl-to-wasm.wasm
-qip run -i board.u32 -o next.u32 life.wasm -u width=64
+npx qipdo -i life.wgsl -o life.wasm ../wgsl-to-wasm.wasm
+npx qipdo -i board.u32 -o next.u32 life.wasm -u width=64
 ```
 
 | Shader | Element | What it does |
@@ -31,7 +31,7 @@ independent invocations together with SIMD. Set it on the compiler, rather
 than on the generated shader component:
 
 ```bash
-qip run -i smooth3.wgsl -o smooth3-vector.wasm \
+npx qipdo -i smooth3.wgsl -o smooth3-vector.wasm \
   ../wgsl-to-wasm.wasm -u vectorize_invocations=1
 ```
 

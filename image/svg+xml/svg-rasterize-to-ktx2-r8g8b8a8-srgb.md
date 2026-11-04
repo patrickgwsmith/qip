@@ -15,7 +15,7 @@ alpha when no opaque background is requested. The uniforms reset to their
 defaults after each render.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm \
   -u background_color_rgba=0xffffffff \
   -i input.svg -o output.ktx2

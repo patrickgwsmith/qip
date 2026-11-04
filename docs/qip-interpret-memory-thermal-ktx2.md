@@ -9,7 +9,7 @@ scratch buffers took the most time to produce.
 ```sh
 make -j application/wasm/qip-interpret-memory-thermal-ktx2.wasm
 
-qip run \
+npx qipdo qip.dev \
   -F component=@text/uri-list/url-to-qr-svg.wasm \
   -F 'input=https://example.com' \
   application/wasm/qip-interpret-memory-thermal-ktx2.wasm \

@@ -13,7 +13,7 @@ The uniforms match the BMP AVIF encoder:
 - `subsample`: 0 for 4:2:0, 1 for 4:2:2, or 2 for 4:4:4; default 0
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-avif-lossy.wasm \
   '?quality=80&speed=8&subsample=0' \
   -i input.ktx2 -o output.avif

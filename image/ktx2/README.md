@@ -81,11 +81,11 @@ pixels from bleeding into visible edges. The output remains the canonical
 KTX2 profile, so either component can sit between a decoder and an encoder:
 
 ```sh
-./qip run -i input.ktx2 -o thumbnail.ktx2 \
+npx qipdo qip.dev -i input.ktx2 -o thumbnail.ktx2 \
   image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm \
   -u width=1200 -u height=800
 
-./qip run -i input.ktx2 -o enlarged.ktx2 \
+npx qipdo qip.dev -i input.ktx2 -o enlarged.ktx2 \
   image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm \
   -u width=2400
 ```
@@ -288,7 +288,7 @@ and the specification's implicit top-down orientation. It rejects
 For example:
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.wasm \
   image/ktx2/ktx2-rgba32float-look-warm-fade.wasm \
   '?strength=0.8' \
@@ -299,7 +299,7 @@ For example:
 To apply the look and write WebP without a BMP intermediate:
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/webp/webp-to-ktx2-r8g8b8a8-srgb.wasm \
   image/ktx2/ktx2-r8g8b8a8-srgb-to-ktx2-rgba32float.wasm \
   image/ktx2/ktx2-rgba32float-look-warm-fade.wasm \

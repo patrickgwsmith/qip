@@ -22,10 +22,10 @@ must embed DejaVu outlines instead of browser text.
 
 ```bash
 printf 'normal \033[1;94mbold blue\033[0m\n' |
-  qip run text/ansi-sgr-to-html.wasm > screen.html
+  npx qipdo qip.dev text/ansi-sgr-to-html.wasm > screen.html
 
 printf 'normal \033[1;94mbold blue\033[0m\n' |
-  qip run text/ansi-sgr-to-svg.wasm > screen.svg
+  npx qipdo qip.dev text/ansi-sgr-to-svg.wasm > screen.svg
 ```
 
 These are presentation adapters, not a terminal emulator. They do not retain

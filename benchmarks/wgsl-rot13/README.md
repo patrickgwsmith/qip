@@ -17,9 +17,9 @@ a GPU. WGSL has no `u8`, so the shader packs four bytes into each `u32`.
 From the repository root:
 
 ```sh
-qip run -i benchmarks/wgsl-rot13/rot13.wgsl -o benchmarks/wgsl-rot13/rot13_wgsl.wasm text/wgsl/wgsl-to-wasm.wasm
-qip run -i benchmarks/wgsl-rot13/rot13.wgsl -o benchmarks/wgsl-rot13/rot13_wgsl_vec4.wasm text/wgsl/wgsl-to-wasm.wasm -u vectorize_invocations=1
-qip run -i benchmarks/wgsl-rot13/rot13_bytes.wgsl -o benchmarks/wgsl-rot13/rot13_bytes_wgsl.wasm text/wgsl/wgsl-to-wasm.wasm -u vectorize_invocations=1
+npx qipdo qip.dev -i benchmarks/wgsl-rot13/rot13.wgsl -o benchmarks/wgsl-rot13/rot13_wgsl.wasm text/wgsl/wgsl-to-wasm.wasm
+npx qipdo qip.dev -i benchmarks/wgsl-rot13/rot13.wgsl -o benchmarks/wgsl-rot13/rot13_wgsl_vec4.wasm text/wgsl/wgsl-to-wasm.wasm -u vectorize_invocations=1
+npx qipdo qip.dev -i benchmarks/wgsl-rot13/rot13_bytes.wgsl -o benchmarks/wgsl-rot13/rot13_bytes_wgsl.wasm text/wgsl/wgsl-to-wasm.wasm -u vectorize_invocations=1
 zig build-exe benchmarks/wgsl-rot13/rot13_zig_simd.zig -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic -mcpu=generic+simd128 -femit-bin=benchmarks/wgsl-rot13/rot13_zig_simd.wasm
 
 # Browser (the representative WebGPU numbers)

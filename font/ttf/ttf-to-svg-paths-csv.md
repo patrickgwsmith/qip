@@ -6,7 +6,7 @@ metrics from a TrueType font. It emits one CSV row per mapped codepoint. The
 font data, an SVG document, or a bitmap atlas without parsing TrueType again.
 
 ```bash
-qip run \
+npx qipdo qip.dev \
   -i fixtures/dejavu-fonts-ttf-2.37/ttf/DejaVuSans.ttf \
   -o dejavu-sans-paths.csv \
   -- font/ttf/ttf-to-svg-paths-csv.wasm
@@ -16,7 +16,7 @@ The default range is U+0020 through U+00FF. Select another inclusive range
 with numeric uniforms:
 
 ```bash
-qip run \
+npx qipdo qip.dev \
   -i font.ttf \
   -o basic-latin.csv \
   -- font/ttf/ttf-to-svg-paths-csv.wasm \

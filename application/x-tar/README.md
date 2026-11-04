@@ -6,7 +6,7 @@ DEFLATE when that makes its payload smaller; otherwise it uses ZIP's stored
 method. Directories are stored as empty entries.
 
 ```sh
-qip run \
+npx qipdo qip.dev \
   -i site.tar \
   -o site.zip \
   application/x-tar/tar-to-zip.wasm
@@ -43,7 +43,7 @@ semantics are more important.
 TAR archive, in archive order, using the `sha256sum` text format:
 
 ```sh
-qip run \
+npx qipdo qip.dev \
   -i site.tar \
   -o SHA256SUMS \
   application/x-tar/tar-to-sha256sums.wasm
@@ -78,7 +78,7 @@ COPYFILE_DISABLE=1 /usr/bin/tar -chf recipes.tar _recipes
 pipelines:
 
 ```sh
-qip run \
+npx qipdo qip.dev \
   -i recipes.tar \
   -o pipeline.csv \
   application/x-tar/recipes-tar-to-csv.wasm
@@ -91,7 +91,7 @@ artifacts.
 `recipes-tar-to-node-tar.wasm` produces a dependency-free Node recipe book:
 
 ```sh
-qip run \
+npx qipdo qip.dev \
   -i recipes.tar \
   -o recipe-book-node.tar \
   application/x-tar/recipes-tar-to-node-tar.wasm

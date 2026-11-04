@@ -14,7 +14,7 @@ the first pixel. The component retains QIP's 25 MP output limit but therefore
 declares 512 MiB of fixed Wasm memory.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/jpeg/jpeg-to-ktx2-r8g8b8a8-srgb.wasm \
   -i input.jpg -o output.ktx2
 ```

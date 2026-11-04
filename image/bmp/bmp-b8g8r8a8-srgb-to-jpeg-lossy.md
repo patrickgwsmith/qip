@@ -38,7 +38,7 @@ strict profile that bans indirect calls.
 
 ```sh
 make -j image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm
-qip run -i image.bmp -o image.jpg -- \
+npx qipdo qip.dev -i image.bmp -o image.jpg -- \
   image/bmp/bmp-b8g8r8a8-srgb-to-jpeg-lossy.wasm -u quality=85 -u subsample=2
 ```
 

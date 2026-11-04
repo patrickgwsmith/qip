@@ -6,9 +6,9 @@ module unchanged when every operation is proven non-trapping. Its `render`
 result rejects the input when a proof is missing.
 
 ```sh
-make -j qip application/wasm/wasm-nontrapping-divides.wasm
+make -j application/wasm/wasm-nontrapping-divides.wasm
 
-qip run \
+npx qipdo qip.dev \
   -i component.wasm \
   -- application/wasm/wasm-nontrapping-divides.wasm \
   > checked.wasm

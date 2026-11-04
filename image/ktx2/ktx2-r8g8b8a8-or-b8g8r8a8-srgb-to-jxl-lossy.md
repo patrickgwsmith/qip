@@ -6,7 +6,7 @@ profiles and writes a bare JPEG XL codestream. Opaque input becomes RGB;
 otherwise alpha is preserved while RGB is encoded at the selected distance.
 
 ```sh
-./qip run image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm \
+npx qipdo qip.dev image/ktx2/ktx2-r8g8b8a8-or-b8g8r8a8-srgb-to-jxl-lossy.wasm \
   -u distance=1 -u effort=5 -i input.ktx2 -o output.jxl
 ```
 

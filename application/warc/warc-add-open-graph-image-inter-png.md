@@ -17,7 +17,7 @@ qip router warc -C ./site --host https://qip.dev -o site.warc
 You can also run it on an existing archive:
 
 ```bash
-qip run -i site.warc -o site-with-og.warc \
+npx qipdo qip.dev -i site.warc -o site-with-og.warc \
   application/warc/warc-add-open-graph-image-inter-png.wasm \
   -u background_color_rgba=0x4b2e83ff -u text_color_rgba=0xffffffff
 ```

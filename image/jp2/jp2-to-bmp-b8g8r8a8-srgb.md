@@ -6,11 +6,11 @@ with its SSE2/SSE4.1 paths lowered to WebAssembly SIMD; users do not need
 OpenJPEG installed.
 
 ```bash
-qip run --timeout-ms 30000 \
+npx qipdo qip.dev \
   image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm \
   < input.jp2 > output.bmp
 
-qip run --timeout-ms 30000 \
+npx qipdo qip.dev \
   image/jp2/jp2-to-bmp-b8g8r8a8-srgb.wasm \
   image/bmp/bmp-to-png.wasm \
   < input.jp2 > output.png

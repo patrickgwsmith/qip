@@ -14,7 +14,7 @@ buffer as though validation succeeded.
 
 ```bash
 printf '%s' '<main id="content"><p id="intro">Hello</p></main>' \
-  | qip run text/html/html-unique-id-validator.wasm
+  | npx qipdo qip.dev text/html/html-unique-id-validator.wasm
 ```
 
 This input traps because `content` occurs twice:

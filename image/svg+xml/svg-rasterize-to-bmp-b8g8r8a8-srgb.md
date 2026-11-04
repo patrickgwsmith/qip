@@ -14,7 +14,7 @@ black. `current_color_rgba` resolves `currentColor` paint in `fill` and
 defaults after each render.
 
 ```sh
-./qip run \
+npx qipdo qip.dev \
   image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm \
   -u background_color_rgba=0xffffffff \
   -i input.svg -o output.bmp

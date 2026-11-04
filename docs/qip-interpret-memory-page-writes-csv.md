@@ -7,9 +7,9 @@ its reads and writes: data tables, output buffers, the shadow stack, or scratch
 memory.
 
 ```sh
-make -j qip application/wasm/qip-interpret-memory-page-writes-csv.wasm
+make -j application/wasm/qip-interpret-memory-page-writes-csv.wasm
 
-qip run \
+npx qipdo qip.dev \
   -F component=@text/markdown/commonmark.0.31.2.wasm \
   -F 'input=# Hello
 

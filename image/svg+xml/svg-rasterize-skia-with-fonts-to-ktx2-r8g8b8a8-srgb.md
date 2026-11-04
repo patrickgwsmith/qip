@@ -10,7 +10,7 @@ runtime, host fonts, or filesystem.
 Pass the SVG with `-i` and each font with a typed `-F` part:
 
 ```sh
-qip run -i drawing.svg \
+npx qipdo qip.dev -i drawing.svg \
   -F 'regular=@fixtures/inter-4.1/ttf/InterDisplay-Regular.ttf;type=font/ttf' \
   -F 'bold=@fixtures/inter-4.1/ttf/InterDisplay-Bold.ttf;type=font/ttf' \
   -o drawing.ktx2 -- \
