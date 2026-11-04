@@ -120,10 +120,10 @@ function renderMarkdown(source) {
     input_utf8_cap,
     render,
   } = markdownRenderer.instance.exports;
-  const input = encoder.encode(source);
-  if (input.length > input_utf8_cap()) throw new RangeError("Markdown input is too large");
-  new Uint8Array(memory.buffer, input_ptr(), input.length).set(input);
-  const result = BigInt.asUintN(64, render(input.length));
+  const input = new Uint8Array(memory.buffer, input_ptr(), input_utf8_cap());
+  const { read, written } = encoder.encodeInto(source, input);
+  if (read !== source.length) throw new RangeError("Markdown input is too large");
+  const result = BigInt.asUintN(64, render(written));
   if ((result >> 63n) !== 0n) throw new Error("rejected input");
   const outputSize = Number(result & 0xffff_ffffn);
   const outputPtr = Number((result >> 32n) & 0x7fff_ffffn);
