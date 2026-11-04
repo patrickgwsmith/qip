@@ -5,6 +5,11 @@ page before changing a contract or workflow; do not repeat protocols here.
 
 ## Workflow
 
+- Work and commit directly on `main`. Do not create, switch to, or commit on
+  other branches unless the user asks for a branch.
+- When the user asks to commit, commit every uncommitted change in the working
+  tree, including edits made outside the current request. Split unrelated work
+  into separate commits instead of leaving it out.
 - Use the `Makefile`. Pass `-j` for builds and tests, but run benchmarks without
   competing CPU-heavy work.
 - Source and compiled `.wasm` files are tracked together. Rebuild the artifact
