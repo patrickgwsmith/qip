@@ -84,7 +84,7 @@ pub fn runObserved(machine: *interpreter.Machine, request: Request, instruction_
     };
 }
 
-fn validUniformKey(key: []const u8) bool {
+pub fn validUniformKey(key: []const u8) bool {
     if (key.len == 0 or key.len > 63 or key[0] < 'a' or key[0] > 'z' or key[key.len - 1] == '_') return false;
     var previous_underscore = false;
     for (key) |byte| {
@@ -122,7 +122,7 @@ fn uniformValue(raw: []const u8, value_type: interpreter.ValType) MultipartError
 /// Returns the export that sets uniform `key`: `uniform_set_<key>`, optionally
 /// followed by `__` and a suffix that declares the uniform's maxima. Returns
 /// null when no export matches or when two do.
-fn uniformSetterName(machine: *const interpreter.Machine, key: []const u8) ?[]const u8 {
+pub fn uniformSetterName(machine: anytype, key: []const u8) ?[]const u8 {
     const prefix = "uniform_set_";
     var result: ?[]const u8 = null;
     for (machine.exports[0..machine.export_count]) |exp| {
@@ -170,12 +170,18 @@ fn trimOWS(value: []const u8) []const u8 {
     return std.mem.trim(u8, value, " \t");
 }
 
-fn dispositionName(value: []const u8) MultipartError![]const u8 {
+const Disposition = struct {
+    name: []const u8,
+    filename: ?[]const u8 = null,
+};
+
+fn parseDisposition(value: []const u8) MultipartError!Disposition {
     var fields = std.mem.splitScalar(u8, value, ';');
     if (!std.ascii.eqlIgnoreCase(trimOWS(fields.next() orelse return error.InvalidHeader), "form-data")) {
         return error.InvalidHeader;
     }
-    var result: ?[]const u8 = null;
+    var name: ?[]const u8 = null;
+    var filename: ?[]const u8 = null;
     while (fields.next()) |raw_field| {
         const field = trimOWS(raw_field);
         const equal = std.mem.indexOfScalar(u8, field, '=') orelse return error.InvalidHeader;
@@ -185,15 +191,18 @@ fn dispositionName(value: []const u8) MultipartError![]const u8 {
         const quoted = raw_value[1 .. raw_value.len - 1];
         if (std.mem.indexOfAny(u8, quoted, "\"\\\r\n") != null) return error.InvalidHeader;
         if (std.ascii.eqlIgnoreCase(key, "name")) {
-            if (result != null) return error.InvalidHeader;
-            result = quoted;
+            if (name != null) return error.InvalidHeader;
+            name = quoted;
+        } else if (std.ascii.eqlIgnoreCase(key, "filename")) {
+            if (filename != null) return error.InvalidHeader;
+            filename = quoted;
         }
     }
-    return result orelse error.InvalidHeader;
+    return .{ .name = name orelse return error.InvalidHeader, .filename = filename };
 }
 
-fn parseHeaders(block: []const u8) MultipartError![]const u8 {
-    var disposition: ?[]const u8 = null;
+fn parseHeaders(block: []const u8) MultipartError!Disposition {
+    var disposition: ?Disposition = null;
     var lines = std.mem.splitSequence(u8, block, "\r\n");
     while (lines.next()) |line| {
         if (line.len == 0 or line[0] == ' ' or line[0] == '\t') return error.InvalidHeader;
@@ -202,7 +211,7 @@ fn parseHeaders(block: []const u8) MultipartError![]const u8 {
         const value = trimOWS(line[colon + 1 ..]);
         if (std.ascii.eqlIgnoreCase(key, "content-disposition")) {
             if (disposition != null) return error.InvalidHeader;
-            disposition = try dispositionName(value);
+            disposition = try parseDisposition(value);
         } else if (std.ascii.eqlIgnoreCase(key, "content-type")) {
             if (value.len == 0) return error.InvalidHeader;
         } else {
@@ -224,76 +233,114 @@ fn findBoundary(input: []const u8, start: usize, marker: []const u8) ?usize {
     return null;
 }
 
-/// Parses the multipart request. `content_type` is the outer component's
-/// input content type, which the host may rewrite with a new boundary UUID.
-pub fn parse(input: []const u8, content_type: *const ContentType) MultipartError!Request {
-    var type_bytes: ContentType = undefined;
-    const boundary = try readBoundary(content_type, &type_bytes);
-    var opening: [2 + "uuid-".len + DEFAULT_UUID.len + 2]u8 = undefined;
-    opening[0] = '-';
-    opening[1] = '-';
-    @memcpy(opening[2 .. opening.len - 2], boundary);
-    opening[opening.len - 2] = '\r';
-    opening[opening.len - 1] = '\n';
-    if (!std.mem.startsWith(u8, input, &opening)) return error.InvalidMultipart;
+/// One multipart form part. `filename` is present for file fields.
+pub const Part = struct {
+    name: []const u8,
+    filename: ?[]const u8,
+    body: []const u8,
+};
 
-    var marker: [4 + "uuid-".len + DEFAULT_UUID.len]u8 = undefined;
-    @memcpy(marker[0..4], "\r\n--");
-    @memcpy(marker[4..], boundary);
+/// Reads the parts of a multipart request in order. `next` returns null after
+/// the closing boundary, and an error for malformed framing or headers.
+pub const PartIterator = struct {
+    input: []const u8,
+    marker: [4 + "uuid-".len + DEFAULT_UUID.len]u8,
+    cursor: usize,
+    done: bool = false,
 
-    var component: ?[]const u8 = null;
-    var target_input: ?[]const u8 = null;
-    var uniforms: [MAX_TARGET_UNIFORMS]FormUniform = undefined;
-    var uniform_count: usize = 0;
-    var cursor: usize = opening.len;
-    while (true) {
-        const header_end = std.mem.indexOfPos(u8, input, cursor, "\r\n\r\n") orelse return error.InvalidMultipart;
-        if (header_end - cursor > 16 * 1024) return error.InvalidHeader;
-        const name = try parseHeaders(input[cursor..header_end]);
+    /// `content_type` is the outer component's input content type, which the
+    /// host may rewrite with a new boundary UUID.
+    pub fn init(input: []const u8, content_type: *const ContentType) MultipartError!PartIterator {
+        var type_bytes: ContentType = undefined;
+        const boundary = try readBoundary(content_type, &type_bytes);
+        var opening: [2 + "uuid-".len + DEFAULT_UUID.len + 2]u8 = undefined;
+        opening[0] = '-';
+        opening[1] = '-';
+        @memcpy(opening[2 .. opening.len - 2], boundary);
+        opening[opening.len - 2] = '\r';
+        opening[opening.len - 1] = '\n';
+        if (!std.mem.startsWith(u8, input, &opening)) return error.InvalidMultipart;
+
+        var result: PartIterator = .{ .input = input, .marker = undefined, .cursor = opening.len };
+        @memcpy(result.marker[0..4], "\r\n--");
+        @memcpy(result.marker[4..], boundary);
+        return result;
+    }
+
+    pub fn next(self: *PartIterator) MultipartError!?Part {
+        if (self.done) return null;
+        const input = self.input;
+        const header_end = std.mem.indexOfPos(u8, input, self.cursor, "\r\n\r\n") orelse return error.InvalidMultipart;
+        if (header_end - self.cursor > 16 * 1024) return error.InvalidHeader;
+        const disposition = try parseHeaders(input[self.cursor..header_end]);
         const body_start = header_end + 4;
-        const marker_at = findBoundary(input, body_start, &marker) orelse return error.InvalidMultipart;
-        const body = input[body_start..marker_at];
-        if (std.mem.eql(u8, name, "component")) {
-            if (component != null) return error.DuplicatePart;
-            component = body;
-        } else if (std.mem.eql(u8, name, "input")) {
-            if (target_input != null) return error.DuplicatePart;
-            target_input = body;
-        } else if (std.mem.startsWith(u8, name, UNIFORM_FIELD_PREFIX) and std.mem.endsWith(u8, name, "]")) {
-            const key = name[UNIFORM_FIELD_PREFIX.len .. name.len - 1];
-            if (!validUniformKey(key)) return error.InvalidUniformKey;
-            for (uniforms[0..uniform_count]) |uniform| {
-                if (std.mem.eql(u8, uniform.key, key)) return error.DuplicatePart;
-            }
-            if (uniform_count == uniforms.len) return error.TooManyUniforms;
-            uniforms[uniform_count] = .{ .key = key, .value = body };
-            uniform_count += 1;
-        } else {
-            return error.UnknownPart;
-        }
+        const marker_at = findBoundary(input, body_start, &self.marker) orelse return error.InvalidMultipart;
+        const part: Part = .{ .name = disposition.name, .filename = disposition.filename, .body = input[body_start..marker_at] };
 
-        cursor = marker_at + marker.len;
+        var cursor = marker_at + self.marker.len;
         if (cursor + 2 > input.len) return error.InvalidMultipart;
         if (std.mem.eql(u8, input[cursor .. cursor + 2], "--")) {
             cursor += 2;
             if (cursor + 2 <= input.len and std.mem.eql(u8, input[cursor .. cursor + 2], "\r\n")) cursor += 2;
             if (cursor != input.len) return error.InvalidMultipart;
-            var result: Request = .{
-                .component = component orelse return error.MissingComponent,
-                .target_input = target_input orelse &.{},
-            };
-            std.mem.sort(FormUniform, uniforms[0..uniform_count], {}, struct {
-                fn lessThan(_: void, left: FormUniform, right: FormUniform) bool {
-                    return std.mem.order(u8, left.key, right.key) == .lt;
-                }
-            }.lessThan);
-            @memcpy(result.uniforms[0..uniform_count], uniforms[0..uniform_count]);
-            result.uniform_count = uniform_count;
-            return result;
+            self.done = true;
+        } else {
+            if (!std.mem.eql(u8, input[cursor .. cursor + 2], "\r\n")) return error.InvalidMultipart;
+            cursor += 2;
         }
-        if (!std.mem.eql(u8, input[cursor .. cursor + 2], "\r\n")) return error.InvalidMultipart;
-        cursor += 2;
+        self.cursor = cursor;
+        return part;
     }
+};
+
+/// Returns the uniform key of a `uniforms[key]` part name, or null when the
+/// name has another form. Returns an error for an invalid key.
+pub fn uniformFieldKey(name: []const u8) MultipartError!?[]const u8 {
+    if (!std.mem.startsWith(u8, name, UNIFORM_FIELD_PREFIX) or !std.mem.endsWith(u8, name, "]")) return null;
+    const key = name[UNIFORM_FIELD_PREFIX.len .. name.len - 1];
+    if (!validUniformKey(key)) return error.InvalidUniformKey;
+    return key;
+}
+
+/// Parses the multipart request. `content_type` is the outer component's
+/// input content type, which the host may rewrite with a new boundary UUID.
+pub fn parse(input: []const u8, content_type: *const ContentType) MultipartError!Request {
+    var parts = try PartIterator.init(input, content_type);
+    var component: ?[]const u8 = null;
+    var target_input: ?[]const u8 = null;
+    var uniforms: [MAX_TARGET_UNIFORMS]FormUniform = undefined;
+    var uniform_count: usize = 0;
+    while (try parts.next()) |part| {
+        const name = part.name;
+        if (std.mem.eql(u8, name, "component")) {
+            if (component != null) return error.DuplicatePart;
+            component = part.body;
+        } else if (std.mem.eql(u8, name, "input")) {
+            if (target_input != null) return error.DuplicatePart;
+            target_input = part.body;
+        } else if (try uniformFieldKey(name)) |key| {
+            for (uniforms[0..uniform_count]) |uniform| {
+                if (std.mem.eql(u8, uniform.key, key)) return error.DuplicatePart;
+            }
+            if (uniform_count == uniforms.len) return error.TooManyUniforms;
+            uniforms[uniform_count] = .{ .key = key, .value = part.body };
+            uniform_count += 1;
+        } else {
+            return error.UnknownPart;
+        }
+    }
+    var result: Request = .{
+        .component = component orelse return error.MissingComponent,
+        .target_input = target_input orelse &.{},
+    };
+    std.mem.sort(FormUniform, uniforms[0..uniform_count], {}, struct {
+        fn lessThan(_: void, left: FormUniform, right: FormUniform) bool {
+            return std.mem.order(u8, left.key, right.key) == .lt;
+        }
+    }.lessThan);
+    @memcpy(result.uniforms[0..uniform_count], uniforms[0..uniform_count]);
+    result.uniform_count = uniform_count;
+    return result;
 }
 
 test "parses component and optional input parts" {

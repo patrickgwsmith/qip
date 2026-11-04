@@ -91,6 +91,31 @@ qip comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compl
 qip comply application/json/json-schema-2020-12-must-be-valid.wasm --suite compliance/json-schema-2020-12-interoperable-regex.comply.wasm
 ```
 
+## Browse Oracle Cases
+
+To read the cases in an oracle without an implementation, open it in the case
+viewer:
+
+```bash
+npx qiptui -i compliance/cve.comply.wasm tui/comply-cases.wasm
+npx qiptui -u seed=4217 -i compliance/currency-format-en-us.comply.wasm tui/comply-cases.wasm
+```
+
+The viewer runs `comply()` in the qipdb interpreter and records each
+`must_render_exactly`, `must_trap`, and `must_reject` call. It lists the case
+ordinal, input, and expected output. It also shows any uniforms that the oracle
+set with `set_uniform_u32` before the case. `-u seed=N` sets the seed that the
+viewer passes to `uniform_set_seed`. Press `+` or `-` to run the oracle again
+with the next or previous seed.
+
+`must_render_into` cases check output inside the oracle, so they have no fixed
+expected output. The viewer counts them but does not list them. It stops at
+65,536 cases or 16 MiB of case bytes, and it accepts oracles up to 4 MiB.
+
+To run the same checks inside a QIP host, use
+[`qipok.wasm`](/docs/qipok-wasm). It runs the oracle and the implementation in
+the qipdb interpreter.
+
 ## What It Does
 
 1. Base validation (always):

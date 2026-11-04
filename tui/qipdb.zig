@@ -1752,6 +1752,7 @@ fn renderStatusLight(out: *Writer) void {
     else switch (machine.status) {
         .empty => SGR_DIM,
         .ready => if (machine.budget_exhausted) SGR_STATUS_PAUSED else SGR_STATUS_READY,
+        .awaiting_host => SGR_STATUS_PAUSED,
         .halted => if ((machine.result >> 63) == 0) SGR_STATUS_COMPLETE else SGR_STATUS_FAILED,
         .trapped => SGR_STATUS_FAILED,
     };

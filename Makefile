@@ -425,6 +425,10 @@ tui/qipdb.wasm: ZIG_WASM_MAX_MEMORY = 268435456
 tui/qipdb.wasm: tui/qipdb.zig application/wasm/lib/wasm-interpreter.zig application/wasm/lib/wasm-counts.zig application/wasm/lib/wasm-reader.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep wasm_counts -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig -femit-bin=$@
 
+tui/comply-cases.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+tui/comply-cases.wasm: tui/comply-cases.zig application/wasm/lib/wasm-interpreter.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter -Mroot=$< -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
+
 tui/epub-reader.wasm: ZIG_WASM_MAX_MEMORY = 67108864
 tui/epub-reader.wasm: tui/epub-reader.zig application/zip/lib/zip.zig bytes/lib/inflate.zig bytes/lib/deflate.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep zip -Mroot=$< --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig -femit-bin=$@
@@ -444,8 +448,8 @@ gui/aces-up.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: gui/assets/inter_display_chart_ascii.zig
 gui/data-grid-svg.wasm: gui/assets/inter_display_chart_ascii.zig
 
-application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: ZIG_WASM_MAX_MEMORY = 268435456
-application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm: application/wasm/%.wasm: application/wasm/%.zig application/wasm/lib/content-interpreter-request.zig application/wasm/lib/wasm-interpreter.zig
+application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm application/wasm/qipok.wasm: ZIG_WASM_MAX_MEMORY = 268435456
+application/wasm/qip-content-interpreter.wasm application/wasm/qip-interpret-memory-page-writes-csv.wasm application/wasm/qipok.wasm: application/wasm/%.wasm: application/wasm/%.zig application/wasm/lib/content-interpreter-request.zig application/wasm/lib/wasm-interpreter.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep wasm_interpreter --dep content_interpreter_request -Mroot=$< --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -femit-bin=$@
 
 # Interpreter memory, plus 32 tiles of per-byte counters and the KTX2 output.
@@ -1385,7 +1389,9 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/date-range-picker-svg.mjs
 	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
+	node --test test/comply-cases.mjs
 	node --test test/qip-content-interpreter.mjs
+	node --test test/qipok-wasm.mjs
 	node --test test/qip-interpret-memory-page-writes-csv.mjs
 	node --test test/qip-interpret-memory-thermal-ktx2.mjs
 	node --test test/ktx2-resize.mjs
@@ -1682,9 +1688,11 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "tui/qipdb.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep wasm_counts -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig -Mwasm_counts=application/wasm/lib/wasm-counts.zig || status=1; \
+		elif [ "$$f" = "tui/comply-cases.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot="$$f" -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
 		elif [ "$$f" = "tui/epub-reader.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep zip -Mroot="$$f" --dep inflate -Mzip=application/zip/lib/zip.zig -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ] || [ "$$f" = "application/wasm/qip-interpret-memory-page-writes-csv.zig" ]; then \
+		elif [ "$$f" = "application/wasm/qip-content-interpreter.zig" ] || [ "$$f" = "application/wasm/qip-interpret-memory-page-writes-csv.zig" ] || [ "$$f" = "application/wasm/qipok.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter --dep content_interpreter_request -Mroot="$$f" --dep wasm_interpreter -Mcontent_interpreter_request=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_interpreter -Mroot=application/wasm/lib/content-interpreter-request.zig -Mwasm_interpreter=application/wasm/lib/wasm-interpreter.zig || status=1; \
 		elif [ "$$f" = "application/wasm/qip-interpret-memory-thermal-ktx2.zig" ]; then \

@@ -371,7 +371,7 @@ async function loadTarget(component, input = null, focusScreen = true) {
   status.textContent = "Loading " + displayName + "…";
   textInputPanel.hidden = !component.acceptsText;
   textInputPointer.textContent = "";
-  if (bytes.byteLength > 1024 * 1024) throw Error("Component exceeds the debugger's 1 MiB module limit");
+  if (bytes.byteLength > 4 * 1024 * 1024) throw Error("Component exceeds the debugger's 4 MiB module limit");
   if (input && input.bytes.byteLength > 8 * 1024 * 1024) throw Error("Input exceeds the debugger's 8 MiB component-input limit");
   const formBytes = await debuggerForm(component, input);
   await tui.load({ moduleBytes: await debuggerModuleBytesPromise, inputBytes: formBytes });
@@ -662,7 +662,7 @@ document.getElementById("debugger-sample").click();
 </script>
 
 Not every QIP component is supported yet. The interpreter accepts modules up
-to 1 MiB with no imports, one memory up to 128 MiB, and one fixed `funcref`
+to 4 MiB with no imports, one memory up to 128 MiB, and one fixed `funcref`
 table with up to 4,096 entries. It supports active function-index element
 segments and typed `call_indirect`, but not table mutation. An unsupported
 component shows the reason in the debugger screen.

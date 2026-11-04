@@ -36,7 +36,7 @@ npx qipdo qip.dev \
   > recolored.svg
 ```
 
-The component accepts target modules up to 1 MiB, target input up to 8 MiB,
+The component accepts target modules up to 4 MiB, target input up to 8 MiB,
 and fixed target memory up to 192 MiB. The instruction budget defaults to one
 million and clamps at ten million. A malformed request, unsupported Wasm
 feature, trap, exhausted budget, invalid target Content contract, or target

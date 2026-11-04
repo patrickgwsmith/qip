@@ -210,6 +210,20 @@ to move through long trees. It shows data as a byte count. The input limit is
 Use another tool to edit or convert a plist, or to read an older OpenStep
 property list. This viewer only presents XML and binary plist values.
 
+To browse the cases in a Compliance oracle, pass the oracle to the case viewer:
+
+```sh
+npx qiptui -i compliance/cve.comply.wasm ./tui/comply-cases.wasm
+```
+
+The viewer lists each case's input and expected output, and shows the selected
+case in full below the list. Text shows controls as `␀`–`␟` and other invisible
+code points as `⟨U+XXXX⟩`. Bytes that are not UTF-8 show as hex. Use Up and
+Down to select a case, Shift-Up and Shift-Down or `K` and `J` to scroll its
+details, `x` to switch between text and hex, and `+` or `-` to change the seed.
+Set a starting seed with `-u seed=N`. See
+[`qip comply`](/docs/comply#browse-oracle-cases) for the cases it skips.
+
 `qiptui` accepts one TUI component. A `.wasm` file supplied through `-F` is
 input data for that component, not a second stage that transforms its frames.
 
