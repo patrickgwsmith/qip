@@ -86,9 +86,11 @@ syntax highlighters.
 | Java | [wasm](/oracles/syntax-highlight-java.comply.wasm) | [zig](/oracles/syntax-highlight-java.comply.zig) |
 | JavaScript | [wasm](/oracles/syntax-highlight-javascript.comply.wasm) | [zig](/oracles/syntax-highlight-javascript.comply.zig) |
 | JavaScript semantic classes | [wasm](/oracles/syntax-highlight-javascript-semantic.comply.wasm) | [zig](/oracles/syntax-highlight-javascript-semantic.comply.zig) |
+| Odin | [wasm](/oracles/syntax-highlight-odin.comply.wasm) | [zig](/oracles/syntax-highlight-odin.comply.zig) |
 | Python | [wasm](/oracles/syntax-highlight-python.comply.wasm) | [zig](/oracles/syntax-highlight-python.comply.zig) |
 | Ruby | [wasm](/oracles/syntax-highlight-ruby.comply.wasm) | [zig](/oracles/syntax-highlight-ruby.comply.zig) |
 | Rust | [wasm](/oracles/syntax-highlight-rust.comply.wasm) | [zig](/oracles/syntax-highlight-rust.comply.zig) |
+| SQL | [wasm](/oracles/syntax-highlight-sql.comply.wasm) | [zig](/oracles/syntax-highlight-sql.comply.zig) |
 | Swift | [wasm](/oracles/syntax-highlight-swift.comply.wasm) | [zig](/oracles/syntax-highlight-swift.comply.zig) |
 | Wasm text | [wasm](/oracles/syntax-highlight-wasm.comply.wasm) | [zig](/oracles/syntax-highlight-wasm.comply.zig) |
 | WGSL | [wasm](/oracles/syntax-highlight-wgsl.comply.wasm) | [zig](/oracles/syntax-highlight-wgsl.comply.zig) |

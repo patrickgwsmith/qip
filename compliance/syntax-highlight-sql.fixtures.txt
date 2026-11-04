@@ -1,0 +1,65 @@
+=== INPUT ===
+<pre><code class="language-sql">-- Monthly revenue per customer
+WITH monthly AS (
+  SELECT c.id, date_trunc(&#39;month&#39;, o.created_at) AS month, SUM(o.amount) AS total
+  FROM customers c
+  LEFT JOIN orders o ON o.customer_id = c.id
+  WHERE o.status &lt;&gt; &#39;void&#39; AND o.amount &gt;= 0.5
+  GROUP BY 1, 2
+)
+SELECT id, month, total, row_number() OVER (PARTITION BY id ORDER BY total DESC) AS rank
+FROM monthly
+LIMIT 10;</code></pre>
+=== OUTPUT ===
+<pre><code class="language-sql hljs"><span class="hljs-comment">-- Monthly revenue per customer</span>
+<span class="hljs-keyword">WITH</span> monthly <span class="hljs-keyword">AS</span> (
+  <span class="hljs-keyword">SELECT</span> c.id, <span class="hljs-built_in">date_trunc</span>(<span class="hljs-string">&#39;month&#39;</span>, o.created_at) <span class="hljs-keyword">AS</span> month, <span class="hljs-built_in">SUM</span>(o.amount) <span class="hljs-keyword">AS</span> total
+  <span class="hljs-keyword">FROM</span> customers c
+  <span class="hljs-keyword">LEFT</span> <span class="hljs-keyword">JOIN</span> orders o <span class="hljs-keyword">ON</span> o.customer_id = c.id
+  <span class="hljs-keyword">WHERE</span> o.status &lt;&gt; <span class="hljs-string">&#39;void&#39;</span> <span class="hljs-keyword">AND</span> o.amount &gt;= <span class="hljs-number">0.5</span>
+  <span class="hljs-keyword">GROUP</span> <span class="hljs-keyword">BY</span> <span class="hljs-number">1</span>, <span class="hljs-number">2</span>
+)
+<span class="hljs-keyword">SELECT</span> id, month, total, <span class="hljs-built_in">row_number</span>() <span class="hljs-keyword">OVER</span> (<span class="hljs-keyword">PARTITION</span> <span class="hljs-keyword">BY</span> id <span class="hljs-keyword">ORDER</span> <span class="hljs-keyword">BY</span> total <span class="hljs-keyword">DESC</span>) <span class="hljs-keyword">AS</span> rank
+<span class="hljs-keyword">FROM</span> monthly
+<span class="hljs-keyword">LIMIT</span> <span class="hljs-number">10</span>;</code></pre>
+=== END ===
+=== INPUT ===
+<code class='language-sql extra'>CREATE TABLE users (
+  id bigserial PRIMARY KEY,
+  email varchar(255) NOT NULL UNIQUE,
+  active boolean DEFAULT true,
+  score numeric(5, 2) DEFAULT 1.5e3,
+  created timestamptz DEFAULT now()
+);
+insert into users (email) values (&#39;o&#39;&#39;brien@example.com&#39;) returning id;</code>
+=== OUTPUT ===
+<code class='language-sql extra hljs'><span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">TABLE</span> users (
+  id <span class="hljs-type">bigserial</span> <span class="hljs-keyword">PRIMARY</span> <span class="hljs-keyword">KEY</span>,
+  email <span class="hljs-type">varchar</span>(<span class="hljs-number">255</span>) <span class="hljs-keyword">NOT</span> <span class="hljs-literal">NULL</span> <span class="hljs-keyword">UNIQUE</span>,
+  active <span class="hljs-type">boolean</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-literal">true</span>,
+  score <span class="hljs-type">numeric</span>(<span class="hljs-number">5</span>, <span class="hljs-number">2</span>) <span class="hljs-keyword">DEFAULT</span> <span class="hljs-number">1.5e3</span>,
+  created <span class="hljs-type">timestamptz</span> <span class="hljs-keyword">DEFAULT</span> <span class="hljs-built_in">now</span>()
+);
+<span class="hljs-keyword">insert</span> <span class="hljs-keyword">into</span> users (email) <span class="hljs-keyword">values</span> (<span class="hljs-string">&#39;o&#39;&#39;brien@example.com&#39;</span>) <span class="hljs-keyword">returning</span> id;</code>
+=== END ===
+=== INPUT ===
+<code class="language-sql">/* outer /* nested select */ still a comment */
+SELECT $1::int, :limit, @@version, &quot;order&quot;, `from`, E&#39;tab\&#39;s&#39;, X&#39;FF&#39;, 0x1F
+FROM t;
+CREATE FUNCTION add_ints(a int, b int) RETURNS int AS $fn$ SELECT a + b $fn$ LANGUAGE sql;</code>
+=== OUTPUT ===
+<code class="language-sql hljs"><span class="hljs-comment">/* outer /* nested select */ still a comment */</span>
+<span class="hljs-keyword">SELECT</span> <span class="hljs-variable">$1</span>::<span class="hljs-type">int</span>, <span class="hljs-variable">:limit</span>, <span class="hljs-variable">@@version</span>, &quot;order&quot;, `from`, <span class="hljs-string">E&#39;tab\&#39;s&#39;</span>, <span class="hljs-string">X&#39;FF&#39;</span>, <span class="hljs-number">0x1F</span>
+<span class="hljs-keyword">FROM</span> t;
+<span class="hljs-keyword">CREATE</span> <span class="hljs-keyword">FUNCTION</span> add_ints(a <span class="hljs-type">int</span>, b <span class="hljs-type">int</span>) <span class="hljs-keyword">RETURNS</span> <span class="hljs-type">int</span> <span class="hljs-keyword">AS</span> <span class="hljs-string">$fn$ SELECT a + b $fn$</span> <span class="hljs-keyword">LANGUAGE</span> sql;</code>
+=== END ===
+=== INPUT ===
+<code class="language-sql hljs"><span class="hljs-keyword">select</span> 1</code>
+=== OUTPUT ===
+<code class="language-sql hljs"><span class="hljs-keyword">select</span> 1</code>
+=== END ===
+=== INPUT ===
+<code class="language-python">select = from_ = None</code>
+=== OUTPUT ===
+<code class="language-python">select = from_ = None</code>
+=== END ===

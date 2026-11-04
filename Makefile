@@ -161,7 +161,7 @@ compliance/jpeg-to-bmp-b8g8r8a8-srgb.comply.wasm: compliance/jpeg-to-bmp-b8g8r8a
 compliance/bmp-b8g8r8a8-icc-to-srgb.comply.wasm: compliance/bmp-b8g8r8a8-icc-to-srgb.comply.zig $(wildcard compliance/bmp-b8g8r8a8-icc-to-srgb-fixtures/*)
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
-SYNTAX_HIGHLIGHT_COMPLY_TARGETS := compliance/syntax-highlight-javascript.comply.wasm compliance/syntax-highlight-javascript-semantic.comply.wasm compliance/syntax-highlight-html.comply.wasm compliance/syntax-highlight-css.comply.wasm compliance/syntax-highlight-python.comply.wasm compliance/syntax-highlight-java.comply.wasm compliance/syntax-highlight-csharp.comply.wasm compliance/syntax-highlight-swift.comply.wasm compliance/syntax-highlight-ruby.comply.wasm compliance/syntax-highlight-go.comply.wasm compliance/syntax-highlight-rust.comply.wasm compliance/syntax-highlight-wgsl.comply.wasm compliance/syntax-highlight-c.comply.wasm compliance/syntax-highlight-bash.comply.wasm compliance/syntax-highlight-wasm.comply.wasm compliance/syntax-highlight-zig.comply.wasm
+SYNTAX_HIGHLIGHT_COMPLY_TARGETS := compliance/syntax-highlight-javascript.comply.wasm compliance/syntax-highlight-javascript-semantic.comply.wasm compliance/syntax-highlight-html.comply.wasm compliance/syntax-highlight-css.comply.wasm compliance/syntax-highlight-python.comply.wasm compliance/syntax-highlight-java.comply.wasm compliance/syntax-highlight-csharp.comply.wasm compliance/syntax-highlight-swift.comply.wasm compliance/syntax-highlight-ruby.comply.wasm compliance/syntax-highlight-go.comply.wasm compliance/syntax-highlight-rust.comply.wasm compliance/syntax-highlight-wgsl.comply.wasm compliance/syntax-highlight-c.comply.wasm compliance/syntax-highlight-bash.comply.wasm compliance/syntax-highlight-wasm.comply.wasm compliance/syntax-highlight-zig.comply.wasm compliance/syntax-highlight-odin.comply.wasm compliance/syntax-highlight-sql.comply.wasm
 
 compliance/syntax-highlight-%.comply.wasm: compliance/syntax-highlight-%.comply.zig compliance/syntax-highlight-%.fixtures.txt compliance/lib/syntax-highlight-comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
@@ -1540,6 +1540,8 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-bash.wasm --suite compliance/syntax-highlight-bash.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-wasm.wasm --suite compliance/syntax-highlight-wasm.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/html/html-code-syntax-highlight-zig.wasm --suite compliance/syntax-highlight-zig.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-odin.wasm --suite compliance/syntax-highlight-odin.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply text/html/html-code-syntax-highlight-sql.wasm --suite compliance/syntax-highlight-sql.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/vnd.mermaid/mermaid-to-unicode-html.wasm --suite compliance/mermaid-to-unicode-html.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/markdown/commonmark.0.31.2.wasm --suite compliance/commonmark-spec-0.31.2.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/markdown/gfm-commonmark.0.31.2.wasm --suite compliance/commonmark-0.31.2-gfm.wasm --straight-line-oracles

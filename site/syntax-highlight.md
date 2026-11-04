@@ -3,8 +3,8 @@
 # Syntax highlighter
 
 Paste code and convert to highlighted HTML locally in your browser.
-Each language is its own small component — TypeScript’s is
-<a href="/text/html/html-code-syntax-highlight-tsx.wasm" download><qip-content-size src="/text/html/html-code-syntax-highlight-tsx.wasm"></qip-content-size> of WebAssembly</a>
+Each language is its own small component — <span id="highlight-size-language">TypeScript</span>’s is
+<a id="highlight-size-link" href="/text/html/html-code-syntax-highlight-tsx.wasm" download><qip-content-size id="highlight-size" src="/text/html/html-code-syntax-highlight-tsx.wasm"></qip-content-size> of WebAssembly</a>
 — chained with an HTML escaper and a Night Owl stylesheet.
 
 <style>
@@ -72,6 +72,8 @@ details.raw-html textarea {
       <option value="swift">Swift</option>
       <option value="ruby">Ruby</option>
       <option value="zig">Zig</option>
+      <option value="odin">Odin</option>
+      <option value="sql">SQL</option>
       <option value="c">C</option>
       <option value="bash">Bash / shell</option>
       <option value="wasm">WebAssembly text</option>
@@ -107,6 +109,8 @@ const text = contentTypeUTF8();
 const html = contentTypeUTF8("text/html");
 const languageClasses = {
   zig: "language-zig",
+  odin: "language-odin",
+  sql: "language-sql",
   c: "language-c",
   bash: "language-bash",
   tsx: "language-tsx",
@@ -121,6 +125,8 @@ const languageClasses = {
 };
 const samples = {
   zig: 'const std = @import("std");\n\npub fn main() void {\n    // Highlighted locally, in ~7 KB of wasm.\n    std.debug.print("hello {s}\\n", .{"wasm"});\n}',
+  odin: "package main\n\nimport \"core:fmt\"\n\n/* Highlighted locally, in ~10 KB of wasm.\n   /* Nested comments stay one comment. */ */\nUnit :: enum { Byte, Kilobyte }\n\nSize :: struct($T: typeid) {\n\tbytes: T,\n\tunit:  Unit,\n}\n\n@(private)\nlabel :: #force_inline proc \"contextless\" (s: Size($T)) -> string {\n\t#partial switch s.unit {\n\tcase .Kilobyte: return \"kB\"\n\t}\n\treturn \"bytes\"\n}\n\nmain :: proc() {\n\tfor i in 0..<3 do fmt.println(i, label(Size(int){bytes = 1024}))\n}",
+  sql: "-- Highlighted locally, in ~16 KB of wasm.\nWITH ranked AS (\n  SELECT \"order\".name, size_bytes,\n         rank() OVER (ORDER BY size_bytes DESC NULLS LAST) AS rank\n  FROM components AS \"order\"\n  WHERE name LIKE 'html-%' AND note <> 'it''s new'\n    AND size_bytes < $1 AND published_at >= :since\n)\nSELECT name, rank, size_bytes / 1024.0 AS kb\nFROM ranked\nWHERE rank <= 10;\n\nCREATE FUNCTION kb(n bigint) RETURNS numeric AS $$\n  SELECT n / 1024.0\n$$ LANGUAGE sql;",
   c: '#include <stdio.h>\n\nint main(void) {\n    /* Highlighted locally, in ~6 KB of wasm. */\n    printf("hello %s\\n", "wasm");\n    return 0;\n}',
   bash: '# Highlighted locally, in ~7 KB of wasm.\nfor f in *.wasm; do\n  wc -c "$f"\ndone | sort -n',
   tsx: '// Highlighted locally, in ~9 KB of wasm.\ntype Size = { bytes: number };\n\nexport function label({ bytes }: Size): string {\n  return `${(bytes / 1000).toFixed(2)} kB`;\n}',
@@ -169,6 +175,22 @@ function updateJavaScriptExample(language) {
   jsExample.innerHTML = example;
 }
 
+// The download list's sizes are filled in when the page is built, so the
+// caption borrows the selected language's size from there.
+function updateSizeCaption(language) {
+  const src = "/text/html/html-code-syntax-highlight-" + language + ".wasm";
+  const option = languageSelect.selectedOptions[0];
+  document.getElementById("highlight-size-language").textContent =
+    option.textContent.split(" / ")[0];
+  document.getElementById("highlight-size-link").href = src;
+  const size = document.getElementById("highlight-size");
+  size.setAttribute("src", src);
+  const listed = document.querySelector(
+    'li qip-content-size[src="' + src + '"]',
+  );
+  if (listed) size.textContent = listed.textContent;
+}
+
 function highlight() {
   const language = languageSelect.value;
   try {
@@ -206,6 +228,7 @@ languageSelect.addEventListener("change", () => {
     currentSample = sample;
   }
   updateJavaScriptExample(languageSelect.value);
+  updateSizeCaption(languageSelect.value);
   highlight();
 });
 updateJavaScriptExample(languageSelect.value);
@@ -308,6 +331,8 @@ self-contained.
 - <a href="/text/html/html-code-syntax-highlight-html.wasm" download>html-code-syntax-highlight-html.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-html.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-css.wasm" download>html-code-syntax-highlight-css.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-css.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-go.wasm" download>html-code-syntax-highlight-go.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-go.wasm"></qip-content-size>
+- <a href="/text/html/html-code-syntax-highlight-odin.wasm" download>html-code-syntax-highlight-odin.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-odin.wasm"></qip-content-size>
+- <a href="/text/html/html-code-syntax-highlight-sql.wasm" download>html-code-syntax-highlight-sql.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-sql.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-rust.wasm" download>html-code-syntax-highlight-rust.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-rust.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-wgsl.wasm" download>html-code-syntax-highlight-wgsl.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-wgsl.wasm"></qip-content-size>
 - <a href="/text/html/html-code-syntax-highlight-swift.wasm" download>html-code-syntax-highlight-swift.wasm</a> — <qip-content-size src="/text/html/html-code-syntax-highlight-swift.wasm"></qip-content-size>
@@ -325,6 +350,8 @@ everything else untouched, so they chain safely.
 ```bash
 qip run text/html/html-code-syntax-highlight-zig.wasm \
   text/html/html-code-syntax-highlight-go.wasm \
+  text/html/html-code-syntax-highlight-odin.wasm \
+  text/html/html-code-syntax-highlight-sql.wasm \
   text/html/html-code-syntax-highlight-rust.wasm \
   text/html/html-code-syntax-highlight-wgsl.wasm \
   text/html/html-code-syntax-highlight-swift.wasm \
