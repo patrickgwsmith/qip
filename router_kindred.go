@@ -171,6 +171,7 @@ func resolveKindredStaticRoute(ctx context.Context, current *RouterServerState, 
 func transformRouteResponseWithKindredRoutes(
 	ctx context.Context,
 	pipeline *qinternal.Pipeline,
+	origin string,
 	requestPath string,
 	response qinternal.InProcessHTTPResponse,
 	requestID uint64,
@@ -182,8 +183,14 @@ func transformRouteResponseWithKindredRoutes(
 	if pipeline == nil {
 		return response, nil
 	}
-	requestURI := buildWARCRequestURI("qip.local", requestPath)
-	archive, err := buildKindredWARCArchive("http://qip.local", requestPath, response, resolveParent, resolveStatic, elementEntryPaths, resolveElement)
+	if origin == "" {
+		origin = "http://qip.local"
+	}
+	if requestPath == "" || !strings.HasPrefix(requestPath, "/") {
+		requestPath = "/" + requestPath
+	}
+	requestURI := origin + requestPath
+	archive, err := buildKindredWARCArchive(origin, requestPath, response, resolveParent, resolveStatic, elementEntryPaths, resolveElement)
 	if err != nil {
 		return qinternal.InProcessHTTPResponse{}, err
 	}

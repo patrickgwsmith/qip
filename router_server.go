@@ -13,6 +13,29 @@ import (
 	qinternal "github.com/royalicing/qip/internal"
 )
 
+// devRequestOrigin returns the origin the browser used to reach the dev
+// server, such as http://localhost:4114, so WARC recipes that write absolute
+// URLs (og:image) point back at this server. A Host header with anything but
+// host and port characters falls back to http://qip.local.
+func devRequestOrigin(r *http.Request) string {
+	host := r.Host
+	if host == "" || len(host) > 255 {
+		return "http://qip.local"
+	}
+	for _, c := range host {
+		ok := c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' ||
+			c == '.' || c == '-' || c == ':' || c == '[' || c == ']'
+		if !ok {
+			return "http://qip.local"
+		}
+	}
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	return scheme + "://" + host
+}
+
 type RouterServerTimeouts struct {
 	contentRecipe   time.Duration
 	applicationWARC time.Duration
@@ -147,7 +170,7 @@ func newRouterRequestHandler(logPrefix string, stateSlot *routerServerStateSlot,
 				ctx := r.Context()
 				ctx, cancel := withExecutionTimeout(ctx, timeouts.applicationWARC)
 				defer cancel()
-				response, err = transformRouteResponseWithKindredRoutes(ctx, applicationWARCPipeline, r.URL.Path, response, reqID, func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
+				response, err = transformRouteResponseWithKindredRoutes(ctx, applicationWARCPipeline, devRequestOrigin(r), r.URL.Path, response, reqID, func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
 					return resolveRouterBaseResponse(ctx, current, requestPath, reqID, timeouts)
 				}, func(requestPath string) (qinternal.InProcessHTTPResponse, bool, error) {
 					return resolveKindredStaticRoute(ctx, current, requestPath)
