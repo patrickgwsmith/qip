@@ -8,7 +8,8 @@
 //! labels the fiscal year as `’26` under each first quarter and under the
 //! first bar (unless the next year label would be closer than
 //! `MIN_YEAR_GAP`). Fiscal years are whatever the CSV says, so Apple's `FY2026Q4`
-//! ends in September and NVIDIA's ends in January. Labels are inserted before
+//! ends in September and NVIDIA's ends in January. `label_color_rgba` (packed
+//! `0xRRGGBBAA`, default `0x374151ff`) sets the text colour. Labels are inserted before
 //! the closing `</svg>`; every other byte is copied unchanged.
 const std = @import("std");
 const bars_svg = @import("svg_bars");
@@ -16,23 +17,27 @@ const bars_svg = @import("svg_bars");
 const INPUT_CAP: usize = 256 * 1024;
 const OUTPUT_CAP: usize = 320 * 1024;
 const CONTENT_TYPE = "image/svg+xml";
+const DEFAULT_LABEL_COLOR_RGBA: u32 = 0x374151ff;
 
 var input: [INPUT_CAP]u8 = undefined;
 var output: [OUTPUT_CAP]u8 = undefined;
 var bars: [bars_svg.MAX_BARS]bars_svg.Bar = undefined;
+var label_color_rgba: u32 = DEFAULT_LABEL_COLOR_RGBA;
 
 /// Narrowest bar-to-bar distance, in SVG units, that fits an 11px `Q4` label.
 const MIN_PREFIXED_PITCH: f64 = 20;
 /// Narrowest distance between the centres of two bold 12px `’26` labels.
 const MIN_YEAR_GAP: f64 = 28;
 
-fn addQuarterXAxis(source: []const u8, destination: []u8) bars_svg.Error!usize {
+fn addQuarterXAxis(source: []const u8, destination: []u8, label_color: u32) bars_svg.Error!usize {
     const root = try bars_svg.readRoot(source);
     const found = try bars_svg.readBars(source, &bars);
     const at = try bars_svg.frontOffset(source);
     var out = bars_svg.Output{ .bytes = destination };
     try out.append(source[0..at]);
-    try out.append("<g data-layer=\"quarter-x-axis\" fill=\"#475569\" text-anchor=\"middle\">");
+    try out.append("<g data-layer=\"quarter-x-axis\" fill=\"");
+    try out.color(label_color);
+    try out.append("\" text-anchor=\"middle\">");
     const prefixed = found.len < 2 or found[1].x - found[0].x >= MIN_PREFIXED_PITCH;
     for (found, 0..) |bar, i| {
         const x = bar.x + bar.width / 2;
@@ -87,10 +92,16 @@ export fn output_content_type_ptr() u32 {
 export fn output_content_type_size() u32 {
     return CONTENT_TYPE.len;
 }
+export fn uniform_set_label_color_rgba(value: u32) u32 {
+    label_color_rgba = value;
+    return value;
+}
 export fn render(size: u32) packed struct(u64) { output_size_or_failure: u32, output_ptr: u31, failed: u1 } {
     const n: usize = size;
     if (n > INPUT_CAP) @trap();
-    const out_n = addQuarterXAxis(input[0..n], &output) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
+    const label_color = label_color_rgba;
+    label_color_rgba = DEFAULT_LABEL_COLOR_RGBA;
+    const out_n = addQuarterXAxis(input[0..n], &output, label_color) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
     return .{ .output_size_or_failure = @intCast(out_n), .output_ptr = @intCast(@intFromPtr(&output)), .failed = 0 };
 }
 
@@ -103,8 +114,9 @@ test "labels quarters and fiscal years" {
         "<rect x=\"130\" y=\"0\" width=\"20\" height=\"1\" data-fiscal-quarter=\"FY2026Q2\" data-value=\"3\"/>" ++
         "</g></svg>\n";
     var buf: [8192]u8 = undefined;
-    const n = try addQuarterXAxis(sample, &buf);
+    const n = try addQuarterXAxis(sample, &buf, DEFAULT_LABEL_COLOR_RGBA);
     const svg = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<g data-layer=\"quarter-x-axis\" fill=\"#374151\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "x=\"80\" y=\"360\" font-size=\"11\">Q4</text>") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, ">\u{2019}25</text>") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "x=\"110\" y=\"376\" font-size=\"12\" font-weight=\"bold\">\u{2019}26</text>") != null);
@@ -120,7 +132,7 @@ test "drops the Q prefix when bars are too close together" {
         "<rect x=\"84\" y=\"0\" width=\"10\" height=\"1\" data-fiscal-quarter=\"FY2026Q1\" data-value=\"2\"/>" ++
         "</g></svg>\n";
     var buf: [8192]u8 = undefined;
-    const n = try addQuarterXAxis(sample, &buf);
+    const n = try addQuarterXAxis(sample, &buf, DEFAULT_LABEL_COLOR_RGBA);
     const svg = buf[0..n];
     try std.testing.expect(std.mem.indexOf(u8, svg, "x=\"75\" y=\"360\" font-size=\"11\">4</text>") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, ">Q") == null);
@@ -134,7 +146,7 @@ test "skips the first-bar year when the next year label is too close" {
         "<rect x=\"84\" y=\"0\" width=\"10\" height=\"1\" data-fiscal-quarter=\"FY2017Q1\" data-value=\"2\"/>" ++
         "</g></svg>\n";
     var buf: [8192]u8 = undefined;
-    const n = try addQuarterXAxis(sample, &buf);
+    const n = try addQuarterXAxis(sample, &buf, DEFAULT_LABEL_COLOR_RGBA);
     const svg = buf[0..n];
     try std.testing.expect(std.mem.indexOf(u8, svg, ">\u{2019}16</text>") == null);
     try std.testing.expect(std.mem.indexOf(u8, svg, ">\u{2019}17</text>") != null);

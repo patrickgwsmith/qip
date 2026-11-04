@@ -8,7 +8,9 @@
 //! 5 times a power of ten) that splits the domain into roughly that many
 //! intervals; the default 0 keeps the step recorded in the SVG. Labels print the root's literal `data-label-prefix` and
 //! `data-label-suffix` around the number (`$25B`); negative values put the
-//! minus sign first (`-$5B`). The gridlines are inserted before the bars group
+//! minus sign first (`-$5B`). Colour uniforms are packed `0xRRGGBBAA`:
+//! `label_color_rgba` (default `0x6b7280ff`), `gridline_color_rgba` (default
+//! `0xe5e7ebff`) and `zero_line_color_rgba` (default `0x374151ff`). The gridlines are inserted before the bars group
 //! so the bars paint over them. Every other byte is copied unchanged.
 const std = @import("std");
 const bars_svg = @import("svg_bars");
@@ -19,11 +21,18 @@ const CONTENT_TYPE = "image/svg+xml";
 const DEFAULT_TICK_COUNT: u32 = 0;
 const MAX_TICKS = 64;
 
+const Colors = struct {
+    label: u32 = 0x6b7280ff,
+    gridline: u32 = 0xe5e7ebff,
+    zero_line: u32 = 0x374151ff,
+};
+var colors: Colors = .{};
+
 var input: [INPUT_CAP]u8 = undefined;
 var output: [OUTPUT_CAP]u8 = undefined;
 var tick_count: u32 = DEFAULT_TICK_COUNT;
 
-fn addYAxis(source: []const u8, destination: []u8, intervals: u32) bars_svg.Error!usize {
+fn addYAxis(source: []const u8, destination: []u8, intervals: u32, palette: Colors) bars_svg.Error!usize {
     const root = try bars_svg.readRoot(source);
     const at = try bars_svg.behindBarsOffset(source);
     var out = bars_svg.Output{ .bytes = destination };
@@ -35,7 +44,9 @@ fn addYAxis(source: []const u8, destination: []u8, intervals: u32) bars_svg.Erro
     const last: i64 = @intFromFloat(@floor(root.value_max / step + 1e-9));
     if (last - first > MAX_TICKS) return error.InvalidSVG;
 
-    try out.append("<g data-layer=\"y-axis\" font-size=\"12\" fill=\"#475569\" text-anchor=\"end\">");
+    try out.append("<g data-layer=\"y-axis\" font-size=\"12\" fill=\"");
+    try out.color(palette.label);
+    try out.append("\" text-anchor=\"end\">");
     var k = first;
     while (k <= last) : (k += 1) {
         const value = @as(f64, @floatFromInt(k)) * step;
@@ -46,7 +57,9 @@ fn addYAxis(source: []const u8, destination: []u8, intervals: u32) bars_svg.Erro
         try out.number(y);
         try out.append(" H ");
         try out.number(root.right);
-        try out.append(if (k == 0) "\" fill=\"none\" stroke=\"#475569\" stroke-width=\"1\"/>" else "\" fill=\"none\" stroke=\"#e2e8f0\" stroke-width=\"1\"/>");
+        try out.append("\" fill=\"none\" stroke=\"");
+        try out.color(if (k == 0) palette.zero_line else palette.gridline);
+        try out.append("\" stroke-width=\"1\"/>");
         try out.append("<text x=\"");
         try out.number(root.left - 8);
         try out.append("\" y=\"");
@@ -88,12 +101,26 @@ export fn uniform_set_tick_count(value: u32) u32 {
     tick_count = value;
     return value;
 }
+export fn uniform_set_label_color_rgba(value: u32) u32 {
+    colors.label = value;
+    return value;
+}
+export fn uniform_set_gridline_color_rgba(value: u32) u32 {
+    colors.gridline = value;
+    return value;
+}
+export fn uniform_set_zero_line_color_rgba(value: u32) u32 {
+    colors.zero_line = value;
+    return value;
+}
 export fn render(size: u32) packed struct(u64) { output_size_or_failure: u32, output_ptr: u31, failed: u1 } {
     const n: usize = size;
     if (n > INPUT_CAP) @trap();
     const intervals = tick_count;
+    const palette = colors;
     tick_count = DEFAULT_TICK_COUNT;
-    const out_n = addYAxis(input[0..n], &output, intervals) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
+    colors = .{};
+    const out_n = addYAxis(input[0..n], &output, intervals, palette) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
     return .{ .output_size_or_failure = @intCast(out_n), .output_ptr = @intCast(@intFromPtr(&output)), .failed = 0 };
 }
 
@@ -103,8 +130,11 @@ const SAMPLE =
 
 test "inserts prefixed gridlines before the bars" {
     var buf: [8192]u8 = undefined;
-    const n = try addYAxis(SAMPLE, &buf, 0);
+    const n = try addYAxis(SAMPLE, &buf, 0, .{});
     const svg = buf[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, svg, "fill=\"#6b7280\" text-anchor") != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, svg, "stroke=\"#374151\""));
+    try std.testing.expectEqual(@as(usize, 4), std.mem.count(u8, svg, "stroke=\"#e5e7eb\""));
     const axis = std.mem.indexOf(u8, svg, "data-layer=\"y-axis\"").?;
     try std.testing.expect(axis < std.mem.indexOf(u8, svg, bars_svg.BARS_GROUP).?);
     try std.testing.expect(std.mem.indexOf(u8, svg, ">-$50B</text>") != null);
@@ -115,7 +145,7 @@ test "inserts prefixed gridlines before the bars" {
 
 test "tick_count picks its own round step" {
     var buf: [8192]u8 = undefined;
-    const n = try addYAxis(SAMPLE, &buf, 8);
+    const n = try addYAxis(SAMPLE, &buf, 8, .{});
     try std.testing.expect(std.mem.indexOf(u8, buf[0..n], ">$25B</text>") != null);
     try std.testing.expectEqual(@as(usize, 9), std.mem.count(u8, buf[0..n], "</text>"));
 }

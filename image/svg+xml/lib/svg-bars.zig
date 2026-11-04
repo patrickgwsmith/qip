@@ -33,6 +33,15 @@ pub const Output = struct {
         const text = std.fmt.bufPrint(&buf, "{d}", .{if (rounded == 0) 0 else rounded}) catch return error.OutputOverflow;
         try self.append(text);
     }
+    /// Writes a packed `0xRRGGBBAA` colour uniform as CSS hex: `#rrggbb` when
+    /// opaque, otherwise `#rrggbbaa`.
+    pub fn color(self: *Output, rgba: u32) Error!void {
+        const digits = "0123456789abcdef";
+        var buf: [9]u8 = undefined;
+        buf[0] = '#';
+        for (0..8) |i| buf[1 + i] = digits[(rgba >> @intCast(28 - 4 * i)) & 0xF];
+        try self.append(if (rgba & 0xFF == 0xFF) buf[0..7] else buf[0..9]);
+    }
 };
 
 pub const Root = struct {
@@ -215,4 +224,13 @@ test "fixed avoids float noise" {
     var out = Output{ .bytes = &buf };
     try fixed(&out, 0.1 + 0.2, stepDecimals(0.1));
     try std.testing.expectEqualStrings("0.3", buf[0..out.pos]);
+}
+
+test "colour uniforms print as CSS hex" {
+    var buf: [32]u8 = undefined;
+    var out = Output{ .bytes = &buf };
+    try out.color(0x4e79a7ff);
+    try out.append(" ");
+    try out.color(0x0000ff80);
+    try std.testing.expectEqualStrings("#4e79a7 #0000ff80", buf[0..out.pos]);
 }

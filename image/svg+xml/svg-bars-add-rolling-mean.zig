@@ -7,8 +7,9 @@
 //! and passes through each bar's top-centre position for the mean of that bar
 //! and the previous `window_size - 1` bars, using the root `data-plot-*` and
 //! `data-value-min/max` mapping. With fewer bars than the window, no line is
-//! added. The line is inserted before the closing `</svg>`, in front of the
-//! bars; every other byte is copied unchanged.
+//! added. `line_color_rgba` (packed `0xRRGGBBAA`, default `0xe15759ff`) sets
+//! the stroke. The line is inserted before the closing `</svg>`, in front of
+//! the bars; every other byte is copied unchanged.
 const std = @import("std");
 const bars_svg = @import("svg_bars");
 
@@ -16,13 +17,15 @@ const INPUT_CAP: usize = 256 * 1024;
 const OUTPUT_CAP: usize = 320 * 1024;
 const CONTENT_TYPE = "image/svg+xml";
 const DEFAULT_WINDOW_SIZE: u32 = 4;
+const DEFAULT_LINE_COLOR_RGBA: u32 = 0xe15759ff;
 
 var input: [INPUT_CAP]u8 = undefined;
 var output: [OUTPUT_CAP]u8 = undefined;
 var bars: [bars_svg.MAX_BARS]bars_svg.Bar = undefined;
 var window_size: u32 = DEFAULT_WINDOW_SIZE;
+var line_color_rgba: u32 = DEFAULT_LINE_COLOR_RGBA;
 
-fn addRollingMean(source: []const u8, destination: []u8, window: u32) bars_svg.Error!usize {
+fn addRollingMean(source: []const u8, destination: []u8, window: u32, line_color: u32) bars_svg.Error!usize {
     if (window == 0) return error.InvalidSVG;
     const root = try bars_svg.readRoot(source);
     const found = try bars_svg.readBars(source, &bars);
@@ -44,7 +47,9 @@ fn addRollingMean(source: []const u8, destination: []u8, window: u32) bars_svg.E
             try out.append(",");
             try out.number(root.y(total / @as(f64, @floatFromInt(window))));
         }
-        try out.append("\" fill=\"none\" stroke=\"#f97316\" stroke-width=\"2.5\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
+        try out.append("\" fill=\"none\" stroke=\"");
+        try out.color(line_color);
+        try out.append("\" stroke-width=\"2.5\" stroke-linejoin=\"round\" stroke-linecap=\"round\"/>");
     }
     try out.append(source[at..]);
     return out.pos;
@@ -78,12 +83,18 @@ export fn uniform_set_window_size(value: u32) u32 {
     window_size = value;
     return value;
 }
+export fn uniform_set_line_color_rgba(value: u32) u32 {
+    line_color_rgba = value;
+    return value;
+}
 export fn render(size: u32) packed struct(u64) { output_size_or_failure: u32, output_ptr: u31, failed: u1 } {
     const n: usize = size;
     if (n > INPUT_CAP) @trap();
     const window = window_size;
+    const line_color = line_color_rgba;
     window_size = DEFAULT_WINDOW_SIZE;
-    const out_n = addRollingMean(input[0..n], &output, window) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
+    line_color_rgba = DEFAULT_LINE_COLOR_RGBA;
+    const out_n = addRollingMean(input[0..n], &output, window, line_color) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
     return .{ .output_size_or_failure = @intCast(out_n), .output_ptr = @intCast(@intFromPtr(&output)), .failed = 0 };
 }
 
@@ -97,13 +108,16 @@ const SAMPLE =
 
 test "trailing mean starts at the first full window" {
     var buf: [8192]u8 = undefined;
-    const n = try addRollingMean(SAMPLE, &buf, 2);
+    const n = try addRollingMean(SAMPLE, &buf, 2, DEFAULT_LINE_COLOR_RGBA);
     try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "points=\"25,70 45,50\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..n], "stroke=\"#e15759\"") != null);
+    const m = try addRollingMean(SAMPLE, &buf, 2, 0x222222ff);
+    try std.testing.expect(std.mem.indexOf(u8, buf[0..m], "stroke=\"#222222\"") != null);
 }
 
 test "no line when the window is longer than the series" {
     var buf: [8192]u8 = undefined;
-    const n = try addRollingMean(SAMPLE, &buf, 4);
+    const n = try addRollingMean(SAMPLE, &buf, 4, DEFAULT_LINE_COLOR_RGBA);
     try std.testing.expectEqualStrings(SAMPLE, buf[0..n]);
-    try std.testing.expectError(error.InvalidSVG, addRollingMean(SAMPLE, &buf, 0));
+    try std.testing.expectError(error.InvalidSVG, addRollingMean(SAMPLE, &buf, 0, DEFAULT_LINE_COLOR_RGBA));
 }

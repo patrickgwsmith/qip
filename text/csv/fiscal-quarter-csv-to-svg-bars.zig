@@ -13,7 +13,12 @@
 //! area (`data-plot-left/top/right/bottom`) and value domain
 //! (`data-value-min/max`, rounded out to multiples of a round
 //! `data-value-step` and always including zero). Bars are `<rect>` elements in one `<g data-layer="bars">` with
-//! `data-fiscal-quarter` and `data-value` attributes. Add axes and overlays with
+//! `data-fiscal-quarter` and `data-value` attributes; the last bar has its own
+//! `fill` so the latest quarter reads as the headline figure.
+//!
+//! Colour uniforms are packed `0xRRGGBBAA`: `bar_color_rgba` (default
+//! `0xa0cbe8ff`) fills every bar and `latest_bar_color_rgba` (default
+//! `0x4e79a7ff`) fills the last one. Add axes and overlays with
 //! `svg-bars-add-y-axis.wasm`, `svg-bars-add-quarter-x-axis.wasm` and
 //! `svg-bars-add-rolling-mean.wasm`.
 const std = @import("std");
@@ -32,7 +37,14 @@ const PLOT_RIGHT = 624;
 const PLOT_BOTTOM = 344;
 /// Target number of value intervals used to round out the domain.
 const DOMAIN_INTERVALS = 5;
-const BAR_FILL = "#2563eb";
+const DEFAULT_BAR_COLOR_RGBA: u32 = 0xa0cbe8ff;
+const DEFAULT_LATEST_BAR_COLOR_RGBA: u32 = 0x4e79a7ff;
+
+const Colors = struct {
+    bar: u32 = DEFAULT_BAR_COLOR_RGBA,
+    latest_bar: u32 = DEFAULT_LATEST_BAR_COLOR_RGBA,
+};
+var colors: Colors = .{};
 
 var input: [INPUT_CAP]u8 = undefined;
 var output: [OUTPUT_CAP]u8 = undefined;
@@ -128,7 +140,7 @@ fn parse(bytes: []const u8) Error!Parsed {
     return .{ .count = count, .prefix = prefix, .suffix = suffix };
 }
 
-fn renderSVG(bytes: []const u8) !usize {
+fn renderSVG(bytes: []const u8, palette: Colors) !usize {
     const parsed = try parse(bytes);
     var min_value: f64 = 0;
     var max_value: f64 = 0;
@@ -154,7 +166,7 @@ fn renderSVG(bytes: []const u8) !usize {
     };
     const decimals = bars_svg.stepDecimals(step);
     var out = bars_svg.Output{ .bytes = &output };
-    try out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"640\" height=\"400\" viewBox=\"0 0 640 400\" font-family=\"sans-serif\" data-plot-left=\"");
+    try out.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"640\" height=\"400\" viewBox=\"0 0 640 400\" font-family=\"system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif\" font-variant-numeric=\"tabular-nums\" data-plot-left=\"");
     try out.number(PLOT_LEFT);
     try out.append("\" data-plot-top=\"");
     try out.number(PLOT_TOP);
@@ -172,7 +184,9 @@ fn renderSVG(bytes: []const u8) !usize {
     try out.append(parsed.prefix);
     try out.append("\" data-label-suffix=\"");
     try out.append(parsed.suffix);
-    try out.append("\"><rect width=\"640\" height=\"400\" fill=\"white\"/><g data-layer=\"bars\" fill=\"" ++ BAR_FILL ++ "\">");
+    try out.append("\"><rect width=\"640\" height=\"400\" fill=\"white\"/><g data-layer=\"bars\" fill=\"");
+    try out.color(palette.bar);
+    try out.append("\">");
 
     const slot = @as(f64, PLOT_RIGHT - PLOT_LEFT) / @as(f64, @floatFromInt(parsed.count));
     const zero_y = root.y(0);
@@ -188,6 +202,10 @@ fn renderSVG(bytes: []const u8) !usize {
         try out.number(@abs(zero_y - value_y));
         try out.append("\" data-fiscal-quarter=\"");
         try out.append(row.quarter);
+        if (i + 1 == parsed.count) {
+            try out.append("\" fill=\"");
+            try out.color(palette.latest_bar);
+        }
         try out.append("\" data-value=\"");
         var buf: [48]u8 = undefined;
         try out.append(std.fmt.bufPrint(&buf, "{d}", .{row.value}) catch return error.OutputOverflow);
@@ -225,15 +243,25 @@ export fn output_content_type_ptr() u32 {
 export fn output_content_type_size() u32 {
     return OUTPUT_CONTENT_TYPE.len;
 }
+export fn uniform_set_bar_color_rgba(value: u32) u32 {
+    colors.bar = value;
+    return value;
+}
+export fn uniform_set_latest_bar_color_rgba(value: u32) u32 {
+    colors.latest_bar = value;
+    return value;
+}
 export fn render(size: u32) packed struct(u64) { output_size_or_failure: u32, output_ptr: u31, failed: u1 } {
     const n: usize = size;
     if (n > INPUT_CAP) @trap();
-    const out_n = renderSVG(input[0..n]) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
+    const palette = colors;
+    colors = .{};
+    const out_n = renderSVG(input[0..n], palette) catch return .{ .output_size_or_failure = 0, .output_ptr = 0, .failed = 1 };
     return .{ .output_size_or_failure = @intCast(out_n), .output_ptr = @intCast(@intFromPtr(&output)), .failed = 0 };
 }
 
 fn rendered(csv: []const u8) ![]const u8 {
-    const n = try renderSVG(csv);
+    const n = try renderSVG(csv, .{});
     return output[0..n];
 }
 
@@ -243,6 +271,16 @@ test "renders bars with label format and rounded domain" {
     try std.testing.expect(std.mem.indexOf(u8, svg, "data-value-min=\"0\" data-value-max=\"125\" data-value-step=\"25\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, svg, "data-fiscal-quarter=\"FY2026Q4\" data-value=\"102.5\"") != null);
     try std.testing.expectEqual(@as(usize, 3), std.mem.count(u8, svg, "<rect x="));
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<g data-layer=\"bars\" fill=\"#a0cbe8\">") != null);
+    try std.testing.expectEqual(@as(usize, 1), std.mem.count(u8, svg, "fill=\"#4e79a7\""));
+    try std.testing.expect(std.mem.indexOf(u8, svg, "data-fiscal-quarter=\"FY2027Q1\" fill=\"#4e79a7\"") != null);
+}
+
+test "colour uniforms replace the default palette" {
+    const n = try renderSVG("fiscal_quarter,v\nFY2026Q1,1\nFY2026Q2,2\n", .{ .bar = 0xccccccff, .latest_bar = 0x11223380 });
+    const svg = output[0..n];
+    try std.testing.expect(std.mem.indexOf(u8, svg, "<g data-layer=\"bars\" fill=\"#cccccc\">") != null);
+    try std.testing.expect(std.mem.indexOf(u8, svg, "data-fiscal-quarter=\"FY2026Q2\" fill=\"#11223380\"") != null);
 }
 
 test "plain numbers and negative values" {
@@ -253,8 +291,8 @@ test "plain numbers and negative values" {
 }
 
 test "rejects gaps, mixed formats and markup in affixes" {
-    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,1\nFY2026Q3,2\n"));
-    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,$1B\nFY2026Q2,$2M\n"));
-    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,<b>1\n"));
-    try std.testing.expectError(error.InvalidCSV, renderSVG("date,v\nFY2026Q1,1\n"));
+    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,1\nFY2026Q3,2\n", .{}));
+    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,$1B\nFY2026Q2,$2M\n", .{}));
+    try std.testing.expectError(error.InvalidCSV, renderSVG("fiscal_quarter,v\nFY2026Q1,<b>1\n", .{}));
+    try std.testing.expectError(error.InvalidCSV, renderSVG("date,v\nFY2026Q1,1\n", .{}));
 }
