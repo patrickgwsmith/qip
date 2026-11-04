@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" shape-rendering="crispEdges">
   <title>QIP 16×16 logo</title>
-  <rect width="16" height="16" fill="#08172b"/>
+  <rect width="16" height="16" fill="#181310"/>
 
-  <g fill="#009bca">
+  <g fill="#fe7f25">
     <!-- Q: a square counter with a centered tail. -->
     <rect x="0" y="5" width="5" height="1"/>
     <rect x="0" y="6" width="1" height="3"/>
