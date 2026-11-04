@@ -99,9 +99,8 @@ of WebAssembly</a>.
 ## CLI
 
 ```bash
-go install github.com/royalicing/qip@latest
-qip run text/markdown/gfm-commonmark.0.31.2.wasm < page.md > page.html
-qip run text/markdown/commonmark.0.31.2.wasm < page.md > page.html
+npx qipdo qip.dev text/markdown/gfm-commonmark.0.31.2.wasm < page.md > page.html
+npx qipdo qip.dev text/markdown/commonmark.0.31.2.wasm < page.md > page.html
 ```
 
 ## JavaScript
