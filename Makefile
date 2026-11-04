@@ -119,6 +119,9 @@ compliance/youtube-id-extractor.comply.wasm: compliance/youtube-id-extractor.com
 compliance/cve-extract-as-cve-org-uris.comply.wasm compliance/cve-extract-as-nvd-nist-uris.comply.wasm: compliance/%.wasm: compliance/%.zig compliance/cve-extract-cases.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
+compliance/xml-must-be-well-formed.comply.wasm: compliance/xml-must-be-well-formed.comply.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
+
 compliance/shortcode-to-emoji.comply.wasm: compliance/shortcode-to-emoji.comply.zig
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
@@ -197,6 +200,7 @@ compliance: compliance/warc-connect-search-params.comply.wasm
 compliance: compliance/youtube-id-extractor.comply.wasm
 compliance: compliance/cve-extract-as-cve-org-uris.comply.wasm
 compliance: compliance/cve-extract-as-nvd-nist-uris.comply.wasm
+compliance: compliance/xml-must-be-well-formed.comply.wasm
 compliance: compliance/shortcode-to-emoji.comply.wasm
 compliance: compliance/html-escape.comply.wasm
 compliance: compliance/json-schema-2020-12.comply.wasm
@@ -653,6 +657,7 @@ application/x-tar/tar-to-zip.wasm: application/x-tar/tar-to-zip.zig bytes/lib/de
 	$(ZIG_ENV) zig build-exe -target wasm32-freestanding -O ReleaseFast -fstrip -fno-entry -rdynamic --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep deflate -Mroot=$< -Mdeflate=bytes/lib/deflate.zig -femit-bin=$@
 application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
 application/x-tar/tar-to-sha256sums.wasm: ZIG_WASM_MAX_MEMORY = 184549376
+application/xml/xml-must-be-well-formed.wasm: ZIG_WASM_MAX_MEMORY = 12582912
 # Validation recurses through the schema; 4 MiB of stack covers MAX_DEPTH.
 application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 83886080
 application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_FLAGS += --stack 4194304
@@ -1543,6 +1548,7 @@ test-comply: qip components compliance
 	$(QIP_BIN) comply text/cve.wasm --suite compliance/cve.comply.wasm
 	$(QIP_BIN) comply text/cve-extract-as-cve-org-uris.wasm --suite compliance/cve-extract-as-cve-org-uris.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/cve-extract-as-nvd-nist-uris.wasm --suite compliance/cve-extract-as-nvd-nist-uris.comply.wasm --straight-line-oracles
+	$(QIP_BIN) comply application/xml/xml-must-be-well-formed.wasm --suite compliance/xml-must-be-well-formed.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/rgb-to-hex.wasm --suite compliance/rgb-to-hex.comply.wasm
 	$(QIP_BIN) comply text/base64-decode.wasm --suite compliance/base64-decode.comply.wasm --straight-line-oracles
 	$(QIP_BIN) comply text/css/css-class-validator.wasm --suite compliance/css-class-validator.comply.wasm --straight-line-oracles

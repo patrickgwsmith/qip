@@ -53,6 +53,14 @@ Related tools: [syntax highlighter](/syntax-highlight) and [HTML accessibility t
 
 Related tool: [JSON Schema validator](/json-schema), with examples, conformance results and a speed comparison with ata-validator and @cfworker/json-schema.
 
+## XML (`application/xml`)
+
+- [`xml-must-be-well-formed.wasm`](/application/xml/xml-must-be-well-formed.wasm) accepts an XML 1.0 document unchanged if it is well-formed, like `xmllint --noout`, and reports the offset where it stops being well-formed. It works for OPML, RSS, Atom and SVG. It reads UTF-8, US-ASCII and ISO-8859-1, does not fetch or validate against DTDs, and does not reject namespace errors such as an undeclared prefix.
+
+  ```sh
+  qip run -i subscriptions.opml application/xml/xml-must-be-well-formed.wasm > /dev/null
+  ```
+
 ## CSS (`text/css`)
 
 - [`css-minify.wasm`](/text/css/css-minify.wasm) removes comments and unnecessary whitespace. It returns `text/css`.
