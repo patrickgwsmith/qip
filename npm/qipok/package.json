@@ -1,0 +1,24 @@
+{
+  "name": "qipok",
+  "version": "0.1.0",
+  "description": "Check QIP components for compliance",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/royalicing/qip.git",
+    "directory": "npm/qipok"
+  },
+  "type": "module",
+  "bin": {
+    "qipok": "qipok.mjs"
+  },
+  "files": ["qipok.mjs"],
+  "keywords": ["qip", "webassembly", "wasm", "cli", "components", "compliance", "fuzzing"],
+  "homepage": "https://qip.dev",
+  "bugs": {
+    "url": "https://github.com/royalicing/qip/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0"
+}

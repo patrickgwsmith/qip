@@ -5,10 +5,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
 
-// Every test runs against both qipx hosts, and the run and dry run tests also run against
-// qipdo, a separate implementation of `qipx run`. Where output is deterministic, they must
-// produce the same exit status, stdout, and stderr byte for byte, apart from the program name.
-// Tests are written as qipx invocations; qipdoArgs translates the ones qipdo supports.
+// Every test runs against both qipx hosts. The run and dry run tests also run against qipdo,
+// a separate implementation of `qipx run`, and the comply tests against qipok, a separate
+// implementation of `qipx comply`. Where output is deterministic, they must produce the same
+// exit status, stdout, and stderr byte for byte, apart from the program name. Tests are
+// written as qipx invocations; qipdoArgs and qipokArgs translate the ones each supports.
 const root = resolve(".");
 const qipxArgs = (args) => args;
 
@@ -29,10 +30,21 @@ function qipdoArgs(args) {
     arg === "--capacities-must-fit" && (dashDash < 0 || index < dashDash) ? "--strict-capacities" : arg)];
 }
 
+// qipok has no subcommand either: `[host ...] comply …` becomes `[host ...] …`. It has no
+// --with alias, and with no arguments it prints help, so those return null like help does.
+function qipokArgs(args) {
+  const commandIndex = args.findIndex((arg) => ["run", "dry", "dry-run", "tui", "bench", "comply"].includes(arg));
+  if (commandIndex < 0 || args[commandIndex] !== "comply") return null;
+  const rest = args.slice(commandIndex + 1);
+  if (rest.length === 0 || rest.includes("--help") || rest.includes("-h") || rest.includes("--with")) return null;
+  return [...args.slice(0, commandIndex), ...rest];
+}
+
 const implementations = [
   { name: "Node", command: process.execPath, prefix: [resolve("npm/qipx/cli.mjs")], translate: qipxArgs },
   { name: "Rust", command: resolve("rust/qipx/target/debug/qipx"), prefix: [], translate: qipxArgs },
   { name: "qipdo", command: process.execPath, prefix: [resolve("npm/qipdo/qipdo.mjs")], translate: qipdoArgs, program: "qipdo" },
+  { name: "qipok", command: process.execPath, prefix: [resolve("npm/qipok/qipok.mjs")], translate: qipokArgs, program: "qipok" },
 ];
 const qipxImplementations = implementations.filter((implementation) => implementation.translate === qipxArgs);
 
@@ -61,7 +73,7 @@ function run(implementation, args, { input = Buffer.alloc(0), cwd = root, timeou
 
 // expectSame runs args in every implementation that supports them, checks that status,
 // stdout, and stderr match, and returns the shared result with text helpers. Pass
-// `implementations: qipxImplementations` for qipx behavior qipdo deliberately does not share.
+// `implementations: qipxImplementations` for qipx behavior qipdo and qipok deliberately do not share.
 function expectSame(args, { implementations: candidates = implementations, ...options } = {}) {
   const targets = supporting(args, candidates);
   const [first, ...rest] = targets.map((implementation) => run(implementation, args, options));
@@ -222,7 +234,7 @@ test("qipx hosts run a pipeline with file input and output", () => {
   withTemporaryDirectory("file", (directory) => {
     const inputPath = join(directory, "input.txt");
     writeFileSync(inputPath, "  Hello  ");
-    for (const implementation of implementations) {
+    for (const implementation of supporting(["run", "-i", inputPath])) {
       const outputPath = join(directory, `${implementation.name}.txt`);
       const result = run(implementation, ["run", "-i", inputPath, "-o", outputPath, "text/trim.wasm", "bytes/identity.wasm"]);
       assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
@@ -300,7 +312,7 @@ test("qipx hosts run a true inputless generator", () => {
 
 test("qipx hosts apply uniforms to the preceding stage", () => {
   withTemporaryDirectory("uniform", (directory) => {
-    const outputs = implementations.map((implementation) => {
+    const outputs = supporting(["run", "text/hello.wasm"]).map((implementation) => {
       const output = join(directory, `${implementation.name}.ktx2`);
       const result = run(implementation, ["run", "-o", output,
         "image/ktx2/solid-color-oklch-to-ktx2-rgba32float-display-p3-linear.wasm",
@@ -503,7 +515,7 @@ test("qipx hosts seed Compliance oracles randomly unless --seed is given", () =>
   // An explicit seed is reported so the summary is the same however the run was started.
   assert.match(expectSuccess(["comply", "--seed", "4217", ...args]).out, /\npass=2 fail=0 total=2 seed=4217\n$/);
   // Without --seed, each host picks and prints a random u32 seed that repeats the run.
-  for (const implementation of qipxImplementations) {
+  for (const implementation of supporting(["comply", ...args])) {
     const result = run(implementation, ["comply", ...args]);
     assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
     const seed = /\npass=2 fail=0 total=2 seed=(\d+)\n$/.exec(result.stdout.toString())?.[1];
@@ -516,6 +528,13 @@ test("qipx hosts seed Compliance oracles randomly unless --seed is given", () =>
     "PASS bytes/identity.wasm\nPASS bytes/identity.wasm --suite compliance/preserve-empty.wasm (1 cases)\n\npass=2 fail=0 total=2\n");
   assert.match(expectSame(["comply", "--seed", "1", "bytes/identity.wasm", "--suite", "compliance/preserve-empty.wasm"]).out,
     /--seed given but Compliance oracle does not export uniform_set_seed\n\npass=1 fail=1 total=2\n$/);
+});
+
+test("qipx hosts accept hosts before Compliance paths", () => {
+  expectFailure(["comply", "--", "text/hello.wasm"], /^qipx: unknown option --\n$/);
+  // A local file is checked without contacting the host.
+  assert.equal(expectSuccess(["qip.dev", "comply", "text/hello.wasm"]).out, "PASS text/hello.wasm\n\npass=1 fail=0 total=1\n");
+  expectFailure(["bad..host", "comply", "text/hello.wasm"], /^qipx: invalid host "bad\.\.host"; use a dotted DNS name with an optional port\n$/);
 });
 
 test("qipx hosts report failed Compliance checks only in the summary", () => {
@@ -562,7 +581,7 @@ test("qipx hosts escape terminal controls in local path reports", () => {
 });
 
 test("qipx hosts resolve and cache a missing component over verified HTTPS", { skip: !process.env.QIPX_NETWORK_TESTS }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["qip.dev", "run", "bytes/identity.wasm"])) {
     withTemporaryDirectory("host", (directory) => {
       const result = run(implementation, ["qip.dev", "run", "bytes/identity.wasm"], { input: Buffer.from("hello"), cwd: directory, timeout: 60000 });
       assert.equal(result.status, 0, `${implementation.name}: ${result.stderr}`);
@@ -581,7 +600,7 @@ test("qipx hosts reject tui options that need stdin or stdout", () => {
 });
 
 test("qipx hosts use empty input for an unused terminal", { skip: process.platform === "win32" }, () => {
-  for (const implementation of implementations) {
+  for (const implementation of supporting(["run", "text/hello.wasm"])) {
     for (const component of ["../../text/hello.wasm", "../../text/hello-c.wasm"]) {
       const { output, exitCode } = runInTerminal(implementation, ["run", component], { cwd: resolve("rust/qipx") });
       assert.equal(exitCode, 0, `${implementation.name}: ${component}`);
