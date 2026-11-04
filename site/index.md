@@ -1,5 +1,5 @@
 <title>QIP: a new way to render</title>
-<meta property="og:image" content="/_og/index.png?primary=A+new+way+to+render&amp;secondary=qip.dev+WebAssembly+everywhere">
+<meta property="og:image" content="/_og/index.png?primary=A+new+way+to+render">
 
 <style>
 nav > a  {

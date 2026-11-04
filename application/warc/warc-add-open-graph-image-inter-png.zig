@@ -22,13 +22,26 @@
 //! by auto-fit from 112px down to 32px. Coverage is the exact signed area of
 //! each pixel under the glyph outlines. The PNG is 8-bit indexed: palette
 //! entry N is the text color composited over the background at N/255
-//! coverage in sRGB, so each pixel is one byte before compression.
+//! coverage in sRGB, so each pixel is one byte before compression. When the
+//! secondary line has its own color, entries 0-127 are the text color at
+//! N/127 coverage and entries 128-255 the secondary color at (N-128)/127.
 
 const std = @import("std");
 const warc = @import("lib/warc.zig");
 const deflate = @import("deflate");
 const regular = @import("inter_regular");
 const bold = @import("inter_bold");
+
+// The secondary line for pages whose template doesn't set one. A root file
+// that imports this component can set it with `og_image_default_secondary`,
+// as the qip.dev site recipe does; on its own the component draws none.
+const root = @import("root");
+const DEFAULT_SECONDARY: []const u8 = if (@hasDecl(root, "og_image_default_secondary")) root.og_image_default_secondary else "";
+// The root file can set default colors the same way. Without a secondary
+// color the secondary line uses the text color.
+const DEFAULT_TEXT_COLOR_RGBA: u32 = if (@hasDecl(root, "og_image_default_text_color_rgba")) root.og_image_default_text_color_rgba else 0x101010ff;
+const DEFAULT_SECONDARY_COLOR_RGBA: ?u32 = if (@hasDecl(root, "og_image_default_secondary_color_rgba")) root.og_image_default_secondary_color_rgba else null;
+const DEFAULT_BACKGROUND_COLOR_RGBA: u32 = if (@hasDecl(root, "og_image_default_background_color_rgba")) root.og_image_default_background_color_rgba else 0xeecc33ff;
 
 const INPUT_CAP: usize = 256 * 1024 * 1024;
 const OUTPUT_CAP: usize = 256 * 1024 * 1024;
@@ -63,8 +76,6 @@ const TEMPLATE_QUERY_CAP: usize = 4096;
 // Quadratic curves flatten into at most this many line segments.
 const MAX_CURVE_SEGMENTS: usize = 64;
 
-const DEFAULT_TEXT_COLOR_RGBA: u32 = 0x101010ff;
-const DEFAULT_BACKGROUND_COLOR_RGBA: u32 = 0xeecc33ff;
 const DEFAULT_FONT_WEIGHT: u32 = 700;
 const DEFAULT_REQUESTED_MAX_FONT_SIZE: u32 = 0;
 
@@ -100,6 +111,7 @@ var added_path_bytes: [4 * 1024 * 1024]u8 = undefined;
 var added_path_len: usize = 0;
 
 var text_color_rgba: u32 = DEFAULT_TEXT_COLOR_RGBA;
+var secondary_color_rgba: ?u32 = DEFAULT_SECONDARY_COLOR_RGBA;
 var background_color_rgba: u32 = DEFAULT_BACKGROUND_COLOR_RGBA;
 var font_weight: u32 = DEFAULT_FONT_WEIGHT;
 var requested_max_font_size: u32 = DEFAULT_REQUESTED_MAX_FONT_SIZE;
@@ -149,6 +161,7 @@ const TemplateOptions = struct {
     primary: ?[]const u8 = null,
     secondary: ?[]const u8 = null,
     text_color_rgba: ?u32 = null,
+    secondary_color_rgba: ?u32 = null,
     background_color_rgba: ?u32 = null,
     font_weight: ?u32 = null,
     font_max_size: ?u32 = null,
@@ -237,6 +250,11 @@ export fn uniform_set_text_color_rgba(value: u32) u32 {
     return text_color_rgba;
 }
 
+export fn uniform_set_secondary_color_rgba(value: u32) u32 {
+    secondary_color_rgba = value;
+    return value;
+}
+
 export fn uniform_set_background_color_rgba(value: u32) u32 {
     background_color_rgba = value;
     return background_color_rgba;
@@ -254,6 +272,7 @@ export fn uniform_set_font_max_size(value: u32) u32 {
 
 fn resetUniforms() void {
     text_color_rgba = DEFAULT_TEXT_COLOR_RGBA;
+    secondary_color_rgba = DEFAULT_SECONDARY_COLOR_RGBA;
     background_color_rgba = DEFAULT_BACKGROUND_COLOR_RGBA;
     font_weight = DEFAULT_FONT_WEIGHT;
     requested_max_font_size = DEFAULT_REQUESTED_MAX_FONT_SIZE;
@@ -870,6 +889,8 @@ fn parseTemplateQuery(raw_query: []const u8) ?TemplateOptions {
             options.secondary = value;
         } else if (std.mem.eql(u8, key, "text_color_rgba")) {
             options.text_color_rgba = parseQueryNumber(value);
+        } else if (std.mem.eql(u8, key, "secondary_color_rgba")) {
+            options.secondary_color_rgba = parseQueryNumber(value);
         } else if (std.mem.eql(u8, key, "background_color_rgba")) {
             options.background_color_rgba = parseQueryNumber(value);
         } else if (std.mem.eql(u8, key, "font_weight")) {
@@ -1157,8 +1178,10 @@ const Band = struct { y0: usize, y1: usize };
 
 // Turns accumulated area into palette indexes for the band's rows and clears
 // the accumulator. Each closed outline adds zero to every row, so each row's
-// sum starts at 0 and is 0 again right of the dirty cells.
-fn resolveCoverage() Band {
+// sum starts at 0 and is 0 again right of the dirty cells. With split_row,
+// rows above it use the 128-level text ramp and rows from it the secondary
+// ramp at 128; otherwise all rows use the 256-level text ramp.
+fn resolveCoverage(split_row: ?usize) Band {
     const band: Band = if (dirty_y0 < dirty_y1 and dirty_x0 < dirty_x1)
         .{ .y0 = dirty_y0, .y1 = dirty_y1 }
     else
@@ -1167,11 +1190,15 @@ fn resolveCoverage() Band {
     for (band.y0..band.y1) |y| {
         const row = coverage[y * WIDTH ..][dirty_x0..dirty_x1];
         const out = filtered_buf[y * (WIDTH + 1) + 1 ..][dirty_x0..dirty_x1];
+        const levels: f32 = if (split_row == null) 255 else 127;
+        const base: u8 = if (split_row) |split| (if (y >= split) 128 else 0) else 0;
         var sum: f32 = 0;
         for (row, out) |*cell, *index| {
             sum += cell.*;
             cell.* = 0;
-            index.* = @intFromFloat(@min(@abs(sum), 1) * 255 + 0.5);
+            const level: u8 = @intFromFloat(@min(@abs(sum), 1) * levels + 0.5);
+            // Zero coverage stays index 0 so background is one index.
+            index.* = if (level == 0) 0 else base + level;
         }
     }
     dirty_x0 = WIDTH;
@@ -1344,8 +1371,9 @@ fn writeChunk(buf: []u8, at: usize, kind: *const [4]u8, data_len: usize) usize {
 
 // Writes the PNG for the current filtered_buf into png_buf. Palette entry N
 // is the text color source-over the background at N/255 coverage, in sRGB
-// as SVG compositing does.
-fn encodePNG(band: Band) ?[]const u8 {
+// as SVG compositing does. With a secondary color, the two halves of the
+// palette are 128-level ramps for each color, as resolveCoverage writes.
+fn encodePNG(band: Band, secondary_rgba: ?u32) ?[]const u8 {
     const signature = [_]u8{ 137, 80, 78, 71, 13, 10, 26, 10 };
     @memcpy(png_buf[0..8], &signature);
     var at: usize = 8;
@@ -1360,17 +1388,20 @@ fn encodePNG(band: Band) ?[]const u8 {
     ihdr[12] = 0;
     at = writeChunk(&png_buf, at, "IHDR", 13);
 
-    const text_alpha = channel(text_color_rgba, 0);
     const background_alpha = channel(background_color_rgba, 0);
     const plte = png_buf[at + 8 ..][0 .. 256 * 3];
     var alphas: [256]u8 = undefined;
     for (0..256) |i| {
-        const source_alpha = @as(f32, @floatFromInt(i)) / 255 * text_alpha;
+        const ink, const coverage_level = if (secondary_rgba) |secondary|
+            .{ if (i < 128) text_color_rgba else secondary, @as(f32, @floatFromInt(i % 128)) / 127 }
+        else
+            .{ text_color_rgba, @as(f32, @floatFromInt(i)) / 255 };
+        const source_alpha = coverage_level * channel(ink, 0);
         const destination_weight = background_alpha * (1 - source_alpha);
         const out_alpha = source_alpha + destination_weight;
         const shifts = [3]u5{ 24, 16, 8 };
         for (shifts, 0..) |shift, c| {
-            const blended = channel(text_color_rgba, shift) * source_alpha + channel(background_color_rgba, shift) * destination_weight;
+            const blended = channel(ink, shift) * source_alpha + channel(background_color_rgba, shift) * destination_weight;
             plte[i * 3 + c] = if (out_alpha > 0) unorm8(blended / out_alpha) else 0;
         }
         alphas[i] = unorm8(out_alpha);
@@ -1392,7 +1423,16 @@ fn renderCardPNG(primary: []const u32, secondary: []const u32) ?[]const u8 {
     const use_bold = font_weight == 700;
     const card = layoutCard(primary, secondary, use_bold) catch return null;
     drawCard(primary, secondary, card, use_bold);
-    return encodePNG(resolveCoverage());
+    // A secondary color of its own splits the palette at the middle of the
+    // gap between the primary block and the secondary line.
+    const split: ?struct { row: usize, rgba: u32 } = blk: {
+        const rgba = secondary_color_rgba orelse break :blk null;
+        if (rgba == text_color_rgba) break :blk null;
+        const layout = card.secondary orelse break :blk null;
+        const top = card.secondary_baseline - regular.ASCENDER * layout.scale - SECONDARY_GAP / 2;
+        break :blk .{ .row = @intFromFloat(@max(0, @floor(top))), .rgba = rgba };
+    };
+    return encodePNG(resolveCoverage(if (split) |s| s.row else null), if (split) |s| s.rgba else null);
 }
 
 fn hasImagePath(path: []const u8) bool {
@@ -1503,16 +1543,18 @@ fn renderPage(head_title: ?[]const u8, body: []const u8, options: TemplateOption
         count = titleCodepoints(h1, &title_codepoints);
     }
     if (count == 0) return null;
-    const secondary_count = if (options.secondary) |secondary| plainTextCodepoints(secondary, &secondary_codepoints) else 0;
+    const secondary_count = plainTextCodepoints(options.secondary orelse DEFAULT_SECONDARY, &secondary_codepoints);
 
-    const saved = .{ text_color_rgba, background_color_rgba, font_weight, requested_max_font_size };
+    const saved = .{ text_color_rgba, background_color_rgba, font_weight, requested_max_font_size, secondary_color_rgba };
     defer {
         text_color_rgba = saved[0];
         background_color_rgba = saved[1];
         font_weight = saved[2];
         requested_max_font_size = saved[3];
+        secondary_color_rgba = saved[4];
     }
     if (options.text_color_rgba) |value| _ = uniform_set_text_color_rgba(value);
+    if (options.secondary_color_rgba) |value| _ = uniform_set_secondary_color_rgba(value);
     if (options.background_color_rgba) |value| _ = uniform_set_background_color_rgba(value);
     if (options.font_weight) |value| _ = uniform_set_font_weight(value);
     if (options.font_max_size) |value| _ = uniform_set_font_max_size(value);
@@ -1673,7 +1715,7 @@ test "renders the decoded title in Inter" {
     const card = try layoutCard(title_codepoints[0..1], &.{}, true);
     try std.testing.expectEqual(AUTO_MAX_FONT_SIZE, card.primary.font_size);
     drawCard(title_codepoints[0..1], &.{}, card, true);
-    const band = resolveCoverage();
+    const band = resolveCoverage(null);
     try std.testing.expect(band.y0 > 0 and band.y1 < HEIGHT);
     // The F's stem is solid ink just right of the left margin; the margin is
     // background.
@@ -1709,18 +1751,18 @@ test "image data inflates to the band between blank rows" {
     const card = try layoutCard(title_codepoints[0..count], &.{}, true);
     try std.testing.expect(card.primary.line_count > 1);
     drawCard(title_codepoints[0..count], &.{}, card, true);
-    const band = resolveCoverage();
-    try expectImageDataDecodes(encodePNG(band).?, band);
+    const band = resolveCoverage(null);
+    try expectImageDataDecodes(encodePNG(band, null).?, band);
 }
 
 test "zero-run blocks cover every remainder length" {
     // Blank image: one final zero-run block.
-    try expectImageDataDecodes(encodePNG(.{ .y0 = 0, .y1 = 0 }).?, .{ .y0 = 0, .y1 = 0 });
+    try expectImageDataDecodes(encodePNG(.{ .y0 = 0, .y1 = 0 }, null).?, .{ .y0 = 0, .y1 = 0 });
     // Bands touching the top and bottom edges skip one zero-run block.
     @memset(filtered_buf[0 .. 3 * (WIDTH + 1)], 7);
-    try expectImageDataDecodes(encodePNG(.{ .y0 = 0, .y1 = 3 }).?, .{ .y0 = 0, .y1 = 3 });
+    try expectImageDataDecodes(encodePNG(.{ .y0 = 0, .y1 = 3 }, null).?, .{ .y0 = 0, .y1 = 3 });
     @memset(filtered_buf[(HEIGHT - 2) * (WIDTH + 1) ..], 7);
-    try expectImageDataDecodes(encodePNG(.{ .y0 = HEIGHT - 2, .y1 = HEIGHT }).?, .{ .y0 = HEIGHT - 2, .y1 = HEIGHT });
+    try expectImageDataDecodes(encodePNG(.{ .y0 = HEIGHT - 2, .y1 = HEIGHT }, null).?, .{ .y0 = HEIGHT - 2, .y1 = HEIGHT });
     // Each remainder after the 258-byte matches, from none to 257.
     var out: [4096]u8 = undefined;
     var zeros: [2048]u8 = @splat(0);
@@ -1848,8 +1890,46 @@ test "secondary text sits below the primary text in Regular" {
     try std.testing.expectApproxEqAbs(top, @as(f32, @floatFromInt(HEIGHT)) - bottom, 0.01);
 
     drawCard(title_codepoints[0..primary_count], secondary_codepoints[0..secondary_count], card, true);
-    const band = resolveCoverage();
-    try expectImageDataDecodes(encodePNG(band).?, band);
+    const band = resolveCoverage(null);
+    try expectImageDataDecodes(encodePNG(band, null).?, band);
+}
+
+test "a secondary color gets its own half of the palette" {
+    resetUniforms();
+    defer resetUniforms();
+    _ = uniform_set_text_color_rgba(0xfe7f25ff);
+    _ = uniform_set_secondary_color_rgba(0xf9b189ff);
+    _ = uniform_set_background_color_rgba(0x181310ff);
+    const primary_count = plainTextCodepoints("A new way to render", &title_codepoints);
+    const secondary_count = plainTextCodepoints("qip.dev", &secondary_codepoints);
+    // Rows outside the band keep whatever earlier tests left there.
+    @memset(&filtered_buf, 0);
+    const png = renderCardPNG(title_codepoints[0..primary_count], secondary_codepoints[0..secondary_count]).?;
+
+    const card = try layoutCard(title_codepoints[0..primary_count], secondary_codepoints[0..secondary_count], true);
+    const split: usize = @intFromFloat(@floor(card.secondary_baseline - regular.ASCENDER * card.secondary.?.scale - SECONDARY_GAP / 2));
+    var primary_ink = false;
+    var secondary_ink = false;
+    for (0..HEIGHT) |y| {
+        for (filtered_buf[y * (WIDTH + 1) + 1 ..][0..WIDTH]) |index| {
+            if (index == 0) continue;
+            if (y < split) {
+                try std.testing.expect(index < 128);
+                primary_ink = true;
+            } else {
+                try std.testing.expect(index > 128);
+                secondary_ink = true;
+            }
+        }
+    }
+    try std.testing.expect(primary_ink and secondary_ink);
+
+    // PLTE follows the 8-byte signature and the 25-byte IHDR chunk.
+    const plte = png[8 + 25 + 8 ..][0 .. 256 * 3];
+    try std.testing.expectEqualSlices(u8, &.{ 0x18, 0x13, 0x10 }, plte[0..3]);
+    try std.testing.expectEqualSlices(u8, &.{ 0xfe, 0x7f, 0x25 }, plte[127 * 3 ..][0..3]);
+    try std.testing.expectEqualSlices(u8, &.{ 0x18, 0x13, 0x10 }, plte[128 * 3 ..][0..3]);
+    try std.testing.expectEqualSlices(u8, &.{ 0xf9, 0xb1, 0x89 }, plte[255 * 3 ..][0..3]);
 }
 
 test "template tags with no query or outside /_og/ leave the page unchanged" {

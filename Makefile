@@ -1228,9 +1228,12 @@ recipes/text/html/65-add-wasm-anchor-type.wasm: recipes/text/markdown/65-add-was
 	@mkdir -p $(dir $@)
 	ln -sf ../markdown/65-add-wasm-anchor-type.wasm $@
 
-recipes/application/warc/10-add-open-graph-image-inter-png.wasm: application/warc/warc-add-open-graph-image-inter-png.wasm
+recipes/application/warc/10-add-open-graph-image-inter-png.wasm: ZIG_WASM_MAX_MEMORY = 671088640
+recipes/application/warc/10-add-open-graph-image-inter-png.wasm: ZIG_WASM_FLAGS += -mcpu=generic+simd128
+recipes/application/warc/10-add-open-graph-image-inter-png.wasm: recipes/application/warc/10-add-open-graph-image-inter-png.zig application/warc/warc-add-open-graph-image-inter-png.zig application/warc/lib/warc.zig bytes/lib/deflate.zig text/lib/inter_display_latin_packed_paths.zig text/lib/inter_display_bold_latin_packed_paths.zig
 	@mkdir -p $(dir $@)
-	ln -sf ../../../application/warc/warc-add-open-graph-image-inter-png.wasm $@
+	rm -f $@
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep og_image -Mroot=$< --dep deflate --dep inter_regular --dep inter_bold -Mog_image=application/warc/warc-add-open-graph-image-inter-png.zig -Mdeflate=bytes/lib/deflate.zig -Minter_regular=text/lib/inter_display_latin_packed_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_packed_paths.zig -femit-bin=$@
 
 recipes/application/warc/05-text-uri-list-to-redirect.wasm: application/warc/warc-text-uri-list-to-redirect.wasm
 	@mkdir -p $(dir $@)
@@ -1712,6 +1715,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig || status=1; \
 		elif [ "$$f" = "application/warc/warc-add-open-graph-image-inter-png.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep deflate --dep inter_regular --dep inter_bold -Mroot="$$f" -Mdeflate=bytes/lib/deflate.zig -Minter_regular=text/lib/inter_display_latin_packed_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_packed_paths.zig || status=1; \
+		elif [ "$$f" = "recipes/application/warc/10-add-open-graph-image-inter-png.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep og_image -Mroot="$$f" --dep deflate --dep inter_regular --dep inter_bold -Mog_image=application/warc/warc-add-open-graph-image-inter-png.zig -Mdeflate=bytes/lib/deflate.zig -Minter_regular=text/lib/inter_display_latin_packed_paths.zig -Minter_bold=text/lib/inter_display_bold_latin_packed_paths.zig || status=1; \
 		elif [ "$$f" = "application/x-tar/recipes-tar-to-csv.zig" ] || [ "$$f" = "application/x-tar/recipes-tar-to-node-tar.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep wasm_reader -Mroot="$$f" -Mwasm_reader=application/wasm/lib/wasm-reader.zig || status=1; \
 		elif [ "$$f" = "application/zip/zip-to-tar.zig" ]; then \
