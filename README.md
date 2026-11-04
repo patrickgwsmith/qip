@@ -76,6 +76,12 @@ printf 'qip + wasm\n' \
       bytes/base64-encode.wasm
 ```
 
+On macOS, pipe the clipboard through a component and copy the result back:
+
+```sh
+pbpaste | npx qipdo qip.dev text/unicode-17-uppercase.wasm | pbcopy
+```
+
 ## qipdb
 
 qipdb runs a QIP Content component inside a small WebAssembly interpreter and
