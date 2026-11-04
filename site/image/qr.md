@@ -21,10 +21,8 @@
 ## CLI equivalent
 
 ```bash
-go install github.com/royalicing/qip@latest
-
 echo "https://example.com" \
-| qip run text/uri-list/url-to-qr-svg.wasm \
+| npx qipdo qip.dev text/uri-list/url-to-qr-svg.wasm \
 > qr.svg
 ```
 

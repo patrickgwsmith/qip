@@ -348,7 +348,7 @@ The highlighters transform whole HTML documents: each rewrites
 everything else untouched, so they chain safely.
 
 ```bash
-qip run text/html/html-code-syntax-highlight-zig.wasm \
+npx qipdo qip.dev text/html/html-code-syntax-highlight-zig.wasm \
   text/html/html-code-syntax-highlight-go.wasm \
   text/html/html-code-syntax-highlight-odin.wasm \
   text/html/html-code-syntax-highlight-sql.wasm \

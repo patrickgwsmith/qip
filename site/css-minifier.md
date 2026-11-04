@@ -89,5 +89,5 @@ minifyCSS();
 ## CLI equivalent
 
 ```bash
-qip run text/css/css-minify.wasm < style.css > style.min.css
+npx qipdo qip.dev text/css/css-minify.wasm < style.css > style.min.css
 ```

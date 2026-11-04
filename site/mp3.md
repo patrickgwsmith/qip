@@ -386,7 +386,7 @@ Browse all [audio components](/audio).
 <section id="mp3-cli-example">
 
 ```bash
-qip run audio/wav/wav-to-mp3-lossy.wasm -u bitrate_kbps=192 \
+npx qipdo qip.dev audio/wav/wav-to-mp3-lossy.wasm -u bitrate_kbps=192 \
   < input.wav > output.mp3
 ```
 

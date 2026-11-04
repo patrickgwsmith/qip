@@ -60,7 +60,7 @@ Related tool: [JSON Schema validator](/json-schema), with examples, conformance 
 - [`xml-must-be-well-formed.wasm`](/application/xml/xml-must-be-well-formed.wasm) accepts an XML 1.0 document unchanged if it is well-formed, like `xmllint --noout`, and reports the offset where it stops being well-formed. It works for OPML, RSS, Atom and SVG. It reads UTF-8, US-ASCII and ISO-8859-1, does not fetch or validate against DTDs, and does not reject namespace errors such as an undeclared prefix.
 
   ```sh
-  qip run -i subscriptions.opml application/xml/xml-must-be-well-formed.wasm > /dev/null
+  npx qipdo qip.dev -i subscriptions.opml application/xml/xml-must-be-well-formed.wasm > /dev/null
   ```
 
 ## CSS (`text/css`)
@@ -93,8 +93,8 @@ Related tools: [CSS minifier](/css-minifier) and [CSS expression calculator](/cs
 - [`i-regexp-to-wasm.wasm`](/text/i-regexp-to-wasm.wasm) compiles an [RFC 9485](https://www.rfc-editor.org/rfc/rfc9485) I-Regexp into a validator component. The validator accepts text unchanged when the pattern matches all of it, and otherwise reports the offset where matching stopped. It returns `application/wasm`. By default it emits the smaller of two encodings. Set `-u prefer_table=1` to always emit a transition table, which is larger but often faster. See [regex](/regex#smaller-code-or-a-table).
 
   ```sh
-  printf '[a-z]{2,8}(-[a-z0-9]+)*' | qip run -o lang.wasm text/i-regexp-to-wasm.wasm
-  printf 'en-gb' | qip run lang.wasm
+  printf '[a-z]{2,8}(-[a-z0-9]+)*' | npx qipdo qip.dev -o lang.wasm text/i-regexp-to-wasm.wasm
+  printf 'en-gb' | npx qipdo lang.wasm
   ```
 
   The generated module looks up one table entry per input byte, so a pattern cannot make it backtrack, and it passes the strict profile, loop, and output-size checks. The compiler rejects patterns whose DFA needs more than 30,000 states or a 4 MiB table. Patterns that use `\p{..}` categories make much larger modules than ASCII patterns: `\p{L}+\P{N}` is 41 KB, or 260 KB as a table.

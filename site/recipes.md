@@ -274,7 +274,7 @@ function commandFor(recipe, inputMime, outputMime) {
   const inputExtension = FILE_EXTENSIONS[inputMime] ?? "input";
   const outputExtension = FILE_EXTENSIONS[outputMime] ?? "output";
   const paths = recipe.map((step) => step.path.replace(/^\//, "")).join(" \\\n  ");
-  return `qip run -i input.${inputExtension} -o output.${outputExtension} -- \\\n  ${paths}`;
+  return `npx qipdo qip.dev -i input.${inputExtension} -o output.${outputExtension} -- \\\n  ${paths}`;
 }
 
 function csvField(value) {

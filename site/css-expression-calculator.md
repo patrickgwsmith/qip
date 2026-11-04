@@ -189,11 +189,8 @@ It resolves one numeric expression. It does not calculate layout, determine whet
 ## CLI
 
 ```bash
-go install github.com/royalicing/qip@latest
-curl -O https://qip.dev/text/css/css-expression-to-value.wasm
-
 echo -n 'calc(100dvh - max(1rlh, env(safe-area-inset-bottom)))' | \
-  qip run css-expression-to-value.wasm \
+  npx qipdo qip.dev text/css/css-expression-to-value.wasm \
   -u root_line_height=24 -u dynamic_viewport_height=745 \
   -u safe_area_inset_bottom=34
 ```

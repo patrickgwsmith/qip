@@ -262,11 +262,11 @@ doesn't assign `i`. They may use `break` and `continue`; `while` and `loop`
 are unsupported. A module-scope `const` array of literals, such as
 `const BAYER4 = array<f32, 16>(…)`, becomes a data segment, and an index past
 the end reads the last element, as Chrome does. Shaders with loops, helper
-calls or constant-array reads keep the scalar path when vectorized. Run it on the command line with `qip`:
+calls or constant-array reads keep the scalar path when vectorized. Run it on the command line with `npx qipdo`:
 
 ```bash
-qip run -i edges.wgsl -o edges.wasm text/wgsl/wgsl-to-wasm.wasm
-qip run -i photo.rgba32f -o edges.rgba32f edges.wasm -u width=256 -u threshold=0.3
+npx qipdo qip.dev -i edges.wgsl -o edges.wasm text/wgsl/wgsl-to-wasm.wasm
+npx qipdo -i photo.rgba32f -o edges.rgba32f edges.wasm -u width=256 -u threshold=0.3
 ```
 
 Enable **Vectorize Wasm invocations** to compile eligible shaders in groups of

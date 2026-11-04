@@ -184,7 +184,7 @@ MiB, and output is limited to 32 MiB.
 ## CLI equivalent
 
 ```sh
-./qip run -i document.pdf -o document.txt -- \
+npx qipdo qip.dev -i document.pdf -o document.txt -- \
   application/pdf/pdf-extract-text.wasm
 ```
 

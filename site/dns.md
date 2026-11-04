@@ -394,9 +394,9 @@ The same components work in a terminal:
 
 ```bash
 printf 'cloudflare.com HTTPS' |
-  qip run application/dns-message/dns-query-to-dns-message.wasm -u dnssec_ok=1 |
+  npx qipdo qip.dev application/dns-message/dns-query-to-dns-message.wasm -u dnssec_ok=1 |
   curl -s --header 'content-type: application/dns-message' --data-binary @- https://cloudflare-dns.com/dns-query |
-  qip run application/dns-message/dns-message-to-text.wasm
+  npx qipdo qip.dev application/dns-message/dns-message-to-text.wasm
 ```
 
 Cloudflare and Google each publish their own privacy policy for their public resolvers.

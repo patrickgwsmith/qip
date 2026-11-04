@@ -245,19 +245,17 @@ The official engine remains the right tool for SQL queries, joins, and writes. T
 ## CLI equivalent
 
 ```bash
-go install github.com/royalicing/qip@latest
-
 # List tables, columns, and types
-qip run application/vnd.sqlite3/sqlite-schema.wasm -i mydb.sqlite
+npx qipdo qip.dev application/vnd.sqlite3/sqlite-schema.wasm -i mydb.sqlite
 
 # Convert the second table to CSV
-qip run application/vnd.sqlite3/sqlite-table-csv.wasm -u table=1 -i mydb.sqlite > table.csv
+npx qipdo qip.dev application/vnd.sqlite3/sqlite-table-csv.wasm -u table=1 -i mydb.sqlite > table.csv
 
 # Fetch one row by rowid
-qip run application/vnd.sqlite3/sqlite-row-lookup.wasm -u table=0 -u rowid=42 -i mydb.sqlite
+npx qipdo qip.dev application/vnd.sqlite3/sqlite-row-lookup.wasm -u table=0 -u rowid=42 -i mydb.sqlite
 
 # Count rows
-qip run application/vnd.sqlite3/sqlite-table-count.wasm -i mydb.sqlite
+npx qipdo qip.dev application/vnd.sqlite3/sqlite-table-count.wasm -i mydb.sqlite
 ```
 
 These modules expect `application/vnd.sqlite3` input. The CSV converter outputs `text/csv`, so it composes with any downstream CSV component.

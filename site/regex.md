@@ -184,7 +184,7 @@ there the table is smaller. Set the `prefer_table` uniform to always get a
 table:
 
 ```sh
-printf '[a-z0-9]+(-[a-z0-9]+)*' | qip run -o slug.wasm text/i-regexp-to-wasm.wasm -u prefer_table=1
+printf '[a-z0-9]+(-[a-z0-9]+)*' | npx qipdo qip.dev -o slug.wasm text/i-regexp-to-wasm.wasm -u prefer_table=1
 ```
 
 The smaller module is often the slower one. In Node 26 on an Apple M5, with
@@ -245,14 +245,14 @@ rejection offsets.
 
 ## Use a validator outside the browser
 
-Compile a pattern with the `qip` CLI, then run the validator on text. The
+Compile a pattern with `npx qipdo`, then run the validator on text. The
 second command prints `en-gb`, because it matches. The third fails and reports
 input offset 3, where `G` breaks the pattern.
 
 ```sh
-printf '[a-z]{2,8}(-[a-z0-9]+)*' | qip run -o lang.wasm text/i-regexp-to-wasm.wasm
-printf 'en-gb' | qip run lang.wasm
-printf 'en-GB' | qip run lang.wasm
+printf '[a-z]{2,8}(-[a-z0-9]+)*' | npx qipdo qip.dev -o lang.wasm text/i-regexp-to-wasm.wasm
+printf 'en-gb' | npx qipdo lang.wasm
+printf 'en-GB' | npx qipdo lang.wasm
 ```
 
 The same `lang.wasm` runs in any QIP host: the browser, Node, Go with

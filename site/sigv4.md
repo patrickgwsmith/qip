@@ -222,7 +222,7 @@ region or service from the host.
 ## CLI equivalent
 
 ```bash
-qip run \
+npx qipdo qip.dev \
   -F method=GET \
   -F url='https://example.amazonaws.com/' \
   -F region=us-east-1 -F service=service \

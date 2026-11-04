@@ -103,7 +103,5 @@ it either. Handles documents up to 256 KiB.
 ## CLI equivalent
 
 ```bash
-go install github.com/royalicing/qip@latest
-curl -O https://qip.dev/text/html/html-to-accessibility-tree.wasm
-qip run html-to-accessibility-tree.wasm < page.html
+npx qipdo qip.dev text/html/html-to-accessibility-tree.wasm < page.html
 ```

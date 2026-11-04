@@ -324,8 +324,7 @@ format();
 <section id="currency-cli-example">
 
 ```bash
-go install github.com/royalicing/qip@latest
-printf %s '1234567.895' | qip run currency-format-en-us.wasm -u currency=840
+printf %s '1234567.895' | npx qipdo qip.dev text/currency-format-en-us.wasm -u currency=840
 # $1,234,567.90
 ```
 
@@ -391,10 +390,10 @@ Each locale has an independent `compliance/currency-format-<locale>.comply.wasm`
 The companion component converts all 178 current ISO 4217 alphabetic codes to three-digit ASCII numeric codes. It keeps leading zeroes, which are significant in the standard representation:
 
 ```bash
-echo -n AUD | qip run iso-4217-alpha-to-numeric.wasm
+echo -n AUD | npx qipdo qip.dev text/iso-4217-alpha-to-numeric.wasm
 # 036
 
-echo -n BHD | qip run iso-4217-alpha-to-numeric.wasm
+echo -n BHD | npx qipdo qip.dev text/iso-4217-alpha-to-numeric.wasm
 # 048
 ```
 
