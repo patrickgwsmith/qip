@@ -1354,6 +1354,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-tui.mjs
 	node --test test/qipx-uniforms.mjs
 	node --test test/qiptui.mjs
+	node --test test/qipgui.mjs
 	node --test test/qipdo.mjs
 	node --test test/qipok.mjs
 	node --test test/epub-reader-tui.mjs

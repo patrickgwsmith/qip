@@ -1,0 +1,25 @@
+{
+  "name": "qipgui",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Prototype: run QIP GUI components in terminals with the Kitty graphics protocol",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/royalicing/qip.git",
+    "directory": "npm/qipgui"
+  },
+  "type": "module",
+  "bin": {
+    "qipgui": "qipgui.mjs"
+  },
+  "files": ["qipgui.mjs"],
+  "keywords": ["qip", "webassembly", "wasm", "gui", "terminal", "kitty"],
+  "homepage": "https://qip.dev",
+  "bugs": {
+    "url": "https://github.com/royalicing/qip/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "Apache-2.0"
+}
