@@ -94,18 +94,50 @@ pub fn get(object: []const Member, key: []const u8) ?*const Value {
     return null;
 }
 
+// Every array and object is allocated once, at its final size, so a bump
+// allocator holds nothing but the tree: no slices abandoned while a list grew.
+// The tree takes at most 6 bytes of arena per input byte. An array item is a
+// 12-byte Value for at least 2 input bytes ("0,"), a member a 20-byte Member
+// for at least 5 ('"":0,'), and a decoded string is never longer than its
+// source. Children wait on a stack in scratch until their container closes
+// and are then copied out. A pending value takes at least 2 input bytes too,
+// so the stack needs at most another 6 bytes per input byte, in scratch.
 pub const JsonParser = struct {
     src: []const u8,
     pos: usize = 0,
     depth: usize = 0,
     alloc: std.mem.Allocator,
+    scratch: std.mem.Allocator,
+    // Children of the open containers, innermost last. An object's members
+    // wait as key and value pairs.
+    stack: []Value = &.{},
+    top: usize = 0,
 
-    pub fn parseDocument(alloc: std.mem.Allocator, src: []const u8) Error!Value {
-        var parser = JsonParser{ .src = src, .alloc = alloc };
-        const value = try parser.parseValue();
+    pub fn parseDocument(alloc: std.mem.Allocator, scratch: std.mem.Allocator, src: []const u8) Error!Value {
+        var parser = JsonParser{ .src = src, .alloc = alloc, .scratch = scratch };
+        const value = try parser.parseTree();
         parser.skipWs();
         if (parser.pos != src.len) return error.InvalidJson;
         return value;
+    }
+
+    // Parses one value starting at pos. The stack is reserved in scratch for
+    // the most children the rest of the input could hold, but only the part
+    // used is touched, and it is given back once the value parses.
+    pub fn parseTree(p: *JsonParser) Error!Value {
+        p.stack = try p.scratch.alloc(Value, (p.src.len - p.pos) / 2 + 1);
+        defer {
+            p.scratch.free(p.stack);
+            p.stack = &.{};
+        }
+        p.top = 0;
+        return p.parseValue();
+    }
+
+    fn push(p: *JsonParser, value: Value) Error!void {
+        if (p.top == p.stack.len) return error.OutOfMemory;
+        p.stack[p.top] = value;
+        p.top += 1;
     }
 
     pub fn skipWs(p: *JsonParser) void {
@@ -155,12 +187,12 @@ pub const JsonParser = struct {
         try p.enter();
         defer p.depth -= 1;
         p.pos += 1;
-        var members: std.ArrayListUnmanaged(Member) = .empty;
         p.skipWs();
         if (p.pos < p.src.len and p.src[p.pos] == '}') {
             p.pos += 1;
             return .{ .object = &.{} };
         }
+        const base = p.top;
         while (true) {
             p.skipWs();
             if (p.pos >= p.src.len or p.src[p.pos] != '"') return error.InvalidJson;
@@ -169,7 +201,8 @@ pub const JsonParser = struct {
             if (p.pos >= p.src.len or p.src[p.pos] != ':') return error.InvalidJson;
             p.pos += 1;
             const value = try p.parseValue();
-            try members.append(p.alloc, .{ .key = key, .value = value });
+            try p.push(.{ .string = key });
+            try p.push(value);
             p.skipWs();
             if (p.pos >= p.src.len) return error.InvalidJson;
             if (p.src[p.pos] == ',') {
@@ -182,21 +215,25 @@ pub const JsonParser = struct {
             }
             return error.InvalidJson;
         }
-        return .{ .object = members.items };
+        const pending = p.stack[base..p.top];
+        p.top = base;
+        const members = try p.alloc.alloc(Member, pending.len / 2);
+        for (members, 0..) |*m, i| m.* = .{ .key = pending[2 * i].string, .value = pending[2 * i + 1] };
+        return .{ .object = members };
     }
 
     pub fn parseArray(p: *JsonParser) Error!Value {
         try p.enter();
         defer p.depth -= 1;
         p.pos += 1;
-        var items: std.ArrayListUnmanaged(Value) = .empty;
         p.skipWs();
         if (p.pos < p.src.len and p.src[p.pos] == ']') {
             p.pos += 1;
             return .{ .array = &.{} };
         }
+        const base = p.top;
         while (true) {
-            try items.append(p.alloc, try p.parseValue());
+            try p.push(try p.parseValue());
             p.skipWs();
             if (p.pos >= p.src.len) return error.InvalidJson;
             if (p.src[p.pos] == ',') {
@@ -209,7 +246,9 @@ pub const JsonParser = struct {
             }
             return error.InvalidJson;
         }
-        return .{ .array = items.items };
+        const items = try p.alloc.dupe(Value, p.stack[base..p.top]);
+        p.top = base;
+        return .{ .array = items };
     }
 
     pub fn hex4(p: *JsonParser) Error!u21 {
@@ -296,6 +335,9 @@ pub const JsonParser = struct {
             }
             o += encodeWtf8(cp, out[o..]);
         }
+        // Gives back the bytes the escapes saved when out is still the
+        // arena's last allocation.
+        _ = p.alloc.resize(out, o);
         return out[0..o];
     }
 
@@ -607,8 +649,8 @@ pub const Envelope = struct {
 
 // Parses the envelope object. Each member value is parsed at depth 0, so
 // MAX_DEPTH means the same as it does for a standalone document.
-pub fn parseEnvelope(alloc: std.mem.Allocator, src: []const u8) Error!Envelope {
-    var p = JsonParser{ .src = src, .alloc = alloc };
+pub fn parseEnvelope(alloc: std.mem.Allocator, scratch: std.mem.Allocator, src: []const u8) Error!Envelope {
+    var p = JsonParser{ .src = src, .alloc = alloc, .scratch = scratch };
     var env = Envelope{};
     var seen_schemas = false;
     p.skipWs();
@@ -626,7 +668,7 @@ pub fn parseEnvelope(alloc: std.mem.Allocator, src: []const u8) Error!Envelope {
         p.skipWs();
         const start = p.pos;
         const value = try alloc.create(Value);
-        value.* = try p.parseValue();
+        value.* = try p.parseTree();
         if (std.mem.eql(u8, key, "schema")) {
             if (env.schema != null) return error.InvalidEnvelope;
             env.schema = value;
@@ -1501,7 +1543,7 @@ pub const State = struct {
 
     pub fn loadDocument(st: *State, uri: []const u8, json: []const u8) Error!*const Value {
         const root = try st.alloc.create(Value);
-        root.* = try JsonParser.parseDocument(st.alloc, json);
+        root.* = try JsonParser.parseDocument(st.alloc, st.scratch.allocator(), json);
         try st.resources.put(st.alloc, uri, root);
         try st.index(root, uri, .{}, true);
         return root;
@@ -2083,6 +2125,83 @@ test "embedded meta-schemas are minified and still parse" {
     }
 }
 
+fn testParse(arena: *std.heap.FixedBufferAllocator, scratch: *std.heap.FixedBufferAllocator, src: []const u8) Error!Value {
+    arena.reset();
+    scratch.reset();
+    defer std.debug.assert(scratch.end_index == 0);
+    return JsonParser.parseDocument(arena.allocator(), scratch.allocator(), src);
+}
+
+test "the parser allocates each container once, at its final size" {
+    const arena_buf = try std.testing.allocator.alloc(u8, 4 << 20);
+    defer std.testing.allocator.free(arena_buf);
+    const scratch_buf = try std.testing.allocator.alloc(u8, 4 << 20);
+    defer std.testing.allocator.free(scratch_buf);
+    var arena = std.heap.FixedBufferAllocator.init(arena_buf);
+    var scratch = std.heap.FixedBufferAllocator.init(scratch_buf);
+
+    // [[0],[0],...] grew the outer list behind every inner one, abandoning
+    // its old slices. Now the arena holds exactly the 2n values.
+    const n = 10_000;
+    var src: std.ArrayListUnmanaged(u8) = .empty;
+    defer src.deinit(std.testing.allocator);
+    try src.append(std.testing.allocator, '[');
+    for (0..n) |i| try src.appendSlice(std.testing.allocator, if (i == 0) "[0]" else ",[0]");
+    try src.append(std.testing.allocator, ']');
+    const v = try testParse(&arena, &scratch, src.items);
+    try std.testing.expectEqual(@as(usize, n), v.array.len);
+    try std.testing.expectEqual(2 * n * @sizeOf(Value), arena.end_index);
+
+    // The densest shapes stay inside the documented bound: 6 bytes per input
+    // byte on wasm32, which scales with Value and Member on this target.
+    const per_byte = @max(@sizeOf(Value) / 2, @sizeOf(Member) / 5);
+    const shapes = [_][]const u8{ "0,", "[0],", "{\"\":0},", "\"\\n\"," };
+    for (shapes) |unit| {
+        src.clearRetainingCapacity();
+        try src.append(std.testing.allocator, '[');
+        for (0..n) |_| try src.appendSlice(std.testing.allocator, unit);
+        src.items[src.items.len - 1] = ']';
+        _ = try testParse(&arena, &scratch, src.items);
+        try std.testing.expect(arena.end_index <= per_byte * src.items.len);
+    }
+    src.clearRetainingCapacity();
+    try src.append(std.testing.allocator, '{');
+    for (0..n) |i| try src.print(std.testing.allocator, "\"{d}\":0,", .{i});
+    src.items[src.items.len - 1] = '}';
+    const obj = try testParse(&arena, &scratch, src.items);
+    try std.testing.expectEqual(@as(usize, n), obj.object.len);
+    try std.testing.expectEqualStrings("9999", obj.object[n - 1].key);
+}
+
+test "the parser accepts exactly what std.json accepts" {
+    var arena_buf: [1 << 16]u8 = undefined;
+    var scratch_buf: [1 << 14]u8 = undefined;
+    var arena = std.heap.FixedBufferAllocator.init(&arena_buf);
+    var scratch = std.heap.FixedBufferAllocator.init(&scratch_buf);
+    const inputs = [_][]const u8{
+        "[]",        "{}",            "[1,2,3]",      "{\"a\":[1,{\"b\":[]}],\"c\":\"]}\"}",
+        "[\"\\\"]\"]", "[1,]",          "[,1]",         "[1 2]",
+        "{\"a\" 1}",  "{\"a\":1,}",     "{,}",          "[[1],[2,3]",
+        "[1]]",      "{\"a\":1}}",     "\"x",          "[\"x",
+        "[\"\\",     "[1,[2,[3]],4]", "{\"a\":{\"a\":{}}}", "  [ 1 , [ ] , { } ]  ",
+        "1",         "[0]x",          "[{]",          "[}",
+        "{\"a\":1 \"b\":2}", "[[],[[]],[[],[]]]", "{\"\\u0041\":\"\\ud83d\\ude00\"}", "",
+    };
+    for (inputs) |src| {
+        const ours = if (testParse(&arena, &scratch, src)) |_| true else |_| false;
+        const std_ok = try std.json.validate(std.testing.allocator, src);
+        std.testing.expectEqual(std_ok, ours) catch |err| {
+            std.debug.print("input: {s}\n", .{src});
+            return err;
+        };
+    }
+    const deep_ok = "[" ** MAX_DEPTH ++ "]" ** MAX_DEPTH;
+    _ = try testParse(&arena, &scratch, deep_ok);
+    const deep = "[" ** (MAX_DEPTH + 1) ++ "]" ** (MAX_DEPTH + 1);
+    try std.testing.expectError(error.TooDeep, testParse(&arena, &scratch, deep));
+    try std.testing.expectError(error.TooDeep, testParse(&arena, &scratch, "[" ** (MAX_DEPTH + 1) ++ "1"));
+}
+
 test "regex search" {
     try std.testing.expect(try testSearch("^a*$", "aaa"));
     try std.testing.expect(!try testSearch("^a*$", "abc"));
@@ -2153,17 +2272,17 @@ test "envelope keys come in any order and the instance keeps its bytes" {
     var buf: [1 << 16]u8 = undefined;
     var fba = std.heap.FixedBufferAllocator.init(&buf);
     const a = fba.allocator();
-    const env = try parseEnvelope(a, " {\"instance\" : [1.50, 2] ,\"schemas\":{\"urn:x\":true},\"schema\":{}} ");
+    const env = try parseEnvelope(a, a, " {\"instance\" : [1.50, 2] ,\"schemas\":{\"urn:x\":true},\"schema\":{}} ");
     try std.testing.expectEqualStrings("[1.50, 2]", env.instance_bytes);
     try std.testing.expect(env.schema != null);
     try std.testing.expectEqual(@as(usize, 1), env.schemas.len);
     try std.testing.expectEqualStrings("urn:x", env.schemas[0].key);
-    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schema\":{},\"schema\":{}}"));
-    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schema\":{},\"other\":1}"));
-    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "{\"schemas\":[]}"));
-    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, "[]"));
-    try std.testing.expectError(error.MissingKey, parseEnvelope(a, "{}"));
-    try std.testing.expectError(error.InvalidJson, parseEnvelope(a, "{\"schema\":{}} x"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, a, "{\"schema\":{},\"schema\":{}}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, a, "{\"schema\":{},\"other\":1}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, a, "{\"schemas\":[]}"));
+    try std.testing.expectError(error.InvalidEnvelope, parseEnvelope(a, a, "[]"));
+    try std.testing.expectError(error.MissingKey, parseEnvelope(a, a, "{}"));
+    try std.testing.expectError(error.InvalidJson, parseEnvelope(a, a, "{\"schema\":{}} x"));
 }
 
 test "URI references resolve per RFC 3986" {

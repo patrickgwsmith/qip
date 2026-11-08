@@ -42,7 +42,9 @@ const Error = js.Error;
 
 const INPUT_CAP: usize = 4 * 1024 * 1024;
 const ARENA_CAP: usize = 48 * 1024 * 1024;
-const SCRATCH_CAP: usize = 8 * 1024 * 1024;
+// While the envelope parses, the JSON parser keeps pending children here, up
+// to 6 bytes per input byte; the tree it builds in the arena is at most 6 more.
+const SCRATCH_CAP: usize = 6 * INPUT_CAP;
 const INPUT_CONTENT_TYPE = "application/json";
 const OUTPUT_CONTENT_TYPE = "application/json";
 
@@ -114,7 +116,7 @@ fn run(input: []const u8) Error!?[]const u8 {
     arena_fba = std.heap.FixedBufferAllocator.init(&arena_buf);
     scratch_fba = std.heap.FixedBufferAllocator.init(&scratch_buf);
     const alloc = arena_fba.allocator();
-    const env = try js.parseEnvelope(alloc, input);
+    const env = try js.parseEnvelope(alloc, scratch_fba.allocator(), input);
     const instance = env.instance orelse return error.MissingKey;
     var st = State{ .alloc = alloc, .scratch = &scratch_fba };
     const schema = try st.loadEnvelope(env);

@@ -663,7 +663,7 @@ application/x-tar/recipes-tar-to-csv.wasm: ZIG_WASM_MAX_MEMORY = 150994944
 application/x-tar/tar-to-sha256sums.wasm: ZIG_WASM_MAX_MEMORY = 184549376
 application/xml/xml-must-be-well-formed.wasm: ZIG_WASM_MAX_MEMORY = 12582912
 # Validation recurses through the schema; 4 MiB of stack covers MAX_DEPTH.
-application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 83886080
+application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_MAX_MEMORY = 100663296
 application/json/json-schema-2020-12-must-be-valid.wasm: ZIG_WASM_FLAGS += --stack 4194304
 application/json/json-schema-2020-12-must-be-valid.wasm: application/json/lib/json-schema-2020-12.zig application/json/lib/json-schema-unicode-letter.zig $(wildcard application/json/lib/json-schema-2020-12/*.json)
 # json-schema-to-wasm embeds the runtime that every module it generates is

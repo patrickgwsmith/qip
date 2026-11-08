@@ -53,7 +53,9 @@ const NONE = prog.NONE;
 
 const INPUT_CAP: usize = 4 * 1024 * 1024;
 const ARENA_CAP: usize = 64 * 1024 * 1024;
-const SCRATCH_CAP: usize = 1024 * 1024;
+// While the envelope parses, the JSON parser keeps pending children here, up
+// to 6 bytes per input byte; the tree it builds in the arena is at most 6 more.
+const SCRATCH_CAP: usize = 6 * INPUT_CAP;
 const PROGRAM_CAP: usize = 8 * 1024 * 1024;
 const OUTPUT_CAP: usize = runtime_wasm.len + PROGRAM_CAP + INPUT_CAP + 1024;
 const INPUT_CONTENT_TYPE = "application/json";
@@ -710,7 +712,7 @@ fn compile(input: []const u8) Error!usize {
     arena_fba = std.heap.FixedBufferAllocator.init(&arena_buf);
     scratch_fba = std.heap.FixedBufferAllocator.init(&scratch_buf);
     const alloc = arena_fba.allocator();
-    const env = try js.parseEnvelope(alloc, input);
+    const env = try js.parseEnvelope(alloc, scratch_fba.allocator(), input);
     if (env.instance != null) return error.InvalidEnvelope;
     var st = js.State{ .alloc = alloc, .scratch = &scratch_fba };
     const root = try st.loadEnvelope(env);
