@@ -74,11 +74,11 @@ function decodeResult(result) {
   };
 }
 
-async function renderSample(file) {
+async function renderSample(file, svg = SAMPLE) {
   const path = new URL(`../image/svg+xml/${file}`, import.meta.url);
   const { instance } = await WebAssembly.instantiate(await readFile(path));
   const exports = instance.exports;
-  const input = new TextEncoder().encode(SAMPLE);
+  const input = new TextEncoder().encode(svg);
   new Uint8Array(exports.memory.buffer, exports.input_ptr(), input.length).set(input);
   exports.uniform_set_background_color_rgba(0xffffffff);
   const result = decodeResult(exports.render(input.length));
@@ -121,5 +121,45 @@ for (const module of modules) {
       }
     }
     assert.ok(caption > 60, `caption pixels ${caption}`);
+  });
+}
+
+// A nested <svg> places its viewBox content into its own x/y/width/height
+// viewport, scaled uniformly and centred (like klondike's suit glyphs).
+const NESTED = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <svg x="100" y="50" width="80" height="80" viewBox="0 0 40 40">
+    <rect x="0" y="0" width="20" height="20" fill="#ff0000"/>
+  </svg>
+  <svg x="200" y="0" width="100" height="40" viewBox="10 10 20 20">
+    <rect x="10" y="10" width="20" height="20" fill="#0000ff"/>
+  </svg>
+  <svg x="20" y="150">
+    <rect x="0" y="0" width="10" height="10" fill="#00ff00"/>
+  </svg>
+</svg>`;
+
+for (const module of modules) {
+  test(`${module.name} positions and scales nested svg viewports`, async () => {
+    const memory = await renderSample(module.file, NESTED);
+    const at = (x, y) => module.pixel(memory, x, y);
+    const white = [255, 255, 255, 255];
+
+    // viewBox 0 0 40 40 into 80x80 at (100,50): the 20x20 rect covers 100..140.
+    assert.deepEqual(at(105, 55), [255, 0, 0, 255]);
+    assert.deepEqual(at(105, 95), white);
+    assert.deepEqual(at(138, 88), [255, 0, 0, 255]);
+    assert.deepEqual(at(142, 55), white);
+    assert.deepEqual(at(5, 5), white);
+
+    // A 20x20 viewBox in a 100x40 viewport scales by 2 and centres
+    // horizontally: x 230..270, y 0..40.
+    assert.deepEqual(at(232, 20), [0, 0, 255, 255]);
+    assert.deepEqual(at(268, 38), [0, 0, 255, 255]);
+    assert.deepEqual(at(226, 20), white);
+    assert.deepEqual(at(274, 20), white);
+
+    // Without a viewBox, x/y only translate.
+    assert.deepEqual(at(25, 155), [0, 255, 0, 255]);
+    assert.deepEqual(at(5, 5), white);
   });
 }

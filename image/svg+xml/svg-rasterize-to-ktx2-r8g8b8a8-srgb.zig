@@ -2004,6 +2004,7 @@ const ElementAttrs = struct {
     font_size: ?f32 = null,
     font_bold: ?bool = null,
     text_anchor: ?TextAnchor = null,
+    view_box: ?[4]f32 = null,
     self_closing: bool = false,
 };
 
@@ -2050,6 +2051,8 @@ fn parseAttributes(input: []const u8, idx: *usize, attrs: *ElementAttrs, xs: *[M
             } else if (strEq(value, "end")) {
                 attrs.text_anchor = .end;
             }
+        } else if (strEq(name, "viewBox")) {
+            attrs.view_box = parseViewBox(value);
         } else if (strEq(name, "x")) {
             if (parseNumber(value)) |v| {
                 rect.x = v;
@@ -2580,6 +2583,8 @@ fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_style: 
     var group_depth: usize = 0;
     var transform = root_transform;
     var style = root_style;
+    // The outermost <svg> is placed by findSvgViewport; later ones are nested.
+    var seen_root_svg = false;
 
     while (idx.* < input.len) {
         while (idx.* < input.len and input[idx.*] != '<') idx.* += 1;
@@ -2611,7 +2616,14 @@ fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_style: 
         var ys: [MAX_POINTS]f32 = undefined;
         parseAttributes(input, idx, &attrs, &xs, &ys);
 
-        const final_transform = if (attrs.transform) |m| matMul(transform, m) else transform;
+        var final_transform = if (attrs.transform) |m| matMul(transform, m) else transform;
+        if (strEq(name, "svg")) {
+            if (seen_root_svg) {
+                final_transform = matMul(final_transform, nestedSvgTransform(attrs));
+            } else {
+                seen_root_svg = true;
+            }
+        }
         const final_style = applyAttrs(style, attrs);
         const fill_opacity = final_style.fill_opacity * final_style.opacity;
         const stroke_opacity = final_style.stroke_opacity * final_style.opacity;
@@ -2675,6 +2687,29 @@ fn parseElements(ctx: *ParserCtx, idx: *usize, root_transform: Mat, root_style: 
             drawText(ctx, final_transform, final_style, rect.x, rect.y, count);
         }
     }
+}
+
+// Maps a nested <svg>'s content into its x/y/width/height viewport. The viewBox
+// is scaled uniformly and centred, like the default xMidYMid meet. Without a
+// parent viewport size, a missing width or height falls back to the viewBox's.
+// Content outside the viewport is not clipped.
+fn nestedSvgTransform(attrs: ElementAttrs) Mat {
+    const rect = attrs.rect;
+    const x = if (rect.set_x) rect.x else 0;
+    const y = if (rect.set_y) rect.y else 0;
+    const box = attrs.view_box orelse
+        return .{ .a = 1, .b = 0, .c = 0, .d = 1, .tx = x, .ty = y };
+    const w = if (rect.set_w) rect.w else box[2];
+    const h = if (rect.set_h) rect.h else box[3];
+    const scale = @min(w / box[2], h / box[3]);
+    return .{
+        .a = scale,
+        .b = 0,
+        .c = 0,
+        .d = scale,
+        .tx = x + (w - box[2] * scale) * 0.5 - box[0] * scale,
+        .ty = y + (h - box[3] * scale) * 0.5 - box[1] * scale,
+    };
 }
 
 const SvgViewport = struct {
