@@ -19,12 +19,15 @@ pub const Counts = struct {
     custom_sections: u64 = 0,
     types: u64 = 0,
     v128_types: u64 = 0,
+    typed_reference_types: u64 = 0,
     exports: u64 = 0,
     functions_exported: u64 = 0,
     tables_exported: u64 = 0,
     memories_exported: u64 = 0,
     globals_exported: u64 = 0,
     tags_exported: u64 = 0,
+    tags_defined: u64 = 0,
+    tags_imported: u64 = 0,
     functions_defined: u64 = 0,
     functions_imported: u64 = 0,
     tables_defined: u64 = 0,
@@ -91,10 +94,13 @@ pub const Counts = struct {
     ref_is_null: u64 = 0,
     ref_func: u64 = 0,
     simd_instructions: u64 = 0,
+    atomic_instructions: u64 = 0,
     memory_loads: u64 = 0,
     memory_stores: u64 = 0,
     memory_copies: u64 = 0,
     memory_fills: u64 = 0,
+    memory_inits: u64 = 0,
+    data_drops: u64 = 0,
     memory_size: u64 = 0,
     memory_grow: u64 = 0,
     explicit_traps: u64 = 0,
@@ -110,12 +116,23 @@ fn readName(r: *Reader) Error!void {
     _ = try r.readN(try r.readVarU32());
 }
 
-fn countValueType(counts: *Counts, value_type: u8) Error!void {
+fn countValueTypes(counts: *Counts, value_type: u8, n: u64) Error!void {
     switch (value_type) {
         0x7f, 0x7e, 0x7d, 0x7c, 0x70, 0x6f => {},
-        0x7b => counts.v128_types += 1,
+        0x7b => counts.v128_types +|= n,
+        0x63, 0x64 => counts.typed_reference_types +|= n,
         else => return Error.UnsupportedType,
     }
+}
+
+fn readValueType(r: *Reader, counts: *Counts) Error!void {
+    try countValueTypes(counts, try wasm_reader.readValType(r), 1);
+}
+
+fn readTagType(r: *Reader) Error!void {
+    // Exception tags: attribute 0 followed by a function type index.
+    if (try r.readByte() != 0) return Error.InvalidSection;
+    _ = try r.readVarU32();
 }
 
 const RefTypeKind = enum {
@@ -166,10 +183,10 @@ fn parseTypeSection(counts: *Counts, payload: []const u8) Error!void {
         if (try r.readByte() != 0x60) return Error.UnsupportedType;
         const params = try r.readVarU32();
         var p: u32 = 0;
-        while (p < params) : (p += 1) try countValueType(counts, try r.readByte());
+        while (p < params) : (p += 1) try readValueType(&r, counts);
         const results = try r.readVarU32();
         var q: u32 = 0;
-        while (q < results) : (q += 1) try countValueType(counts, try r.readByte());
+        while (q < results) : (q += 1) try readValueType(&r, counts);
     }
     if (r.remaining() != 0) return Error.TrailingBytes;
 }
@@ -205,13 +222,13 @@ fn parseImportSection(counts: *Counts, payload: []const u8) Error!void {
                 addMemoryLimits(counts, limits);
             },
             3 => {
-                try countValueType(counts, try r.readByte());
+                try readValueType(&r, counts);
                 _ = try r.readByte();
                 counts.globals_imported += 1;
             },
             4 => {
-                _ = try r.readByte();
-                _ = try r.readVarU32();
+                try readTagType(&r);
+                counts.tags_imported += 1;
             },
             else => return Error.UnsupportedImportKind,
         }
@@ -282,7 +299,7 @@ fn skipConstExpr(r: *Reader, counts: *Counts) Error!void {
             0x43 => _ = try r.readN(4),
             0x44 => _ = try r.readN(8),
             0xd0 => {
-                _ = try readRefType(r);
+                _ = try r.readVarS64(5); // heap type (s33)
                 counts.ref_null += 1;
             },
             0xfd => {
@@ -302,7 +319,7 @@ fn parseGlobalSection(counts: *Counts, payload: []const u8) Error!void {
     counts.globals_defined += count;
     var i: u32 = 0;
     while (i < count) : (i += 1) {
-        try countValueType(counts, try r.readByte());
+        try readValueType(&r, counts);
         _ = try r.readByte();
         try skipConstExpr(&r, counts);
     }
@@ -439,6 +456,15 @@ fn parseElementSection(counts: *Counts, payload: []const u8) Error!void {
     if (r.remaining() != 0) return Error.TrailingBytes;
 }
 
+fn parseTagSection(counts: *Counts, payload: []const u8) Error!void {
+    var r = Reader.init(payload);
+    const count = try r.readVarU32();
+    counts.tags_defined += count;
+    var i: u32 = 0;
+    while (i < count) : (i += 1) try readTagType(&r);
+    if (r.remaining() != 0) return Error.TrailingBytes;
+}
+
 fn parseDataSection(counts: *Counts, payload: []const u8) Error!void {
     var r = Reader.init(payload);
     const count = try r.readVarU32();
@@ -480,10 +506,7 @@ const InstructionCounter = struct {
         c.function_instructions += 1;
 
         switch (instr.op) {
-            0x00 => {
-                c.explicit_traps += 1;
-                c.potentially_trapping_instructions += 1;
-            },
+            0x00 => c.explicit_traps += 1,
             0x03 => c.loops += 1,
             0x04 => c.conditional_branches += 1,
             0x0c => c.branches += 1,
@@ -511,7 +534,6 @@ const InstructionCounter = struct {
                     c.indirect_calls_nonzero_table += 1;
                 }
                 c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x13 => {
                 c.calls_indirect += 1;
@@ -522,22 +544,18 @@ const InstructionCounter = struct {
                     c.indirect_calls_nonzero_table += 1;
                 }
                 c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x14 => {
                 c.calls_indirect += 1;
                 c.call_ref += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x25 => {
                 c.table_get += 1;
                 c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x26 => {
                 c.table_set += 1;
                 c.potentially_trapping_table += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0xd0 => c.ref_null += 1,
             0xd1 => c.ref_is_null += 1,
@@ -545,72 +563,54 @@ const InstructionCounter = struct {
             0x28...0x35 => {
                 c.memory_loads += 1;
                 c.potentially_trapping_memory += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x36...0x3e => {
                 c.memory_stores += 1;
                 c.potentially_trapping_memory += 1;
-                c.potentially_trapping_instructions += 1;
             },
             0x3f => c.memory_size += 1,
             0x40 => c.memory_grow += 1,
-            0x6d, 0x6e, 0x7f, 0x80 => {
-                c.integer_divisions += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0x6f, 0x70, 0x81, 0x82 => {
-                c.integer_remainders += 1;
-                c.potentially_trapping_instructions += 1;
-            },
-            0xa8...0xab, 0xae...0xb1 => {
-                c.trapping_float_to_int += 1;
-                c.potentially_trapping_instructions += 1;
-            },
+            0x6d, 0x6e, 0x7f, 0x80 => c.integer_divisions += 1,
+            0x6f, 0x70, 0x81, 0x82 => c.integer_remainders += 1,
+            0xa8...0xab, 0xae...0xb1 => c.trapping_float_to_int += 1,
             0xfc => switch (instr.subop) {
                 8 => {
+                    c.memory_inits += 1;
                     c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
                 10 => {
                     c.memory_copies += 1;
                     c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
                 11 => {
                     c.memory_fills += 1;
                     c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
                 12 => {
                     c.table_init += 1;
                     c.potentially_trapping_table += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
+                9 => c.data_drops += 1,
                 13 => c.elem_drop += 1,
                 14 => {
                     c.table_copy += 1;
                     c.potentially_trapping_table += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
                 15 => c.table_grow += 1,
                 16 => c.table_size += 1,
                 17 => {
                     c.table_fill += 1;
                     c.potentially_trapping_table += 1;
-                    c.potentially_trapping_instructions += 1;
                 },
                 else => {},
             },
             0xfd => {
                 c.simd_instructions += 1;
-                if (instr.subop <= 11 or (instr.subop >= 84 and instr.subop <= 93)) {
-                    c.potentially_trapping_memory += 1;
-                    c.potentially_trapping_instructions += 1;
-                }
+                if (instr.subop <= 11 or (instr.subop >= 84 and instr.subop <= 93)) c.potentially_trapping_memory += 1;
             },
-            0xfe => if (instr.subop != 3) {
-                c.potentially_trapping_memory += 1;
-                c.potentially_trapping_instructions += 1;
+            0xfe => {
+                c.atomic_instructions += 1;
+                if (instr.subop != 3) c.potentially_trapping_memory += 1; // all but atomic.fence
             },
             else => {},
         }
@@ -638,12 +638,7 @@ fn parseCodeSection(counts: *Counts, payload: []const u8) Error!void {
         var group: u32 = 0;
         while (group < local_groups) : (group += 1) {
             const local_count = try locals.readVarU32();
-            const value_type = try locals.readByte();
-            if (value_type == 0x7b) {
-                counts.v128_types += local_count;
-            } else {
-                try countValueType(counts, value_type);
-            }
+            try countValueTypes(counts, try wasm_reader.readValType(&locals), local_count);
         }
         try wasm_reader.walkFunctionBody(&counter, body);
         counts.instructions += 1;
@@ -672,8 +667,22 @@ pub fn analyze(wasm: []const u8) Error!Counts {
             9 => try parseElementSection(&counts, payload),
             10 => try parseCodeSection(&counts, payload),
             11 => try parseDataSection(&counts, payload),
+            13 => try parseTagSection(&counts, payload),
             else => {},
         }
     }
+    counts.potentially_trapping_instructions = potentiallyTrappingInstructions(counts);
     return counts;
+}
+
+/// Every potentially trapping instruction site is counted by exactly one of
+/// these counters, so the total is their sum rather than a separate tally.
+fn potentiallyTrappingInstructions(counts: Counts) u64 {
+    return counts.explicit_traps +|
+        counts.integer_divisions +|
+        counts.integer_remainders +|
+        counts.trapping_float_to_int +|
+        counts.potentially_trapping_memory +|
+        counts.potentially_trapping_table +|
+        counts.call_ref;
 }

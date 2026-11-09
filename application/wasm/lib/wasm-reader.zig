@@ -168,10 +168,20 @@ pub fn readLimits(r: *Reader) Error!Limits {
     return limits;
 }
 
+/// Reads a value type and returns its leading byte. The typed reference
+/// forms `(ref null ht)` (0x63) and `(ref ht)` (0x64) are followed by an s33
+/// heap type, which is consumed here so callers stay in sync.
+pub fn readValType(r: *Reader) Error!u8 {
+    const b = try r.readByte();
+    if (b == 0x63 or b == 0x64) _ = try r.readVarS64(5);
+    return b;
+}
+
 fn readBlockType(r: *Reader) Error!void {
     const b = try r.peekByte();
     switch (b) {
         0x40, 0x7f, 0x7e, 0x7d, 0x7c, 0x7b, 0x70, 0x6f => _ = try r.readByte(),
+        0x63, 0x64 => _ = try readValType(r),
         else => _ = try r.readVarS64(5),
     }
 }
@@ -248,7 +258,7 @@ pub fn walkFunctionBody(handler: anytype, body: []const u8) !void {
     var ld: u32 = 0;
     while (ld < local_decls) : (ld += 1) {
         _ = try r.readVarU32();
-        _ = try r.readByte();
+        _ = try readValType(&r);
     }
 
     var depth: usize = 0;
@@ -308,7 +318,8 @@ pub fn walkFunctionBody(handler: anytype, body: []const u8) !void {
             // select with types
             0x1c => {
                 const count = try r.readVarU32();
-                _ = try r.readN(count);
+                var i: u32 = 0;
+                while (i < count) : (i += 1) _ = try readValType(&r);
             },
             // local.get/set/tee, global.get/set, table.get/set
             0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26 => {
@@ -337,8 +348,8 @@ pub fn walkFunctionBody(handler: anytype, body: []const u8) !void {
             0x44 => _ = try r.readN(8),
             // numeric ops through i64.extend32_s: no immediates
             0x45...0xc4 => {},
-            // ref.null
-            0xd0 => _ = try r.readByte(),
+            // ref.null: heap type is an s33 (abstract types are one byte)
+            0xd0 => _ = try r.readVarS64(5),
             // ref.func
             0xd2 => _ = try r.readVarU32(),
             0xfc => {
@@ -416,6 +427,24 @@ test "walk reports instructions and br_table targets" {
     try walkFunctionBody(&h, &body);
     try std.testing.expectEqual(@as(usize, 4), h.instrs);
     try std.testing.expectEqual(@as(usize, 2), h.targets);
+}
+
+test "walk decodes typed references in locals, block types, select and ref.null" {
+    const body = [_]u8{
+        0x02, // two local groups
+        0x02, 0x63, 0x00, // 2 x (ref null 0)
+        0x01, 0x64, 0x01, // 1 x (ref 1)
+        0x02, 0x64, 0x00, // block (result (ref 0))
+        0xd0, 0x00, // ref.null 0
+        0xd0, 0x00, 0x41, 0x00, // ref.null 0; i32.const 0
+        0x1c, 0x01, 0x63, 0x00, // select (result (ref null 0))
+        0x1a, // drop
+        0xd0, 0x70, // ref.null func
+        0x1a, 0x0b, 0x0b, // drop; end block; end function
+    };
+    var h = CountingHandler{};
+    try walkFunctionBody(&h, &body);
+    try std.testing.expectEqual(@as(usize, 9), h.instrs);
 }
 
 test "walk rejects trailing bytes after the final end" {

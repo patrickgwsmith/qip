@@ -21,12 +21,15 @@ const METRIC_NAMES = .{
     "custom_sections",
     "types",
     "v128_types",
+    "typed_reference_types",
     "exports",
     "functions_exported",
     "tables_exported",
     "memories_exported",
     "globals_exported",
     "tags_exported",
+    "tags_defined",
+    "tags_imported",
     "functions_defined",
     "functions_imported",
     "tables_defined",
@@ -95,10 +98,13 @@ const METRIC_NAMES = .{
     "ref_is_null",
     "ref_func",
     "simd_instructions",
+    "atomic_instructions",
     "memory_loads",
     "memory_stores",
     "memory_copies",
     "memory_fills",
+    "memory_inits",
+    "data_drops",
     "memory_size",
     "memory_grow",
     "explicit_traps",
@@ -374,4 +380,42 @@ test "counts indirect calls, table instructions, and reference instructions sepa
     try std.testing.expectEqual(@as(u64, 1), counts.ref_null);
     try std.testing.expectEqual(@as(u64, 1), counts.ref_is_null);
     try std.testing.expectEqual(@as(u64, 1), counts.ref_func);
+}
+
+test "counts tags, typed references, memory.init, data.drop and atomics" {
+    const module = [_]u8{
+        0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x09, 0x02, 0x60, 0x01, 0x63, 0x00, 0x00, 0x60, 0x00, 0x00, // ((ref null 0)) -> (), () -> ()
+        0x02, 0x08, 0x01, 0x01, 0x61, 0x01, 0x62, 0x04, 0x00, 0x00, // import tag "a" "b" of type 0
+        0x03, 0x02, 0x01, 0x01, // one function of type 1
+        0x05, 0x03, 0x01, 0x00, 0x01, // memory min 1
+        0x0d, 0x03, 0x01, 0x00, 0x00, // tag section: one tag of type 0
+        0x06, 0x07, 0x01, 0x63, 0x00, 0x00, 0xd0, 0x00, 0x0b, // global (ref null 0) = ref.null 0
+        0x0a, 0x1e, 0x01, 0x1c,
+        0x01, 0x01, 0x64, 0x00, // one local of (ref 0)
+        0x41, 0x00, 0x41, 0x00, 0x41, 0x00, 0xfc, 0x08, 0x00, 0x00, // memory.init 0 0
+        0xfc, 0x09, 0x00, // data.drop 0
+        0x41, 0x00, 0xfe, 0x10, 0x02, 0x00, 0x1a, // i32.atomic.load; drop
+        0xfe, 0x03, 0x00, // atomic.fence
+        0x0b,
+        0x0b, 0x04, 0x01, 0x01, 0x01, 0x2a, // one passive data segment
+    };
+    const counts = try wasm_counts.analyze(&module);
+    try std.testing.expectEqual(@as(u64, 2), counts.types);
+    try std.testing.expectEqual(@as(u64, 3), counts.typed_reference_types);
+    try std.testing.expectEqual(@as(u64, 1), counts.tags_imported);
+    try std.testing.expectEqual(@as(u64, 1), counts.tags_defined);
+    try std.testing.expectEqual(@as(u64, 1), counts.globals_defined);
+    try std.testing.expectEqual(@as(u64, 1), counts.ref_null);
+    try std.testing.expectEqual(@as(u64, 1), counts.memory_inits);
+    try std.testing.expectEqual(@as(u64, 1), counts.data_drops);
+    try std.testing.expectEqual(@as(u64, 2), counts.atomic_instructions);
+    try std.testing.expectEqual(@as(u64, 2), counts.potentially_trapping_memory);
+    try std.testing.expectEqual(@as(u64, 2), counts.potentially_trapping_instructions);
+
+    const out_len = renderCsv(counts);
+    const csv = output_buf[0..out_len];
+    try std.testing.expect(std.mem.indexOf(u8, csv, "tags_defined,1\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "atomic_instructions,2\n") != null);
+    try std.testing.expect(std.mem.indexOf(u8, csv, "typed_reference_types,3\n") != null);
 }
