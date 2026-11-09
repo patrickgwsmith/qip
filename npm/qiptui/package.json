@@ -11,7 +11,7 @@
   "bin": {
     "qiptui": "qiptui.mjs"
   },
-  "files": ["qiptui.mjs"],
+  "files": ["qiptui.mjs", "qip-host.mjs"],
   "keywords": ["qip", "webassembly", "wasm", "tui", "terminal"],
   "homepage": "https://qip.dev",
   "bugs": {

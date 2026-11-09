@@ -4,10 +4,10 @@ import { readFile } from "node:fs/promises";
 import { inflateSync } from "node:zlib";
 import test from "node:test";
 
-import { applyUniforms, parseUniforms, readUniformParamTypes } from "../npm/qiptui/qiptui.mjs";
+import { applyUniforms, parseUniforms, readUniformParamTypes } from "../npm/qipgui/qip-host.mjs";
 import {
-  kittyImage, layoutImage, parseArgs, parseKTX2RGBA8, pointerState, runGUI,
-  TerminalInputSplitter, requireKTX2Output, validateGUIBinary,
+  checkChain, createStage, kittyImage, layoutImage, naturalSize, parseArgs, parseKTX2RGBA8, pointerState,
+  runGUI, runTransforms, TerminalInputSplitter, requireKTX2Output, validateGUIBinary, validateTransformBinary,
 } from "../npm/qipgui/qipgui.mjs";
 
 test("the splitter separates mouse reports and terminal replies from keys", () => {
@@ -59,8 +59,13 @@ test("Kitty frames chunk base64 RGBA and zlib payloads", () => {
 
 test("arguments", () => {
   assert.deepEqual(parseArgs(["--stats", "--transport", "zlib", "gui/snake.wasm"]), {
-    component: "gui/snake.wasm", input: undefined, uniforms: [], size: "auto", transport: "zlib", stats: true,
+    components: [{ path: "gui/snake.wasm", uniforms: [] }], input: undefined, size: "auto", transport: "zlib", stats: true,
   });
+  // -u applies to the preceding component; before any component it applies to the first.
+  assert.deepEqual(parseArgs(["-u", "a=1", "gui.wasm", "-u", "b=2", "raster.wasm", "-u", "c=3"]).components, [
+    { path: "gui.wasm", uniforms: ["a=1", "b=2"] },
+    { path: "raster.wasm", uniforms: ["c=3"] },
+  ]);
   assert.throws(() => parseArgs(["--size", "huge", "x.wasm"]), /--size/);
 });
 
@@ -139,7 +144,82 @@ test("non-KTX2 output is rejected", () => {
   assert.throws(() => parseKTX2RGBA8(new Uint8Array(200)), /not KTX2/);
 });
 
-test("applyUniforms from qiptui tolerates GUI components without size uniforms", async () => {
+test("shared applyUniforms tolerates GUI components without size uniforms", async () => {
   const stage = await stageFor("gui/calculator.wasm");
   applyUniforms(stage, { columns: 80, lines: 24 });
+});
+
+const RASTERIZER = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm";
+
+async function chainFor(paths) {
+  const stages = [];
+  for (const path of paths) {
+    const data = await readFile(path);
+    (stages.length ? validateTransformBinary : validateGUIBinary)(data, path);
+    stages.push(createStage(data, path));
+  }
+  checkChain(stages);
+  return stages;
+}
+
+test("naturalSize reads KTX2 headers and SVG width, height or viewBox", () => {
+  const svg = (root) => Buffer.from(`<?xml version="1.0"?>${root}<rect/></svg>`);
+  assert.deepEqual(naturalSize(svg('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 20" width="1000" height="760px">')), { width: 1000, height: 760 });
+  assert.deepEqual(naturalSize(svg("<svg viewBox='0 0 320.5 200'>")), { width: 320.5, height: 200 });
+  assert.deepEqual(naturalSize(svg('<svg width="100%" height="100%" viewBox="0,0,40,30">')), { width: 40, height: 30 });
+  assert.equal(naturalSize(svg('<svg width="10">')), null);
+  assert.equal(naturalSize(Buffer.from("hello")), null);
+  const ktx2 = Buffer.alloc(104);
+  Buffer.from([0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a]).copy(ktx2);
+  ktx2.writeUInt32LE(64, 20);
+  ktx2.writeUInt32LE(48, 24);
+  assert.deepEqual(naturalSize(ktx2), { width: 64, height: 48 });
+});
+
+test("an SVG component piped through the rasterizer renders KTX2", async () => {
+  const [gui, ...transforms] = await chainFor(["gui/klondike.wasm", RASTERIZER]);
+  const packed = BigInt.asUintN(64, gui.component.exports.render(0));
+  const primary = new Uint8Array(gui.component.exports.memory.buffer, Number((packed >> 32n) & 0x7fff_ffffn), Number(packed & 0xffff_ffffn));
+  const image = parseKTX2RGBA8(runTransforms(transforms, primary, { columns: 80, lines: 24 }));
+  assert.deepEqual({ width: image.width, height: image.height }, naturalSize(primary));
+});
+
+test("chains reject event handlers after the first component and mismatched types", async () => {
+  await assert.rejects(chainFor(["gui/klondike.wasm", "gui/snake.wasm"]), {
+    message: "gui/snake.wasm handles events, but only the first component can; later components must be content transforms",
+  });
+  await assert.rejects(chainFor(["gui/snake.wasm", RASTERIZER]), {
+    message: `${RASTERIZER} takes SVG, but gui/snake.wasm renders KTX2`,
+  });
+});
+
+test("pointer events through a transform use the first component's coordinates", async () => {
+  const [gui, ...transforms] = await chainFor(["gui/klondike.wasm", RASTERIZER]);
+  const events = [];
+  const exports = gui.component.exports;
+  gui.component = {
+    ...gui.component,
+    exports: { ...exports, pointer_event: (mask, x, y) => { events.push([mask, x, y]); return exports.pointer_event(mask, x, y); } },
+  };
+  const stdin = new FakeTTY();
+  const stdout = new FakeTTY();
+  stdout.input = stdin;
+  // The fake window is 1000x600 with 10px cells, so --size fill shows 1000x760 at 78 columns, 780px wide.
+  const running = runGUI({ stage: gui, transforms, input: new Uint8Array(), size: "fill", stdin, stdout });
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  stdin.emit("data", Buffer.from("\x1b[<0;390;296M\x1b[<0;390;296m"));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  process.emit("SIGINT");
+  await running;
+  process.exitCode = 0;
+  assert.deepEqual(events, [[1, 500, 379], [0, 500, 379]]);
+  assert.match(stdout.chunks.join(""), /\x1b_Ga=T,f=32,s=1000,v=760,i=1,p=1,q=2,C=1,c=78/);
+});
+
+test("qipgui has its own memory limit, above qiptui's 256 MiB", async () => {
+  const { validateTUIBinary } = await import("../npm/qiptui/qiptui.mjs");
+  const path = "image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb-simd.wasm";
+  const data = await readFile(path);
+  validateTransformBinary(data, path);
+  assert.throws(() => validateTUIBinary(data, path), new RegExp(`${path.replaceAll(/[.+]/g, "\\$&")} memory maximum exceeds 256 MiB`));
 });

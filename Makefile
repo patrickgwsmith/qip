@@ -1277,6 +1277,14 @@ test: qip components test-go test-node test-qipx-parity test-zig test-snapshot t
 test-base64-decode-variants: text/base64-decode.wasm text/base64-decode-simd.wasm text/base64-decode-c.wasm text/base64-decode-c-simd.wasm text/base64-decode-zig.wasm text/base64-decode-zig-simd.wasm text/base64-decode-odin.wasm text/base64-decode-odin-simd.wasm
 	node test/base64-decode-variants.mjs
 
+# Copy npm/shared sources into the npm packages that ship them.
+.PHONY: npm-shared check-npm-shared
+npm-shared:
+	node npm/sync-shared.mjs
+
+check-npm-shared:
+	node npm/sync-shared.mjs --check
+
 qipx-rust:
 	cargo build --manifest-path rust/qipx/Cargo.toml --locked
 
@@ -1353,6 +1361,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qipx-hosts.mjs
 	node --test test/qipx-tui.mjs
 	node --test test/qipx-uniforms.mjs
+	node npm/sync-shared.mjs --check
 	node --test test/qiptui.mjs
 	node --test test/qipgui.mjs
 	node --test test/qipdo.mjs

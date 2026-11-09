@@ -4,21 +4,46 @@
 terminal that supports the
 [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 and SGR pixel mouse reports (kitty, Ghostty and WezTerm). It is a prototype for
-testing whether this approach is viable, so the package is marked private and
-imports `../qiptui/qiptui.mjs` directly. Before anyone publishes it, it needs
-to depend on `qiptui` or bundle the code it shares with it.
+testing whether this approach is viable, so the package is marked private.
 
 ```sh
 node npm/qipgui/qipgui.mjs gui/calculator.wasm
 node npm/qipgui/qipgui.mjs --stats --transport zlib gui/snake.wasm
 node npm/qipgui/qipgui.mjs --size fill gui/paint.wasm
+node npm/qipgui/qipgui.mjs gui/klondike.wasm \
+  image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm -u background_color_rgba=0xffffffff
 ```
 
-It reuses qiptui's loader, which supports hosted `host/path.wasm` downloads,
-along with qiptui's Strict Wasm Profile checks, `-u` uniform parsing, and key
-decoder. Only presentation and pointer input are new:
+## Transform chains
 
-- `render()` must return KTX2 `R8G8B8A8_SRGB`. Each frame's level 0 pixels go
+Components after the first transform each frame in order, as with `qipdo`, and
+only the last one has to output KTX2 `R8G8B8A8_SRGB`. This lets SVG components
+run through a rasterizer. `-u` sets a uniform on the component before it. Before
+any component, it applies to the first one.
+
+- Only the first component receives keys, pointer events, and update calls.
+  Later components must be content transforms: they take input and export no
+  `begin_update_at`, `finish_update`, `key_event`, or `pointer_event`.
+- Each transform's declared input type must match the output type of the stage
+  before it, when both declare one.
+- Transforms are assumed only to scale the frame. A click is taken as a fraction
+  of the final image and multiplied by the first component's own size, which
+  comes from its KTX2 header or its SVG root's numeric `width` and `height`, or
+  its `viewBox`. For other formats, qipgui uses the final image size.
+
+With `svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm`, the repository's 9 SVG GUI
+components rasterize in 0.4 ms (`qip-logo-creature`) to 48 ms (`klondike`) per
+frame. qipgui allows each component up to 1 GiB of memory (qiptui allows
+256 MiB), so the `-simd` and ThorVG rasterizers also run, but on klondike they
+are slower: about 220 ms and 3 s per frame.
+
+It shares qiptui's loader, which supports hosted `host/path.wasm` downloads,
+along with its Strict Wasm Profile checks, `-u` uniform parsing, and key
+decoder. That code lives once in `npm/shared/qip-host.mjs` and is copied into
+each package as `qip-host.mjs` by `make npm-shared`; edit only the source.
+Only presentation and pointer input are new:
+
+- The final `render()` output must be KTX2 `R8G8B8A8_SRGB`. Each frame's level 0 pixels go
   to the terminal as an `f=32` image in 4096-byte base64 chunks. Frames
   alternate between image ids 1 and 2: each new image is placed before the old
   one is deleted, inside synchronized output (`?2026`), to avoid flicker.
@@ -70,8 +95,9 @@ Flat interface frames compress 20 to 60 times for a few milliseconds of
 work. Photographic and shaded frames compress poorly and cost tens of
 milliseconds, so `direct` or `file` suits them better.
 
-qipgui presents 47 of the 57 `gui/*.wasm` components. The other 10 output SVG,
-or, in the case of `gif-player`, need GIF input (`-i file.gif`).
+qipgui presents 47 of the 57 `gui/*.wasm` components on their own. The other
+9 SVG components need a rasterizer after them (see above), and `gif-player`
+needs GIF input (`-i file.gif`).
 
 ## Still to verify in a real terminal
 

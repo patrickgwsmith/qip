@@ -3,6 +3,7 @@
 NPM ?= npm
 
 publish:
+	@node ../sync-shared.mjs --check
 	@set -eu; \
 	version=$$(node -p "require('./package.json').version"); \
 	if grep -Fqx "$$version" published-versions.txt; then \

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-// qipgui: a prototype host that runs a QIP GUI component (KTX2 RGBA8 output with
-// optional Time and Events exports) in a terminal that supports the Kitty graphics
-// protocol. It reuses qiptui's loader, Strict Wasm Profile checks, uniform handling and
-// key decoder, and replaces only the presentation and pointer input.
+// qipgui: a prototype host that runs a QIP GUI component (with optional Time and Events
+// exports) in a terminal that supports the Kitty graphics protocol. Further components
+// transform each rendered frame in order, and the last one must output KTX2 RGBA8. It
+// shares its loader, Strict Wasm Profile checks, uniform handling and key decoder with
+// qiptui through qip-host.mjs, a copy of npm/shared/qip-host.mjs.
 
 import process from "node:process";
 import { realpathSync, writeFileSync } from "node:fs";
@@ -21,7 +22,11 @@ import {
   readUniformParamTypes,
   TerminalKeyDecoder,
   validateStrictProfile,
-} from "../qiptui/qiptui.mjs";
+} from "./qip-host.mjs";
+
+// Per-component memory limit. Higher than qiptui's 256 MiB so rasterizers such as the
+// SIMD (512 MiB), ThorVG (512 MiB) and Skia (544 MiB) ones can run as transforms.
+export const MAX_MEMORY = 1024 * 1024 * 1024;
 
 const FLAG_KEY_DOWN = 1 << 0;
 const FLAG_CONTROL = 1 << 3;
@@ -161,6 +166,30 @@ export function layoutImage({ width, height, size, window, cell, columns }) {
   return { columns: spanned, displayWidth: spanned * cellWidth };
 }
 
+// The size a frame's pixels are measured in, read from its header: KTX2 width and height,
+// or an SVG root's numeric width and height, falling back to its viewBox like the
+// rasterizers do. Returns null for formats without a known size.
+export function naturalSize(bytes) {
+  if (bytes.length >= 28 && KTX2_IDENTIFIER.equals(Buffer.from(bytes.buffer, bytes.byteOffset, 12))) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    return { width: view.getUint32(20, true), height: view.getUint32(24, true) };
+  }
+  const text = Buffer.from(bytes.buffer, bytes.byteOffset, Math.min(bytes.byteLength, 4096)).toString("latin1");
+  const root = /<svg\b[^>]*>/.exec(text)?.[0];
+  if (!root) return null;
+  const attribute = (name) => new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`).exec(root)?.[1];
+  const length = (value) => {
+    const match = /^\s*([\d.]+)\s*(px)?\s*$/.exec(value ?? "");
+    return match && Number(match[1]) > 0 ? Number(match[1]) : null;
+  };
+  const width = length(attribute("width"));
+  const height = length(attribute("height"));
+  if (width && height) return { width, height };
+  const box = (attribute("viewBox") ?? "").trim().split(/[\s,]+/).map(Number);
+  if (box.length === 4 && box[2] > 0 && box[3] > 0) return { width: box[2], height: box[3] };
+  return null;
+}
+
 function unpackRender(stage, packed) {
   if (typeof packed !== "bigint") throw new Error(`${stage.label} render must return i64`);
   const bits = BigInt.asUintN(64, packed);
@@ -191,7 +220,7 @@ function optionalFunction(exports, name, arity) {
   return fn;
 }
 
-const FORMAT_NAMES = { "image/svg+xml": "SVG", "text/html": "HTML", "text/plain": "plain text" };
+const FORMAT_NAMES = { "image/ktx2": "KTX2", "image/svg+xml": "SVG", "text/html": "HTML", "text/plain": "plain text" };
 
 export function requireKTX2Output(exports, label = "GUI component") {
   const type = contentType(exports, "output");
@@ -206,7 +235,7 @@ export function validateGUIBinary(data, label = "GUI component") {
     throw new Error("file is not a WebAssembly 1.0 module");
   }
   const module = new WebAssembly.Module(data);
-  validateStrictProfile(data, label);
+  validateStrictProfile(data, label, { maxMemory: MAX_MEMORY });
   const exports = new Map(WebAssembly.Module.exports(module).map((entry) => [entry.name, entry.kind]));
   if (exports.get("memory") !== "memory") throw new Error("GUI component must export memory");
   if (exports.get("render") !== "function") throw new Error("GUI component must export render");
@@ -219,6 +248,88 @@ export function validateGUIBinary(data, label = "GUI component") {
   if (!timed && (exports.has("key_event") || exports.has("pointer_event"))) {
     throw new Error("GUI component events need begin_update_at and finish_update");
   }
+}
+
+const EVENT_EXPORTS = ["begin_update_at", "finish_update", "key_event", "pointer_event"];
+
+// Components after the first transform each frame, so they take input and handle no events.
+export function validateTransformBinary(data, label) {
+  if (data.length < 8 || !data.subarray(0, 8).equals(Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]))) {
+    throw new Error(`${label} is not a WebAssembly 1.0 module`);
+  }
+  const module = new WebAssembly.Module(data);
+  validateStrictProfile(data, label, { maxMemory: MAX_MEMORY });
+  const exports = new Map(WebAssembly.Module.exports(module).map((entry) => [entry.name, entry.kind]));
+  if (exports.get("memory") !== "memory") throw new Error(`${label} must export memory`);
+  if (exports.get("render") !== "function") throw new Error(`${label} must export render`);
+  if (EVENT_EXPORTS.some((name) => exports.has(name))) {
+    throw new Error(`${label} handles events, but only the first component can; later components must be content transforms`);
+  }
+  if (!exports.has("input_ptr") || (!exports.has("input_bytes_cap") && !exports.has("input_utf8_cap"))) {
+    throw new Error(`${label} takes no input, so it cannot transform the previous component's output`);
+  }
+  if (exports.get("output_bytes_cap") !== "function" && exports.get("output_utf8_cap") !== "function") {
+    throw new Error(`${label} must export output_bytes_cap or output_utf8_cap`);
+  }
+}
+
+// Instantiates a validated module as a stage that runWithTransforms and runGUI accept.
+export function createStage(data, label, uniforms = []) {
+  const exports = new WebAssembly.Instance(new WebAssembly.Module(data)).exports;
+  const inputless = exports.input_ptr === undefined;
+  const inputCapacity = exports.input_bytes_cap ?? exports.input_utf8_cap;
+  const outputCapacity = exports.output_bytes_cap ?? exports.output_utf8_cap;
+  const stage = {
+    label,
+    component: { exports, uniformParamTypes: readUniformParamTypes(data, label) },
+    inputless,
+    inputCapacity: inputless || typeof inputCapacity !== "function" ? 0 : inputCapacity(),
+    outputCapacity: outputCapacity(),
+    inputType: contentType(exports, "input"),
+    outputType: contentType(exports, "output"),
+    uniforms,
+  };
+  stage.uniformArguments = parseUniforms(stage);
+  return stage;
+}
+
+const mediaTypeOf = (type) => type.split(";")[0].trim().toLowerCase();
+
+// Checks that each transform accepts what the stage before it renders, and that the last
+// stage renders KTX2. Types that a component leaves undeclared are not checked.
+export function checkChain(stages) {
+  for (let index = 1; index < stages.length; index += 1) {
+    const previous = stages[index - 1];
+    const stage = stages[index];
+    const wanted = mediaTypeOf(stage.inputType);
+    const given = mediaTypeOf(previous.outputType);
+    if (wanted && given && wanted !== given) {
+      throw new Error(`${stage.label} takes ${FORMAT_NAMES[wanted] ?? wanted}, but ${previous.label} renders ${FORMAT_NAMES[given] ?? given}`);
+    }
+  }
+  const last = stages.at(-1);
+  requireKTX2Output(last.component.exports, last.label);
+}
+
+function writeInput(stage, bytes) {
+  const { exports } = stage.component;
+  const pointer = exports.input_ptr();
+  if (bytes.byteLength > stage.inputCapacity || pointer + bytes.byteLength > exports.memory.buffer.byteLength) {
+    throw new Error(`${stage.label} input is too large (${bytes.byteLength} bytes > ${stage.inputCapacity} bytes input capacity)`);
+  }
+  new Uint8Array(exports.memory.buffer, pointer, bytes.byteLength).set(bytes);
+}
+
+// Pipes one frame through the transforms. Each output is a view into its stage's memory,
+// which stays valid because the next stage only writes to its own memory.
+export function runTransforms(transforms, bytes, dimensions) {
+  let current = bytes;
+  for (const stage of transforms) {
+    applyUniforms(stage, dimensions);
+    writeInput(stage, current);
+    current = unpackRender(stage, stage.component.exports.render(current.byteLength));
+  }
+  return current;
 }
 
 class Stats {
@@ -248,7 +359,7 @@ class Stats {
 }
 
 export async function runGUI({
-  stage, input, size = "auto", transport = "direct", stats = null,
+  stage, transforms = [], input, size = "auto", transport = "direct", stats = null,
   stdin = process.stdin, stdout = process.stdout,
 }) {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
@@ -312,11 +423,20 @@ export async function runGUI({
     }
     dirty = false;
     const renderStart = performance.now();
-    applyUniforms(stage, { columns: stdout.columns || 80, lines: stdout.rows || 24 });
-    const output = unpackRender(stage, exports.render(initial ? source.byteLength : 0));
+    const dimensions = { columns: stdout.columns || 80, lines: stdout.rows || 24 };
+    applyUniforms(stage, dimensions);
+    const primary = unpackRender(stage, exports.render(initial ? source.byteLength : 0));
+    // Pointer events use the first component's own size, so transforms that scale the
+    // frame still get clicks in its coordinates.
+    const pointerSize = transforms.length ? naturalSize(primary) : null;
+    const output = runTransforms(transforms, primary, dimensions);
     const encodeStart = performance.now();
     const image = parseKTX2RGBA8(output);
-    layout = { ...image, ...layoutImage({ ...image, size, window, cell, columns: stdout.columns || 80 }) };
+    layout = {
+      ...image,
+      pointer: pointerSize ?? { width: image.width, height: image.height },
+      ...layoutImage({ ...image, size, window, cell, columns: dimensions.columns }),
+    };
     const id = imageID;
     imageID = imageID === 1 ? 2 : 1;
     // Place the new image before deleting the old one so the terminal never shows a gap.
@@ -397,14 +517,18 @@ export async function runGUI({
     rejectDone(error);
   };
 
-  // Converts a terminal pixel position to a rendered pixel, or null outside the image.
+  // Converts a terminal pixel position to the first component's coordinates. Transforms
+  // are assumed only to scale, so the same fraction of the frame maps back.
   const toImage = (report) => {
     if (!layout) return null;
-    const scale = layout.width / layout.displayWidth;
     // SGR pixel reports are treated as 0-based; check against your terminal (see README).
-    const x = Math.floor(report.x * scale);
-    const y = Math.floor(report.y * scale);
-    return { x, y, inside: x >= 0 && y >= 0 && x < layout.width && y < layout.height };
+    const fx = report.x / layout.displayWidth;
+    const fy = report.y * (layout.width / layout.height) / layout.displayWidth;
+    const { width, height } = layout.pointer;
+    return {
+      x: Math.floor(fx * width), y: Math.floor(fy * height), width, height,
+      inside: fx >= 0 && fy >= 0 && fx < 1 && fy < 1,
+    };
   };
 
   let queued = [];
@@ -438,8 +562,8 @@ export async function runGUI({
         return;
       }
       // A drag that leaves the image keeps reporting the nearest edge pixel.
-      const x = Math.min(Math.max(point.x, 0), layout.width - 1);
-      const y = Math.min(Math.max(point.y, 0), layout.height - 1);
+      const x = Math.min(Math.max(point.x, 0), Math.ceil(point.width) - 1);
+      const y = Math.min(Math.max(point.y, 0), Math.ceil(point.height) - 1);
       pointerInside = point.inside;
       pointerMask = mask;
       queued.push({ type: "pointer", mask, x, y });
@@ -519,9 +643,12 @@ export async function runGUI({
 }
 
 function usage() {
-  return `Usage: qipgui [options] <component.wasm | host/path.wasm>\n\n` +
-    `  -i, --input <file|->       Initial input file or piped stdin\n` +
-    `  -u, --uniform <name=n>     Set a numeric component uniform\n` +
+  return `Usage: qipgui [options] <gui.wasm> [transform.wasm ...]\n\n` +
+    `The first component renders and receives keys and pointer events. Each later\n` +
+    `component transforms the frame before it, and the last must output KTX2 RGBA8.\n` +
+    `Components may be local files or host/path.wasm downloads.\n\n` +
+    `  -i, --input <file|->       Initial input for the first component, or piped stdin\n` +
+    `  -u, --uniform <name=n>     Set a numeric uniform on the preceding component\n` +
     `      --size <mode>          auto (1:1, shrink to fit), native, or fill\n` +
     `      --transport <mode>     direct (base64 RGBA), zlib, or file (local terminals only)\n` +
     `      --stats                Print frame rate, bytes and input latency on exit\n` +
@@ -530,11 +657,14 @@ function usage() {
     `Ctrl-C exits.\n\n` +
     `Examples:\n` +
     `  qipgui gui/calculator.wasm\n` +
-    `  qipgui --stats --transport zlib gui/snake.wasm\n`;
+    `  qipgui --stats --transport zlib gui/snake.wasm\n` +
+    `  qipgui gui/klondike.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm\n`;
 }
 
+// Uniforms before the first component apply to it, so `-u name=n gui.wasm` keeps working.
 export function parseArgs(args) {
-  const options = { component: undefined, input: undefined, uniforms: [], size: "auto", transport: "direct", stats: false };
+  const options = { components: [], input: undefined, size: "auto", transport: "direct", stats: false };
+  const leading = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "-h" || arg === "--help") return { help: true };
@@ -543,7 +673,7 @@ export function parseArgs(args) {
       const value = args[++index];
       if (value === undefined) throw new Error(`${arg} requires a value`);
       if (arg === "-i" || arg === "--input") options.input = value;
-      else if (arg === "-u" || arg === "--uniform") options.uniforms.push(value);
+      else if (arg === "-u" || arg === "--uniform") (options.components.at(-1)?.uniforms ?? leading).push(value);
       else if (arg === "--size") {
         if (!["auto", "native", "fill"].includes(value)) throw new Error("--size must be auto, native or fill");
         options.size = value;
@@ -552,10 +682,9 @@ export function parseArgs(args) {
         options.transport = value;
       }
     } else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}`);
-    else if (options.component === undefined) options.component = arg;
-    else throw new Error("qipgui accepts one GUI component");
+    else options.components.push({ path: arg, uniforms: options.components.length ? [] : leading });
   }
-  if (!options.component) throw new Error("qipgui requires a component; run --help for usage");
+  if (!options.components.length) throw new Error("qipgui requires a component; run --help for usage");
   return options;
 }
 
@@ -565,20 +694,14 @@ export async function main(args = process.argv.slice(2)) {
     process.stdout.write(usage());
     return;
   }
-  const data = await loadWasm(options.component, (bytes) => validateGUIBinary(bytes, options.component));
-  const exports = new WebAssembly.Instance(new WebAssembly.Module(data)).exports;
-  requireKTX2Output(exports, options.component);
-  const inputless = exports.input_ptr === undefined;
-  const capacity = exports.input_bytes_cap ?? exports.input_utf8_cap;
-  const stage = {
-    label: options.component,
-    component: { exports, uniformParamTypes: readUniformParamTypes(data, options.component) },
-    inputless,
-    inputCapacity: inputless || typeof capacity !== "function" ? 0 : capacity(),
-    outputCapacity: exports.output_bytes_cap(),
-    uniforms: options.uniforms,
-  };
-  stage.uniformArguments = parseUniforms(stage);
+  const stages = [];
+  for (const { path, uniforms } of options.components) {
+    const validate = stages.length ? validateTransformBinary : validateGUIBinary;
+    const data = await loadWasm(path, (bytes) => validate(bytes, path));
+    stages.push(createStage(data, path, uniforms));
+  }
+  checkChain(stages);
+  const [stage, ...transforms] = stages;
   const piped = options.input === "-";
   if (piped && (process.stdin.isTTY || !process.stderr.isTTY)) {
     throw new Error("piped input needs stdin from a pipe and stderr attached to a terminal for keyboard input");
@@ -588,7 +711,7 @@ export async function main(args = process.argv.slice(2)) {
   const keyboard = piped ? new ReadStream(2) : process.stdin;
   try {
     await runGUI({
-      stage, input, size: options.size, transport: options.transport,
+      stage, transforms, input, size: options.size, transport: options.transport,
       stats: options.stats ? new Stats() : null, stdin: keyboard,
     });
   } finally {
