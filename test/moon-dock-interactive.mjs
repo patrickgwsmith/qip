@@ -31,7 +31,8 @@ function assertABI(exports, inputCapacity) {
   }
   assert.equal(exports.key_event.length, 2);
   assert.equal(exports.pointer_event.length, 3);
-  assert.equal(exports.input_bytes_cap(), inputCapacity);
+  const [capName, capacity] = Object.entries(inputCapacity)[0];
+  assert.equal(exports[capName](), capacity);
   const type = new TextDecoder("utf-8", { fatal: true }).decode(
     bytesAt(exports, exports.output_content_type_ptr(), exports.output_content_type_size()),
   );
@@ -48,14 +49,14 @@ function assertUpdateABI(exports, inputCapacity) {
 
 function writeInput(exports, text) {
   const encoded = new TextEncoder().encode(text);
-  assert.ok(encoded.length <= exports.input_bytes_cap());
+  assert.ok(encoded.length <= exports.input_utf8_cap());
   bytesAt(exports, exports.input_ptr(), encoded.length).set(encoded);
   return encoded.length;
 }
 
 test("moon phases combines initial source input with later navigation updates", () => {
   const moon = instantiate(wasm.moon);
-  assertUpdateABI(moon, 64);
+  assertUpdateABI(moon, { input_utf8_cap: 64 });
 
   const inputSize = writeInput(moon, "2026-06-15");
   const size = qipRenderSize(moon, inputSize);
@@ -76,7 +77,7 @@ test("moon phases combines initial source input with later navigation updates", 
 
 test("dock hover animation updates independently of output publication", () => {
   const dock = instantiate(wasm.dock);
-  assertUpdateABI(dock, 0);
+  assertUpdateABI(dock, { input_bytes_cap: 0 });
 
   const size = qipRenderSize(dock, 0);
   assert.equal(size, 224 + 1800 * 840 * 4);

@@ -131,65 +131,34 @@ coalescing them to one time is correct for that interface.
 
 ## Browser Presentation
 
-`<qip-play>` selects a presenter from the final pipeline content type. It
-decodes KTX2 output into a canvas. It presents `image/svg+xml` output through
-a focusable, non-draggable image backed by a Blob URL. The image boundary keeps
-scripts in component output inert. The host revokes replaced Blob URLs and
-ignores late load events for replaced frames.
+`<qip-play>` is the browser host for this contract. Its
+[reference](/docs/qip-elements#qip-play) lists the attributes, output types,
+input mapping and scheduling rules. The points below matter when you write a
+component for it.
 
-For trusted SVG output, set `svg-inline` on `<qip-play>`. The host then parses
-each frame and replaces the SVG child of a stable focusable element. Pointer
-capture and keyboard focus stay on that element during replacement. Inline SVG
-text is selectable with the mouse. Inline SVG joins the page DOM, so use this
-mode only when the component output is trusted.
-
-For an inline SVG game that drags text-labeled objects, add
-`no-text-selection` to `<qip-play>`. This disables text selection and lets a
-press on SVG text capture the pointer for the drag.
-
-A page can
-set `canvas-width` and `canvas-height`, or the
-`--qip-play-canvas-width` and `--qip-play-canvas-height` CSS properties.
-Attributes take precedence.
-
-`<qip-play>` suspends scheduled Timed wakes and rendering while its element is
-outside the viewport. It preserves the component's next wake deadline. When
-the element re-enters, the host delivers one late update at the current time,
-renders the current state, and schedules the next returned wake. Component
-time therefore continues while execution is suspended. Queued user input can
-still open an offscreen update, but it does not cause an offscreen render.
-Browsers without `IntersectionObserver` keep the component running.
-
-Pointer coordinates are converted from the displayed canvas box to rendered
-pixel coordinates. This permits a high-resolution rendered image to use a
-smaller CSS presentation size.
-
-An SVG component can initialize from a direct
-`<source name="input" type="image/svg+xml">`, from an `input` or `textarea`
-named `input`, or from empty input. A named source takes precedence when both
-forms exist. Input is initialization-only: replace the component instance to
-load another document. `<qip-play>` maps the displayed image to the SVG
-component's fixed 800 by 600 event surface and keeps pointer capture during a
-drag.
-
-An editor owns any SVG elements that it adds for presentation. The SVG path
-editor uses one `g[data-qip-editor-overlay="true"]`, removes an existing marked
-overlay during initialization, and writes one current overlay on render.
-
-For linear Display P3 RGBA32F output, `<qip-play>` first tries a float16 linear
-Display P3 canvas. It then tries transfer-encoded float16 Display P3. If the
-browser does not expose either canvas, the host reuses an 8-bit `ImageData` and
-tone maps the pixels to Display P3 or sRGB. The stats line reports both the
-component output profile and the canvas profile. A change in dimensions or
-profile replaces the canvas and its context because those context settings are
-immutable.
-
-Add `debug` to `<qip-play>` to report output comparisons and unchanged renders.
-The comparison scans the complete output, so keep it disabled for normal use.
-
-`<qip-play max-memory="67108864">` rejects a module whose declared memory
-minimum or maximum exceeds that cap. A module without a declared maximum is
-also rejected. A module containing `memory.grow` is always rejected.
+- **Output.** A KTX2 frame is drawn to a canvas. A Time and Events component
+  can return `image/svg+xml` instead; it is shown as an image unless the page
+  opts into trusted inline SVG with `svg-inline`. Either can be the root of a
+  `multipart/related` output.
+- **Coordinates.** Pointer coordinates are integer pixels in the rendered
+  frame, scaled from the displayed size. A component can render at high
+  resolution while the page shows it smaller. SVG output has no pixel size, so
+  the page sets its coordinate space with `svg-width` and `svg-height`
+  (default 800 by 600).
+- **Initial input.** A component that exports `input_ptr` and either
+  `input_utf8_cap` or `input_bytes_cap` receives a page's initial input on its
+  first render. Input is not resent later; to load another document, replace
+  the component instance.
+- **Offscreen and hidden pages.** The host suspends wakes and rendering while
+  the element is offscreen and delivers one late update when it returns. Rely
+  on the wake being advisory, as described in
+  [Update And Presentation](#update-and-presentation).
+- **Size and colour changes.** A frame may change its dimensions or KTX2
+  profile; the host replaces its canvas to match.
+- **SVG overlays.** An editor owns any SVG elements that it adds for
+  presentation. The SVG path editor uses one
+  `g[data-qip-editor-overlay="true"]`, removes an existing marked overlay
+  during initialization, and writes one current overlay on render.
 
 See [Testing GUI Components](/docs/testing-gui-components) for direct Wasm,
 host-loop, output, and browser tests.

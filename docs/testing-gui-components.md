@@ -297,6 +297,12 @@ Host tests should cover behavior shared by every component. In this repo, `test/
 - Hidden-page updates which leave the previous KTX2 output in place.
 - A later visible render which presents the new state.
 
+`test/qip-play-lifecycle.mjs` covers the element through what a page can
+observe: render rejection and contract error messages, `multipart/related` SVG
+roots, initial input through `input_utf8_cap` or `input_bytes_cap`, Meta-key
+rules, button masks, coordinate clamping, key repeat timing, render counts in
+the stats line, and listener removal when the element disconnects.
+
 Do not repeat those assertions in each component test unless the component adds its own state transition at that boundary.
 
 ### Compare Host Decisions As Text
@@ -331,6 +337,18 @@ Use a real browser for the remaining integration risks:
 3. Convert logical render coordinates through `getBoundingClientRect()` before moving or clicking the pointer.
 4. Sample `canvas.getContext("2d").getImageData(...)` for one or two important states.
 5. Check desktop and narrow viewports when CSS scales the fixed framebuffer.
+
+`make test-qip-play-browser` automates these checks for the element itself. It
+uses agent-browser to load
+`test/browser/qip-play.html` in Chromium, sends real key presses, clicks, a
+held key and a right-click, and compares canvas pixels, SVG markup, stats text
+and error messages with `test/browser/qip-play.golden.json`. It covers KTX2,
+image and inline SVG, SVG input, a post-processing chain, a resize step with
+alternatives, an animated component that pauses offscreen, and load errors.
+The test is skipped when agent-browser is not installed. After an intended
+change to what the element renders, re-record with
+`QIP_PLAY_UPDATE_GOLDEN=1 make test-qip-play-browser` and review the golden
+diff.
 
 Repository tests may inspect private counters such as `<qip-play>._renderN` to prove that moving within one semantic hover target does not render again. That counter is host instrumentation, not part of the public component contract.
 

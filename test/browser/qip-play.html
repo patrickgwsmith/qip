@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>qip-play browser fixture</title>
+<style>
+  body { margin: 0; font: 12px sans-serif; }
+  qip-play { display: block; margin: 0 0 8px; }
+  #spacer { height: 4000px; }
+</style>
+<script type="module" src="/site/_elements/qip-play.js"></script>
+</head>
+<body>
+<!-- Each element is small enough that all of them start inside one viewport. -->
+<qip-play id="calc" canvas-width="240px" canvas-height="auto">
+  <source src="/gui/calculator.wasm" type="application/wasm" />
+</qip-play>
+
+<qip-play id="klondike-img" canvas-width="200px" svg-width="1000" svg-height="760">
+  <source src="/gui/klondike.wasm" type="application/wasm" data-uniform-seed="42" />
+</qip-play>
+
+<qip-play id="klondike-inline" aria-label="Klondike" canvas-width="300px" svg-inline no-text-selection svg-width="1000" svg-height="760">
+  <source src="/gui/klondike.wasm" type="application/wasm" data-uniform-seed="42" />
+</qip-play>
+
+<qip-play id="path-editor" canvas-width="200px">
+  <source name="input" src="/site/example.svg" type="image/svg+xml">
+  <source src="/gui/svg-path-editor.wasm" type="application/wasm">
+</qip-play>
+
+<qip-play id="moon" canvas-width="120px" canvas-height="auto">
+  <input name="input" type="hidden" value="2026-05-31" />
+  <source src="/gui/moon-phases.wasm" type="application/wasm" />
+</qip-play>
+
+<qip-play id="duotone" debug canvas-width="160px" canvas-height="auto">
+  <qip-step name="desktop">
+    <source src="/gui/macintosh-1bit.wasm" type="application/wasm" />
+  </qip-step>
+  <qip-step name="duotone">
+    <source src="/image/ktx2/ktx2-duotone-to-ktx2-rgba32float-display-p3-linear.wasm" type="application/wasm"
+            data-uniform-highlight_r="2.4" data-uniform-highlight_g="0.42" data-uniform-highlight_b="0.015" />
+  </qip-step>
+</qip-play>
+
+<qip-play id="resize" debug canvas-width="160px" canvas-height="auto">
+  <qip-step name="calculator">
+    <source src="/gui/calculator.wasm" type="application/wasm" />
+  </qip-step>
+  <qip-step name="resize">
+    <source src="/image/ktx2/ktx2-r8g8b8a8-srgb-resize-down-lanczos3.wasm" type="application/wasm" data-uniform-width="600" />
+    <source src="/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm" type="application/wasm" data-uniform-width="600" />
+  </qip-step>
+</qip-play>
+
+<qip-play id="flurry" canvas-width="160px" canvas-height="auto">
+  <source src="/gui/flurry.wasm" type="application/wasm" />
+</qip-play>
+
+<qip-play id="missing">
+  <source src="/gui/does-not-exist.wasm" type="application/wasm" />
+</qip-play>
+
+<qip-play id="text-output">
+  <source src="/tui/calendar-gregorian.wasm" type="application/wasm" />
+</qip-play>
+
+<div id="spacer"></div>
+<div id="offscreen-anchor">bottom</div>
+
+<script>
+  // Test-only probes. These read the DOM that <qip-play> builds; they never
+  // touch the element's private fields, so they survive refactors.
+  function fnv1a(bytes) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < bytes.length; i++) {
+      h ^= bytes[i];
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+  function textHash(text) { return fnv1a(new TextEncoder().encode(text)); }
+
+  async function probe(element) {
+    const alert = element.querySelector('pre[role="alert"]');
+    if (alert) return { id: element.id, error: alert.textContent.replaceAll(location.origin, "") };
+    const stats = element.querySelector('aside[aria-label="qip-play stats"]');
+    if (!stats) return { id: element.id, pending: true };
+    const surface = element.firstElementChild;
+    const rect = surface.getBoundingClientRect();
+    const result = {
+      id: element.id,
+      surface: surface.localName,
+      tabIndex: surface.tabIndex,
+      touchAction: surface.style.touchAction,
+      cssWidth: Math.round(rect.width),
+      cssHeight: Math.round(rect.height),
+      rect: { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+      // Strip timings, which vary from run to run.
+      stats: stats.textContent.replace(/\d+\.\d+ ms/g, "# ms"),
+      renders: Number((stats.textContent.match(/\| render +(\d+)/) || [])[1] || 0),
+      statsMaxWidth: stats.style.maxWidth,
+    };
+    if (surface.localName === "canvas") {
+      const ctx = surface.getContext("2d");
+      result.width = surface.width;
+      result.height = surface.height;
+      result.hash = fnv1a(ctx.getImageData(0, 0, surface.width, surface.height).data);
+    } else if (surface.localName === "img") {
+      result.alt = surface.alt;
+      result.draggable = surface.draggable;
+      result.blob = surface.src.startsWith("blob:");
+      result.hash = textHash(await (await fetch(surface.src)).text());
+    } else {
+      const svg = surface.firstElementChild;
+      result.role = surface.getAttribute("role");
+      result.label = surface.getAttribute("aria-label");
+      result.aspectRatio = surface.style.aspectRatio;
+      result.userSelect = svg?.style.userSelect || surface.style.userSelect;
+      result.rootName = svg?.localName;
+      result.hash = textHash(surface.innerHTML);
+    }
+    return result;
+  }
+
+  window.qipPlayProbe = async (ids) => {
+    const elements = ids
+      ? ids.map((id) => document.getElementById(id))
+      : [...document.querySelectorAll("qip-play")];
+    const results = {};
+    for (const element of elements) results[element.id] = await probe(element);
+    return results;
+  };
+
+  window.qipPlayReady = async () => {
+    const all = await window.qipPlayProbe();
+    return Object.values(all).every((entry) => !entry.pending);
+  };
+</script>
+</body>
+</html>

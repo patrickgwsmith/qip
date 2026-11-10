@@ -237,7 +237,9 @@ These checks run after the module bytes are fetched and before `WebAssembly.comp
 
 ## `<qip-play>`
 
-`<qip-play>` is the persistent, interaction-oriented element. The component remains instantiated over time, owns or participates in an evolving stateful session, and user events can affect subsequent output.
+`<qip-play>` is the persistent, interaction-oriented element. The component
+stays instantiated, keeps its state between events, and user input can change
+later output.
 
 ```html
 <qip-play>
@@ -245,9 +247,109 @@ These checks run after the module bytes are fetched and before `WebAssembly.comp
 </qip-play>
 ```
 
-A direct `<source>` is shorthand for one interactive step. Use ordered
-`<qip-step>` wrappers to pass each rendered frame through finite Content
-post-processing components:
+The difference from `<qip-edit>` is more than whether a page takes input. An
+edit changes declared source inputs and produces finite results. A play session
+talks to a running component whose state persists between events. A fallback,
+poster, or initial snapshot can be rendered ahead of time, but the session only
+becomes interactive once the element runs in the browser.
+
+The element implements the host side of [Time and Events](/docs/time-and-events):
+a time-zero `render`, a bootstrap update, then `begin_update_at`, events,
+`finish_update`, and a separate `render` when a new frame is needed.
+`calculator` follows the application-style path, which renders only after
+accepted input. `snake` combines events with fixed-step scheduled wakes. See
+[GUI Components](/docs/gui-components) for the component contract and
+[Interactive Rendering Performance](/docs/interactive-rendering-performance)
+for timing.
+
+### Attributes
+
+| Attribute | Effect |
+| --- | --- |
+| `canvas-width`, `canvas-height` | CSS size of the presentation surface. Default: the rendered width in CSS pixels, and `auto` height. The `--qip-play-canvas-width` and `--qip-play-canvas-height` custom properties set the same values; attributes take precedence. |
+| `svg-width`, `svg-height` | Coordinate space of SVG output, in whole positive numbers. Default 800 by 600. Pointer coordinates are mapped into this space, and inline SVG uses it as the surface's aspect ratio. Ignored for KTX2 output, whose size comes from each frame. |
+| `svg-inline` | Present SVG frames in the page DOM instead of through an image. Use only for trusted output; see Output below. |
+| `no-text-selection` | With `svg-inline`, turn off text selection so a press on SVG text starts a drag. |
+| `touch-action` | CSS `touch-action` for the surface. Default `none`, so touch and pen drags reach the component instead of scrolling the page. |
+| `aria-label` | Accessible name of an SVG surface. Default "Interactive SVG editor". |
+| `tabindex` | Moved to the surface, which is focusable by default (`0`). |
+| `data-pointer-lock` | Request pointer lock on a mouse press; see Pointer Lock below. |
+| `max-memory` | Reject modules whose declared memory exceeds the byte cap, as for `<qip-edit>`; see Module Policy above. |
+| `debug` | Add frame comparisons and per-step lines to the stats; see Stats And Errors below. |
+| `log` | Log initial render time and each update's timings to the console. |
+
+### Children
+
+| Child | Role |
+| --- | --- |
+| `<source type="application/wasm">` | The component. Normal media selection picks the first matching source. |
+| `<qip-step>` | One stage of a post-processing pipeline. Do not mix direct Wasm `<source>` children with `<qip-step>` children. |
+| `<source name="input" type="…">` | Initial input fetched from `src`. |
+| `<input name="input">` or `<textarea name="input">` | Initial input from the control's text. It stays on the page below the surface. |
+
+Set uniforms with `data-uniform-<name>` attributes on any Wasm `<source>`, for
+example `data-uniform-width="1200"`. Names use lowercase letters, digits and
+single underscores. The host reads these attributes again before every update
+and render, so a script can change one and the next frame uses the new value.
+
+### Output
+
+The first component, or the last step of a pipeline, must declare one of these
+output content types:
+
+| Output | Presentation |
+| --- | --- |
+| `image/ktx2` | A canvas. Accepts canonical RGBA8 sRGB and the repository's RGBA32F linear or transfer-encoded Display P3 [profiles](/docs/formats#qip-ktx2-profiles). |
+| `image/svg+xml` | A focusable, non-draggable `<img>` backed by a Blob URL, or inline SVG with `svg-inline`. The module must use `output_utf8_cap`. |
+| `multipart/related;type="image/ktx2"` or `type="image/svg+xml"` | The root part only, presented as above. Later parts are skipped unread. The declaration must include a `boundary`. |
+
+Anything else, including `text/plain`, is an error. Use
+[`<qip-tui>`](#qip-tui) for text frames.
+
+**KTX2.** When a frame changes size or colour profile, the host replaces the
+canvas and its context, because those context settings cannot change. Focus
+moves to the new canvas. For linear Display P3 RGBA32F output, the host tries a
+float16 linear Display P3 canvas first, then transfer-encoded float16 Display
+P3. If the browser offers neither, it tone maps into an 8-bit canvas in Display
+P3 or sRGB. The stats line shows the output profile and the canvas profile.
+
+**SVG as an image.** The `<img>` boundary keeps scripts in component output
+inert. Each frame gets a new Blob URL, the host revokes the URL it replaced, and
+it ignores late load events from replaced frames.
+
+**Inline SVG.** With `svg-inline`, the host parses each frame and swaps the SVG
+inside a stable, focusable element with `role="img"`. The output must have an
+SVG root element. Focus and pointer capture stay on the wrapper while frames
+change, and SVG text can be selected with the mouse unless `no-text-selection`
+is set. Inline SVG joins the page DOM, so use it only for trusted output.
+
+### Initial Input
+
+The first component can read input on its first render. Input is set once:
+replace the element to load another document.
+
+- A `<source name="input">` is fetched as bytes. Its `type` must exactly match
+  the module's declared input content type.
+- Otherwise an `<input name="input">` or `<textarea name="input">` supplies its
+  text, encoded as UTF-8.
+- With neither, the first render gets empty input.
+
+The module must export `input_ptr` and either `input_utf8_cap` or
+`input_bytes_cap`. The host prefers `input_utf8_cap` when both exist. Input
+longer than the capacity is an error. For example, Moon Phases takes an
+optional date string:
+
+```html
+<qip-play>
+  <source src="/gui/moon-phases.wasm" type="application/wasm" />
+  <input type="hidden" name="input" value="2026-05-31" />
+</qip-play>
+```
+
+### Post-Processing Steps
+
+Wrap sources in ordered `<qip-step>` elements to pass each frame through
+finite Content components:
 
 ```html
 <qip-play debug>
@@ -265,30 +367,30 @@ post-processing components:
 ```
 
 This example maps the light end of the image to HDR orange. Change the three
-`highlight` uniforms to author another linear Display P3 color without changing
+`highlight` uniforms to pick another linear Display P3 colour without changing
 the GUI component.
 
-The first step must implement Interactive. Later steps must implement finite
-Content, accept and emit `image/ktx2`, and must not export Timed or Eventful
-capabilities. `<qip-play>` sends pointer and keyboard events only to the first
-step. It copies each KTX2 result into the next component's bounded input memory
-and presents only the last result. Timed post-processing is not supported yet.
+- The first step must implement Interactive. It alone receives pointer and
+  keyboard events and updates.
+- Later steps must implement finite Content and must not export Timed or
+  Eventful functions. Each step's input type must match the previous step's
+  output type, and the last step's output must be one of the
+  output types listed under Output above.
+- The host copies each result into the next component's input memory and
+  presents only the last result. Timed post-processing is not supported yet.
 
-The first step selects its first matching `<source>` child through normal media
-selection. A later step treats matching sources as ordered executable
-alternatives. On the first frame, `<qip-play>` calls each candidate until one
-accepts the input with a successful Content result. It retains that component
-instance for later frames. A recoverable rejection tries the next source; a
-trap stops the pipeline because the component instance is no longer safe to
-reuse.
+The first step selects its first matching `<source>` through normal media
+selection. A later step treats its matching sources as ordered alternatives. On
+the first frame, `<qip-play>` calls each one until one accepts the input, then
+keeps that instance for later frames and releases the others so their memory
+can be collected. A recoverable rejection tries the next source. A trap stops
+the pipeline, because that instance is no longer safe to reuse.
 
-Every alternative in one step must declare identical, non-empty input and
-output content types. The input type must also match the preceding step's
-declared output type. The host loads and validates every candidate before it
-starts. All downloaded Wasm counts toward the step's byte total. After a source
-accepts the first frame, the host releases its references to the unselected
-instances so their fixed memories can be collected. For example, a resize step
-can choose its direction without putting image-size policy in JavaScript:
+Every alternative in one step must declare the same non-empty input and output
+content types. The host loads and validates every alternative before it
+starts, and all of their Wasm counts toward the step's size in the stats. For
+example, a resize step can choose its direction without putting image-size
+policy in JavaScript:
 
 ```html
 <qip-step name="resize">
@@ -303,22 +405,43 @@ can choose its direction without putting image-size policy in JavaScript:
 
 Both components declare `image/ktx2 -> image/ktx2`. The reduction component
 accepts when 1200 pixels does not enlarge an axis. Otherwise it returns a
-recoverable rejection and the Mitchell component gets the same input. Do not
-mix direct `<source>` children and `<qip-step>` children. With `debug`, the
-statistics include all alternatives' Wasm size, retained memory, the selected
-source, latest render time, and render count for each named step.
+recoverable rejection and the Mitchell component gets the same input.
 
-The distinction from `<qip-edit>` is not merely that both accept interaction. Editing changes declared source inputs and produces finite results; playing interacts with a running component whose state persists between events. A fallback, poster, or initial snapshot may be rendered ahead of time, but the experience requires client activation to become interactive.
+Pointer coordinates are measured in the presented image, which is the last
+step's output. A step that changes the image size therefore also changes the
+coordinates the first component receives. The host does not map them back yet,
+so put size-changing steps only after components that ignore pointer input.
 
-The element supports [Time and Events](/docs/time-and-events):
-`begin_update_at`, complete
-update uniforms, timestamp-free events, `finish_update`, separate
-presentation, and canonical KTX2 output. `calculator` uses the
-application-style path. `snake` combines events with fixed-step scheduled
-wakes. See also [GUI Components](/docs/gui-components) and
-[Interactive Rendering Performance](/docs/interactive-rendering-performance).
+### Input Events
 
-### Pointer lock and total movement
+The host listens on the presentation surface only when the component exports
+`key_event` or `pointer_event`, or uses pointer lock. Events are queued with
+their time and delivered in order inside the next update. A frame is rendered
+only when an event returns nonzero, a wake is due, or the view needs
+refreshing.
+
+**Pointer.** Coordinates are integer pixels in the rendered image, scaled from
+the surface's displayed box and clamped to its edges. A high-resolution frame
+can therefore be shown at a smaller CSS size. The DOM's primary, auxiliary and
+secondary buttons become QIP button mask bits 1, 2 and 4. A press focuses the
+surface and captures the pointer for the drag. Leaving the surface sends mask
+0 at `(-1, -1)`. When the component also takes keys, Shift and Alt changes seen
+on pointer events are sent as key events first, so a modifier pressed while
+the surface was unfocused still applies to the click.
+
+**Keyboard.** Keys become X11 keysyms. While Meta is held, only arrows,
+Backspace, Delete, Home, End and A, C, V, X, Z and T reach the component, and
+Meta with Ctrl never does, so other browser shortcuts keep working. The host
+ignores browser key repeats and generates its own: the first repeat after
+250 ms, then every 33 ms, flagged as a repeat.
+
+**Context menu.** A right-click delivers the press immediately. The browser's
+menu is suppressed only if `pointer_event` accepted that press.
+
+**Focus loss.** On blur, the host sends key-up events for held keys and a
+zero-mask pointer event, so a game stops moving and a drag ends.
+
+### Pointer Lock And Total Movement
 
 Add `data-pointer-lock` to let a first-person or other mouse-look component
 turn without the cursor stopping at the canvas edge:
@@ -349,6 +472,38 @@ coordinates in `pointer_event` stay where the cursor was locked, and
 `setPointerCapture` is skipped while locked. Pages without the attribute, touch
 and pen input, and components without these exports are unaffected; the
 totals stay at 0.
+
+### Scheduling And Visibility
+
+The host schedules work with `requestAnimationFrame` when something is ready
+and a timer for the next wake or queued event. While the element is outside
+the viewport, it suspends scheduled wakes and rendering but keeps the
+component's next wake deadline. When the element comes back, the host runs one
+late update at the current time, renders the current state, and schedules the
+next returned wake, so component time keeps passing while execution is paused.
+Queued user input can still open an offscreen update, but it does not render.
+A hidden tab skips rendering in the same way and renders again when the tab
+becomes visible. Browsers without `IntersectionObserver` keep the component
+running.
+
+Removing the element from the page stops scheduling, drops queued input,
+removes its listeners and releases pointer lock.
+
+### Stats And Errors
+
+A stats line below the surface always shows the total Wasm size, the memory of
+every loaded instance, and the latest update and render counts and times. KTX2
+output also shows the output and canvas profiles. The first render counts as
+render 1 for both KTX2 and SVG output.
+
+With `debug`, the line also counts renders whose pixels match the previous
+frame and the time spent comparing them. The comparison scans the whole
+frame, so leave `debug` off in normal use. A pipeline with more than one step
+also gets one line per step with its Wasm size, memory, render count and time,
+and the selected source.
+
+If loading, validation or a render fails, the element replaces its contents
+with a `<pre role="alert">` that starts with "Play error:".
 
 ## `<qip-tui>`
 

@@ -1277,6 +1277,13 @@ test: qip components test-go test-node test-qipx-parity test-zig test-snapshot t
 test-base64-decode-variants: text/base64-decode.wasm text/base64-decode-simd.wasm text/base64-decode-c.wasm text/base64-decode-c-simd.wasm text/base64-decode-zig.wasm text/base64-decode-zig-simd.wasm text/base64-decode-odin.wasm text/base64-decode-odin-simd.wasm
 	node test/base64-decode-variants.mjs
 
+.PHONY: test-qip-play-browser
+# Drives <qip-play> in Chromium through agent-browser and compares pixels, SVG
+# markup and stats against test/browser/qip-play.golden.json. Re-record with
+# QIP_PLAY_UPDATE_GOLDEN=1 after an intended change to what it renders.
+test-qip-play-browser:
+	node --test test/browser/qip-play.mjs
+
 # Copy npm/shared sources into the npm packages that ship them.
 .PHONY: npm-shared check-npm-shared
 npm-shared:
@@ -1390,6 +1397,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/qip-play-debug-stats.mjs
 	node --test test/qip-play-steps.mjs
 	node --test test/qip-play-svg.mjs
+	node --test test/qip-play-lifecycle.mjs
 	node --test test/klondike.mjs
 	node --test test/qip-tui.mjs
 	node --test test/qip-tui-links.mjs

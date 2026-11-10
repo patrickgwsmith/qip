@@ -1,0 +1,126 @@
+{
+  "initial calc": {
+    "cssHeight": 240,
+    "cssWidth": 240,
+    "hash": "a15e1335",
+    "height": 220,
+    "id": "calc",
+    "stats": "wasm 3.9 kB | memory 1.2 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms",
+    "statsMaxWidth": "240px",
+    "surface": "canvas",
+    "tabIndex": 0,
+    "touchAction": "none",
+    "width": 220
+  },
+  "initial duotone": {
+    "cssHeight": 107,
+    "cssWidth": 160,
+    "hash": "35d01db3",
+    "height": 342,
+    "id": "duotone",
+    "stats": "wasm 14.9 kB | memory 34.9 MB | output rgba-float32 display-p3-linear | canvas rgba-float16 display-p3 | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ndesktop | wasm 8.4 kB | memory 1.8 MB | render   1 # ms\nduotone | wasm 6.5 kB | memory 33.1 MB | render   1 # ms | source ktx2-duotone-to-ktx2-rgba32float-display-p3-linear",
+    "statsMaxWidth": "160px",
+    "surface": "canvas",
+    "tabIndex": 0,
+    "touchAction": "none",
+    "width": 512
+  },
+  "initial klondike-img": {
+    "alt": "Interactive SVG editor",
+    "blob": true,
+    "cssHeight": 152,
+    "cssWidth": 200,
+    "draggable": false,
+    "hash": "0dcad895",
+    "id": "klondike-img",
+    "stats": "wasm 16.9 kB | memory 1.4 MB | update   0 # ms | render   1 # ms",
+    "statsMaxWidth": "200px",
+    "surface": "img",
+    "tabIndex": 0,
+    "touchAction": "none"
+  },
+  "initial klondike-inline": {
+    "aspectRatio": "1000 / 760",
+    "cssHeight": 228,
+    "cssWidth": 300,
+    "hash": "d44aa0dd",
+    "id": "klondike-inline",
+    "label": "Klondike",
+    "role": "img",
+    "rootName": "svg",
+    "stats": "wasm 16.9 kB | memory 1.4 MB | update   0 # ms | render   1 # ms",
+    "statsMaxWidth": "300px",
+    "surface": "div",
+    "tabIndex": 0,
+    "touchAction": "none",
+    "userSelect": "none"
+  },
+  "initial missing": {
+    "error": "Play error: failed to fetch module /gui/does-not-exist.wasm (404)",
+    "id": "missing"
+  },
+  "initial moon": {
+    "cssHeight": 86,
+    "cssWidth": 120,
+    "hash": "78bdb59f",
+    "height": 300,
+    "id": "moon",
+    "stats": "wasm 13.4 kB | memory 2.1 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms",
+    "statsMaxWidth": "120px",
+    "surface": "canvas",
+    "tabIndex": 0,
+    "touchAction": "none",
+    "width": 420
+  },
+  "initial path-editor": {
+    "alt": "Interactive SVG editor",
+    "blob": true,
+    "cssHeight": 150,
+    "cssWidth": 200,
+    "draggable": false,
+    "hash": "8f0210eb",
+    "id": "path-editor",
+    "stats": "wasm 107 kB | memory 6.6 MB | update   0 # ms | render   1 # ms",
+    "statsMaxWidth": "200px",
+    "surface": "img",
+    "tabIndex": 0,
+    "touchAction": "none"
+  },
+  "initial resize": {
+    "cssHeight": 160,
+    "cssWidth": 160,
+    "hash": "dc15b120",
+    "height": 600,
+    "id": "resize",
+    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   1 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   1 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell",
+    "statsMaxWidth": "160px",
+    "surface": "canvas",
+    "tabIndex": 0,
+    "touchAction": "none",
+    "width": 600
+  },
+  "initial text-output": {
+    "error": "Play error: qip-play module missing export output_content_type_ptr",
+    "id": "text-output"
+  },
+  "calc keys": [
+    "29445ad5",
+    "29445ad5",
+    "3df0fed5",
+    "556179d5"
+  ],
+  "calc backspace": "163723b5",
+  "calc held 9": "e580cdb5",
+  "calc clicks": [
+    "e580cdb5",
+    "e580cdb5",
+    "e580cdb5",
+    "e580cdb5"
+  ],
+  "resize click": {
+    "hash": "dc15b120",
+    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   1 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   1 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell"
+  },
+  "click klondike-img": "37766872",
+  "click klondike-inline": "622b82d5"
+}

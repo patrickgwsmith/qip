@@ -57,13 +57,14 @@ test("named source input takes precedence over inline input and is initializatio
   element._exports = exports;
   element._memory = exports.memory;
   const source = { getAttribute(name) { return name === "src" ? "/drawing.svg" : name === "type" ? "image/svg+xml" : ""; } };
-  const inline = { value: "<svg id=\"inline\"/>", textContent: "", removeEventListener() {} };
+  const inlineListeners = [];
+  const inline = { value: "<svg id=\"inline\"/>", textContent: "", addEventListener(type) { inlineListeners.push(type); } };
   const oldFetch = globalThis.fetch;
-  globalThis.fetch = async () => ({ ok: true, async text() { return "<svg id=\"source\"/>"; } });
+  globalThis.fetch = async () => ({ ok: true, async arrayBuffer() { return new TextEncoder().encode("<svg id=\"source\"/>").buffer; } });
   try { await element._setupInitialInput(source, inline); } finally { globalThis.fetch = oldFetch; }
   const text = new TextDecoder().decode(new Uint8Array(exports.memory.buffer, 100, element._inputSize));
   assert.equal(text, '<svg id="source"/>');
-  assert.equal(element._boundInputChange, null);
+  assert.deepEqual(inlineListeners, []);
 });
 
 test("SVG image is focusable, non-draggable, captures pointers, and maps to 800 by 600", () => {

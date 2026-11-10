@@ -110,14 +110,25 @@ function makeEventTarget() {
   return {
     listeners: [],
     focusN: 0,
-    addEventListener(type, listener, options) {
-      this.listeners.push({ type, listener, options });
+    addEventListener(type, handler, options) {
+      if (options?.signal?.aborted) return;
+      const entry = {
+        type,
+        handler,
+        options,
+        listener: (event = { type }) =>
+          typeof handler === "function" ? handler(event) : handler.handleEvent(event),
+      };
+      this.listeners.push(entry);
+      options?.signal?.addEventListener("abort", () => {
+        this.listeners = this.listeners.filter((other) => other !== entry);
+      }, { once: true });
     },
-    removeEventListener(type, listener, options) {
+    removeEventListener(type, handler, options) {
       this.listeners = this.listeners.filter((entry) => {
         return (
           entry.type !== type ||
-          entry.listener !== listener ||
+          entry.handler !== handler ||
           entry.options !== options
         );
       });
@@ -261,12 +272,14 @@ test("qip-play only suppresses context menu on the canvas", () => {
     0,
   );
 
+  assert.equal(
+    element._canvas.listeners.find((entry) => entry.type === "contextmenu").options.capture,
+    true,
+  );
+
   element._detachInputHandlers();
 
-  assert.equal(
-    element._canvas.listeners.filter((entry) => entry.type === "contextmenu").length,
-    0,
-  );
+  assert.equal(element._canvas.listeners.length, 0);
 });
 
 test("qip-play leaves the context menu when pointer_event ignores the press", () => {
@@ -280,7 +293,7 @@ test("qip-play leaves the context menu when pointer_event ignores the press", ()
     element._flushPendingEvents(0);
     let prevented = 0;
     const contextMenu = element._canvas.listeners.find((entry) => entry.type === "contextmenu");
-    contextMenu.listener({ preventDefault() { prevented++; }, stopPropagation() {} });
+    contextMenu.listener({ type: "contextmenu", preventDefault() { prevented++; }, stopPropagation() {} });
     assert.equal(prevented, accepted);
 
     element._detachInputHandlers();
