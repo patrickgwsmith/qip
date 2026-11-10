@@ -10,6 +10,17 @@ A small function that transforms data should not need a whole application enviro
 
 Components, AI coding, security: you can pick all three.
 
+## What These Docs Cover
+
+These docs cover four things:
+
+- **The QIP contract:** the component types and the rules hosts and components agree on, including Content, GUI and TUI components, time and events, uniforms, formats, hard limits, and compliance.
+- **Hosts:** the browser custom elements such as `<qip-play>`, `<qip-edit>` and `<qip-tui>`, and the `qipdo`, `qipx`, `qiptui` and `qipgui` [command-line hosts](/docs/cli).
+- **Running components in other languages:** embedding QIP components in JavaScript, Swift, Java, Python, Go, .NET and Ruby apps.
+- **Authoring components:** writing components in Zig or C, building GUI and TUI components, testing, benchmarking, uniforms, and the router.
+
+Individual components are not part of the docs. That includes analysis and debugging tools such as qipdb, `wasm-counts` and the native-source translators. Each one belongs on its own page with the other [tools](/tools), and pages about individual components are moving out of the docs.
+
 ## Principles
 
 - **Quarantined:** components run in a deterministic sandbox with zero access to the host: no filesystem, no network, and no environment access.
@@ -23,9 +34,9 @@ Components, AI coding, security: you can pick all three.
 
 QIP is the portable standard of component contracts, documented in these pages.
 
-[`qipx`](/docs/qipx) is the focused Node.js command-line host for Content and
-TUI components, and Compliance oracles. This
-repo also contains browser JavaScript hosts such as `<qip-edit>` and
+[`qipdo`, `qipx`, `qiptui` and `qipgui`](/docs/cli) are the Node.js
+command-line hosts for Content, TUI and GUI components, and Compliance oracles.
+This repo also contains browser JavaScript hosts such as `<qip-edit>` and
 `<qip-play>`, a Go host for repository and router workflows, and native
 implementations such as Swift.
 
@@ -104,6 +115,7 @@ Server Component and Client Component example.
 </li>
 <li><span class="docs-section">Running</span>
 <ol>
+<li><a href="/docs/cli">Command-Line Hosts</a></li>
 <li><a href="/docs/qipx">qipx cli</a></li>
 <li><a href="/docs/qip-elements">Browser Elements</a></li>
 <li><a hidden href="/docs/javascript-runner">JavaScript Renderer Annotated Source</a></li>
@@ -139,10 +151,7 @@ Server Component and Client Component example.
 <li><a href="/docs/c-wasm-toolchains">Building C Libraries As QIP Components</a></li>
 <li><a href="/docs/benchmarking-components">Benchmarking Components</a></li>
 <li><a href="/docs/empirical-optimization">Empirical Component Optimization</a></li>
-<li><a href="/docs/optimizing-autolink-https-with-qipdb">Optimizing autolink-https With qipdb</a></li>
 <li><a href="/docs/optimizing-zero-copy-candidates">Optimizing Two Zero-Copy Candidates</a></li>
-<li><a href="/docs/optimizing-html-link-extractor-with-qipdb">Optimizing HTML Link Extraction With qipdb</a></li>
-<li><a href="/docs/optimizing-html-escape-with-qipdb">Optimizing HTML Escaping With qipdb</a></li>
 <li><a href="/docs/tracing">Tracing</a></li>
 <li><a href="/docs/qip-content-interpreter">Running A Content Component In The QIP Interpreter</a></li>
 <li><a href="/docs/qipok-wasm">Checking Compliance In The QIP Interpreter</a></li>
@@ -163,7 +172,6 @@ Server Component and Client Component example.
 <li><a href="/docs/router-spec">Router Specification</a></li>
 <li><a href="/docs/content">Content Layout</a></li>
 <li><a href="/docs/recipes">Recipe Layout</a></li>
-<li><a href="/docs/routing-recipes">File Routing & Recipe Orchestration</a></li>
 <li><a hidden href="/docs/visitor_router_abi_v0">Visitor Router ABI v0</a></li>
 </ol>
 </li>

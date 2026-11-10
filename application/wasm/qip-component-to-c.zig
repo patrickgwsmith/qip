@@ -25,7 +25,7 @@
 //! - The six floating-point operations named above.
 //!
 //! Unsupported sections and instructions fail closed. See
-//! docs/qip-component-to-c.md for the generated API and runtime contract.
+//! docs/qip-component-to-native.md for the generated API and runtime contract.
 //!
 //! TODO(code-generation performance): treat the following as hypotheses and
 //! measure them independently. WABT's C writer gives the native compiler typed

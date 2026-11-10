@@ -1,5 +1,7 @@
 # Optimizing HTML Escaping With qipdb
 
+A case study for the [QIP component debugger](/component-debugger) (qipdb).
+
 `html-escape.wasm` turns text into HTML-safe text. It replaces `&`, `<`, `>`,
 double quotes, and apostrophes with entities. The site uses it when it renders
 syntax-highlighted code. An unchanged input still needs an output copy, but it
@@ -148,9 +150,10 @@ build byte for byte.
 | `site-static/index.html`, wazero total | | | 5.2× faster |
 
 A `v128` version that tests 16 bytes at a time was about 30% faster again on
-site pages in Node.js. It was not kept, because `qip-component-to-c` does not
-translate SIMD and its native parity test uses this component. The module
-grew to 3,351 bytes, most of it the two lookup tables.
+site pages in Node.js. It was not kept, because the
+[C translator](/docs/qip-component-to-native) does not translate SIMD and its
+native parity test uses this component. The module grew to 3,351 bytes, most of
+it the two lookup tables.
 
 ## Reproduce The Study
 

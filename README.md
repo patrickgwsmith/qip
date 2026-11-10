@@ -533,12 +533,11 @@ ls ./site
 - [QIP Component Patterns](docs/module-patterns.md)
 - [Writing QIP Components in Zig](docs/zig-components.md)
 - [Building C Libraries as QIP Components](docs/c-wasm-toolchains.md)
-- [Translating QIP Components To C](docs/qip-component-to-c.md)
-- [Translating QIP Components To Zig](docs/qip-component-to-zig.md)
-- [Translating QIP Components To Swift](docs/qip-component-to-swift.md)
+- [Translating QIP Components To Native Source](docs/qip-component-to-native.md)
 - [Hard Limits](docs/hard-limits.md)
 - [Provable Loops](docs/provable-loops.md)
 - [Running In JavaScript](docs/running-in-javascript.md)
+- [Command-Line Hosts](docs/cli.md): qipdo, qipx, qiptui and qipgui
 - [qipx CLI](docs/qipx.md)
 - [QIP Component Compliance](docs/comply.md)
 

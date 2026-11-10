@@ -1,5 +1,7 @@
 # Optimizing `rgb-to-hex` With qipdb
 
+A case study for the [QIP component debugger](/component-debugger) (qipdb).
+
 qipdb made unnecessary work in `rgb-to-hex.wasm` visible. For the 17-byte
 input `rgb(101, 79, 240)`, the original component executed 31 memory reads and
 10 memory writes to produce seven bytes. The optimized component reads each

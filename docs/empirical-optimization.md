@@ -172,10 +172,10 @@ npx @qip.dev/qipx tui \
 ```
 
 Press Space to finish execution. Press `i` to expand the counters. The detailed
-[`rgb-to-hex` study](/docs/optimizing-rgb-to-hex-with-qipdb) shows how those
+[`rgb-to-hex` study](/component-debugger/optimizing-rgb-to-hex) shows how those
 observations led to fewer memory accesses and a smaller Wasm module.
 
-The [`autolink-https` study](/docs/optimizing-autolink-https-with-qipdb) shows a
+The [`autolink-https` study](/component-debugger/optimizing-autolink-https) shows a
 different outcome. The first source rewrite reduced executed instructions but
 made wazero slower. qipdb exposed scalar copy loops, and a second build changed
 them to `memory.copy` instructions. That build improved correctness, memory,

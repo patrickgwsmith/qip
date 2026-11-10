@@ -1,5 +1,7 @@
 # Optimizing HTML Link Extraction With qipdb
 
+A case study for the [QIP component debugger](/component-debugger) (qipdb).
+
 `html-link-extractor.wasm` reads HTML and writes one link per line. Each line
 contains the decoded `href` and a simplified accessible name.
 

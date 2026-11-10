@@ -1,5 +1,7 @@
 # Optimizing `autolink-https` With qipdb
 
+A case study for the [QIP component debugger](/component-debugger) (qipdb).
+
 `autolink-https.wasm` turns visible HTTPS URLs into HTML links. The revised
 component fixes six oracle cases, uses 640 KiB less linear memory, and renders
 the canonical input 22% faster in wazero and 23% faster in Node.js.

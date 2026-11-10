@@ -667,5 +667,17 @@ table with up to 4,096 entries. It supports active function-index element
 segments and typed `call_indirect`, but not table mutation. An unsupported
 component shows the reason in the debugger screen.
 
+## Case studies
+
+How qipdb's counters guided real optimizations of QIP components:
+
+- [Optimizing `rgb-to-hex`](/component-debugger/optimizing-rgb-to-hex)
+- [Optimizing HTML escaping](/component-debugger/optimizing-html-escape)
+- [Optimizing HTML link extraction](/component-debugger/optimizing-html-link-extractor)
+- [Optimizing `autolink-https`](/component-debugger/optimizing-autolink-https)
+
+See [Empirical Component Optimization](/docs/empirical-optimization) for the
+method behind them.
+
 Download: <a href="/tui/qipdb.wasm" download>qipdb.wasm</a>
 (<qip-content-size src="/tui/qipdb.wasm"></qip-content-size>).

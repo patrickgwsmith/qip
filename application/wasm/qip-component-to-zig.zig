@@ -24,7 +24,7 @@
 //! - SIMD and post-Core-2.0 features such as exceptions and tail calls.
 //!
 //! Unsupported sections and instructions fail closed. Generated code targets
-//! fixed little-endian memory. See docs/qip-component-to-zig.md for the
+//! fixed little-endian memory. See docs/qip-component-to-native.md for the
 //! generated API and runtime contract.
 
 const std = @import("std");

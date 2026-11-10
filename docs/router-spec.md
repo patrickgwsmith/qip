@@ -54,7 +54,7 @@ The router reserves three exact top-level directory names:
 - `_components`: browser-loadable QIP components
 - `_elements`: browser custom-element modules
 
-The root `CNAME` file is also reserved; see [Site Domain](#site-domain). Reserved project directories must not be routed as content. Other underscore paths, such as `_og/card.png`, are ordinary content unless a future spec reserves them.
+The root `CNAME` file is also reserved; see [Site Domain](#site-domain). Reserved project directories must not be routed as content: `site/_recipes/text/markdown/10-render.wasm` is not a content route, so `/_recipes/text/markdown/10-render.wasm` returns `404 Not Found`. Other underscore paths, such as `_og/card.png`, are ordinary content unless a future spec reserves them.
 
 The router auto-discovers these project directories under the site root:
 
@@ -164,6 +164,18 @@ site/docs/router.md -> /docs/router.md and /docs/router
 ```
 
 Other file types should not receive a pretty route. They are served only at their source route.
+
+| Source file | Pretty route | Source route | Pretty route behavior |
+| --- | --- | --- | --- |
+| `site/index.md` | `/` | `/index.md` | runs `text/markdown` recipes |
+| `site/docs/index.md` | `/docs` | `/docs/index.md` | runs `text/markdown` recipes |
+| `site/contact.html` | `/contact` | `/contact.html` | serves HTML |
+| `site/images/logo.png` | none | `/images/logo.png` | not applicable; the source route serves the image bytes |
+| `site/start.uri` | `/start` | `/start.uri` | redirects |
+
+Request the source route for the raw file bytes, and the pretty route for the response after its recipes have run.
+
+Two files that claim the same route fail at load time. For example, `site/about.md` and `site/about.html` both claim `/about`, so the router rejects the layout instead of choosing one when a request arrives.
 
 ## Parent Pages
 
@@ -407,7 +419,7 @@ npx qip-router list -C ./site
 npx qip-router warc -C ./site -o site.warc
 ```
 
-`npx qip-router dev [-C <content_dir>] ...` must serve the same route resolution pipeline used by the other subcommands. Existing files are read for each request. A browser hard reload refreshes the route table and recipe modules, so newly added files and changed recipes take effect without restarting the process.
+`npx qip-router dev [-C <content_dir>] ...` must serve the same route resolution pipeline used by the other subcommands. Existing files are read for each request. A browser hard reload refreshes the route table and recipe modules, so newly added files and changed recipes take effect without restarting the process. The Go router, `qip router dev`, also reloads when a recipe module changes, which it checks on each request, and when it receives `SIGHUP`. Running `qip router dev` again on the same port sends `SIGHUP` to the existing server instead of starting a second one. If a reload fails, the router keeps serving the previous route table and recipes.
 
 `get [-C <content_dir>] <path> ...` must resolve one path through the dev-route pipeline and write the response body.
 
@@ -432,6 +444,13 @@ npx qip-router get -C ./site /docs/router
 npx qip-router warc -C ./site -o site.warc
 npx qip-router warc -C ./site --recipes ../shared-recipes --components ../shared-components --elements ../shared-elements -o site.warc
 ```
+
+## Troubleshooting
+
+- **A recipe is not running.** Check that the file is directly in `<recipe-root>/<type>/<subtype>/`, that the source file's MIME type matches that directory, and that the filename starts with a numeric prefix and not a `-`.
+- **You see rendered HTML but wanted the raw Markdown.** Request the source route, such as `/docs/router.md`.
+- **Route loading fails with a duplicate prefix.** Two active recipe files in one MIME directory start with the same number. Rename one, or disable it with a leading `-`.
+- **A form component is missing.** Check that `<qip-form>` has exactly one direct `<source>`, and that its `src` resolves to an `application/wasm` component route.
 
 ## When Not To Use The Router
 
