@@ -11,6 +11,7 @@ import { QIPInteractiveSession, mapKeyboardEventToKeysym, keyFlags } from "./_qi
 const KEY_REPEAT_DELAY_MS = 250;
 const KEY_REPEAT_INTERVAL_MS = 33;
 const CRLF_CRLF = new Uint8Array([13, 10, 13, 10]);
+const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 // Listened for on the render surface; contextmenu is added separately in the capture phase.
 const SURFACE_EVENTS = ["keydown", "keyup", "pointerdown", "pointermove", "pointerup", "pointercancel", "pointerleave", "click", "blur"];
 // With Meta held, only text-editing and navigation shortcuts reach the
@@ -135,6 +136,8 @@ class QIPPlayElement extends HTMLElement {
   _ctx = null; _imageData = null; _presentationConvert = null; _presentationSourceProfileKey = "";
   _presentationN = 0; _outputProfile = null; _canvasProfile = null; _hasRenderedFrame = false;
   _renderWidth = 0; _renderHeight = 0; _expectedOutputBytes = 0;
+  // Pointer coordinates use the first component's output size when later steps may resize it.
+  _primaryContentType = ""; _pointerWidth = 0; _pointerHeight = 0;
   // Stats
   _stats = null; _debugStats = false; _logTimings = false; _debugPreviousPixels = null;
   _lastUpdateMS = 0; _lastRenderMS = 0; _lastDrawMS = 0; _lastCompareMS = 0; _lastRenderUnchanged = false;
@@ -217,6 +220,7 @@ class QIPPlayElement extends HTMLElement {
     let outputType = readDeclaredContentType(exportsObj, primary.memory, "output_content_type_ptr", "output_content_type_size");
     primary.outputCapacity = outputCapacity(exportsObj, outputType);
     let outputUTF8 = typeof exportsObj.output_utf8_cap === "function";
+    const primaryContentType = mediaTypeOf(outputType);
     for (const stage of loaded.slice(1)) {
       outputType = validatePostStage(stage, outputType, outputUTF8);
       outputUTF8 = stage.outputUTF8;
@@ -227,6 +231,7 @@ class QIPPlayElement extends HTMLElement {
     this._session = new QIPInteractiveSession(exportsObj, exportsObj.memory);
     this._steps = loaded;
     this._postStages = loaded.slice(1);
+    this._primaryContentType = this._postStages.length > 0 ? primaryContentType : "";
     this._sourceElement = primary.sourceElement;
     this._uniforms = extractUniforms(primary.sourceElement);
     this._wasmByteLength = loaded.reduce((total, step) => total + step.moduleBytes, 0);
@@ -343,8 +348,15 @@ class QIPPlayElement extends HTMLElement {
     this._writeInput(capName, new Uint8Array(await response.arrayBuffer()));
   }
 
-  // Styles a new presentation surface and gives it the element's tab stop.
+  // Styles a new presentation surface and gives it the element's tab stop and accessible name.
   _styleSurface(surface, width, tabIndex) {
+    const label = this.getAttribute("aria-label")?.trim() || "Interactive component";
+    if (surface.localName === "img") {
+      surface.alt = label;
+    } else {
+      surface.setAttribute("role", "img");
+      surface.setAttribute("aria-label", label);
+    }
     const size = cssSize(this, width);
     Object.assign(surface.style, {
       display: "block", width: size.width, height: size.height,
@@ -364,14 +376,10 @@ class QIPPlayElement extends HTMLElement {
       throw new Error("qip-play SVG dimensions must be positive integers");
     }
     const surface = document.createElement(this._inlineSVG ? "div" : "img");
-    const label = this.getAttribute("aria-label") || "Interactive SVG editor";
     if (this._inlineSVG) {
-      surface.setAttribute("role", "img");
-      surface.setAttribute("aria-label", label);
       surface.style.aspectRatio = `${svgWidth} / ${svgHeight}`;
       surface.style.userSelect = this._noTextSelection ? "none" : "text";
     } else {
-      surface.alt = label;
       surface.draggable = false;
     }
     this._styleSurface(surface, svgWidth);
@@ -558,6 +566,7 @@ class QIPPlayElement extends HTMLElement {
       this._steps[0].renderN++;
       this._steps[0].lastRenderMS = performance.now() - primaryStart;
     }
+    if (this._primaryContentType) this._recordPointerSize(rendered);
 
     for (const stage of this._postStages) {
       if (rendered.outputLen < 0 || rendered.outputLen > rendered.outputCapacity) {
@@ -592,6 +601,28 @@ class QIPPlayElement extends HTMLElement {
       rendered = accepted;
     }
     return { rendered, renderMS: performance.now() - pipelineStart };
+  }
+
+  // Steps after the first component may resize its image, so pointer events
+  // are scaled to the first component's own output: its KTX2 pixel size, or
+  // svg-width/svg-height for SVG. Other outputs fall back to the final image.
+  _recordPointerSize(rendered) {
+    let width = 0;
+    let height = 0;
+    if (this._primaryContentType === "image/ktx2" && rendered.outputLen >= 28 && rendered.outputLen <= rendered.outputCapacity) {
+      const header = readSlice(rendered.memory, rendered.outputPtr, 28, "qip-play primary KTX2 header");
+      if (KTX2_IDENTIFIER.every((byte, i) => header[i] === byte)) {
+        const view = new DataView(header.buffer, header.byteOffset, 28);
+        width = view.getUint32(20, true);
+        height = view.getUint32(24, true);
+      }
+    } else if (this._primaryContentType === "image/svg+xml") {
+      width = Number(this.getAttribute("svg-width") || 800);
+      height = Number(this.getAttribute("svg-height") || 600);
+    }
+    const valid = Number.isSafeInteger(width) && width > 0 && Number.isSafeInteger(height) && height > 0;
+    this._pointerWidth = valid ? width : 0;
+    this._pointerHeight = valid ? height : 0;
   }
 
   // Elements driven directly by tests skip _init(), so the session is lazy.
@@ -765,7 +796,8 @@ class QIPPlayElement extends HTMLElement {
       this._canvas.focus();
     }
 
-    const { x, y } = canvasXY(this._canvas, event, this._renderWidth, this._renderHeight);
+    const { x, y } = canvasXY(this._canvas, event,
+      this._pointerWidth || this._renderWidth, this._pointerHeight || this._renderHeight);
     const eventNowMS = this._eventNowMS();
     if (typeof this._exports.key_event === "function") {
       // Modifier state can change while the surface is unfocused.

@@ -794,6 +794,10 @@ test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", ()
       width: 0,
       height: 0,
       tabIndex: 0,
+      attributes: {},
+      setAttribute(name, value) {
+        this.attributes[name] = String(value);
+      },
       addEventListener() {},
       removeEventListener() {},
       focus() {},
@@ -818,6 +822,7 @@ test("qip-play parses HDR KTX2 and reports its tone-mapped fallback profile", ()
   try {
     element._installPresentation(parsed);
     assert.equal(element._canvas.style.touchAction, "pan-y");
+    assert.deepEqual(element._canvas.attributes, { role: "img", "aria-label": "Interactive component" });
     element._stats = { textContent: "" };
     element._presentPixels(parsed.pixels, 1);
     assert.equal(drawN, 1);

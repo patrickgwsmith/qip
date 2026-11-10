@@ -111,7 +111,7 @@ test("qip-play renders, handles input and pauses offscreen in a real browser", {
     assert.equal(initial["klondike-img"].surface, "img");
     assert.equal(initial["klondike-img"].draggable, false);
     assert.equal(initial["klondike-img"].blob, true);
-    assert.equal(initial["klondike-img"].alt, "Interactive SVG editor");
+    assert.equal(initial["klondike-img"].alt, "Interactive component");
     assert.equal(initial["klondike-inline"].surface, "div");
     assert.equal(initial["klondike-inline"].role, "img");
     assert.equal(initial["klondike-inline"].label, "Klondike");
@@ -156,15 +156,18 @@ test("qip-play renders, handles input and pauses offscreen in a real browser", {
     }
     check("calc clicks", presses);
 
-    // Known gap, recorded rather than asserted: pointer coordinates are scaled
-    // to the last step's output (600x600 here), not mapped back to the first
-    // step's 220x220, so this press can miss the key under the cursor.
+    // The resize step scales the 220x220 calculator to 600x600. Pointer
+    // coordinates map back to the calculator's own size, so this press lands on
+    // its 7 key and redraws it. The fixture starts below the viewport.
+    await browser("scrollintoview", "#resize");
     await clickAt("resize", 0.15, 0.55);
     const resized = (await settle(["resize"])).resize;
+    assert.notEqual(resized.hash, initial.resize.hash, "a click through a resize step presses a key");
     check("resize click", { hash: resized.hash, stats: resized.stats });
 
     // SVG surfaces: click the stock pile in both presentation modes.
     for (const id of ["klondike-img", "klondike-inline"]) {
+      await browser("scrollintoview", "#" + id);
       await clickAt(id, 0.08, 0.14);
       const after = (await settle([id]))[id];
       assert.notEqual(after.hash, initial[id].hash, id + " redraws after a click");

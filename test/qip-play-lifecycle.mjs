@@ -287,6 +287,49 @@ test("pointer buttons map to QIP masks and coordinates clamp to the render size"
   element.disconnectedCallback();
 });
 
+const step = (name, ...sources) => Object.assign(new FakeNode("qip-step", { name }), { children: sources });
+
+test("pointer coordinates use the first component's size when a later step resizes it", async () => {
+  // The real calculator (220x220 KTX2), with pointer_event wrapped to record coordinates.
+  const calculator = (await realInstantiate(readFileSync("gui/calculator.wasm"))).instance.exports;
+  const events = [];
+  fakes.set("logged-calculator", () => ({
+    ...calculator,
+    pointer_event(mask, x, y) { events.push([mask, x, y]); return calculator.pointer_event(mask, x, y); },
+  }));
+  const element = await mount([
+    step("calculator", source("/fake/logged-calculator")),
+    step("resize", source("/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm", { "data-uniform-width": "440" })),
+  ]);
+  assert.equal(errorOf(element), null);
+  const canvas = surfaceOf(element);
+  assert.deepEqual([canvas.width, canvas.height], [440, 440]);
+  canvas.fire("pointerdown", { buttons: 1, clientX: 50, clientY: 25 });
+  canvas.fire("pointerup", { buttons: 0, clientX: 99.9, clientY: 99.9 });
+  runFrames();
+  assert.deepEqual(events, [[1, 110, 55], [0, 219, 219]]);
+  element.disconnectedCallback();
+});
+
+test("pointer coordinates use svg-width/svg-height when an SVG is rasterized by a later step", async () => {
+  const events = [];
+  fakes.set("small-svg", fakeComponent({
+    output: () => '<svg xmlns="http://www.w3.org/2000/svg" width="50" height="25"><rect width="50" height="25" fill="#f00"/></svg>',
+    extra: { pointer_event(mask, x, y) { events.push([mask, x, y]); return 1; } },
+  }));
+  const element = await mount([
+    step("svg", source("/fake/small-svg")),
+    step("rasterize", source("/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm")),
+  ], { "svg-width": "200", "svg-height": "100" });
+  assert.equal(errorOf(element), null);
+  const canvas = surfaceOf(element);
+  assert.deepEqual([canvas.width, canvas.height], [50, 25]);
+  canvas.fire("pointerdown", { buttons: 1, clientX: 50, clientY: 50 });
+  runFrames();
+  assert.deepEqual(events, [[1, 100, 50]]);
+  element.disconnectedCallback();
+});
+
 test("Meta shortcuts reach the component only for editing and navigation keys", async () => {
   const keys = [];
   fakes.set("keys", fakeComponent({ extra: { key_event(keysym, flags) { keys.push([keysym, flags]); return 1; } } }));

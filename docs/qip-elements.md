@@ -267,11 +267,11 @@ for timing.
 | Attribute | Effect |
 | --- | --- |
 | `canvas-width`, `canvas-height` | CSS size of the presentation surface. Default: the rendered width in CSS pixels, and `auto` height. The `--qip-play-canvas-width` and `--qip-play-canvas-height` custom properties set the same values; attributes take precedence. |
-| `svg-width`, `svg-height` | Coordinate space of SVG output, in whole positive numbers. Default 800 by 600. Pointer coordinates are mapped into this space, and inline SVG uses it as the surface's aspect ratio. Ignored for KTX2 output, whose size comes from each frame. |
+| `svg-width`, `svg-height` | Coordinate space of SVG output, in whole positive numbers. Default 800 by 600. Pointer coordinates are mapped into this space, and inline SVG uses it as the surface's aspect ratio. Ignored for KTX2 output, whose size comes from each frame. Also sets the pointer coordinate space when a later step rasterizes the SVG. |
 | `svg-inline` | Present SVG frames in the page DOM instead of through an image. Use only for trusted output; see Output below. |
 | `no-text-selection` | With `svg-inline`, turn off text selection so a press on SVG text starts a drag. |
 | `touch-action` | CSS `touch-action` for the surface. Default `none`, so touch and pen drags reach the component instead of scrolling the page. |
-| `aria-label` | Accessible name of an SVG surface. Default "Interactive SVG editor". |
+| `aria-label` | Accessible name of the surface: the image's `alt` for SVG shown as an image, otherwise `aria-label` with `role="img"` on the canvas or inline SVG container. Default "Interactive component"; set it to describe what the component shows. |
 | `tabindex` | Moved to the surface, which is focusable by default (`0`). |
 | `data-pointer-lock` | Request pointer lock on a mouse press; see Pointer Lock below. |
 | `max-memory` | Reject modules whose declared memory exceeds the byte cap, as for `<qip-edit>`; see Module Policy above. |
@@ -407,10 +407,13 @@ Both components declare `image/ktx2 -> image/ktx2`. The reduction component
 accepts when 1200 pixels does not enlarge an axis. Otherwise it returns a
 recoverable rejection and the Mitchell component gets the same input.
 
-Pointer coordinates are measured in the presented image, which is the last
-step's output. A step that changes the image size therefore also changes the
-coordinates the first component receives. The host does not map them back yet,
-so put size-changing steps only after components that ignore pointer input.
+Pointer coordinates are measured in the first component's own output, not the
+presented image, so a step that changes the image size doesn't move where
+clicks land. The host scales the pointer's position within the presented image
+to the first component's KTX2 width and height, or to `svg-width` and
+`svg-height` when the first component renders SVG that a later step
+rasterizes. This assumes later steps only scale the image; a step that crops,
+pads or rearranges it will still misplace clicks.
 
 ### Input Events
 
@@ -420,7 +423,8 @@ their time and delivered in order inside the next update. A frame is rendered
 only when an event returns nonzero, a wake is due, or the view needs
 refreshing.
 
-**Pointer.** Coordinates are integer pixels in the rendered image, scaled from
+**Pointer.** Coordinates are integer pixels in the rendered image (the first
+component's output when there are post-processing steps), scaled from
 the surface's displayed box and clamped to its edges. A high-resolution frame
 can therefore be shown at a smaller CSS size. The DOM's primary, auxiliary and
 secondary buttons become QIP button mask bits 1, 2 and 4. A press focuses the

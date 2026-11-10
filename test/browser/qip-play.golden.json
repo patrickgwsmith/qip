@@ -26,7 +26,7 @@
     "width": 512
   },
   "initial klondike-img": {
-    "alt": "Interactive SVG editor",
+    "alt": "Interactive component",
     "blob": true,
     "cssHeight": 152,
     "cssWidth": 200,
@@ -73,7 +73,7 @@
     "width": 420
   },
   "initial path-editor": {
-    "alt": "Interactive SVG editor",
+    "alt": "Interactive component",
     "blob": true,
     "cssHeight": 150,
     "cssWidth": 200,
@@ -118,8 +118,8 @@
     "e580cdb5"
   ],
   "resize click": {
-    "hash": "dc15b120",
-    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   1 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   1 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell"
+    "hash": "b7f62a8d",
+    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   4 # ms | render   3 # ms | unchanged renders 1 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   3 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   3 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell"
   },
   "click klondike-img": "37766872",
   "click klondike-inline": "622b82d5"
