@@ -170,7 +170,6 @@ Server Component and Client Component example.
 <li><a href="/docs/router">Router Overview</a></li>
 <li><a href="/docs/router-tutorial">Build a Site and Blog</a></li>
 <li><a href="/docs/router-spec">Router Specification</a></li>
-<li><a href="/docs/content">Content Layout</a></li>
 <li><a href="/docs/recipes">Recipe Layout</a></li>
 <li><a hidden href="/docs/visitor_router_abi_v0">Visitor Router ABI v0</a></li>
 </ol>

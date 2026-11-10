@@ -115,6 +115,8 @@ Content files are discovered by walking the site root.
 
 These rules keep file paths portable and make route generation reviewable.
 
+A content path is the file's path relative to the site root, joined with `/` on every platform. For example, `site/blog/post-1/index.html` has the content path `blog/post-1/index.html`. Where a host identifies content by digest, as the hidden [Visitor Router ABI v0](/docs/visitor_router_abi_v0) does, the digest is the SHA-256 of the file's raw bytes.
+
 ## Content Filters
 
 `--include <path>` and `--exclude <path>` limit which content files the router routes. Both flags can be repeated. The `dev`, `get`, `head`, `kindred`, `list` and `warc` commands accept them, in both the Go and Node routers.
