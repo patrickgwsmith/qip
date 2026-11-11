@@ -4,9 +4,10 @@
 terminal that supports the
 [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 and SGR pixel mouse reports (kitty, Ghostty and WezTerm). It is a prototype for
-testing whether this approach is viable, so the package is marked private.
+testing whether this approach is viable. It requires Node.js 22 or newer.
 
 ```sh
+npx qipgui ./gui/calculator.wasm
 node npm/qipgui/qipgui.mjs gui/calculator.wasm
 node npm/qipgui/qipgui.mjs --stats --transport zlib gui/snake.wasm
 node npm/qipgui/qipgui.mjs --size fill gui/paint.wasm
