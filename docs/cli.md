@@ -1,13 +1,14 @@
 # Command-Line Hosts
 
-Four Node.js command-line hosts run QIP components. Each one requires Node.js 22 or newer and has no runtime dependencies.
+Five command-line hosts run QIP components. Every one has a Node.js version, which requires Node.js 22 or newer and has no runtime dependencies. `qipx` also has a Rust version, built on Wasmtime.
 
-| Command | Runs | Use it to |
-| --- | --- | --- |
-| [`qipdo`](#qipdo) | A chain of [Content components](/docs/content-component) | Transform input into output, like a Unix pipe. |
-| [`qipx`](#qipx) | Content and [TUI components](/docs/tui-components), and [Compliance oracles](/docs/comply) | Run, dry-run, benchmark and check components from one tool. |
-| [`qiptui`](#qiptui) | One TUI component, or one plain-text Content component | Use an interactive text component in a terminal. |
-| [`qipgui`](#qipgui) | One [GUI component](/docs/gui-components), plus optional transforms | Use a pixel-based component in a terminal with Kitty graphics. A prototype. |
+| Command | Language | Runs | Use it to |
+| --- | --- | --- | --- |
+| [`qipdo`](#qipdo) | Node.js | A chain of [Content components](/docs/content-component) | Transform input into output, like a Unix pipe. |
+| [`qipx`](#qipx) | Node.js, Rust | Content and [TUI components](/docs/tui-components), and [Compliance oracles](/docs/comply) | Run, dry-run, benchmark and check components from one tool. |
+| [`qipok`](#qipok) | Node.js | Content components, files or directories, and [Compliance suites](/docs/comply) | Check components follow the Content ABI and pass their suites, as `qipx comply` does. |
+| [`qiptui`](#qiptui) | Node.js | One TUI component, or one plain-text Content component | Use an interactive text component in a terminal. |
+| [`qipgui`](#qipgui) | Node.js | One [GUI component](/docs/gui-components), plus optional transforms | Use a pixel-based component in a terminal with Kitty graphics. A prototype. |
 
 `qipdo` and `qipx run` behave the same: they share a test suite with the Rust `qipx`. Pick `qipdo` when you only need to run pipelines, and `qipx` when you also want to benchmark or check compliance.
 
@@ -50,7 +51,7 @@ Each value is parsed for the setter's parameter type. Integers accept decimal or
 
 Every CLI rejects a module before running it unless it stays inside the [hard limits](/docs/hard-limits): no imports, a finite unshared memory maximum, no `memory.grow`, no start function, only Strict Wasm Profile opcodes, and static Content ABI getters. A chain is also checked before anything runs: each component's input type must match the output type of the one before it.
 
-The memory limits differ. `qipdo` and `qipx` take `--max-memory <bytes>`, `qiptui` allows up to 256 MiB, and `qipgui` allows up to 1 GiB per component so it can run large rasterizers.
+The memory limits differ. `qipdo`, `qipx` and `qipok` take `--max-memory <bytes>`, `qiptui` allows up to 256 MiB, and `qipgui` allows up to 1 GiB per component so it can run large rasterizers.
 
 ## qipdo
 
@@ -85,7 +86,27 @@ printf 'rgb(101, 79, 240)' | npx @qip.dev/qipx qip.dev run text/rgb-to-hex.wasm
 npx @qip.dev/qipx qip.dev comply text/rgb-to-hex.wasm --suite oracles/rgb-to-hex.comply.wasm
 ```
 
+The Rust `qipx` has the same subcommands and runs Wasm with Wasmtime. Build it from a checkout with `make qipx-rust`, then run `rust/qipx/target/debug/qipx`.
+
 See the [qipx reference](/docs/qipx) for host resolution, dry runs and multipart input in full, and [Benchmarking Components](/docs/benchmarking-components) for reading `bench` results.
+
+## qipok
+
+`qipok` checks that Content components are ok: that they follow the Content ABI and the Strict Wasm Profile, and that they pass any [Compliance suites](/docs/comply) you give it. It is `qipx comply` without the subcommand, and shares its test suite with `qipx comply` and the Rust `qipx`.
+
+```sh
+npx qipok text/hello.wasm
+npx qipok text/ --max-memory 16777216
+npx qipok qip.dev text/cve.wasm --suite compliance/cve.comply.wasm
+```
+
+Each check prints `PASS` or `FAIL`, then a summary such as `pass=2 fail=0 total=2`. `qipok` exits 1 if any check fails. A directory is searched for `.wasm` files, without following symlinks.
+
+| Option | Effect |
+| --- | --- |
+| `--suite <suite.wasm>` | Also run a Compliance suite on each component. Repeatable. |
+| `--seed <n>` | Seed suites that export `uniform_set_seed`. Without it, each such suite gets a random seed, reported in the summary so you can repeat the run. |
+| `--max-memory <bytes>` | Reject components that declare more memory. |
 
 ## qiptui
 
