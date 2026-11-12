@@ -96,7 +96,7 @@ test("keyed chart changes only the parts a hover or scale tween touches", () => 
   assert.deepEqual(changedKeys(start, hover), ["detail", "selection", "tooltip"]);
   // Hovering an OpenAI point also changes which series button is active.
   const openai = update(2, (x) => assert.equal(x.pointer_event(0, 733, 146), 1)).svg;
-  assert.match(openai, /OpenAI  Aug 2026/);
+  assert.match(openai, /OpenAI  Q3 2026/);
   assert.deepEqual(changedKeys(hover, openai), ["detail", "selection", "series-anthropic", "series-openai", "tooltip"]);
   // Mid-tween, the axes fade through group opacity and keep their digests.
   const toggled = update(3, (x) => assert.equal(x.key_event(76, 1), 1)).svg;

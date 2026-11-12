@@ -100,7 +100,9 @@ const OPENAI_POINTS = [_]ARRPoint{
     // https://www.investing.com/news/stock-market-news/openai-tops-25-billion-in-annualized-revenue-last-month-the-information-reports-4542796
     .{ .month = 24, .label = "2025", .arr_b = 21.4, .note = "The Information and Reuters: $21.4B at year-end." },
     .{ .month = 26, .label = "Feb 2026", .arr_b = 25.0, .note = "The Information and Reuters: Run rate topped $25B." },
-    .{ .month = 32, .label = "Aug 2026", .arr_b = 40.0, .note = "Bloomberg, Aug 13: Annualized revenue topped $40B." },
+    // The Information, Nov 2026 ("We Got a Look Inside OpenAI's Q3 Financials"): Q3'26 revenue ~$10B, up ~50% QoQ.
+    // Replaces Bloomberg, Aug 13: annualized revenue topped $40B.
+    .{ .month = 32, .label = "Q3 2026", .arr_b = 40.0, .note = "The Information: Q3 revenue was $10B, or $40B annualized." },
 };
 
 const ANTHROPIC_POINTS = [_]ARRPoint{
@@ -123,8 +125,8 @@ const ANTHROPIC_POINTS = [_]ARRPoint{
     .{ .month = 28, .label = "Apr 2026", .arr_b = 30.0, .note = "Anthropic: Run-rate revenue surpassed $30B." },
     .{ .month = 29, .label = "May 2026", .arr_b = 47.0, .note = "FT and MarketWatch: Run rate crossed $47B." },
     .{ .month = 31, .label = "Jul 2026", .arr_b = 65.0, .note = "Bloomberg, Aug 18: Run rate hit $65B at July's end." },
-    // https://www.ft.com/content/11632d03-358c-454b-af95-d06d4072932b
-    .{ .month = 32, .label = "Q3 2026", .arr_b = 67.2, .note = "FT, Oct 15: Q3 revenue was $16.8B, or $67.2B annualized." },
+    // https://ipo.anthropic.com/ (IPO filing, Nov 2026: Q3'26 revenue US$17.0B)
+    .{ .month = 32, .label = "Q3 2026", .arr_b = 68.0, .note = "IPO filing: Q3 revenue was $17.0B, or $68.0B annualized." },
 };
 
 var output_buf: [OUTPUT_CAP]u8 = undefined;

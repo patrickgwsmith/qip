@@ -42,7 +42,7 @@ test("SVG chart keeps milestone selection, hover tooltip, and scale animation", 
   const { e, render, update } = chart();
   render();
   let frame = update(1, (x) => { assert.equal(x.key_event(79, 1), 1); });
-  assert.match(frame.svg, /OpenAI  Aug 2026  ARR \$40\.0B/);
+  assert.match(frame.svg, /OpenAI  Q3 2026  ARR \$40\.0B/);
   frame = update(2, (x) => { assert.equal(x.pointer_event(0, 713, 106), 1); });
   assert.match(frame.svg, /data-qip-chart-tooltip="true"/);
   assert.match(frame.svg, /Anthropic  \$65\.0B/);
