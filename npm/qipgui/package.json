@@ -1,6 +1,6 @@
 {
   "name": "qipgui",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Prototype: run QIP GUI components in terminals with the Kitty graphics protocol",
   "repository": {
     "type": "git",

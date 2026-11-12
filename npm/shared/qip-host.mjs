@@ -254,21 +254,35 @@ function missingFileError(error) {
   return error?.code === "ENOENT" || error?.code === "ENOTDIR";
 }
 
-export async function loadWasm(value, validate, host = "") {
+// hosts is one host or a list. Like qipx and qipok, each missing relative file tries the hosts
+// in order, so components in one pipeline may come from different hosts.
+export async function loadWasm(value, validate, hosts = []) {
+  hosts = (typeof hosts === "string" ? [hosts] : hosts).filter(Boolean);
   const explicit = hostedPath(value);
-  const relative = !explicit && host && !value.startsWith("./") && !value.startsWith("../") && !isAbsolute(value)
-    ? hostedPath(`${host}/${value}`)
-    : null;
+  const relative = !explicit && hosts.length && !value.startsWith("./") && !value.startsWith("../") && !isAbsolute(value)
+    ? hosts.map((host) => hostedPath(`${host}/${value}`)).filter(Boolean)
+    : [];
   let data;
   if (explicit) {
     data = await download(explicit.host, explicit.path);
-  } else if (relative) {
-    // Like qipx, a leading host only supplies relative files that are missing locally.
+  } else if (relative.length) {
+    // A leading host only supplies relative files that are missing locally.
     try {
       data = await readFile(value);
     } catch (error) {
       if (!missingFileError(error)) throw error;
-      data = await download(relative.host, relative.path);
+      const failures = [];
+      for (const source of relative) {
+        try {
+          data = await download(source.host, source.path);
+          break;
+        } catch (failure) {
+          failures.push(failure.message ?? String(failure));
+        }
+      }
+      if (!data) {
+        throw new Error(failures.length === 1 ? failures[0] : `${value} is unavailable from every host (${failures.join("; ")})`);
+      }
     }
   } else {
     data = await readFile(value);

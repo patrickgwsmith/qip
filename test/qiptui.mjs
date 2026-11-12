@@ -25,19 +25,45 @@ async function inEmptyDirectory(body) {
 
 test("qiptui accepts one component and terminal-safe input options", () => {
   assert.deepEqual(parseArgs(["-u", "columns=100", "qip.dev/tui/calendar-gregorian.wasm"]), {
-    component: "qip.dev/tui/calendar-gregorian.wasm", host: "", input: undefined, forms: [], uniforms: ["columns=100"],
+    component: "qip.dev/tui/calendar-gregorian.wasm", hosts: [], input: undefined, forms: [], uniforms: ["columns=100"],
   });
   assert.deepEqual(parseArgs(["qip.dev", "-F", "component=<text/wc.wasm", "tui/qipdb.wasm"]), {
-    component: "tui/qipdb.wasm", host: "qip.dev", input: undefined, forms: ["component=<text/wc.wasm"], uniforms: [],
+    component: "tui/qipdb.wasm", hosts: ["qip.dev"], input: undefined, forms: ["component=<text/wc.wasm"], uniforms: [],
   });
   assert.deepEqual(parseArgs(["qip.dev", "-F", "input=Hello", "-F", "component=@text/wc.wasm", "tui/qipdb.wasm"]), {
-    component: "tui/qipdb.wasm", host: "qip.dev", input: undefined,
+    component: "tui/qipdb.wasm", hosts: ["qip.dev"], input: undefined,
     forms: ["input=Hello", "component=@text/wc.wasm"], uniforms: [],
   });
   assert.equal(parseArgs(["local.wasm"]).component, "local.wasm");
   assert.equal(parseArgs(["-i", "-", "local.wasm"]).input, "-");
   assert.deepEqual(parseArgs(["-F", "data=<-", "local.wasm"]).forms, ["data=<-"]);
   assert.throws(() => parseArgs(["one.wasm", "two.wasm"]), /one TUI component/);
+  assert.deepEqual(parseArgs(["qip.dev", "Example.com", "tui/qipdb.wasm"]).hosts, ["qip.dev", "example.com"]);
+});
+
+test("several hosts are tried in order for each missing file", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "qiptui-hosts-"));
+  const originalFetch = globalThis.fetch;
+  const previous = process.cwd();
+  const requests = [];
+  try {
+    process.chdir(directory);
+    globalThis.fetch = async (url) => {
+      requests.push(url);
+      const served = url === "https://mirror.example/tui/a.wasm" || url === "https://qip.dev/tui/b.wasm";
+      return served ? new Response(calendar) : new Response(null, { status: 404 });
+    };
+    const hosts = ["qip.dev", "mirror.example"];
+    const validate = (data) => new WebAssembly.Module(data);
+    assert.deepEqual(await loadWasm("tui/a.wasm", validate, hosts), calendar);
+    assert.deepEqual(await loadWasm("tui/b.wasm", validate, hosts), calendar);
+    assert.deepEqual(requests, ["https://qip.dev/tui/a.wasm", "https://mirror.example/tui/a.wasm", "https://qip.dev/tui/b.wasm"]);
+    await assert.rejects(loadWasm("tui/c.wasm", validate, hosts), /tui\/c\.wasm is unavailable from every host .*qip\.dev.*mirror\.example/);
+  } finally {
+    globalThis.fetch = originalFetch;
+    process.chdir(previous);
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test("hosted path extension errors explain the requirement without assuming a file exists", async () => {

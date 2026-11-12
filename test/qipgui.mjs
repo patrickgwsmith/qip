@@ -59,7 +59,7 @@ test("Kitty frames chunk base64 RGBA and zlib payloads", () => {
 
 test("arguments", () => {
   assert.deepEqual(parseArgs(["--stats", "--transport", "zlib", "gui/snake.wasm"]), {
-    components: [{ path: "gui/snake.wasm", uniforms: [] }], input: undefined, size: "auto", transport: "zlib", stats: true,
+    components: [{ path: "gui/snake.wasm", uniforms: [] }], hosts: [], input: undefined, size: "auto", transport: "zlib", stats: true,
   });
   // -u applies to the preceding component; before any component it applies to the first.
   assert.deepEqual(parseArgs(["-u", "a=1", "gui.wasm", "-u", "b=2", "raster.wasm", "-u", "c=3"]).components, [
@@ -67,6 +67,12 @@ test("arguments", () => {
     { path: "raster.wasm", uniforms: ["c=3"] },
   ]);
   assert.throws(() => parseArgs(["--size", "huge", "x.wasm"]), /--size/);
+  // A leading bare host supplies relative components; it is not itself a component.
+  const hosted = parseArgs(["QIP.dev", "gui/calculator.wasm", "image/raster.wasm"]);
+  assert.deepEqual(hosted.hosts, ["qip.dev"]);
+  assert.deepEqual(hosted.components.map(({ path }) => path), ["gui/calculator.wasm", "image/raster.wasm"]);
+  assert.deepEqual(parseArgs(["qip.dev", "Example.com", "gui.wasm"]).hosts, ["qip.dev", "example.com"]);
+  assert.deepEqual(parseArgs(["qip.dev/gui/calculator.wasm"]).hosts, []);
 });
 
 class FakeTTY extends EventEmitter {

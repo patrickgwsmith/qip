@@ -510,7 +510,7 @@ export async function runTUI({ stage, input, applyUniforms, stdin = process.stdi
 const MAX_MEMORY = 256 * 1024 * 1024;
 
 function usage() {
-  return `Usage: qiptui [host] [options] <component.wasm | host/path.wasm>\n\n` +
+  return `Usage: qiptui [host ...] [options] <component.wasm | host/path.wasm>\n\n` +
     `  -i, --input <file|->      Initial input file or piped stdin\n` +
     `  -F, --form <name=value>  Add a multipart field (repeatable)\n` +
     `  -u, --uniform <name=n>   Set a numeric component uniform\n` +
@@ -536,7 +536,7 @@ function usage() {
 
 export function parseArgs(args) {
   let component;
-  let host = "";
+  const hosts = [];
   let input;
   const forms = [];
   const uniforms = [];
@@ -552,8 +552,7 @@ export function parseArgs(args) {
     } else if (arg.startsWith("-")) {
       throw new Error(`unknown option ${arg}`);
     } else if (component === undefined && !arg.endsWith(".wasm") && !arg.includes("/") && hostedPath(`${arg}/component.wasm`)) {
-      if (host) throw new Error("qiptui accepts one host");
-      host = arg.toLowerCase();
+      hosts.push(arg.toLowerCase());
     } else if (component === undefined) {
       component = arg;
     } else {
@@ -562,7 +561,7 @@ export function parseArgs(args) {
   }
   if (!component) throw new Error("qiptui requires a component; run --help for usage");
   if (input && forms.length) throw new Error("-i and -F cannot be used together");
-  return { component, host, input, forms, uniforms };
+  return { component, hosts, input, forms, uniforms };
 }
 
 function field(value) {
@@ -588,7 +587,7 @@ async function readStream(stream, limit) {
   return Buffer.concat(chunks, length);
 }
 
-export async function multipart(values, host = "", stdin = process.stdin, limit = Infinity) {
+export async function multipart(values, hosts = [], stdin = process.stdin, limit = Infinity) {
   const boundary = FORM_BOUNDARY;
   const chunks = [];
   let usedStdin = false;
@@ -604,7 +603,7 @@ export async function multipart(values, host = "", stdin = process.stdin, limit 
     const filename = fileMode === "@" ? basename(hostedPath(path)?.path ?? path) : "";
     if (filename && !/^[\x20-\x21\x23-\x5b\x5d-\x7e]+$/.test(filename)) throw new Error(`invalid form filename ${filename}`);
     const body = fileMode
-      ? (path === "-" ? await readStream(stdin, limit) : path.endsWith(".wasm") ? await loadWasm(path, wasmHeader, host) : await readFile(path))
+      ? (path === "-" ? await readStream(stdin, limit) : path.endsWith(".wasm") ? await loadWasm(path, wasmHeader, hosts) : await readFile(path))
       : Buffer.from(raw);
     if (body.includes(Buffer.from(`\r\n--${boundary}`))) throw new Error(`form field ${name} contains the multipart boundary`);
     const header = `--${boundary}\r\nContent-Disposition: form-data; name="${name}"` +
@@ -660,7 +659,7 @@ export async function main(args = process.argv.slice(2)) {
     process.stdout.write(usage());
     return;
   }
-  const data = await loadWasm(options.component, validateTUIBinary, options.host);
+  const data = await loadWasm(options.component, validateTUIBinary, options.hosts);
   const module = new WebAssembly.Module(data);
   const exports = new WebAssembly.Instance(module).exports;
   if (!(exports.memory instanceof WebAssembly.Memory)) throw new Error("TUI component must export memory");
@@ -699,7 +698,7 @@ export async function main(args = process.argv.slice(2)) {
   if (pipedInput && (process.stdin.isTTY || !process.stderr.isTTY)) {
     throw new Error("piped input needs stdin from a pipe and stderr attached to a terminal for keyboard input");
   }
-  const input = options.forms.length ? await multipart(options.forms, options.host, process.stdin, stage.inputCapacity)
+  const input = options.forms.length ? await multipart(options.forms, options.hosts, process.stdin, stage.inputCapacity)
     : options.input === "-" ? await readStream(process.stdin, stage.inputCapacity)
       : options.input ? await readFile(options.input) : new Uint8Array();
   const keyboard = pipedInput ? new ReadStream(2) : process.stdin;

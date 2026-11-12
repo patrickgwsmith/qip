@@ -17,6 +17,7 @@ import { deflateSync } from "node:zlib";
 
 import {
   applyUniforms,
+  hostedPath,
   loadWasm,
   parseUniforms,
   readUniformParamTypes,
@@ -643,10 +644,12 @@ export async function runGUI({
 }
 
 function usage() {
-  return `Usage: qipgui [options] <gui.wasm> [transform.wasm ...]\n\n` +
+  return `Usage: qipgui [host ...] [options] <gui.wasm> [transform.wasm ...]\n\n` +
     `The first component renders and receives keys and pointer events. Each later\n` +
     `component transforms the frame before it, and the last must output KTX2 RGBA8.\n` +
-    `Components may be local files or host/path.wasm downloads.\n\n` +
+    `Components may be local files or host/path.wasm downloads over HTTPS. Leading\n` +
+    `hosts such as qip.dev supply relative components that are missing locally; each\n` +
+    `component tries them in order, so a pipeline may mix hosts.\n\n` +
     `  -i, --input <file|->       Initial input for the first component, or piped stdin\n` +
     `  -u, --uniform <name=n>     Set a numeric uniform on the preceding component\n` +
     `      --size <mode>          auto (1:1, shrink to fit), native, or fill\n` +
@@ -657,13 +660,14 @@ function usage() {
     `Ctrl-C exits.\n\n` +
     `Examples:\n` +
     `  qipgui gui/calculator.wasm\n` +
+    `  qipgui qip.dev gui/calculator.wasm\n` +
     `  qipgui --stats --transport zlib gui/snake.wasm\n` +
     `  qipgui gui/klondike.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm\n`;
 }
 
 // Uniforms before the first component apply to it, so `-u name=n gui.wasm` keeps working.
 export function parseArgs(args) {
-  const options = { components: [], input: undefined, size: "auto", transport: "direct", stats: false };
+  const options = { components: [], hosts: [], input: undefined, size: "auto", transport: "direct", stats: false };
   const leading = [];
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -682,7 +686,9 @@ export function parseArgs(args) {
         options.transport = value;
       }
     } else if (arg.startsWith("-")) throw new Error(`unknown option ${arg}`);
-    else options.components.push({ path: arg, uniforms: options.components.length ? [] : leading });
+    else if (!options.components.length && !arg.endsWith(".wasm") && !arg.includes("/") && hostedPath(`${arg}/component.wasm`)) {
+      options.hosts.push(arg.toLowerCase());
+    } else options.components.push({ path: arg, uniforms: options.components.length ? [] : leading });
   }
   if (!options.components.length) throw new Error("qipgui requires a component; run --help for usage");
   return options;
@@ -697,7 +703,7 @@ export async function main(args = process.argv.slice(2)) {
   const stages = [];
   for (const { path, uniforms } of options.components) {
     const validate = stages.length ? validateTransformBinary : validateGUIBinary;
-    const data = await loadWasm(path, (bytes) => validate(bytes, path));
+    const data = await loadWasm(path, (bytes) => validate(bytes, path), options.hosts);
     stages.push(createStage(data, path, uniforms));
   }
   checkChain(stages);

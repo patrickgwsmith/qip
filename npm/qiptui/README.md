@@ -29,7 +29,8 @@ with a filename, or `name=<path` to send them as a regular field without a
 filename. Quote the `<` form so the shell does not treat it as redirection. A
 leading host such as `qip.dev` applies to the TUI and its `.wasm` form fields,
 like `qipx`: a relative `.wasm` path is read locally if it exists, and only a
-missing one is downloaded from the host. Downloaded files are kept in memory on
+missing one is downloaded from the host. With several leading hosts, each file
+tries them in order, so files may come from different hosts. Downloaded files are kept in memory on
 each run, not saved. With `-i -`, `-F name=@-`,
 or `-F 'name=<-'`, qiptui reads piped stdin once and reads keys from the
 terminal on stderr. These forms require stderr to remain attached to a terminal.

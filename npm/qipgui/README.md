@@ -8,6 +8,8 @@ testing whether this approach is viable. It requires Node.js 22 or newer.
 
 ```sh
 npx qipgui ./gui/calculator.wasm
+npx qipgui qip.dev/gui/calculator.wasm
+npx qipgui qip.dev gui/calculator.wasm
 node npm/qipgui/qipgui.mjs gui/calculator.wasm
 node npm/qipgui/qipgui.mjs --stats --transport zlib gui/snake.wasm
 node npm/qipgui/qipgui.mjs --size fill gui/paint.wasm
@@ -38,7 +40,11 @@ frame. qipgui allows each component up to 1 GiB of memory (qiptui allows
 256 MiB), so the `-simd` and ThorVG rasterizers also run, but on klondike they
 are slower: about 220 ms and 3 s per frame.
 
-It shares qiptui's loader, which supports hosted `host/path.wasm` downloads,
+It shares qiptui's loader, which supports hosted `host/path.wasm` downloads
+and leading hosts (`qipgui qip.dev gui/calculator.wasm`) that supply
+relative components missing locally. Like `qipx` and `qipok`, each component
+tries the hosts in order, so one pipeline may mix components from different
+hosts,
 along with its Strict Wasm Profile checks, `-u` uniform parsing, and key
 decoder. That code lives once in `npm/shared/qip-host.mjs` and is copied into
 each package as `qip-host.mjs` by `make npm-shared`; edit only the source.
