@@ -10,7 +10,8 @@ Inputs (vendored, pinned):
     https://www.unicode.org/Public/17.0.0/ucd/CaseFolding.txt
     sha256 ff8d8fefbf123574205085d6714c36149eb946d717a0c585c27f0f4ef58c4183
 
-Outputs (each written twice — component copy and compliance copy):
+Outputs (each written twice — component copy and compliance copy; the
+component's entity table is front-coded, the compliance copy is flat):
   text/markdown/lib/html5-entities-table.zig
   compliance/html5-entities-table.zig
   text/markdown/lib/unicode-17-casefold-tables.zig
@@ -22,6 +23,7 @@ Usage: python3 tools/generate-markdown-tables.py (from the repo root)
 import hashlib
 import json
 import pathlib
+import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -75,13 +77,75 @@ def wrap_string(data: bytes, chunk_size=64):
     return "\n".join(lines)
 
 
-def generate_entities() -> str:
+def entity_entries():
     entities = json.loads(ENTITIES_JSON.read_text())
-    entries = sorted(
+    return sorted(
         (name[1:-1], info["characters"].encode())
         for name, info in entities.items()
         if name.endswith(";")
     )
+
+
+ENTITY_BUCKET = 16
+
+
+def generate_entities_front_coded() -> str:
+    """Component copy: sorted names front-coded in buckets of ENTITY_BUCKET.
+
+    Each entry is one header byte, (shared << 3) | value_len, where shared is
+    the length of the prefix it has in common with the previous name (always 0
+    for the first entry of a bucket), then the rest of the name with the high
+    bit set on its last byte (names are ASCII), then value_len bytes of UTF-8
+    replacement text.
+    """
+    entries = entity_entries()
+    data = bytearray()
+    bucket_offsets = []
+    prev = b""
+    for i, (name, value) in enumerate(entries):
+        name = name.encode()
+        assert name.isascii() and 0 < len(name) < 32
+        assert 0 < len(value) < 8
+        if i % ENTITY_BUCKET == 0:
+            bucket_offsets.append(len(data))
+            shared = 0
+        else:
+            shared = 0
+            while shared < min(len(name), len(prev)) and name[shared] == prev[shared]:
+                shared += 1
+        suffix = bytearray(name[shared:])
+        assert suffix, "sorted distinct names always leave a suffix"
+        suffix[-1] |= 0x80
+        data.append((shared << 3) | len(value))
+        data += suffix
+        data += value
+        prev = name
+    assert len(data) < 0x10000
+    return f"""{GENERATED_NOTE}
+// HTML5 named character references that end in a semicolon — the set
+// CommonMark 0.31.2 requires — from entities.json (WHATWG HTML), pinned in
+// tools/generate-markdown-tables.py. {len(entries)} entries, sorted bytewise
+// by name (without the leading "&" or trailing ";"), front-coded in buckets of
+// {ENTITY_BUCKET}. Each entry in `entries` is a header byte
+// (shared_prefix_len << 3 | value_len), the name bytes after the prefix it
+// shares with the previous entry (with bit 7 set on the last one), then
+// value_len bytes of replacement text. The first entry of each bucket starts at
+// bucket_offsets[b] and shares nothing, so it holds its full name.
+// compliance/html5-entities-table.zig keeps the same data as flat blobs.
+pub const count: usize = {len(entries)};
+pub const bucket_size: usize = {ENTITY_BUCKET};
+
+pub const bucket_offsets = [_]u16{{
+{wrap_ints(bucket_offsets, lambda x: str(x), 14)}
+}};
+
+pub const entries =
+{wrap_string(bytes(data))};
+"""
+
+
+def generate_entities() -> str:
+    entries = entity_entries()
     names_blob = b"".join(name.encode() for name, _ in entries)
     values_blob = b"".join(value for _, value in entries)
     assert len(names_blob) < 0x10000 and len(values_blob) < 0x10000
@@ -164,9 +228,10 @@ def main():
     check_sha(ENTITIES_JSON, ENTITIES_SHA)
     check_sha(CASE_FOLDING, CASE_FOLDING_SHA)
     entities = generate_entities()
+    entities_front_coded = generate_entities_front_coded()
     casefold = generate_casefold()
     targets = [
-        (ROOT / "text/markdown/lib/html5-entities-table.zig", entities),
+        (ROOT / "text/markdown/lib/html5-entities-table.zig", entities_front_coded),
         (ROOT / "compliance/html5-entities-table.zig", entities),
         (ROOT / "text/markdown/lib/unicode-17-casefold-tables.zig", casefold),
         (ROOT / "compliance/unicode-17-casefold-tables.zig", casefold),
@@ -174,6 +239,8 @@ def main():
     for path, content in targets:
         path.write_text(content)
         print(f"wrote {path.relative_to(ROOT)} ({len(content)} bytes)")
+    # The checked-in tables are zig fmt output; match them byte for byte.
+    subprocess.run(["zig", "fmt", *(str(path) for path, _ in targets)], check=True)
 
 
 if __name__ == "__main__":

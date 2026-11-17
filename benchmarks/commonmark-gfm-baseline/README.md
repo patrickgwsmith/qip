@@ -98,19 +98,103 @@ it. Most of the 25× gap between wazero and V8 in the tables comes from this,
 not from the guest code. It's also why reducing loop iterations and calls
 helps wazero more than the instruction count alone suggests.
 
-### Wasm size opportunities (not done)
+## Size reduction (2026-11-17)
 
-- HTML5 entity table: about 35 KB of the 44 KB data section. Front-code the
-  sorted names (the existing TODO in `lib/commonmark.zig`).
-- Block-level dispatch is duplicated across `renderBlocks`,
-  `renderListItemContent`, `firstListItemBlockIsCode`,
-  `contentOpensParagraph` and the paragraph lookaheads. A per-line classifier
-  (the line-classification TODO) would merge these, and would also remove most
-  of the remaining `leadingIndent`/`parseListMarker` calls.
-- `std.fmt.bufPrint` for heading tags and ordered-list start numbers links in
-  the integer formatter. A one-digit level write plus a small itoa is enough.
-- `matchesType1Start` / `isType6TagName` compare against string lists one by
-  one. A switch on the first byte would be smaller and faster.
+Starting from the speed work above (`533e824d`). Output is again byte-identical:
+same SHA-256 on `input.md`, no differences from the `533e824d` build on 2,098
+spec, GFM and differential-corpus examples, `README.md`, `site/*.md`, every
+HTML5 entity name with near misses, and 300,000 random Markdown-like inputs per
+component ([`differential.mjs`](differential.mjs)). The CommonMark, GFM,
+entity, casefold and differential-corpus suites, the pathological budgets and
+the 63 related Node tests pass.
+
+| Item | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `text/markdown/commonmark.0.31.2.wasm` | 77,469 | `4dc69e5ecc7d46315a3bd20536eaf42238a98b0bad18d30d3c4115116a74f640` |
+| `text/markdown/gfm-commonmark.0.31.2.wasm` | 82,779 | `e09a1663aa3f40411f3052f17ab19cb4b732eccc8550a0f0257222118b8cd0ea` |
+
+Wasm bytes after each step (CommonMark / GFM):
+
+| Step | CommonMark | GFM |
+| --- | ---: | ---: |
+| Start (`533e824d`) | 93,566 | 98,937 |
+| Front-coded entity table | 81,826 (−11,740) | 87,199 (−11,738) |
+| Heading digit + `writeDecimal` instead of `std.fmt.bufPrint` | 79,328 (−2,498) | 84,709 (−2,490) |
+| Type 6 tag names as one sorted string, scanned from the first letter | 78,931 (−397) | 84,345 (−364) |
+| One block-start classifier for all block dispatch | 77,507 (−1,424) | 82,817 (−1,528) |
+| Entity bucket walk without rebuilding names | 77,469 (−38) | 82,779 (−38) |
+| **Total** | **−16,097 (−17.2%)** | **−16,158 (−16.3%)** |
+| `qip bench` gzip | 49,710 → 38,744 (−22.1%) | 51,506 → 40,782 (−20.8%) |
+
+| `input.md` | CommonMark before → after | GFM before → after |
+| --- | ---: | ---: |
+| Executed instructions | 8,232,746 → 7,410,347 (−10.0%) | 10,491,525 → 9,669,288 (−7.8%) |
+| Loop iterations (all loops) | 236,182 → 235,998 | 284,310 → 284,126 |
+| Calls | 49,406 → 37,926 (−23%) | 55,571 → 44,091 (−21%) |
+| Memory reads / writes | 470K / 116K → 432K / 97K | 593K / 124K → 555K / 106K |
+| wazero total, mean (min) | 4.638 (4.384) → 4.436 (4.196) ms | 5.733 (5.365) → 5.730 (5.008) ms |
+| Node.js/V8 request, mean (min) | 0.173 (0.161) → 0.156 (0.139) ms | 0.218 (0.199) → 0.223 (0.191) ms |
+
+The instruction, call and memory counts are deterministic. The timings are
+not: another app was using about two cores during these runs, and the new GFM
+build had outliers up to 34 ms (stddev 1.8 ms), so its means are not
+comparable; the minimums are the steadier figure there. Both builds were
+benchmarked back to back in the same session.
+
+Raw output: [CommonMark trace](qipdb-commonmark-size.txt),
+[GFM trace](qipdb-gfm-commonmark-size.txt),
+[CommonMark bench](bench-commonmark-size.txt),
+[GFM bench](bench-gfm-commonmark-size.txt).
+
+### What changed
+
+- **Entity table.** `tools/generate-markdown-tables.py` now writes the
+  component's copy of the 2,125 names front-coded in buckets of 16. Each entry
+  is a header byte (shared-prefix length << 3 | value length), the rest of the
+  name with bit 7 set on its last byte, then the replacement text: 16,466 bytes
+  plus 133 `u16` bucket offsets, instead of 28,720 bytes of blobs and offsets.
+  Lookup binary-searches the bucket heads, then walks the bucket by
+  shared-prefix length without rebuilding names. The compliance copy stays
+  flat. The generator now runs `zig fmt`, so regenerating reproduces the
+  checked-in files.
+- **Integer formatting.** Heading levels are one digit; ordered-list starts use
+  a small `writeDecimal`. Removing `std.fmt` also removed the build's only
+  function table and `call_indirect` sites, so `test/qipdb.mjs` now checks the
+  table counters on the QR SVG component instead.
+- **HTML tag names.** The 62 type 6 names are one space-separated sorted
+  string; the scan only compares names with the same first letter and stops
+  after them. A `switch` on the first letter with a slice list per letter was
+  **285–317 bytes larger** (each slice costs an 8-byte pointer/length pair),
+  and a first-letter switch for the four type 1 names was 40 bytes larger, so
+  `matchesType1Start` keeps its loop.
+- **Block dispatch.** `classifyBlockStart` decides what block a line opens by
+  switching on the first byte after the indent, so each line runs at most two
+  parsers. `interruptsParagraph`, `canLazyContinue` and
+  `leavesLazyParagraphOpen` are built on it, and `renderBlocks`,
+  `renderListItemContent`, `collectReferenceDefs`, `renderParagraph`, both
+  blockquote renderers, `firstListItemBlockIsCode`, `contentOpensParagraph` and
+  `tableBodyCanContinue` all use them in place of their own copies of the
+  check chains. The fenced-code opening tag, heading output and trailing-blank
+  trimming are shared too. This is also where the drop in calls comes from.
+
+### Costs
+
+- **Entity-heavy input is slower.** On a 163 KB document that is nothing but
+  17,000 entity references, V8 takes 1.17 ms against 0.73 ms before (about
+  26 ns more per entity). Rebuilding each name, the first version, took
+  1.57 ms. Buckets of 8 brought it to 1.09 ms but cost 698 bytes, so the bucket
+  size stays 16. `input.md` has too few entities to show this.
+
+### Remaining size opportunities (not done)
+
+- `renderList` and `renderTmpList` (and `listHasSiblingSeparatorBlank`) are
+  still near-copies that walk input lines and container text respectively, and
+  differ in a few conditions. Merging them needs a shared line-source
+  abstraction, and the differing conditions should be checked against cmark
+  first, since unifying them changes output.
+- Entity values: 1,511 distinct values across 2,125 entries, so deduplicating
+  them would save little. The 133 bucket heads could also be front-coded
+  against the previous head.
 - A `wasm-opt -Oz` post-pass, not yet measured.
 - Not recommended: ReleaseFast is 1.6× faster in V8 but only about 1.15× in
   qip's wazero, and costs +62–66% wasm (+24–26% gzip). Forcing
@@ -127,6 +211,16 @@ cd ../..
 ./qip bench -i benchmarks/commonmark-gfm-baseline/input.md --benchtime=3s --node text/markdown/commonmark.0.31.2.wasm
 ./qip bench -i benchmarks/commonmark-gfm-baseline/input.md --benchtime=3s --node text/markdown/gfm-commonmark.0.31.2.wasm
 ```
+
+To compare a change against an earlier build for byte-identical output, copy
+the earlier `.wasm` aside first, then:
+
+```sh
+node benchmarks/commonmark-gfm-baseline/differential.mjs old.wasm text/markdown/gfm-commonmark.0.31.2.wasm 60000 1 README.md
+```
+
+The arguments after the two builds are the number of random inputs, the seed,
+and any extra input files.
 
 `profile.mjs` raises the qipdb instruction budget from its 1,000,000 default to
 the 100,000,000 maximum. Without that change, qipdb pauses before `render`

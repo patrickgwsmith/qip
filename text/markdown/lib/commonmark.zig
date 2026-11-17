@@ -28,11 +28,12 @@
 // punctuation (isDelimiterPunctuation); the spec wants Unicode whitespace and
 // punctuation classes. ASCII-only fuzzing cannot see this — needs UCD-derived
 // class tables like the case-fold ones.
-// TODO(perf): Classify each line once (blank, indent cols, ATX/thematic/setext/fence/
-// list-marker/html-block-start) into a table beside line_start/line_end.
-// collectReferenceDefs, renderBlocks, paragraph lookahead, and the renderList
-// prescans currently re-parse the same lines many times; nested lists also re-copy
-// item content per nesting level via tmp buffers (4x input size -> ~4x time).
+// TODO(perf): Classify each line once into a table beside line_start/line_end.
+// classifyBlockStart is now the single classifier (first-byte dispatch, at most
+// two parsers per line), but it still runs per query: collectReferenceDefs,
+// renderBlocks, paragraph lookahead, and the renderList prescans ask about the
+// same lines many times; nested lists also re-copy item content per nesting
+// level via tmp buffers (4x input size -> ~4x time).
 // TODO(perf): parseReferenceDefAt is quadratic on runs of consecutive reference
 // definitions: after parsing a def's first line it appends every following
 // non-blank line (to allow multi-line hrefs/titles) and re-runs
@@ -57,21 +58,20 @@
 // TODO(conformance, GFM): Extended-autolink trimming (trimExtendedURLEnd, entity
 // truncation, trailing-paren balancing) is only exercised by 22 fixture examples.
 // Validate against cmark-gfm and grow the extension fixture accordingly.
-// TODO(size): The full entity table costs ~35 KB of wasm as flat blobs + u16
-// offsets. If size pressure returns, front-code the sorted names (shared-prefix
-// lengths) before reaching for anything cleverer — measure with qip bench and
-// keep the Options.full_entities escape hatch either way.
-// TODO(size): Smaller wins, unmeasured as of 2026-11-17:
-// - std.fmt.bufPrint (heading tags, ordered-list start) pulls in the integer
-//   formatter; heading levels are one digit and list starts need only a tiny
-//   itoa.
-// - Block dispatch is duplicated across renderBlocks, renderListItemContent,
-//   firstListItemBlockIsCode, contentOpensParagraph and the paragraph
-//   continuation lookaheads; the line-classification rewrite would fold them
-//   into one classifier (smaller and faster).
-// - matchesType1Start/isType6TagName compare against string lists one by one;
-//   a first-byte switch would be smaller and faster.
-// - Try a wasm-opt -Oz post-pass (the mise shim was broken when measured).
+// Size, measured 2026-11-17 (benchmarks/commonmark-gfm-baseline): front-coding
+// the entity table (buckets of 16), dropping std.fmt for writeHeading and
+// writeDecimal, one sorted string for the type 6 tag names, and routing all
+// block dispatch through classifyBlockStart took 16.1 KB (17%) off each
+// component, with byte-identical output. A per-letter switch of slice lists
+// for the tag names measured ~300 bytes larger, and a first-letter switch for
+// the four type 1 names 40 bytes larger. The entity walk costs ~26 ns more per
+// entity than the flat table's binary search; buckets of 8 recovered little
+// of that for +698 bytes.
+// TODO(size): renderList/renderTmpList (and listHasSiblingSeparatorBlank) are
+// near-copies over input lines and container text that differ in a few
+// conditions; check those against cmark before merging, since unifying them
+// changes output. Also untried: a wasm-opt -Oz post-pass (the mise shim was
+// broken when measured).
 const std = @import("std");
 
 // Generated fixture tables (see each file's header for source pins, and
@@ -85,8 +85,8 @@ const casefold = @import("unicode-17-casefold-tables.zig");
 
 pub const Options = struct {
     gfm: bool,
-    // The exhaustive conformance tables cost about 42 KB of wasm between them
-    // (entities ~35 KB, case folding ~7 KB). Both default on — the published
+    // The exhaustive conformance tables cost about 23 KB of wasm between them
+    // (front-coded entities ~16 KB, case folding ~7 KB). Both default on — the published
     // components ship fully conforming — but embedders that need a smaller
     // binary can opt down to the minimal fallbacks, which still pass the
     // embedded CommonMark/GFM spec-example suites (the examples only exercise
@@ -216,7 +216,6 @@ pub fn Make(comptime options: Options) type {
                 }
             }
         };
-
 
         const Indent = struct {
             cols: usize,
@@ -608,7 +607,9 @@ pub fn Make(comptime options: Options) type {
             return input[a..b];
         }
 
-        fn parseATXHeading(line0: []const u8) ?struct { level: u8, text: []const u8 } {
+        const AtxHeading = struct { level: u8, text: []const u8 };
+
+        fn parseATXHeading(line0: []const u8) ?AtxHeading {
             const line = trimRightCR(line0);
             const ind = leadingIndent(line);
             if (ind.cols > 3) return null;
@@ -679,6 +680,7 @@ pub fn Make(comptime options: Options) type {
             return if (marker == '=') 1 else 2;
         }
 
+        // Four names; a first-letter switch measured 40 bytes larger.
         fn matchesType1Start(s: []const u8) bool {
             const prefixes = [_][]const u8{ "<pre", "<script", "<style", "<textarea" };
             for (prefixes) |p| {
@@ -691,20 +693,27 @@ pub fn Make(comptime options: Options) type {
             return false;
         }
 
+        // Sorted, so a scan can skip to the names sharing the tag's first
+        // letter and stop after them. One string instead of a slice per name
+        // saves the 8-byte pointer/length pairs.
+        const type6_tag_names = "address article aside base basefont blockquote body caption center " ++
+            "col colgroup dd details dialog dir div dl dt fieldset figcaption figure footer form " ++
+            "frame frameset h1 h2 h3 h4 h5 h6 head header hr html iframe legend li link main menu " ++
+            "menuitem nav noframes ol optgroup option p param search section summary table tbody " ++
+            "td tfoot th thead title tr track ul";
+
+        // name is ASCII letters, digits and '-' (see matchesType6Start).
         fn isType6TagName(name: []const u8) bool {
-            const tags = [_][]const u8{
-                "address", "article",  "aside",   "base",     "basefont", "blockquote", "body",
-                "caption", "center",   "col",     "colgroup", "dd",       "details",    "dialog",
-                "dir",     "div",      "dl",      "dt",       "fieldset", "figcaption", "figure",
-                "footer",  "form",     "frame",   "frameset", "h1",       "h2",         "h3",
-                "h4",      "h5",       "h6",      "head",     "header",   "hr",         "html",
-                "iframe",  "legend",   "li",      "link",     "main",     "menu",       "menuitem",
-                "nav",     "noframes", "ol",      "optgroup", "option",   "p",          "param",
-                "search",  "section",  "summary", "table",    "tbody",    "td",         "tfoot",
-                "th",      "thead",    "title",   "tr",       "track",    "ul",
-            };
-            for (tags) |tag| {
-                if (std.ascii.eqlIgnoreCase(name, tag)) return true;
+            if (name.len == 0) return false;
+            const first = name[0] | 0x20;
+            const names = type6_tag_names;
+            var i: usize = 0;
+            while (i < names.len) {
+                var j = i;
+                while (j < names.len and names[j] != ' ') : (j += 1) {}
+                if (names[i] > first) return false;
+                if (names[i] == first and std.ascii.eqlIgnoreCase(name, names[i..j])) return true;
+                i = j + 1;
             }
             return false;
         }
@@ -893,11 +902,89 @@ pub fn Make(comptime options: Options) type {
             const ind = leadingIndent(line0);
             if (ind.cols > 3) return false;
             const mark = parseListMarker(line0) orelse return false;
+            return listMarkerCanInterruptParagraph(line0, mark);
+        }
+
+        // An empty item, or an ordered one not starting at 1, cannot interrupt
+        // a paragraph.
+        fn listMarkerCanInterruptParagraph(line0: []const u8, mark: ListMarker) bool {
             const line = trimRightCR(line0);
             if (mark.content_start >= line.len) return false;
             if (trimAscii(line[mark.content_start..]).len == 0) return false;
             if (mark.kind == .ordered and mark.ordered_start != 1) return false;
             return true;
+        }
+
+        // The block a line opens, apart from the ones callers check first:
+        // blank lines, indented code, reference definitions and GFM tables.
+        const BlockStart = union(enum) {
+            paragraph,
+            blockquote,
+            html: HtmlBlockType,
+            fence: Fence,
+            thematic_break,
+            atx_heading: AtxHeading,
+            list: ListMarker,
+        };
+
+        // The one place that decides whether a line starts a block. Every
+        // block start begins with a specific byte after at most three columns
+        // of indent, so dispatching on that byte runs at most two parsers per
+        // line. Only '*' and '-' are shared, and a thematic break wins over a
+        // list item there (spec 4.1). Lines indented 4+ columns and blank lines
+        // are paragraphs here. prev_blank only matters for HTML type 7.
+        fn classifyBlockStart(line: []const u8, ind: Indent, prev_blank: bool) BlockStart {
+            if (ind.cols > 3 or ind.idx >= line.len) return .paragraph;
+            switch (line[ind.idx]) {
+                '>' => return .blockquote,
+                '<' => {
+                    const html = detectHtmlBlockStart(line, prev_blank);
+                    if (html != .none) return .{ .html = html };
+                },
+                '`', '~' => if (parseFenceOpen(line)) |fence| return .{ .fence = fence },
+                '#' => if (parseATXHeading(line)) |h| return .{ .atx_heading = h },
+                '*', '-', '_', '+', '0'...'9' => {
+                    if (parseThematicBreak(line)) return .thematic_break;
+                    if (parseListMarker(line)) |mark| return .{ .list = mark };
+                },
+                else => {},
+            }
+            return .paragraph;
+        }
+
+        // Whether a non-blank line ends an open paragraph. Setext underlines
+        // are left to the callers that turn them into headings. HTML type 7
+        // never interrupts, so prev_blank does not matter here.
+        fn interruptsParagraph(line: []const u8) bool {
+            return switch (classifyBlockStart(line, leadingIndent(line), false)) {
+                .paragraph => false,
+                .list => |mark| listMarkerCanInterruptParagraph(line, mark),
+                else => true,
+            };
+        }
+
+        // Whether a line that is not part of a container's own content can
+        // still join that container's open paragraph as a lazy continuation.
+        // Unlike interruptsParagraph, any list marker (even an empty item, which
+        // could not interrupt a paragraph in the same container) starts a
+        // block and so is not lazy. A marker indented 4+ columns starts nothing
+        // and stays lazy.
+        fn canLazyContinue(line: []const u8) bool {
+            const ind = leadingIndent(line);
+            return ind.cols > 3 or classifyBlockStart(line, ind, false) == .paragraph;
+        }
+
+        // Whether a non-blank line inside a container leaves a paragraph open
+        // for a following lazy line to join: plain text does, and so do nested
+        // blockquotes and list items, but code, headings, breaks and HTML
+        // blocks do not.
+        fn leavesLazyParagraphOpen(line: []const u8) bool {
+            const ind = leadingIndent(line);
+            if (ind.cols >= 4) return false;
+            return switch (classifyBlockStart(line, ind, false)) {
+                .paragraph, .blockquote, .list => true,
+                else => false,
+            };
         }
 
         fn isPunctuation(b: u8) bool {
@@ -978,26 +1065,78 @@ pub fn Make(comptime options: Options) type {
             return null;
         }
 
-        // Binary search over the generated HTML5 entity table (provenance in
-        // lib/html5-entities-table.zig). Names are matched bytewise and
-        // case-sensitively, per the WHATWG list; only semicolon-terminated
-        // references are present, matching CommonMark's entity rule.
+        // Whether the full name opening the front-coded entity bucket at `at`
+        // (header byte, then name bytes with bit 7 set on the last) sorts
+        // after `name`.
+        fn entityBucketHeadAfter(at: usize, name: []const u8) bool {
+            const data = entity_table.entries;
+            var i: usize = 0;
+            while (true) : (i += 1) {
+                const b = data[at + 1 + i];
+                const c = b & 0x7f;
+                if (i == name.len) return true; // name is a proper prefix
+                if (c != name[i]) return c > name[i];
+                if (b & 0x80 != 0) return false; // head is a prefix of name, or equal
+            }
+        }
+
+        // Lookup in the generated HTML5 entity table (provenance and layout in
+        // lib/html5-entities-table.zig): binary search over the full names that
+        // open each front-coded bucket, then walk that bucket in order. Names
+        // are matched bytewise and case-sensitively, per the WHATWG list; only
+        // semicolon-terminated references are present, matching CommonMark's
+        // entity rule.
+        //
+        // The walk never rebuilds a name. `matched` is how many leading bytes
+        // the previous entry has in common with `name` (that entry sorted
+        // before it). An entry sharing more than `matched` bytes with the
+        // previous one still sorts before `name` and is skipped unread; one
+        // sharing fewer sorts after it, as does everything that follows, so
+        // the lookup fails; only an entry sharing exactly `matched` bytes has
+        // its suffix compared.
         fn decodeNamedEntity(name: []const u8) ?[]const u8 {
             if (!options.full_entities) return decodeNamedEntityMinimal(name);
+            if (name.len == 0) return null;
+            const data = entity_table.entries;
+            const offsets = &entity_table.bucket_offsets;
             var lo: usize = 0;
-            var hi: usize = entity_table.count;
+            var hi: usize = offsets.len;
             while (lo < hi) {
                 const mid = lo + (hi - lo) / 2;
-                const name_start: usize = if (mid == 0) 0 else entity_table.name_ends[mid - 1];
-                const candidate = entity_table.names_blob[name_start..entity_table.name_ends[mid]];
-                switch (std.mem.order(u8, name, candidate)) {
-                    .eq => {
-                        const value_start: usize = if (mid == 0) 0 else entity_table.value_ends[mid - 1];
-                        return entity_table.values_blob[value_start..entity_table.value_ends[mid]];
-                    },
-                    .lt => hi = mid,
-                    .gt => lo = mid + 1,
+                if (entityBucketHeadAfter(offsets[mid], name)) hi = mid else lo = mid + 1;
+            }
+            if (lo == 0) return null;
+            var p: usize = offsets[lo - 1];
+            const end: usize = if (lo < offsets.len) offsets[lo] else data.len;
+            var matched: usize = 0;
+            while (p < end) {
+                const header = data[p];
+                p += 1;
+                const shared: usize = header >> 3;
+                const value_len: usize = header & 7;
+                if (shared < matched) return null;
+                var before = shared > matched; // already known to sort before name
+                var i = shared;
+                while (true) {
+                    const b = data[p];
+                    p += 1;
+                    if (!before) {
+                        const c = b & 0x7f;
+                        if (i == name.len or c > name[i]) return null;
+                        if (c < name[i]) {
+                            before = true;
+                            matched = i;
+                        } else {
+                            i += 1;
+                        }
+                    }
+                    if (b & 0x80 != 0) break;
                 }
+                if (!before) {
+                    if (i == name.len) return data[p..][0..value_len];
+                    matched = i; // this entry is a proper prefix of name
+                }
+                p += value_len;
             }
             return null;
         }
@@ -1362,7 +1501,7 @@ pub fn Make(comptime options: Options) type {
                     continue;
                 }
                 if (fence != null) break;
-                if (para_open and canLazyContinueListParagraph(ln)) {
+                if (para_open and canLazyContinue(ln)) {
                     if (!contentOpensParagraph(ln)) para_open = false;
                     continue;
                 }
@@ -1433,75 +1572,63 @@ pub fn Make(comptime options: Options) type {
                     continue;
                 }
 
-                if (parseFenceOpen(line)) |fence| {
-                    i += 1;
-                    while (i < lines_count) : (i += 1) {
-                        if (isFenceClose(lineSlice(input, i), fence)) {
-                            i += 1;
-                            break;
-                        }
-                    }
-                    continue;
-                }
-
-                const prev_blank = if (i == 0) true else isBlankLine(lineSlice(input, i - 1));
-                const html_block = detectHtmlBlockStart(line, prev_blank);
-                if (html_block != .none) {
-                    while (i < lines_count) : (i += 1) {
-                        const next_is_blank = i + 1 >= lines_count or isBlankLine(lineSlice(input, i + 1));
-                        if (htmlBlockEnds(html_block, trimRightCR(lineSlice(input, i)), next_is_blank)) {
-                            if ((html_block == .type6 or html_block == .type7) and i + 1 < lines_count and isBlankLine(lineSlice(input, i + 1))) {
+                const prev_blank = i == 0 or isBlankLine(lineSlice(input, i - 1));
+                switch (classifyBlockStart(line, ind, prev_blank)) {
+                    .fence => |fence| {
+                        i += 1;
+                        while (i < lines_count) : (i += 1) {
+                            if (isFenceClose(lineSlice(input, i), fence)) {
                                 i += 1;
+                                break;
                             }
-                            i += 1;
-                            break;
                         }
-                    }
-                    continue;
+                        continue;
+                    },
+                    .html => |html_block| {
+                        while (i < lines_count) : (i += 1) {
+                            const next_is_blank = i + 1 >= lines_count or isBlankLine(lineSlice(input, i + 1));
+                            if (htmlBlockEnds(html_block, trimRightCR(lineSlice(input, i)), next_is_blank)) {
+                                if ((html_block == .type6 or html_block == .type7) and i + 1 < lines_count and isBlankLine(lineSlice(input, i + 1))) {
+                                    i += 1;
+                                }
+                                i += 1;
+                                break;
+                            }
+                        }
+                        continue;
+                    },
+                    .atx_heading, .thematic_break => {
+                        i += 1;
+                        continue;
+                    },
+                    .list => |m| {
+                        i = collectListItemDefs(input, i, m);
+                        continue;
+                    },
+                    .blockquote => {
+                        var stripped = Writer.init(tmp2_buf[0..]);
+                        if (appendBlockquoteStripped(&stripped, line)) {
+                            if (parseReferenceDefLine(stripped.buf[0..stripped.idx])) |p| {
+                                if (!pushReferenceDef(p.label_hash, p.href, p.title)) break;
+                            }
+                        }
+                        i += 1;
+                        continue;
+                    },
+                    .paragraph => {},
                 }
 
+                // Definitions start with '[', which no other block start does.
                 if (parseReferenceDefAt(input, i)) |def| {
                     if (!pushReferenceDef(def.label_hash, def.href, def.title)) break;
                     i = def.next_idx;
                     continue;
                 }
 
-                if (parseATXHeading(line) != null) {
-                    i += 1;
-                    continue;
-                }
-                if (parseThematicBreak(line)) {
-                    i += 1;
-                    continue;
-                }
-                if (parseListMarker(line)) |m| {
-                    i = collectListItemDefs(input, i, m);
-                    continue;
-                }
-                if (ind.cols <= 3 and ind.idx < line.len and line[ind.idx] == '>') {
-                    var stripped = Writer.init(tmp2_buf[0..]);
-                    if (appendBlockquoteStripped(&stripped, line)) {
-                        if (parseReferenceDefLine(stripped.buf[0..stripped.idx])) |p| {
-                            if (!pushReferenceDef(p.label_hash, p.href, p.title)) break;
-                        }
-                    }
-                    i += 1;
-                    continue;
-                }
-
                 var j = i + 1;
                 while (j < lines_count) : (j += 1) {
                     const l = lineSlice(input, j);
-                    if (isBlankLine(l)) break;
-                    if (parseATXHeading(l) != null) break;
-                    if (parseThematicBreak(l)) break;
-                    if (parseFenceOpen(l) != null) break;
-                    if (canInterruptParagraphWithList(l)) break;
-                    const l_prev_blank = if (j == 0) true else isBlankLine(lineSlice(input, j - 1));
-                    const l_html_block = detectHtmlBlockStart(l, l_prev_blank);
-                    if (l_html_block != .none and l_html_block != .type7) break;
-                    const li = leadingIndent(l);
-                    if (li.cols <= 3 and li.idx < l.len and l[li.idx] == '>') break;
+                    if (isBlankLine(l) or interruptsParagraph(l)) break;
                 }
                 i = j;
             }
@@ -3101,23 +3228,50 @@ pub fn Make(comptime options: Options) type {
             renderInlineNodes(out, s);
         }
 
+        // Heading levels are 1-6, so the tag digit is a single byte; this
+        // and writeDecimal keep std.fmt's integer formatter out of the build.
+        fn writeHeading(out: *Writer, level: u8, text: []const u8) void {
+            out.writeSlice("<h");
+            out.writeByte('0' + level);
+            out.writeByte('>');
+            writeInline(out, text);
+            out.writeSlice("</h");
+            out.writeByte('0' + level);
+            out.writeSlice(">\n");
+        }
+
+        fn writeDecimal(out: *Writer, value: usize) void {
+            var digits: [20]u8 = undefined;
+            var i: usize = digits.len;
+            var v = value;
+            while (true) {
+                i -= 1;
+                digits[i] = '0' + @as(u8, @intCast(v % 10));
+                v /= 10;
+                if (v == 0) break;
+            }
+            out.writeSlice(digits[i..]);
+        }
+
+        fn writeListOpen(out: *Writer, mark: ListMarker) void {
+            if (mark.kind != .ordered) return out.writeSlice("<ul>\n");
+            if (mark.ordered_start == 1) return out.writeSlice("<ol>\n");
+            out.writeSlice("<ol start=\"");
+            writeDecimal(out, mark.ordered_start);
+            out.writeSlice("\">\n");
+        }
+
+        fn writeListClose(out: *Writer, mark: ListMarker) void {
+            out.writeSlice(if (mark.kind == .ordered) "</ol>\n" else "</ul>\n");
+        }
+
         fn renderParagraph(input: []const u8, out: *Writer, i_ptr: *u32) void {
             const start = i_ptr.*;
             var i = start;
             while (i < lines_count) : (i += 1) {
                 const line = lineSlice(input, i);
                 if (isBlankLine(line)) break;
-                if (i != start) {
-                    if (parseATXHeading(line) != null) break;
-                    if (parseThematicBreak(line)) break;
-                    if (parseFenceOpen(line) != null) break;
-                    if (canInterruptParagraphWithList(line)) break;
-                    const prev_blank = if (i == 0) true else isBlankLine(lineSlice(input, i - 1));
-                    const html_block = detectHtmlBlockStart(line, prev_blank);
-                    if (html_block != .none and html_block != .type7) break;
-                    const ind = leadingIndent(line);
-                    if (ind.cols <= 3 and ind.idx < line.len and line[ind.idx] == '>') break;
-                }
+                if (i != start and interruptsParagraph(line)) break;
             }
 
             var para = Writer.init(tmp2_buf[0..]);
@@ -3144,21 +3298,39 @@ pub fn Make(comptime options: Options) type {
             i_ptr.* = i;
         }
 
+        // "<pre><code>", with a language class from the first word of the
+        // info string when there is one.
+        fn writeFenceOpenTag(out: *Writer, fence: Fence) void {
+            out.writeSlice("<pre><code");
+            var info_end: usize = 0;
+            while (info_end < fence.info.len and !isWhitespace(fence.info[info_end])) : (info_end += 1) {}
+            if (info_end > 0) {
+                out.writeSlice(" class=\"language-");
+                writeLinkAttrEscaped(out, fence.info[0..info_end]);
+                out.writeByte('"');
+            }
+            out.writeByte('>');
+        }
+
+        // Indented code drops its trailing blank (or whitespace-only) lines.
+        fn trimTrailingBlankCodeLines(code: *Writer) void {
+            while (code.idx > 0) {
+                if (code.buf[code.idx - 1] != '\n') break;
+                var start = code.idx - 1;
+                while (start > 0 and code.buf[start - 1] != '\n') : (start -= 1) {}
+                if (trimAscii(code.buf[start .. code.idx - 1]).len != 0) break;
+                code.idx = start;
+            }
+        }
+
+        // Blocks after the first in container content start on a new line.
+        fn separateBlock(out: *Writer, first_block: bool) void {
+            if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
+        }
+
         fn renderFencedCode(input: []const u8, out: *Writer, i_ptr: *u32, fence: Fence) void {
             var i = i_ptr.* + 1;
-
-            out.writeSlice("<pre><code");
-            if (fence.info.len > 0) {
-                var info_end: usize = 0;
-                while (info_end < fence.info.len and !isWhitespace(fence.info[info_end])) : (info_end += 1) {}
-                const lang = fence.info[0..info_end];
-                if (lang.len > 0) {
-                    out.writeSlice(" class=\"language-");
-                    writeLinkAttrEscaped(out, lang);
-                    out.writeByte('"');
-                }
-            }
-            out.writeSlice(">");
+            writeFenceOpenTag(out, fence);
 
             while (i < lines_count) : (i += 1) {
                 const line = lineSlice(input, i);
@@ -3204,15 +3376,7 @@ pub fn Make(comptime options: Options) type {
                 code.writeByte('\n');
             }
 
-            // Trim trailing blank lines from indented code blocks.
-            while (code.idx > 0) {
-                if (code.buf[code.idx - 1] != '\n') break;
-                var start = code.idx - 1;
-                while (start > 0 and code.buf[start - 1] != '\n') : (start -= 1) {}
-                const line_content = code.buf[start .. code.idx - 1];
-                if (trimAscii(line_content).len != 0) break;
-                code.idx = start;
-            }
+            trimTrailingBlankCodeLines(&code);
 
             out.writeSlice(code.buf[0..code.idx]);
             out.writeSlice("</code></pre>\n");
@@ -3241,22 +3405,6 @@ pub fn Make(comptime options: Options) type {
             return marker_min;
         }
 
-        fn canLazyContinueListParagraph(line: []const u8) bool {
-            if (parseATXHeading(line) != null) return false;
-            if (parseThematicBreak(line)) return false;
-            if (parseFenceOpen(line) != null) return false;
-            // Any list-marker line — even an empty item, which could not
-            // interrupt a paragraph in the same container — starts a block
-            // and therefore cannot be a lazy continuation line. A marker
-            // indented 4+ columns starts nothing and stays lazy.
-            if (leadingIndent(line).cols <= 3 and parseListMarker(line) != null) return false;
-            const html_block = detectHtmlBlockStart(line, false);
-            if (html_block != .none and html_block != .type7) return false;
-            const ind = leadingIndent(line);
-            if (ind.cols <= 3 and ind.idx < line.len and line[ind.idx] == '>') return false;
-            return true;
-        }
-
         // Whether this line, as item/blockquote content, leaves a paragraph
         // open that a lazy continuation line could attach to. Strips nested
         // list markers and blockquote prefixes before judging; anything that
@@ -3269,26 +3417,21 @@ pub fn Make(comptime options: Options) type {
                 if (isBlankLine(cur)) return false;
                 const ind = leadingIndent(cur);
                 if (ind.cols >= 4) return false;
-                if (parseATXHeading(cur) != null) return false;
-                if (parseThematicBreak(cur)) return false;
-                if (parseFenceOpen(cur) != null) return false;
-                if (ind.idx < cur.len and cur[ind.idx] == '>') {
-                    var stripped = Writer.init(if (depth % 2 == 0) tmp3_buf[0..] else tmp4_buf[0..]);
-                    if (!appendBlockquoteStripped(&stripped, cur)) return false;
-                    cur = trimRightCR(stripped.buf[0..stripped.idx]);
-                    depth += 1;
-                    if (depth > 64) return false;
-                    continue;
+                switch (classifyBlockStart(cur, ind, false)) {
+                    .paragraph => return true,
+                    .blockquote => {
+                        var stripped = Writer.init(if (depth % 2 == 0) tmp3_buf[0..] else tmp4_buf[0..]);
+                        if (!appendBlockquoteStripped(&stripped, cur)) return false;
+                        cur = trimRightCR(stripped.buf[0..stripped.idx]);
+                    },
+                    .list => |m| {
+                        if (m.content_start >= cur.len) return false;
+                        cur = cur[m.content_start..];
+                    },
+                    else => return false,
                 }
-                if (parseListMarker(cur)) |m| {
-                    if (m.content_start >= cur.len) return false;
-                    cur = cur[m.content_start..];
-                    depth += 1;
-                    if (depth > 64) return false;
-                    continue;
-                }
-                if (detectHtmlBlockStart(cur, false) != .none) return false;
-                return true;
+                depth += 1;
+                if (depth > 64) return false;
             }
         }
 
@@ -3308,21 +3451,7 @@ pub fn Make(comptime options: Options) type {
 
         fn renderTmpList(out: *Writer, text: []const u8, cursor: *usize, first_line: []const u8) void {
             const first_mark = parseListMarker(first_line) orelse return;
-            const ordered = first_mark.kind == .ordered;
-
-            if (ordered) {
-                if (first_mark.ordered_start != 1) {
-                    out.writeSlice("<ol start=\"");
-                    var num_buf: [32]u8 = undefined;
-                    const n = std.fmt.bufPrint(&num_buf, "{d}", .{first_mark.ordered_start}) catch "1";
-                    out.writeSlice(n);
-                    out.writeSlice("\">\n");
-                } else {
-                    out.writeSlice("<ol>\n");
-                }
-            } else {
-                out.writeSlice("<ul>\n");
-            }
+            writeListOpen(out, first_mark);
 
             var line = first_line;
             var done = false;
@@ -3404,7 +3533,7 @@ pub fn Make(comptime options: Options) type {
 
                     const ind = leadingIndent(ln);
                     if (ind.cols < item_content_base and parseListMarker(ln) == null) {
-                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinueListParagraph(ln)) {
+                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
                             appendTmp(&tmp, "\n");
                             // A setext underline cannot be a lazy continuation
                             // line; indent it so it stays paragraph text after
@@ -3475,11 +3604,7 @@ pub fn Make(comptime options: Options) type {
                 if (!have_next) break;
             }
 
-            if (ordered) {
-                out.writeSlice("</ol>\n");
-            } else {
-                out.writeSlice("</ul>\n");
-            }
+            writeListClose(out, first_mark);
         }
 
         fn renderTmpBlockquote(out: *Writer, text: []const u8, cursor: *usize, first_line: []const u8) void {
@@ -3502,33 +3627,9 @@ pub fn Make(comptime options: Options) type {
                     appendTmp(&tmp, stripped);
                     appendTmp(&tmp, "\n");
                     started = true;
-                    if (isBlankLine(stripped)) {
-                        allow_lazy = false;
-                    } else {
-                        const si = leadingIndent(stripped);
-                        const html_block = detectHtmlBlockStart(stripped, false);
-                        allow_lazy = parseATXHeading(stripped) == null and
-                            !parseThematicBreak(stripped) and
-                            parseFenceOpen(stripped) == null and
-                            (html_block == .none or html_block == .type7) and
-                            si.cols < 4;
-                    }
+                    allow_lazy = !isBlankLine(stripped) and leavesLazyParagraphOpen(stripped);
                 } else {
-                    if (!started or !allow_lazy) {
-                        if (line_start_set) cursor.* = current_line_start;
-                        break;
-                    }
-                    if (parseATXHeading(line) != null or
-                        parseThematicBreak(line) or
-                        parseFenceOpen(line) != null or
-                        (leadingIndent(line).cols <= 3 and parseListMarker(line) != null))
-                    {
-                        if (line_start_set) cursor.* = current_line_start;
-                        break;
-                    }
-                    const prev_blank = false;
-                    const html_block = detectHtmlBlockStart(line, prev_blank);
-                    if (html_block != .none and html_block != .type7) {
+                    if (!started or !allow_lazy or !canLazyContinue(line)) {
                         if (line_start_set) cursor.* = current_line_start;
                         break;
                     }
@@ -3572,38 +3673,34 @@ pub fn Make(comptime options: Options) type {
                 }
 
                 const ind = leadingIndent(line);
+                // A 4+ column line right after a definition cannot open
+                // indented code; it can still open a list (parseListMarker
+                // takes any indent), and is otherwise paragraph text.
+                const block: BlockStart = if (ind.cols < 4)
+                    classifyBlockStart(line, ind, prev_blank)
+                else if (!was_after_def)
+                    .paragraph
+                else if (parseListMarker(line)) |mark|
+                    .{ .list = mark }
+                else
+                    .paragraph;
+
                 if (ind.cols >= 4 and !was_after_def) {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
+                    separateBlock(out, first_block);
                     var code = Writer.init(tmp3_buf[0..]);
                     var code_line = line;
                     while (true) {
                         code.writeEscaped(stripIndentCols(code_line, 4));
                         code.writeByte('\n');
                         const save = cursor;
-                        const maybe_next = nextTmpLine(text, &cursor);
-                        if (maybe_next == null) break;
-                        const nl = maybe_next.?;
-                        if (isBlankLine(nl)) {
-                            code_line = nl;
-                            continue;
-                        }
-                        const ni = leadingIndent(nl);
-                        if (ni.cols < 4) {
+                        const nl = nextTmpLine(text, &cursor) orelse break;
+                        if (!isBlankLine(nl) and leadingIndent(nl).cols < 4) {
                             cursor = save;
                             break;
                         }
                         code_line = nl;
                     }
-
-                    while (code.idx > 0) {
-                        if (code.buf[code.idx - 1] != '\n') break;
-                        var start = code.idx - 1;
-                        while (start > 0 and code.buf[start - 1] != '\n') : (start -= 1) {}
-                        const line_content = code.buf[start .. code.idx - 1];
-                        if (trimAscii(line_content).len != 0) break;
-                        code.idx = start;
-                    }
-
+                    trimTrailingBlankCodeLines(&code);
                     out.writeSlice("<pre><code>");
                     out.writeSlice(code.buf[0..code.idx]);
                     out.writeSlice("</code></pre>\n");
@@ -3612,102 +3709,44 @@ pub fn Make(comptime options: Options) type {
                     continue;
                 }
 
-                const qi = leadingIndent(line);
-                if (qi.cols <= 3 and qi.idx < line.len and line[qi.idx] == '>') {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    renderTmpBlockquote(out, text, &cursor, line);
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-
-                const html_block = detectHtmlBlockStart(line, prev_blank);
-                if (html_block != .none) {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    out.writeSlice(line);
-                    out.writeByte('\n');
-                    while (true) {
-                        const save = cursor;
-                        const maybe_next = nextTmpLine(text, &cursor);
-                        if (maybe_next == null) break;
-                        const nl = maybe_next.?;
-                        if ((html_block == .type6 or html_block == .type7) and isBlankLine(nl)) {
-                            prev_blank = true;
-                            break;
-                        }
-                        var next_save = cursor;
-                        const maybe_after = nextTmpLine(text, &next_save);
-                        const next_is_blank = maybe_after == null or isBlankLine(maybe_after.?);
-                        out.writeSlice(nl);
-                        out.writeByte('\n');
-                        if (htmlBlockEnds(html_block, nl, next_is_blank)) {
-                            if ((html_block == .type6 or html_block == .type7) and maybe_after != null and isBlankLine(maybe_after.?)) {
-                                cursor = next_save;
+                if (block != .paragraph) {
+                    separateBlock(out, first_block);
+                    switch (block) {
+                        .paragraph => unreachable,
+                        .blockquote => renderTmpBlockquote(out, text, &cursor, line),
+                        .html => |html_block| {
+                            out.writeSlice(line);
+                            out.writeByte('\n');
+                            while (nextTmpLine(text, &cursor)) |nl| {
+                                if ((html_block == .type6 or html_block == .type7) and isBlankLine(nl)) break;
+                                var next_save = cursor;
+                                const maybe_after = nextTmpLine(text, &next_save);
+                                const next_is_blank = maybe_after == null or isBlankLine(maybe_after.?);
+                                out.writeSlice(nl);
+                                out.writeByte('\n');
+                                if (htmlBlockEnds(html_block, nl, next_is_blank)) {
+                                    if ((html_block == .type6 or html_block == .type7) and maybe_after != null and isBlankLine(maybe_after.?)) {
+                                        cursor = next_save;
+                                    }
+                                    break;
+                                }
                             }
-                            break;
-                        }
-                        _ = save;
+                        },
+                        .fence => |fence| {
+                            writeFenceOpenTag(out, fence);
+                            while (nextTmpLine(text, &cursor)) |nl| {
+                                if (isFenceClose(nl, fence)) break;
+                                var stripped = Writer.init(tmp3_buf[0..]);
+                                appendStrippedIndent(&stripped, nl, fence.indent);
+                                out.writeEscaped(stripped.buf[0..stripped.idx]);
+                                out.writeByte('\n');
+                            }
+                            out.writeSlice("</code></pre>\n");
+                        },
+                        .thematic_break => out.writeSlice("<hr />\n"),
+                        .atx_heading => |h| writeHeading(out, h.level, h.text),
+                        .list => renderTmpList(out, text, &cursor, line),
                     }
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-
-                if (parseFenceOpen(line)) |fence| {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    out.writeSlice("<pre><code");
-                    if (fence.info.len > 0) {
-                        var info_end: usize = 0;
-                        while (info_end < fence.info.len and !isWhitespace(fence.info[info_end])) : (info_end += 1) {}
-                        const lang = fence.info[0..info_end];
-                        if (lang.len > 0) {
-                            out.writeSlice(" class=\"language-");
-                            writeLinkAttrEscaped(out, lang);
-                            out.writeByte('"');
-                        }
-                    }
-                    out.writeSlice(">");
-
-                    while (true) {
-                        const maybe_next = nextTmpLine(text, &cursor);
-                        if (maybe_next == null) break;
-                        const nl = maybe_next.?;
-                        if (isFenceClose(nl, fence)) break;
-                        var stripped = Writer.init(tmp3_buf[0..]);
-                        appendStrippedIndent(&stripped, nl, fence.indent);
-                        out.writeEscaped(stripped.buf[0..stripped.idx]);
-                        out.writeByte('\n');
-                    }
-                    out.writeSlice("</code></pre>\n");
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-
-                if (parseThematicBreak(line)) {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    out.writeSlice("<hr />\n");
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-
-                if (parseATXHeading(line)) |h| {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    var tag: [6]u8 = undefined;
-                    const open = std.fmt.bufPrint(&tag, "<h{d}>", .{h.level}) catch "<h1>";
-                    out.writeSlice(open);
-                    writeInline(out, h.text);
-                    const close = std.fmt.bufPrint(&tag, "</h{d}>\n", .{h.level}) catch "</h1>\n";
-                    out.writeSlice(close);
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-
-                if (parseListMarker(line) != null) {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    renderTmpList(out, text, &cursor, line);
                     first_block = false;
                     prev_blank = false;
                     continue;
@@ -3718,37 +3757,13 @@ pub fn Make(comptime options: Options) type {
                 var setext_level: u8 = 0;
                 while (true) {
                     const save = cursor;
-                    const maybe_next = nextTmpLine(text, &cursor);
-                    if (maybe_next == null) break;
-                    const nl = maybe_next.?;
+                    const nl = nextTmpLine(text, &cursor) orelse break;
                     if (isBlankLine(nl)) break;
                     if (parseSetextUnderline(nl)) |lvl| {
                         setext_level = lvl;
                         break;
                     }
-                    if (parseATXHeading(nl) != null) {
-                        cursor = save;
-                        break;
-                    }
-                    if (parseThematicBreak(nl)) {
-                        cursor = save;
-                        break;
-                    }
-                    if (parseFenceOpen(nl) != null) {
-                        cursor = save;
-                        break;
-                    }
-                    if (canInterruptParagraphWithList(nl)) {
-                        cursor = save;
-                        break;
-                    }
-                    const nl_html = detectHtmlBlockStart(nl, false);
-                    if (nl_html != .none and nl_html != .type7) {
-                        cursor = save;
-                        break;
-                    }
-                    const ni = leadingIndent(nl);
-                    if (ni.cols <= 3 and ni.idx < nl.len and nl[ni.idx] == '>') {
+                    if (interruptsParagraph(nl)) {
                         cursor = save;
                         break;
                     }
@@ -3758,18 +3773,9 @@ pub fn Make(comptime options: Options) type {
 
                 const paragraph = trimAscii(para.buf[0..para.idx]);
                 if (setext_level != 0) {
-                    if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
-                    var tag: [7]u8 = undefined;
-                    const open = std.fmt.bufPrint(&tag, "<h{d}>", .{setext_level}) catch "<h1>";
-                    out.writeSlice(open);
-                    writeInline(out, paragraph);
-                    const close = std.fmt.bufPrint(&tag, "</h{d}>\n", .{setext_level}) catch "</h1>\n";
-                    out.writeSlice(close);
-                    first_block = false;
-                    prev_blank = false;
-                    continue;
-                }
-                if (tight and first_block) {
+                    separateBlock(out, first_block);
+                    writeHeading(out, setext_level, paragraph);
+                } else if (tight and first_block) {
                     writeTaskListParagraph(out, paragraph);
                 } else if (tight) {
                     writeInline(out, paragraph);
@@ -3823,35 +3829,20 @@ pub fn Make(comptime options: Options) type {
 
         fn firstListItemBlockIsCode(text: []const u8) bool {
             var cursor: usize = 0;
-            var prev_blank = true;
             while (nextTmpLine(text, &cursor)) |line| {
-                if (isBlankLine(line)) {
-                    prev_blank = true;
-                    continue;
-                }
-                if (parseATXHeading(line) != null) return true;
-                {
-                    var look = cursor;
-                    while (nextTmpLine(text, &look)) |nl| {
-                        if (isBlankLine(nl)) break;
-                        if (parseSetextUnderline(nl) != null) return true;
-                        if (parseATXHeading(nl) != null) break;
-                        if (parseThematicBreak(nl)) break;
-                        if (parseFenceOpen(nl) != null) break;
-                        if (canInterruptParagraphWithList(nl)) break;
-                        const nl_html = detectHtmlBlockStart(nl, false);
-                        if (nl_html != .none and nl_html != .type7) break;
-                        const ni = leadingIndent(nl);
-                        if (ni.cols <= 3 and ni.idx < nl.len and nl[ni.idx] == '>') break;
-                    }
-                }
-                if (leadingIndent(line).cols >= 4) return true;
-                if (parseFenceOpen(line) != null) return true;
+                if (isBlankLine(line)) continue;
+                // Anything but a paragraph opens on its own line; so does a
+                // paragraph that turns out to be a setext heading. The first
+                // non-blank line always follows a blank (or the item start),
+                // which is what HTML type 7 needs.
                 const ind = leadingIndent(line);
-                if (ind.cols <= 3 and ind.idx < line.len and line[ind.idx] == '>') return true;
-                if (parseThematicBreak(line)) return true;
-                if (parseListMarker(line) != null) return true;
-                if (detectHtmlBlockStart(line, prev_blank) != .none) return true;
+                if (ind.cols >= 4) return true;
+                if (classifyBlockStart(line, ind, true) != .paragraph) return true;
+                while (nextTmpLine(text, &cursor)) |nl| {
+                    if (isBlankLine(nl)) break;
+                    if (parseSetextUnderline(nl) != null) return true;
+                    if (interruptsParagraph(nl)) break;
+                }
                 return false;
             }
             return false;
@@ -3899,29 +3890,10 @@ pub fn Make(comptime options: Options) type {
                     appendTmp(&tmp, stripped);
                     appendTmp(&tmp, "\n");
                     started = true;
-                    if (isBlankLine(stripped)) {
-                        allow_lazy = false;
-                    } else {
-                        const si = leadingIndent(stripped);
-                        const prev_blank_for_html = false;
-                        const html_block = detectHtmlBlockStart(stripped, prev_blank_for_html);
-                        allow_lazy = parseATXHeading(stripped) == null and
-                            !parseThematicBreak(stripped) and
-                            parseFenceOpen(stripped) == null and
-                            (html_block == .none or html_block == .type7) and
-                            si.cols < 4;
-                    }
+                    allow_lazy = !isBlankLine(stripped) and leavesLazyParagraphOpen(stripped);
                     continue;
                 }
-                if (!started) break;
-                if (!allow_lazy) break;
-                if (parseATXHeading(line) != null) break;
-                if (parseThematicBreak(line)) break;
-                if (parseFenceOpen(line) != null) break;
-                if (leadingIndent(line).cols <= 3 and parseListMarker(line) != null) break;
-                const prev_blank = if (i == 0) true else isBlankLine(lineSlice(input, i - 1));
-                const html_block = detectHtmlBlockStart(line, prev_blank);
-                if (html_block != .none and html_block != .type7) break;
+                if (!started or !allow_lazy or !canLazyContinue(line)) break;
                 // Lazy continuation line inside an open blockquote paragraph.
                 if (parseSetextUnderline(line) != null) appendTmp(&tmp, "    ");
                 appendTmp(&tmp, trimRightCR(line));
@@ -3986,7 +3958,7 @@ pub fn Make(comptime options: Options) type {
                         }
                     }
                     if (ind.cols < item_content_base and maybe_next == null) {
-                        if (saw_nonblank and lazy_ok and canLazyContinueListParagraph(ln)) continue;
+                        if (saw_nonblank and lazy_ok and canLazyContinue(ln)) continue;
                         break;
                     }
                     if (maybe_next != null and ind.cols >= item_content_base and
@@ -4011,20 +3983,7 @@ pub fn Make(comptime options: Options) type {
         }
 
         fn renderList(input: []const u8, out: *Writer, i_ptr: *u32, first: ListMarker) void {
-            const ordered = first.kind == .ordered;
-            if (ordered) {
-                if (first.ordered_start != 1) {
-                    out.writeSlice("<ol start=\"");
-                    var num_buf: [32]u8 = undefined;
-                    const n = std.fmt.bufPrint(&num_buf, "{d}", .{first.ordered_start}) catch "1";
-                    out.writeSlice(n);
-                    out.writeSlice("\">\n");
-                } else {
-                    out.writeSlice("<ol>\n");
-                }
-            } else {
-                out.writeSlice("<ul>\n");
-            }
+            writeListOpen(out, first);
 
             var i = i_ptr.*;
             var list_is_loose = listHasSiblingSeparatorBlank(input, i_ptr.*, first);
@@ -4100,7 +4059,7 @@ pub fn Make(comptime options: Options) type {
                         if (ind.cols < item_content_base) break;
                     }
                     if (ind.cols < item_content_base and maybe_next == null) {
-                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinueListParagraph(ln)) {
+                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
                             appendTmp(&tmp, "\n");
                             // A setext underline cannot be a lazy continuation
                             // line; indent it so it stays paragraph text after
@@ -4146,11 +4105,7 @@ pub fn Make(comptime options: Options) type {
                 i = j;
             }
 
-            if (ordered) {
-                out.writeSlice("</ol>\n");
-            } else {
-                out.writeSlice("</ul>\n");
-            }
+            writeListClose(out, first);
             i_ptr.* = i;
         }
 
@@ -4265,10 +4220,11 @@ pub fn Make(comptime options: Options) type {
             if (isBlankLine(line)) return false;
             const ind = leadingIndent(line);
             if (ind.cols >= 4) return false;
-            if (ind.idx < line.len and line[ind.idx] == '>') return false;
-            if (parseATXHeading(line) != null or parseThematicBreak(line) or parseFenceOpen(line) != null) return false;
-            if (parseListMarker(line) != null) return false;
-            return true;
+            // HTML block starts do not end a table body.
+            return switch (classifyBlockStart(line, ind, false)) {
+                .paragraph, .html => true,
+                else => false,
+            };
         }
 
         fn renderTable(input: []const u8, out: *Writer, i_ptr: *u32) bool {
@@ -4352,48 +4308,41 @@ pub fn Make(comptime options: Options) type {
 
                 if (enable_gfm and renderTable(input, out, &i)) continue;
 
-                if (parseATXHeading(line)) |h| {
-                    var tag: [6]u8 = undefined;
-                    const open = std.fmt.bufPrint(&tag, "<h{d}>", .{h.level}) catch "<h1>";
-                    out.writeSlice(open);
-                    writeInline(out, h.text);
-                    const close = std.fmt.bufPrint(&tag, "</h{d}>\n", .{h.level}) catch "</h1>\n";
-                    out.writeSlice(close);
-                    i += 1;
-                    continue;
+                const prev_blank = i == 0 or isBlankLine(lineSlice(input, i - 1));
+                switch (classifyBlockStart(line, ind, prev_blank)) {
+                    .atx_heading => |h| {
+                        writeHeading(out, h.level, h.text);
+                        i += 1;
+                        continue;
+                    },
+                    .thematic_break => {
+                        out.writeSlice("<hr />\n");
+                        i += 1;
+                        continue;
+                    },
+                    .fence => |f| {
+                        renderFencedCode(input, out, &i, f);
+                        continue;
+                    },
+                    .html => |html_block| {
+                        renderHTMLBlock(input, out, &i, html_block);
+                        continue;
+                    },
+                    .list => |mark| {
+                        renderList(input, out, &i, mark);
+                        continue;
+                    },
+                    .blockquote => {
+                        renderSimpleBlockquote(input, out, &i);
+                        continue;
+                    },
+                    .paragraph => {},
                 }
 
-                if (parseThematicBreak(line)) {
-                    out.writeSlice("<hr />\n");
-                    i += 1;
-                    continue;
-                }
-
-                if (parseFenceOpen(line)) |f| {
-                    renderFencedCode(input, out, &i, f);
-                    continue;
-                }
-
-                const prev_blank = if (i == 0) true else isBlankLine(lineSlice(input, i - 1));
-                const html_block = detectHtmlBlockStart(line, prev_blank);
-                if (html_block != .none) {
-                    renderHTMLBlock(input, out, &i, html_block);
-                    continue;
-                }
-
+                // Definitions start with '[', which no other block start does.
                 if (parseReferenceDefAt(input, i)) |def| {
                     i = def.next_idx;
                     after_def = true;
-                    continue;
-                }
-
-                if (parseListMarker(line)) |mark| {
-                    renderList(input, out, &i, mark);
-                    continue;
-                }
-
-                if (ind.cols <= 3 and ind.idx < line.len and line[ind.idx] == '>') {
-                    renderSimpleBlockquote(input, out, &i);
                     continue;
                 }
 
@@ -4408,15 +4357,7 @@ pub fn Make(comptime options: Options) type {
                         setext_underline_idx = j;
                         break;
                     }
-                    if (parseATXHeading(l) != null) break;
-                    if (parseThematicBreak(l)) break;
-                    if (parseFenceOpen(l) != null) break;
-                    if (canInterruptParagraphWithList(l)) break;
-                    const l_prev_blank = if (j == 0) true else isBlankLine(lineSlice(input, j - 1));
-                    const l_html_block = detectHtmlBlockStart(l, l_prev_blank);
-                    if (l_html_block != .none and l_html_block != .type7) break;
-                    const li = leadingIndent(l);
-                    if (li.cols <= 3 and li.idx < l.len and l[li.idx] == '>') break;
+                    if (interruptsParagraph(l)) break;
                 }
                 if (setext_level != 0) {
                     var para = Writer.init(tmp2_buf[0..]);
@@ -4431,12 +4372,7 @@ pub fn Make(comptime options: Options) type {
                         }
                     }
                     if (!para.overflow) {
-                        var tag: [7]u8 = undefined;
-                        const open = std.fmt.bufPrint(&tag, "<h{d}>", .{setext_level}) catch "<h1>";
-                        out.writeSlice(open);
-                        writeInline(out, para.buf[0..para.idx]);
-                        const close = std.fmt.bufPrint(&tag, "</h{d}>\n", .{setext_level}) catch "</h1>\n";
-                        out.writeSlice(close);
+                        writeHeading(out, setext_level, para.buf[0..para.idx]);
                         i = setext_underline_idx + 1;
                         continue;
                     }

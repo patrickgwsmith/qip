@@ -1,0 +1,26 @@
+bench: outputs match across wazero and Node.js/V8
+  encoding: utf8
+  bytes:    52383
+  sha256:   3c46ed32f32889b85df7882073bcd19cecc8df88bd5f1ed8d0b17526d0a3d3c0
+  benchtime target: 3s per module
+  measured: 524 runs/module
+  timeout:  250ms per run
+
+QIP/wazero 1: text/markdown/gfm-commonmark.0.31.2.wasm
+  Time (mean ± stddev): 5.730264ms ± 1.848093ms [min: 5.007541ms, p95: 6.835125ms, max: 34.516542ms]
+  Runtime: wazero v1.11.0
+  Boundary: fresh instance, contract checks, input/output copies, and render
+  Breakdown: run mean 5.379186ms, instantiation mean 185.421µs, compile 12.369625ms
+  Memory allocated: mean 19.4 MiB, peak 19.4 MiB
+  Capacity: input 2.0 MiB, output 2.0 MiB
+  Binary size: 82779 bytes, gzip 40782 bytes
+
+Node.js/V8 1: text/markdown/gfm-commonmark.0.31.2.wasm
+  Time (mean ± stddev): 222.926µs ± 79.037µs [min: 190.833µs, p95: 298.542µs, max: 1.189167ms]
+  Runtime: Node.js 26.3.0, V8 14.6.202.34-node.20
+  Boundary: input/output copies plus render on one reused instance
+  Breakdown: render mean 214.27µs, one instantiation 39.667µs, one compile 249.709µs
+  Linear memory: 19.4 MiB
+  Capacity: input 2.0 MiB, output 2.0 MiB
+  Observed mean ratio: 25.70x (wazero fresh-instance total / Node reused-instance request)
+

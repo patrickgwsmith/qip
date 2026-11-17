@@ -327,8 +327,30 @@ test("table-using repository components match native Wasm SHA-256 output", async
     readFile(targetPath),
   ]);
   const cases = [
-    { name: "CommonMark", bytes: commonmarkBytes, input: Buffer.from("# Hello\n\nA **small** table-call test.\n") },
-    { name: "QR SVG", bytes: qrBytes, input: Buffer.from("https://qip.dev/") },
+    {
+      name: "CommonMark",
+      bytes: commonmarkBytes,
+      input: Buffer.from("# Hello\n\nA **small** table-call test.\n"),
+      // Since std.fmt left the build (benchmarks/commonmark-gfm-baseline),
+      // CommonMark has no function table; QR SVG covers the table counters.
+      // CommonMark stays for the SHA-256 check, the pinned instruction count
+      // and the memory map, which needs its many pages to fill a row.
+      memoryMap: true,
+      counters: [
+        /CODE     instructions=21114/,
+        /CALLS    direct=\d+  call_indirect=0  return_call_indirect=0  call_ref=0/,
+        /TABLES   tables=0  fixed=0  initial-slots=0  maximum-slots=0/,
+      ],
+    },
+    {
+      name: "QR SVG",
+      bytes: qrBytes,
+      input: Buffer.from("https://qip.dev/"),
+      counters: [
+        /CALLS    direct=\d+  call_indirect=1  return_call_indirect=0  call_ref=0/,
+        /TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5/,
+      ],
+    },
     { name: "QIP to Zig", bytes: qipToZigBytes, input: helloBytes },
   ];
 
@@ -366,12 +388,13 @@ test("table-using repository components match native Wasm SHA-256 output", async
     assert.match(completed, /INSTRUCTIONS  r restart/, target.name);
     assert.match(completed, new RegExp(`sha256=${expectedDigest}`), target.name);
 
-    if (target.name === "CommonMark") {
+    if (target.counters) {
       sendKey(instance, 12n, 0x69); // i
       const counters = renderedText(instance, 0);
-      assert.match(counters, /CODE     instructions=22661/);
-      assert.match(counters, /CALLS    direct=\d+  call_indirect=2  return_call_indirect=0  call_ref=0/);
-      assert.match(counters, /TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5/);
+      for (const pattern of target.counters) assert.match(counters, pattern, target.name);
+    }
+    if (target.memoryMap) {
+      const counters = renderedText(instance, 0);
       const pages = Number(counters.match(/^MEMORY[^\n]*pages=(\d+)/m)?.[1]);
       sendKey(instance, 13n, 0x6d); // m
       const map = renderedText(instance, 0);
