@@ -59,6 +59,10 @@ Only presentation and pointer input are new:
   4. Moving off the image, or losing focus (`?1004`), sends `pointer_event(0,
   -1, -1)`. During a drag, a pointer outside the image reports the nearest
   edge pixel. The wheel is ignored.
+- A component exporting `uniform_set_is_focused` draws its own focus state,
+  such as an inactive window. qipgui leaves it at 1 at launch, then sets it to
+  0 or 1 from the terminal's focus reports (`?1004`) and runs an update and a
+  render on each change. Terminals without focus reporting keep it at 1.
 - Keys are delivered like qiptui's: a key-down and a key-up together, because
   terminals do not report key releases. `Ctrl-C` exits and `Ctrl-Z` suspends.
 - At startup, qipgui queries for graphics support, the window size in pixels

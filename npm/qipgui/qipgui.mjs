@@ -371,6 +371,10 @@ export async function runGUI({
   const finishUpdate = optionalFunction(exports, "finish_update", 0);
   const keyEvent = optionalFunction(exports, "key_event", 2);
   const pointerEvent = optionalFunction(exports, "pointer_event", 3);
+  // Components draw their own focus state (such as an inactive window) from this
+  // uniform. It defaults to 1, and the terminal is assumed focused at launch.
+  const setFocused = optionalFunction(exports, "uniform_set_is_focused", 1);
+  let focused = true;
   const source = input instanceof Uint8Array ? input : new Uint8Array(input);
   if (source.byteLength) {
     if (stage.inputless) throw new Error(`${stage.label} is inputless and cannot receive input`);
@@ -481,7 +485,12 @@ export async function runGUI({
   };
 
   const runUpdate = (events, forceRender = false, requestedTime = 0) => {
-    if (!beginUpdate) return;
+    if (!beginUpdate) {
+      // Without an update cycle, a focus change still needs a new frame.
+      for (const event of events) if (event.type === "focus") setFocused(event.focused ? 1 : 0);
+      if (events.some((event) => event.type === "focus")) renderFrame(false);
+      return;
+    }
     const now = Math.max(Math.floor(performance.now() - startedAt) + 1, lastUpdate + 1, requestedTime);
     beginUpdate(BigInt(now));
     applyUniforms(stage, { columns: stdout.columns || 80, lines: stdout.rows || 24 });
@@ -492,6 +501,10 @@ export async function runGUI({
         accepted = keyEvent(event.keysym, event.flags) === 1 || accepted;
       } else if (event.type === "pointer" && pointerEvent) {
         accepted = pointerEvent(event.mask, event.x, event.y) === 1 || accepted;
+      } else if (event.type === "focus") {
+        // Set inside the update so the component can start or stop its own timers.
+        setFocused(event.focused ? 1 : 0);
+        accepted = true;
       }
     }
     const wake = finishUpdate();
@@ -548,10 +561,15 @@ export async function runGUI({
       if (layout) dirty = true;
     } else if (report.type === "cell") {
       cell = { width: report.width, height: report.height };
-    } else if (report.type === "focus" && !report.focused && (pointerMask || pointerInside)) {
-      pointerMask = 0;
-      pointerInside = false;
-      queued.push({ type: "pointer", mask: 0, x: -1, y: -1 });
+    } else if (report.type === "focus") {
+      if (!report.focused && (pointerMask || pointerInside)) {
+        pointerMask = 0;
+        pointerInside = false;
+        queued.push({ type: "pointer", mask: 0, x: -1, y: -1 });
+      }
+      // Terminals may repeat a focus report, so only real changes reach the component.
+      if (setFocused && report.focused !== focused) queued.push({ type: "focus", focused: report.focused });
+      focused = report.focused;
     } else if (report.type === "mouse") {
       const mask = pointerState(pointerMask, report);
       if (mask === null) return;

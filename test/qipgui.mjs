@@ -146,6 +146,37 @@ for (const path of ["gui/calculator.wasm", "gui/snake.wasm", "gui/paint.wasm"]) 
   });
 }
 
+test("terminal focus reports set the is_focused uniform and redraw", async () => {
+  const stage = await stageFor("gui/textedit.wasm");
+  const exports = stage.component.exports;
+  const calls = [];
+  stage.component = {
+    ...stage.component,
+    exports: { ...exports, uniform_set_is_focused: (value) => { calls.push(value); exports.uniform_set_is_focused(value); } },
+  };
+  const stdin = new FakeTTY();
+  const stdout = new FakeTTY();
+  stdout.input = stdin;
+  const running = runGUI({ stage, input: new Uint8Array(), stdin, stdout });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const frames = () => stdout.chunks.filter((chunk) => chunk.includes("a=T")).length;
+  const start = frames();
+  // A focus-in while already focused is ignored; out, a repeated out, then in are not.
+  stdin.emit("data", Buffer.from("\x1b[I"));
+  stdin.emit("data", Buffer.from("\x1b[O"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const afterBlur = frames();
+  stdin.emit("data", Buffer.from("\x1b[O"));
+  stdin.emit("data", Buffer.from("\x1b[I"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  process.emit("SIGINT");
+  await running;
+  process.exitCode = 0;
+  assert.deepEqual(calls, [0, 1]);
+  assert.ok(afterBlur > start, "blurring renders a frame");
+  assert.ok(frames() > afterBlur, "focusing renders a frame");
+});
+
 test("non-KTX2 output is rejected", () => {
   assert.throws(() => parseKTX2RGBA8(new Uint8Array(200)), /not KTX2/);
 });
