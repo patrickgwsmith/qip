@@ -337,7 +337,7 @@ test("table-using repository components match native Wasm SHA-256 output", async
       // and the memory map, which needs its many pages to fill a row.
       memoryMap: true,
       counters: [
-        /CODE     instructions=21114/,
+        /CODE     instructions=20951/,
         /CALLS    direct=\d+  call_indirect=0  return_call_indirect=0  call_ref=0/,
         /TABLES   tables=0  fixed=0  initial-slots=0  maximum-slots=0/,
       ],
@@ -447,9 +447,9 @@ test("deep CommonMark control flow stays inside the instruction column", async (
   assert.match(initial, /^qipdb[^\n]*WASM  \d+ B  QIP  text\/markdown → text\/html$/m);
   assert.doesNotMatch(initial, /content component/);
 
-  sendKeyWithBudget(instance, 2n, 0x20, 5_572);
+  sendKeyWithBudget(instance, 2n, 0x20, 2_000);
   const paused = renderedText(instance, 0);
-  assert.match(paused, /executed=5572/);
+  assert.match(paused, /executed=2000/);
   assertTerminalWidth(paused);
   assert.match(paused, /^=> {1,5}f\d+ /m);
 });

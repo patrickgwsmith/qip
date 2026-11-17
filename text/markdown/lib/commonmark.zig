@@ -45,7 +45,8 @@
 // Measured 2026-11-17 (benchmarks/commonmark-gfm-baseline): run-copying
 // escapes (writeEscaped, writeTextRange), the inline plain-text skip table,
 // first-byte autolink dispatch with a next-'@' memo, a single-pass
-// findUnescapedRightBracket, newline-keyed compactEmptyListItems, and
+// findUnescapedRightBracket, a newline-keyed empty-list-item pass (since
+// removed, see below), and
 // inlining trimRightCR/isTablePipeAt/isEmailLocalByte cut executed Wasm
 // instructions 2.7x (CommonMark) / 2.8x (GFM) on a 40 KB README, at about
 // +1 KB of wasm each. Hot loops now matter twice over under qip's wazero host:
@@ -58,6 +59,13 @@
 // TODO(conformance, GFM): Extended-autolink trimming (trimExtendedURLEnd, entity
 // truncation, trailing-paren balancing) is only exercised by 22 fixture examples.
 // Validate against cmark-gfm and grow the extension fixture accordingly.
+// Same date, later: indexOfNewline (eight bytes per step) replaced the
+// byte loops in splitLines and nextTmpLine, and writeListItem takes back the
+// newline of an "<li>\n" whose content renders to nothing, which made the
+// whole-output compactEmptyListItems pass unnecessary. About 20% faster in V8
+// on the same README and ~350 bytes smaller. Output changed only where the
+// old pass disagreed with cmark 0.31.2: raw HTML containing "<li>\n</li>" is
+// now passed through, and "- &NewLine;" renders "<li>\n</li>".
 // Size, measured 2026-11-17 (benchmarks/commonmark-gfm-baseline): front-coding
 // the entity table (buckets of 16), dropping std.fmt for writeHeading and
 // writeDecimal, one sorted string for the type 6 tag names, and routing all
@@ -565,14 +573,30 @@ pub fn Make(comptime options: Options) type {
             return true;
         }
 
+        // Index of the first '\n' at or after `from`, or s.len if there is
+        // none. Tests eight bytes per step: XOR turns newline bytes into
+        // zero, and the classic zero-byte trick flags them. Borrows only
+        // travel upwards, so in a little-endian load the lowest flag is
+        // always the first real newline.
+        fn indexOfNewline(s: []const u8, from: usize) usize {
+            const ones: u64 = 0x0101010101010101;
+            var i = from;
+            while (i + 8 <= s.len) : (i += 8) {
+                const x = std.mem.readInt(u64, s[i..][0..8], .little) ^ (ones * '\n');
+                const hit = (x -% ones) & ~x & (ones * 0x80);
+                if (hit != 0) return i + @ctz(hit) / 8;
+            }
+            while (i < s.len and s[i] != '\n') : (i += 1) {}
+            return i;
+        }
+
         fn splitLines(input: []const u8) bool {
             lines_count = 0;
             var cursor: usize = 0;
             while (cursor < input.len) {
                 if (lines_count >= MAX_LINES) return false;
                 const start = cursor;
-                var end = cursor;
-                while (end < input.len and input[end] != '\n') : (end += 1) {}
+                var end = indexOfNewline(input, cursor);
                 var logical_end = end;
                 if (logical_end > start and input[logical_end - 1] == '\r') {
                     logical_end -= 1;
@@ -3439,12 +3463,25 @@ pub fn Make(comptime options: Options) type {
             return if (base_indent == 0) 3 else base_indent;
         }
 
+        // Writes one non-blank list item. Loose items and items that start
+        // with a code block open with "<li>\n"; if the content then renders
+        // to nothing (only reference definitions, say) that newline is taken
+        // back, so the item reads "<li></li>" as cmark writes it.
+        fn writeListItem(out: *Writer, content: []const u8, tight: bool) void {
+            out.writeSlice("<li>");
+            const open_end = out.idx;
+            if (!tight or firstListItemBlockIsCode(content)) out.writeByte('\n');
+            const content_start = out.idx;
+            renderListItemContent(out, content, tight);
+            if (out.idx == content_start) out.idx = open_end;
+            out.writeSlice("</li>\n");
+        }
+
         fn nextTmpLine(text: []const u8, cursor: *usize) ?[]const u8 {
             if (cursor.* >= text.len) return null;
             const start = cursor.*;
-            var end = start;
-            while (end < text.len and text[end] != '\n') : (end += 1) {}
-            if (end < text.len and text[end] == '\n') end += 1;
+            var end = indexOfNewline(text, start);
+            if (end < text.len) end += 1;
             cursor.* = end;
             return trimRightCR(text[start..if (end > start and text[end - 1] == '\n') end - 1 else end]);
         }
@@ -3567,13 +3604,7 @@ pub fn Make(comptime options: Options) type {
                     out.writeSlice("<li></li>\n");
                     list_is_loose = list_is_loose or item_has_blank or separator_blank;
                 } else {
-                    if (!item_is_tight or firstListItemBlockIsCode(tmp.buf[0..tmp.idx])) {
-                        out.writeSlice("<li>\n");
-                    } else {
-                        out.writeSlice("<li>");
-                    }
-                    renderListItemContent(out, tmp.buf[0..tmp.idx], item_is_tight);
-                    out.writeSlice("</li>\n");
+                    writeListItem(out, tmp.buf[0..tmp.idx], item_is_tight);
                     list_is_loose = list_is_loose or item_has_blank or separator_blank;
                 }
 
@@ -4092,13 +4123,7 @@ pub fn Make(comptime options: Options) type {
                     out.writeSlice("<li></li>\n");
                     list_is_loose = list_is_loose or item_has_blank or separator_blank;
                 } else {
-                    if (!item_is_tight or firstListItemBlockIsCode(tmp.buf[0..tmp.idx])) {
-                        out.writeSlice("<li>\n");
-                    } else {
-                        out.writeSlice("<li>");
-                    }
-                    renderListItemContent(out, tmp.buf[0..tmp.idx], item_is_tight);
-                    out.writeSlice("</li>\n");
+                    writeListItem(out, tmp.buf[0..tmp.idx], item_is_tight);
                     list_is_loose = list_is_loose or item_has_blank or separator_blank;
                 }
 
@@ -4382,42 +4407,12 @@ pub fn Make(comptime options: Options) type {
             }
         }
 
-        // Rewrites every "<li>\n</li>\n" to "<li></li>\n" in place, left to
-        // right. Hops between newlines (the pattern's fifth byte, and far
-        // rarer than '<' in HTML) and moves the untouched runs in bulk;
-        // output with no empty items is never copied at all.
-        fn compactEmptyListItems(buf: []u8, len: usize) usize {
-            const pattern = "<li>\n</li>\n";
-            const replacement = "<li></li>\n";
-            var r: usize = 0;
-            var w: usize = 0;
-            var nl: usize = 4;
-            while (nl < len) {
-                const q = std.mem.indexOfScalarPos(u8, buf[0..len], nl, '\n') orelse break;
-                const p = q - 4;
-                if (p + pattern.len > len) break;
-                if (buf[q + 1] != '<' or !std.mem.eql(u8, buf[p..][0..pattern.len], pattern)) {
-                    nl = q + 1;
-                    continue;
-                }
-                if (w != r) std.mem.copyForwards(u8, buf[w..][0 .. p - r], buf[r..p]);
-                w += p - r;
-                @memcpy(buf[w..][0..replacement.len], replacement);
-                w += replacement.len;
-                r = p + pattern.len;
-                nl = r + 4;
-            }
-            if (w != r) std.mem.copyForwards(u8, buf[w..][0 .. len - r], buf[r..len]);
-            return w + (len - r);
-        }
-
         pub fn renderMarkdown(input: []const u8, out: []u8) u32 {
             if (!splitLines(input)) return 0;
             collectReferenceDefs(input);
             var w = Writer.init(out);
             renderBlocks(input, &w);
             if (w.overflow) return 0;
-            w.idx = compactEmptyListItems(w.buf, w.idx);
             return w.len();
         }
 

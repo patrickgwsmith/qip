@@ -200,6 +200,56 @@ Raw output: [CommonMark trace](qipdb-commonmark-size.txt),
   qip's wazero, and costs +62–66% wasm (+24–26% gzip). Forcing
   `leadingIndent` inline gains about 10% for +5.5 KB.
 
+## Newline scan and empty list items (2026-11-17)
+
+Starting from the size work above (`883d22e1`). Two changes in
+`text/markdown/lib/commonmark.zig`:
+
+- `indexOfNewline` tests eight bytes per step and replaces the byte-at-a-time
+  loops in `splitLines` and `nextTmpLine`.
+- `writeListItem` takes back the newline of an `<li>\n` whose content renders
+  to nothing, so the `compactEmptyListItems` pass over the whole output is
+  gone.
+
+| Item | Bytes | SHA-256 |
+| --- | ---: | --- |
+| `text/markdown/commonmark.0.31.2.wasm` | 77,116 (−353) | `45b1fef3217cb1104aa1b0e3ba9eb5a0a6adaed96ef8883e1c6f29e89938167e` |
+| `text/markdown/gfm-commonmark.0.31.2.wasm` | 82,441 (−338) | `9977cc3ad5014852e52fe0493a2d67647fca365e3f966c2ee502576eb4b71a5e` |
+
+| `input.md` | CommonMark before → after | GFM before → after |
+| --- | ---: | ---: |
+| Executed instructions | 7,410,347 → 4,991,781 (−32.6%) | 9,669,288 → 7,147,312 (−26.1%) |
+| Loop iterations (all loops) | 235,998 → 101,645 | 284,126 → 144,028 |
+| Calls | 37,926 → 38,116 | 44,091 → 44,281 |
+| wazero total, mean (min) | 4.294 (4.078) → 2.421 (2.316) ms | 5.116 (4.802) → 3.245 (3.143) ms |
+| Node.js/V8 request, mean (min) | 0.146 (0.133) → 0.115 (0.105) ms | 0.186 (0.168) → 0.152 (0.138) ms |
+| `qip bench` gzip | 38,744 → 38,649 | 40,782 → 40,668 |
+
+Both builds were benchmarked back to back (`--benchtime=3s --node`), with a
+load average of about 2. The `input.md` output hashes are unchanged.
+
+Output is no longer byte-identical to the previous build in one situation,
+where the removed pass disagreed with cmark 0.31.2. It rewrote every
+`<li>\n</li>\n` in the output, wherever it came from:
+
+- Raw HTML containing `<li>\n</li>` was rewritten to `<li></li>`; it is now
+  passed through.
+- `- &NewLine;` rendered `<li></li>`; it now renders `<li>\n</li>`.
+
+Against the previous build, 129 of 152,318 inputs per component differed
+(`differential.mjs` with `<li>`, `</li>` and bare list markers added to its
+atoms). Every difference was this pattern, and none moved away from `cmark
+--unsafe`: for CommonMark 106 now match cmark exactly and 23 still differ
+elsewhere in the document for unrelated, existing reasons. Three such cases are
+pinned in `compliance/commonmark-differential-corpus.txt` (now 97 cases). The
+CommonMark, GFM, entity, casefold and differential-corpus suites, the
+pathological budgets and the Node tests pass.
+
+Raw output: [CommonMark trace](qipdb-commonmark-newline.txt),
+[GFM trace](qipdb-gfm-commonmark-newline.txt),
+[CommonMark bench](bench-commonmark-newline.txt),
+[GFM bench](bench-gfm-commonmark-newline.txt).
+
 ## Reproduce
 
 ```sh
