@@ -66,24 +66,21 @@ compliance/currency-format-zh-cn.comply.wasm: compliance/currency-format-zh-cn.c
 	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@
 
 text/i-regexp-to-wasm.wasm: text/lib/i-regexp-unicode-categories.zig
-text/currency-format-en-us.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-en-us.wasm: text/lib/currency-format-en-us-table.zig
-text/currency-format-en-in.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-en-in.wasm: text/lib/currency-format-en-in-table.zig
-text/currency-format-es-es.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-es-es.wasm: text/lib/currency-format-es-es-table.zig
-text/currency-format-de-de.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-de-de.wasm: text/lib/currency-format-de-de-table.zig
-text/currency-format-ar-eg.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-ar-eg.wasm: text/lib/currency-format-ar-eg-table.zig
-text/currency-format-fr-fr.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-fr-fr.wasm: text/lib/currency-format-fr-fr-table.zig
-text/currency-format-pt-br.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-pt-br.wasm: text/lib/currency-format-pt-br-table.zig
-text/currency-format-ja-jp.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-ja-jp.wasm: text/lib/currency-format-ja-jp-table.zig
-text/currency-format-zh-cn.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
-text/currency-format-zh-cn.wasm: text/lib/currency-format-zh-cn-table.zig
+
+# Locale currency formatters share text/lib/currency-format.zig. binaryen -Os
+# trims about 4% more than Zig's ReleaseSmall output alone.
+CURRENCY_FORMAT_LOCALES := en-us en-in es-es de-de ar-eg fr-fr pt-br ja-jp zh-cn
+CURRENCY_FORMAT_TARGETS := $(patsubst %,text/currency-format-%.wasm,$(CURRENCY_FORMAT_LOCALES))
+$(CURRENCY_FORMAT_TARGETS): text/currency-format-%.wasm: text/currency-format-%.zig text/lib/currency-format.zig text/lib/currency-format-%-table.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --stack 1024 --global-base=0 --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@.raw.wasm
+	$(EMSDK_WASM_OPT) -Os --strip-debug --strip-producers $@.raw.wasm -o $@
+	rm -f $@.raw.wasm
+
+text/currency-format-usd-en-us.wasm: text/currency-format-usd-en-us.zig
+	$(ZIG_ENV) zig build-exe $< $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) -femit-bin=$@.raw.wasm
+	$(EMSDK_WASM_OPT) -Os --strip-debug --strip-producers $@.raw.wasm -o $@
+	rm -f $@.raw.wasm
+
 image/svg+xml/svg-to-data-uri.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
 text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += -mcpu=generic+bulk_memory
 text/uri-list/data-uri-to-css-url.wasm: ZIG_WASM_FLAGS += --stack 1024 --global-base=0
@@ -1477,6 +1474,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/currency-format-pt-br-comply.mjs
 	node --test test/currency-format-ja-jp-comply.mjs
 	node --test test/currency-format-zh-cn-comply.mjs
+	node --test test/currency-format-output-cap.mjs
 	node --test test/iso-4217-alpha-to-numeric-comply.mjs
 	node --test test/svg-data-uri-comply.mjs
 	node --test test/mermaid-to-unicode-html.mjs

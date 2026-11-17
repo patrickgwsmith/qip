@@ -5,15 +5,21 @@
 // fraction digits. Decimal rounding is half away from zero. Invalid input
 // traps so malformed financial values cannot quietly become plausible text.
 const INPUT_CAP: usize = 128;
-const OUTPUT_CAP: usize = 140;
 const MAX_INTEGER_DIGITS: usize = 96;
+// Sign, dollar sign, 97 digits (96 plus a rounding carry) with 32 commas,
+// the point, and two cents.
+const OUTPUT_CAP: usize = 1 + 1 + 97 + 32 + 1 + 2;
 
-var input_buf: [INPUT_CAP]u8 = undefined;
-var output_buf: [OUTPUT_CAP]u8 = undefined;
-var integer_buf: [MAX_INTEGER_DIGITS + 1]u8 = undefined;
+// io[0] is a spare byte before the input: rounding can carry into it. The
+// four bytes after the input hold a scan sentinel, then zero digits that pad
+// a short fraction.
+var io: [1 + INPUT_CAP + 4]u8 = undefined;
+const input_buf: *[INPUT_CAP]u8 = io[1..][0..INPUT_CAP];
+// The cents are copied as a four-byte block, so two bytes of slack.
+var output_buf: [OUTPUT_CAP + 2]u8 = undefined;
 
 export fn input_ptr() u32 {
-    return @intCast(@intFromPtr(&input_buf));
+    return @intCast(@intFromPtr(input_buf));
 }
 
 export fn input_utf8_cap() u32 {
@@ -24,115 +30,75 @@ export fn output_utf8_cap() u32 {
     return OUTPUT_CAP;
 }
 
-const Amount = struct {
-    negative: bool,
-    integer_start: usize,
-    integer_end: usize,
-    fraction_start: usize,
-    fraction_len: usize,
-};
-
-fn parse(input: []const u8) ?Amount {
-    if (input.len == 0) return null;
-    var cursor: usize = 0;
-    const negative = input[0] == '-';
-    if (negative) {
-        cursor = 1;
-        if (cursor == input.len) return null;
-    }
-
-    const integer_start = cursor;
-    while (cursor < input.len and isDigit(input[cursor])) : (cursor += 1) {}
-    const integer_end = cursor;
-    if (integer_end == integer_start or integer_end - integer_start > MAX_INTEGER_DIGITS) return null;
-
-    var fraction_start = cursor;
-    var fraction_len: usize = 0;
-    if (cursor < input.len and input[cursor] == '.') {
-        cursor += 1;
-        fraction_start = cursor;
-        while (cursor < input.len and isDigit(input[cursor])) : (cursor += 1) {}
-        fraction_len = cursor - fraction_start;
-        if (fraction_len == 0) return null;
-    }
-    if (cursor != input.len) return null;
-
-    return .{
-        .negative = negative,
-        .integer_start = integer_start,
-        .integer_end = integer_end,
-        .fraction_start = fraction_start,
-        .fraction_len = fraction_len,
-    };
-}
-
 fn isDigit(byte: u8) bool {
-    return byte >= '0' and byte <= '9';
-}
-
-fn incrementInteger(len: *usize) void {
-    var cursor = len.*;
-    while (cursor > 0) {
-        cursor -= 1;
-        if (integer_buf[cursor] != '9') {
-            integer_buf[cursor] += 1;
-            return;
-        }
-        integer_buf[cursor] = '0';
-    }
-
-    cursor = len.*;
-    while (cursor > 0) {
-        integer_buf[cursor] = integer_buf[cursor - 1];
-        cursor -= 1;
-    }
-    integer_buf[0] = '1';
-    len.* += 1;
+    return @as(u32, byte) -% '0' < 10;
 }
 
 fn renderImpl(input_size_in: u32) u32 {
-    const input_size: usize = @intCast(input_size_in);
-    if (input_size > INPUT_CAP) @trap();
-    const input = input_buf[0..input_size];
-    const amount = parse(input) orelse @trap();
+    const size: usize = input_size_in;
+    if (size > INPUT_CAP) @trap();
+    const input: [*]u8 = input_buf;
+    const end = input + size;
+    // A non-digit sentinel ends both digit scans.
+    end[0] = 0;
 
-    var first = amount.integer_start;
-    while (first + 1 < amount.integer_end and input[first] == '0') : (first += 1) {}
-    var integer_len = amount.integer_end - first;
-    for (input[first..amount.integer_end], 0..) |digit, i| integer_buf[i] = digit;
+    const negative = input[0] == '-';
+    const integer_start = input + @intFromBool(negative);
+    var cursor = integer_start;
+    while (isDigit(cursor[0])) cursor += 1;
+    const integer_end = cursor;
+    // Traps on no digits and on more than MAX_INTEGER_DIGITS.
+    if (integer_end - integer_start -% 1 >= MAX_INTEGER_DIGITS) @trap();
+    var fraction_start = cursor;
+    if (cursor[0] == '.') {
+        cursor += 1;
+        fraction_start = cursor;
+        while (isDigit(cursor[0])) cursor += 1;
+        if (cursor == fraction_start) @trap();
+    }
+    if (cursor != end) @trap();
 
-    var cents: u8 = 0;
-    if (amount.fraction_len > 0) cents = (input[amount.fraction_start] - '0') * 10;
-    if (amount.fraction_len > 1) cents += input[amount.fraction_start + 1] - '0';
-    if (amount.fraction_len > 2 and input[amount.fraction_start + 2] >= '5') {
-        cents += 1;
-        if (cents == 100) {
-            cents = 0;
-            incrementInteger(&integer_len);
+    // Zero digits after the input pad a fraction shorter than two digits. A
+    // spare zero before the integer takes any carry out of the top digit.
+    end[0..4].* = "0000".*;
+    var first = integer_start - 1;
+    first[0] = '0';
+    if (fraction_start[2] >= '5') {
+        var carry = fraction_start + 2;
+        while (true) {
+            carry -= 1;
+            const byte = carry[0];
+            if (byte == '.') continue;
+            if (byte != '9') {
+                carry[0] = byte + 1;
+                break;
+            }
+            carry[0] = '0';
         }
     }
+    while (first[0] == '0' and first + 1 != integer_end) first += 1;
 
-    var out: usize = 0;
-    if (amount.negative) {
-        output_buf[out] = '-';
-        out += 1;
-    }
-    output_buf[out] = '$';
+    var out: [*]u8 = &output_buf;
+    out[0] = '-';
+    out += @intFromBool(negative);
+    out[0] = '$';
     out += 1;
-
-    for (integer_buf[0..integer_len], 0..) |digit, i| {
-        if (i > 0 and (integer_len - i) % 3 == 0) {
-            output_buf[out] = ',';
+    var remaining = integer_end - first;
+    while (true) {
+        out[0] = first[0];
+        out += 1;
+        first += 1;
+        remaining -= 1;
+        if (remaining == 0) break;
+        if (remaining % 3 == 0) {
+            out[0] = ',';
             out += 1;
         }
-        output_buf[out] = digit;
-        out += 1;
     }
-
-    output_buf[out] = '.';
-    output_buf[out + 1] = '0' + cents / 10;
-    output_buf[out + 2] = '0' + cents % 10;
-    return @intCast(out + 3);
+    out[0] = '.';
+    // Copies four bytes and keeps the two cents digits.
+    out[1..5].* = fraction_start[0..4].*;
+    return @intCast(out + 3 - @as([*]u8, &output_buf));
 }
 
 export fn render(input_size_in: u32) packed struct(u64) {
