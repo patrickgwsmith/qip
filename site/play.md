@@ -41,7 +41,7 @@ More interactive pages:
 - [Photo Light Table](/play-photo-light-table)
 - [Palm webOS Card View](/play-webos-card-view)
 - [Game Boy Camera UI](/play-gameboy-camera)
-- [TextEdit (Plain Text)](/play-textedit)
+- [TextEdit (Mac OS X Tiger)](/play-textedit)
 - [Organization Planner (Sandbox)](/play-org-planner)
 - [Vertical Shooter](/play-vertical-shooter)
 - [Moon phases](/play-moon-phases)

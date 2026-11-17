@@ -13,7 +13,7 @@ const KEY_REPEAT_INTERVAL_MS = 33;
 const CRLF_CRLF = new Uint8Array([13, 10, 13, 10]);
 const KTX2_IDENTIFIER = [0xab, 0x4b, 0x54, 0x58, 0x20, 0x32, 0x30, 0xbb, 0x0d, 0x0a, 0x1a, 0x0a];
 // Listened for on the render surface; contextmenu is added separately in the capture phase.
-const SURFACE_EVENTS = ["keydown", "keyup", "pointerdown", "pointermove", "pointerup", "pointercancel", "pointerleave", "click", "blur"];
+const SURFACE_EVENTS = ["keydown", "keyup", "pointerdown", "pointermove", "pointerup", "pointercancel", "pointerleave", "click", "focus", "blur"];
 // With Meta held, only text-editing and navigation shortcuts reach the
 // component; other Meta shortcuts stay with the browser.
 const META_KEYSYMS = new Set([
@@ -121,6 +121,12 @@ function cssSize(element, renderWidth) {
  * - data-pointer-lock asks for pointer lock on a mouse press. While locked,
  *   movementX/movementY are summed and passed to the optional exports
  *   uniform_set_pointer_total_movement_x/_y as running totals.
+ *
+ * Focus:
+ *
+ * - A module exporting uniform_set_is_focused draws its own focus state, such
+ *   as an inactive window. qip-play sets it to 1 while the surface has focus
+ *   and 0 otherwise, and drops the browser's focus ring from the surface.
  */
 class QIPPlayElement extends HTMLElement {
   // Scheduling
@@ -146,6 +152,7 @@ class QIPPlayElement extends HTMLElement {
   _surfaceAbort = null; _activeKeyRepeats = new Map(); _pendingEvents = []; _eventSequence = 0;
   _shiftKeyDown = false; _altKeyDown = false; _pointerButtonMask = 0; _pointerPressAccepted = false;
   _pointerLock = false; _pointerTotalMovementX = 0; _pointerTotalMovementY = 0; _pointerMovementPending = false;
+  _isFocused = false; _focusChangePending = false;
 
   async connectedCallback() {
     if (this._started) return;
@@ -362,6 +369,8 @@ class QIPPlayElement extends HTMLElement {
       display: "block", width: size.width, height: size.height,
       touchAction: this.getAttribute("touch-action")?.trim() || "none",
     });
+    // A module that draws its own focus state replaces the browser's ring.
+    if (this._hasFocusUniform()) surface.style.outline = "none";
     surface.tabIndex = tabIndex ?? (this.hasAttribute("tabindex") ? this.tabIndex : 0);
     if (tabIndex === undefined) this.removeAttribute("tabindex");
   }
@@ -489,6 +498,21 @@ class QIPPlayElement extends HTMLElement {
     ]) {
       if (uniformSetter(this._exports, key)) applyUniform(this._exports, { key, value: String(Math.round(total)) });
     }
+    if (this._hasFocusUniform()) applyUniform(this._exports, { key: "is_focused", value: this._isFocused ? "1" : "0" });
+  }
+
+  _hasFocusUniform() {
+    return Boolean(this._exports && uniformSetter(this._exports, "is_focused"));
+  }
+
+  // Runs an update so the module sees the change (and can restart or stop
+  // its own timers), then renders.
+  _setFocused(focused) {
+    if (focused === this._isFocused) return;
+    this._isFocused = focused;
+    if (!this._hasFocusUniform()) return;
+    this._focusChangePending = true;
+    this._resumeLoop();
   }
 
   _hasPointerMovementUniforms() {
@@ -644,11 +668,12 @@ class QIPPlayElement extends HTMLElement {
   _runUpdate(nowMS, renderRequested) {
     const updateStart = performance.now();
     const begunAtMS = this._beginUpdate(Math.max(Math.floor(nowMS), this._finishedAtMS + 1));
-    const pointerMoved = this._pointerMovementPending;
+    const uniformsChanged = this._pointerMovementPending || this._focusChangePending;
     this._pointerMovementPending = false;
+    this._focusChangePending = false;
     this._applyUniforms();
     const events = this._flushPendingEvents(nowMS);
-    const shouldRender = this._canPresent() && (renderRequested || events.accepted || pointerMoved);
+    const shouldRender = this._canPresent() && (renderRequested || events.accepted || uniformsChanged);
     const nextWakeAtMS = this._session.finish(begunAtMS);
     const presentation = shouldRender ? this._runPresentationPipeline(0) : { renderMS: 0 };
     const updateMS = performance.now() - updateStart - presentation.renderMS;
@@ -695,7 +720,7 @@ class QIPPlayElement extends HTMLElement {
   _attachInputHandlers() {
     if (!this._exports || !this._canvas) return;
     if (typeof this._exports.key_event !== "function" && typeof this._exports.pointer_event !== "function" &&
-        !(this._pointerLock && this._hasPointerMovementUniforms())) {
+        !(this._pointerLock && this._hasPointerMovementUniforms()) && !this._hasFocusUniform()) {
       return;
     }
     this._surfaceAbort = new AbortController();
@@ -737,7 +762,11 @@ class QIPPlayElement extends HTMLElement {
       case "click":
         this._canvas.focus();
         break;
+      case "focus":
+        this._setFocused(true);
+        break;
       case "blur":
+        this._setFocused(false);
         this._releaseHeldInput();
         break;
       case "visibilitychange":
@@ -998,7 +1027,8 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _hasDueEvents(nowMS) {
-    return this._pointerMovementPending || this._pendingEvents[0]?.timeMS <= nowMS || this._hasPendingRepeat(nowMS);
+    return this._pointerMovementPending || this._focusChangePending ||
+      this._pendingEvents[0]?.timeMS <= nowMS || this._hasPendingRepeat(nowMS);
   }
 
   _hasReadyWork(nowMS) {

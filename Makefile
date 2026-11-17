@@ -489,8 +489,14 @@ gui/flurry.wasm: ZIG_WASM_MAX_MEMORY = 16777216
 gui/colosseum.wasm gui/highway-chase.wasm gui/hovercraftsman.wasm gui/rotunda.wasm gui/side-scroller-platformer.wasm gui/spreadsheet.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
-gui/gameboy-camera.wasm gui/liars-dice.wasm gui/macos9-desktop.wasm gui/macosx-leopard-desktop.wasm gui/org_planner.wasm gui/peon-gold.wasm gui/textedit.wasm gui/vertical-shooter.wasm gui/windows95-desktop.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
+gui/gameboy-camera.wasm gui/liars-dice.wasm gui/macos9-desktop.wasm gui/macosx-leopard-desktop.wasm gui/org_planner.wasm gui/peon-gold.wasm gui/vertical-shooter.wasm gui/windows95-desktop.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
+
+# TextEdit rasterizes JetBrains Mono for the document and Inter for the window,
+# and draws Mac OS X 10.4 Tiger's window buttons from gui/assets.
+TEXTEDIT_MODULES = -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Mjetbrains_mono=text/lib/jetbrains_mono_2_304_regular_latin_paths.zig
+gui/textedit.wasm: gui/textedit.zig gui/assets/textedit-tiger-buttons.zig image/lib/ktx2-rgba8-srgb.zig text/lib/inter_display_latin_paths.zig text/lib/jetbrains_mono_2_304_regular_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep inter_regular --dep jetbrains_mono -Mroot=gui/textedit.zig $(TEXTEDIT_MODULES) -femit-bin=$@
 
 gui/browser-security.wasm gui/calculator.wasm gui/chronograph.wasm gui/dock-magnification.wasm gui/flurry.wasm gui/formula-1-map.wasm gui/gif-player.wasm gui/god-rays.wasm gui/graph-calculator.wasm gui/ieee-754-floats.wasm gui/layout-systems.wasm gui/macintosh-1bit.wasm gui/mandelbrot.wasm gui/moon-phases.wasm gui/openai-anthropic-arr.wasm gui/page-load-waterfall.wasm gui/paint.wasm gui/perlin-noise.wasm gui/photo-light-table.wasm gui/ps2-menu.wasm gui/render-counts.wasm gui/shadow-rendering.wasm gui/shutterstock-earnings.wasm gui/snake.wasm gui/sudoku.wasm gui/tetris.wasm gui/tile-world-12x12.wasm gui/web-mechanics.wasm gui/webos-card-view.wasm gui/xbox-dashboard.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb $(if $(filter gui/chronograph.wasm,$@),--dep ktx2_rgba32float_display_p3_linear) -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig $(if $(filter gui/chronograph.wasm,$@),-Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig) -femit-bin=$@
@@ -1741,12 +1747,14 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
 		elif [ "$$f" = "application/zip/zip-list-entries-csv.zig" ] || [ "$$f" = "application/zip/zip-list-files-csv.zig" ] || [ "$$f" = "application/zip/zip-extract-file.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep inflate -Mroot="$$f" -Minflate=bytes/lib/inflate.zig || status=1; \
-		elif [ "$$f" = "gui/colosseum.zig" ] || [ "$$f" = "gui/highway-chase.zig" ] || [ "$$f" = "gui/hovercraftsman.zig" ] || [ "$$f" = "gui/rotunda.zig" ] || [ "$$f" = "gui/liars-dice.zig" ] || [ "$$f" = "gui/macos9-desktop.zig" ] || [ "$$f" = "gui/macosx-leopard-desktop.zig" ] || [ "$$f" = "gui/org_planner.zig" ] || [ "$$f" = "gui/peon-gold.zig" ] || [ "$$f" = "gui/textedit.zig" ] || [ "$$f" = "gui/vertical-shooter.zig" ] || [ "$$f" = "gui/windows95-desktop.zig" ]; then \
+		elif [ "$$f" = "gui/colosseum.zig" ] || [ "$$f" = "gui/highway-chase.zig" ] || [ "$$f" = "gui/hovercraftsman.zig" ] || [ "$$f" = "gui/rotunda.zig" ] || [ "$$f" = "gui/liars-dice.zig" ] || [ "$$f" = "gui/macos9-desktop.zig" ] || [ "$$f" = "gui/macosx-leopard-desktop.zig" ] || [ "$$f" = "gui/org_planner.zig" ] || [ "$$f" = "gui/peon-gold.zig" ] || [ "$$f" = "gui/vertical-shooter.zig" ] || [ "$$f" = "gui/windows95-desktop.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/bmp/bmp-b8g8r8a8-srgb-to-ktx2-rgba32float.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-to-bmp-b8g8r8a8-srgb.zig" ] || [ "$$f" = "image/ktx2/ktx2-rgba32float-look-warm-fade.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
 		elif [ "$$f" = "gui/chronograph.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+		elif [ "$$f" = "gui/textedit.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep jetbrains_mono -Mroot="$$f" $(TEXTEDIT_MODULES) || status=1; \
 		elif [ "$$f" = "gui/macintosh-1bit.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig || status=1; \
 		elif [ "$$f" = "image/lib/ktx2-rgba32float-display-p3.zig" ]; then \

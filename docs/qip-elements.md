@@ -477,6 +477,24 @@ coordinates in `pointer_event` stay where the cursor was locked, and
 and pen input, and components without these exports are unaffected; the
 totals stay at 0.
 
+### Focus State
+
+A component that draws its own focused and unfocused states, like a window
+that goes inactive, exports an optional uniform:
+
+| Export | Value |
+| --- | --- |
+| `uniform_set_is_focused` | 1 while the surface has focus, 0 otherwise |
+
+The component should default to 1, so hosts that don't track focus show it
+active. `<qip-play>` starts it at 0, sets it to 1 on the surface's `focus`
+event and back to 0 on `blur`, which also fires when the browser window loses
+focus. Each change schedules an update and a render, like an accepted event,
+so the component can stop or restart timers such as a caret blink. Because the
+component now shows focus itself, `<qip-play>` sets `outline: none` on the
+surface and the browser's focus ring no longer appears. Components without the
+export keep the focus ring.
+
 ### Scheduling And Visibility
 
 The host schedules work with `requestAnimationFrame` when something is ready

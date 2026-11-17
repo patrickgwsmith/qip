@@ -249,8 +249,9 @@ test("a real KTX2 component draws its first frame and redraws after a key", asyn
   assert.match(statsOf(element).textContent,
     /^wasm 3\.9 kB \| memory 1\.2 MB \| output rgba-unorm8 srgb \| canvas rgba-unorm8 srgb \| update +0 \d+\.\d ms \| render +1 \d+\.\d ms$/);
   assert.deepEqual(canvas.listenerTypes(), [
-    "blur", "click", "contextmenu", "keydown", "keyup", "pointercancel", "pointerdown", "pointerleave", "pointermove", "pointerup",
+    "blur", "click", "contextmenu", "focus", "keydown", "keyup", "pointercancel", "pointerdown", "pointerleave", "pointermove", "pointerup",
   ]);
+  assert.equal(canvas.style.outline, undefined);
 
   clock += 5;
   const keydown = canvas.fire("keydown", { key: "7", code: "Digit7" });
@@ -513,6 +514,50 @@ test("source uniforms are applied before every update and render", async () => {
   surfaceOf(element).fire("keydown", { key: "x", code: "KeyX" });
   runFrames();
   assert.ok(calls.length > exports);
+  element.disconnectedCallback();
+});
+
+test("is_focused follows the surface's focus and replaces the focus ring", async () => {
+  const values = [];
+  fakes.set("focus", fakeComponent({
+    extra: { uniform_set_is_focused(value) { values.push(value); return value; } },
+  }));
+  const element = await mount([source("/fake/focus")], { "svg-inline": "" });
+  const surface = surfaceOf(element);
+  assert.equal(surface.style.outline, "none");
+  assert.ok(surface.listenerTypes().includes("focus"));
+  assert.ok(values.length > 0 && values.every((value) => value === 0));
+
+  values.length = 0;
+  surface.fire("focus");
+  assert.equal(runFrames() > 0, true);
+  assert.ok(values.length > 0 && values.every((value) => value === 1));
+
+  values.length = 0;
+  surface.fire("blur");
+  runFrames();
+  assert.ok(values.length > 0 && values.every((value) => value === 0));
+
+  // Repeating the same state schedules nothing.
+  surface.fire("blur");
+  assert.equal(runFrames(), 0);
+  element.disconnectedCallback();
+});
+
+test("TextEdit draws an inactive window until it is focused", async () => {
+  const element = await mount([source("/gui/textedit.wasm")]);
+  const canvas = surfaceOf(element);
+  assert.equal(canvas.style.outline, "none");
+  const inactive = canvas.draws.at(-1);
+  clock += 5;
+  canvas.fire("focus");
+  runFrames();
+  const active = canvas.draws.at(-1);
+  assert.notDeepEqual(active, inactive);
+  clock += 5;
+  canvas.fire("blur");
+  runFrames();
+  assert.deepEqual(canvas.draws.at(-1), inactive);
   element.disconnectedCallback();
 });
 

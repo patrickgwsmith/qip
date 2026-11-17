@@ -15,7 +15,7 @@ events, and timing.
 - [`paint.wasm`](/gui/paint.wasm) draws with pointer input.
 - [`spreadsheet.wasm`](/gui/spreadsheet.wasm) edits a grid of cells.
 - [`svg-path-editor.wasm`](/gui/svg-path-editor.wasm) edits vector paths and returns SVG frames.
-- [`textedit.wasm`](/gui/textedit.wasm) provides a plain-text editor.
+- [`textedit.wasm`](/gui/textedit.wasm) provides a plain-text editor in a Mac OS X 10.4 Tiger window.
 - [`photo-light-table.wasm`](/gui/photo-light-table.wasm) arranges and browses photos.
 - [`gameboy-camera.wasm`](/gui/gameboy-camera.wasm) recreates a camera interface.
 - [`gif-player.wasm`](/gui/gif-player.wasm) advances GIF frames over time without input events.
