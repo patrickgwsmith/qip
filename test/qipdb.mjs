@@ -143,7 +143,13 @@ test("a tall terminal shows hundreds of instructions", async () => {
   ]);
   new Uint8Array(instance.exports.memory.buffer, instance.exports.input_ptr(), debuggerInput.length).set(debuggerInput);
 
-  const output = renderedText(instance, debuggerInput.length);
+  let output = renderedText(instance, debuggerInput.length);
+  // The export may be a thin wrapper (whether render inlines the parser is up
+  // to the compiler), so step into calls until a long function is on screen.
+  for (let step = 0; step < 64 && executionRowCount(output) < 400; step++) {
+    sendKey(instance, BigInt(step + 2), 0x53); // S: step into
+    output = renderedText(instance, 0);
+  }
   const instructionRows = executionRowCount(output);
   assert.equal(output.split("\n").length, 512);
   assert.ok(instructionRows >= 400, `expected at least 400 instruction rows, got ${instructionRows}`);
@@ -363,7 +369,7 @@ test("table-using repository components match native Wasm SHA-256 output", async
     if (target.name === "CommonMark") {
       sendKey(instance, 12n, 0x69); // i
       const counters = renderedText(instance, 0);
-      assert.match(counters, /CODE     instructions=22092/);
+      assert.match(counters, /CODE     instructions=22661/);
       assert.match(counters, /CALLS    direct=\d+  call_indirect=2  return_call_indirect=0  call_ref=0/);
       assert.match(counters, /TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5/);
       const pages = Number(counters.match(/^MEMORY[^\n]*pages=(\d+)/m)?.[1]);

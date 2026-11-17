@@ -1,0 +1,305 @@
+qipdb  ●  i collapse  ? help
+  WASM     92647 B
+  QIP      tex... → te...  input-capacity=2097152 B  output-capacity=2097152 B
+  EXPORTS  functions=8  tables=0  memories=1  globals=0  tags=0
+  RUNTIME  executed=21854246  branches-taken=1158695  calls=204424  returns=204425  indirect=0
+  MEMORY   first-write-after=143
+  CODE     instructions=22092  functions=93  globals=1
+  CONTROL  loops=186  branch-sites=1770  conditional-sites=1243
+  CALLS    direct=716  call_indirect=2  return_call_indirect=0  call_ref=0
+  TABLES   tables=1  fixed=1  initial-slots=5  maximum-slots=5
+  TYPES    funcref=1  externref=0  typed-reference=0  table64=0
+  ELEMENTS active=1  passive=0  declarative=0  initializers=4
+  TABLEOPS get=0 set=0 init=0 drop=0 copy=0 grow=0 size=0 fill=0
+  REFS     null=0  is-null=0  func=0
+  SIMD     instructions=0  v128-types=0
+  MEMORY   load-sites=1152  store-sites=628  copies=7  fills=14
+  TRAPS    potential-sites=1809  explicit=0  memory=1801  table=2
+           division=3  remainder=3  float-to-int=0  call-ref=0
+  FUNCTIONS reachable=83/93  → direct  ⇢ possible indirect
+    f7 render  calls=1  → f8 ×25, f9 ×18, f10 ×11, f11 ×4  … +35
+      loop 0x00020b  iterations=776
+      loop 0x00022b  iterations=39323
+      loop 0x0002c8  iterations=323
+      loop 0x000349  iterations=0
+      loop 0x0003ed  iterations=340
+      loop 0x0004c2  iterations=0
+      loop 0x0007ad  iterations=57
+      loop 0x000b3d  iterations=24
+      loop 0x000cd0  iterations=207
+      loop 0x000dad  iterations=0
+      loop 0x000e57  iterations=0
+      loop 0x000e74  iterations=0
+      loop 0x001025  iterations=46638
+      loop 0x001220  iterations=100
+      loop 0x001322  iterations=0
+      loop 0x001607  iterations=0
+      loop 0x001906  iterations=24
+      loop 0x001a7e  iterations=0
+      loop 0x001c87  iterations=128
+      loop 0x001e2a  iterations=51
+      loop 0x001e55  iterations=0
+      loop 0x001ec6  iterations=0
+      loop 0x0021c7  iterations=122
+      loop 0x0021df  iterations=6
+      loop 0x00235c  iterations=51
+      loop 0x002380  iterations=0
+      loop 0x002435  iterations=0
+      loop 0x00285c  iterations=340
+    f8  calls=3123  → f13
+      loop 0x002aa5  iterations=408
+    f9  calls=13046  → f13
+      loop 0x002b20  iterations=1816
+    f10  calls=1802  → f9, f13, f30
+      loop 0x002c76  iterations=279
+      loop 0x002cf5  iterations=200
+      loop 0x002d3a  iterations=0
+    f11  calls=744  → f9, f13
+      loop 0x002e24  iterations=192
+      loop 0x002e7d  iterations=0
+    f12  calls=1201  → f9, f13, f47 ×4, f48 ×4  … +2
+      loop 0x002f2f  iterations=4804
+      loop 0x00309e  iterations=0
+      loop 0x0030f2  iterations=0
+      loop 0x00312b  iterations=0
+      loop 0x0031e0  iterations=0
+    f13  calls=28222
+    f14  calls=0  → f51 ×3, f52, f53 ×4
+    f15  calls=244  → f8 ×2, f9 ×2, f13 ×2, f23  … +7
+      loop 0x0034e8  iterations=0
+      loop 0x003514  iterations=0
+      loop 0x0037a7  iterations=0
+      loop 0x0037c0  iterations=0
+    f16  calls=0  → f59
+      loop 0x003aae  iterations=0
+    f17  calls=1504  → f9, f13
+      loop 0x003b80  iterations=118
+      loop 0x003c3c  iterations=42
+      loop 0x003c82  iterations=0
+      loop 0x003cc7  iterations=0
+      loop 0x003d25  iterations=0
+    f18  calls=1768  → f9, f13
+      loop 0x003e14  iterations=1356
+    f19  calls=2163  → f9, f13
+      loop 0x003f31  iterations=22
+      loop 0x003faf  iterations=1080
+      loop 0x0040ae  iterations=22
+    f20  calls=431  → f30
+    f21  calls=309  → f9, f13, f55, f56  … +2
+    f22  calls=524  → f8, f9, f10, f12  … +5
+      loop 0x004523  iterations=102
+    f23  calls=304  → f13
+      loop 0x0046cf  iterations=600
+    f24  calls=164  → f9, f13
+      loop 0x0047bb  iterations=137
+      loop 0x00480a  iterations=137
+    f25  calls=118  → f9, f13, f19, f30
+    f26  calls=103  → f9 ×2, f10, f12, f17  … +2
+    f27  calls=0  → f9 ×2, f13, f29, f60
+      loop 0x004af2  iterations=0
+    f28  calls=47  → f8 ×2, f9 ×2, f10, f12  … +8
+      loop 0x004b6d  iterations=71
+      loop 0x004ce2  iterations=71
+    f29  calls=2249
+    f30  calls=1302
+      loop 0x004f17  iterations=97
+      loop 0x004f69  iterations=0
+    f31  calls=341  → f69
+      loop 0x004fbf  iterations=9930
+    f32  calls=51432
+      loop 0x00509b  iterations=191316
+    f33  calls=21  → f62 ×2, f63
+    f34  calls=240  → f29 ×30, f31 ×6, f36 ×2, f47  … +24
+      loop 0x005238  iterations=24009
+      loop 0x0052ca  iterations=2
+      loop 0x00535e  iterations=1164
+      loop 0x00541e  iterations=23698
+      loop 0x005459  iterations=0
+      loop 0x0054e9  iterations=0
+      loop 0x005549  iterations=1
+      loop 0x0058b8  iterations=49
+      loop 0x005974  iterations=49
+      loop 0x005aca  iterations=0
+      loop 0x005b1f  iterations=3782
+      loop 0x005bb7  iterations=2
+      loop 0x005c0f  iterations=3780
+      loop 0x0060b3  iterations=0
+      loop 0x0060fa  iterations=0
+      loop 0x00616a  iterations=0
+      loop 0x00617b  iterations=3782
+      loop 0x0061a4  iterations=238
+      loop 0x00629a  iterations=0
+      loop 0x0062db  iterations=0
+      loop 0x0064c9  iterations=0
+      loop 0x006574  iterations=0
+      loop 0x006609  iterations=505
+      loop 0x0066aa  iterations=0
+      loop 0x00670d  iterations=0
+      loop 0x006793  iterations=0
+      loop 0x0067b4  iterations=0
+      loop 0x006966  iterations=0
+      loop 0x006cd9  iterations=49
+      loop 0x006d64  iterations=49
+    f35  calls=21  → f62 ×2, f63
+    f36  calls=31  → f29, f67, f68, f69  … +1
+      loop 0x007011  iterations=100
+      loop 0x007093  iterations=100
+      loop 0x0070f8  iterations=0
+    f37  calls=0  → f83
+    f38  calls=172  → f8 ×12, f9 ×13, f10 ×4, f11  … +31
+      loop 0x0072bc  iterations=187
+      loop 0x0075ed  iterations=1
+      loop 0x0079b7  iterations=35
+      loop 0x007b08  iterations=6
+      loop 0x007bb2  iterations=0
+      loop 0x007ee6  iterations=0
+      loop 0x00802f  iterations=0
+      loop 0x0081e5  iterations=0
+      loop 0x008257  iterations=0
+      loop 0x008306  iterations=0
+      loop 0x008426  iterations=0
+      loop 0x008705  iterations=0
+      loop 0x0087e8  iterations=0
+      loop 0x008805  iterations=0
+    f39  calls=47  → f9, f13
+    f40  calls=47  → f13
+      loop 0x00893f  iterations=0
+    f41  calls=0  → f8, f9, f19, f21  … +1
+      loop 0x0089ad  iterations=0
+    f42  calls=172  → f9, f29, f60 ×2
+      loop 0x008a9b  iterations=0
+      loop 0x008ae3  iterations=0
+    f43  calls=6  → f10, f11, f84
+      loop 0x008b69  iterations=0
+      loop 0x008b71  iterations=6
+    f44  calls=57  → f9, f13, f29, f60
+      loop 0x008c8f  iterations=12
+    f45  calls=172  → f8 ×2, f9 ×3, f10 ×2, f12 ×2  … +6
+      loop 0x008cf2  iterations=0
+      loop 0x008d4b  iterations=1
+    f46  calls=340  → f13, f29, f60
+      loop 0x008f2d  iterations=0
+      loop 0x008f96  iterations=0
+    f47  calls=4804
+      loop 0x008fe1  iterations=0
+    f48  calls=4804  → f32
+    f49  calls=0
+    f50  calls=0  → f49, f85 ×2, f86 ×2
+      loop 0x0090f7  iterations=0
+      loop 0x00915f  iterations=0
+      loop 0x0091b1  iterations=0
+      loop 0x0091c9  iterations=0
+      loop 0x00922f  iterations=0
+      loop 0x00927d  iterations=0
+      loop 0x0092aa  iterations=0
+      loop 0x009304  iterations=0
+      loop 0x009383  iterations=0
+    f51  calls=0  → f79
+    f52  calls=2  → f80
+    f53  calls=0
+      loop 0x009475  iterations=0
+      loop 0x009496  iterations=0
+    f54  calls=1116
+      loop 0x00952d  iterations=0
+    f55  calls=246  → f54
+      loop 0x00957f  iterations=870
+    f56  calls=0  → f30, f77 ×2
+      loop 0x009659  iterations=0
+      loop 0x00974f  iterations=0
+      loop 0x0097f0  iterations=0
+      loop 0x00988c  iterations=0
+      loop 0x009913  iterations=0
+    f57  calls=126  → f30, f81 ×2, f82
+      loop 0x009a19  iterations=29
+      loop 0x009ed8  iterations=0
+      loop 0x009f2a  iterations=0
+    f58  calls=25  → f13
+      loop 0x00a002  iterations=0
+    f59  calls=126
+      loop 0x00a063  iterations=0
+    f61  calls=246  → f54, f80
+      loop 0x00a12d  iterations=870
+      loop 0x00a153  iterations=8768
+      loop 0x00a18c  iterations=0
+      loop 0x00a1c9  iterations=0
+      loop 0x00a1f4  iterations=0
+      loop 0x00a24c  iterations=8768
+    f60  calls=37953
+    f69  calls=37509  → f29 ×4, f60
+    f62  calls=126  ⇢ f87
+      loop 0x00a317  iterations=126
+    f63  calls=42  → f83
+    f64  calls=1648
+    f65  calls=929  → f64
+    f66  calls=261  → f64 ×4, f78 ×8
+      loop 0x00a52f  iterations=783
+      loop 0x00a53e  iterations=2349
+      loop 0x00a5ab  iterations=2
+      loop 0x00a5c7  iterations=5
+      loop 0x00a5ed  iterations=0
+      loop 0x00a5f5  iterations=1
+      loop 0x00a69a  iterations=0
+      loop 0x00a854  iterations=0
+      loop 0x00a922  iterations=0
+    f67  calls=0
+      loop 0x00aad0  iterations=0
+      loop 0x00ab44  iterations=0
+      loop 0x00ab89  iterations=0
+    f68  calls=0  → f82
+      loop 0x00ac61  iterations=0
+      loop 0x00ac67  iterations=0
+      loop 0x00acd1  iterations=0
+      loop 0x00ad7d  iterations=0
+      loop 0x00addc  iterations=0
+    f70  calls=21  → f29 ×4, f60 ×4, f67, f68  … +2
+      loop 0x00afb1  iterations=505
+      loop 0x00b033  iterations=505
+      loop 0x00b11c  iterations=0
+    f71  calls=2
+      loop 0x00b264  iterations=8
+    f72  calls=0  → f52 ×2, f80
+      loop 0x00b30e  iterations=0
+      loop 0x00b38e  iterations=0
+      loop 0x00b459  iterations=0
+    f73  calls=554
+    f74  calls=68
+    f75  calls=68  → f77
+    f76  calls=152
+    f77  calls=68
+    f78  calls=152
+    f79  calls=0  → f32
+      loop 0x00b6f8  iterations=0
+    f80  calls=2
+      loop 0x00b76e  iterations=10
+    f83  calls=42  → f91
+      loop 0x00b9d2  iterations=0
+    f84  calls=823  → f13
+      loop 0x00bad7  iterations=60131
+    f85  calls=0
+    f86  calls=0
+    f81  calls=0
+      loop 0x00b7b1  iterations=0
+    f82  calls=0
+    f87  calls=0
+      loop 0x00bc3a  iterations=0
+      loop 0x00bce9  iterations=0
+    f91  calls=42  → f62 ×3, f92 ×4
+    f92  calls=0  ⇢ f87
+      loop 0x00be4a  iterations=0
+MEMORY  19904 KiB  pages=311  reads=1301356 writes=471700  x examine  m map
+  0030aac8  3c 70 72 65 3e 3c 63 6f  64 65 3e e2 94 8f e2 94  |<pre><code>.....|
+  0030aad8  81 e2 94 81 e2 94 81 e2  94 93 20 e2 94 81 e2 94  |.......... .....|
+  0030aae8  b3 e2 94 81 20 e2 94 8f  e2 94 81 e2 94 81 e2 94  |.... ...........|
+  0030aaf8  81 e2 94 93 0a e2 94 97  e2 94 81 e2 94 b3 e2 94  |................|
+  0030ab08  81 e2 94 9b 20 e2 94 81  e2 94 bb e2 94 81 20 e2  |.... ......... .|
+  0030ab18  94 a3 e2 94 81 e2 94 81  e2 94 81 e2 94 9b 0a 3c  |...............<|
+  0030ab28  2f 63 6f 64 65 3e 3c 2f  70 72 65 3e 0a 3c 70 3e  |/code></pre>.<p>|
+  0030ab38  51 49 50 20 43 6f 6d 70  6f 6e 65 6e 74 73 20 61  |QIP Components a|
+
+INSTRUCTIONS  r restart                      STACKS/LOCALS  v decimal
+↑  f7 0x002a6c end                             global[0] 0x0000000000100000
+                                               calls empty
+                                                 stack empty
+
+OUTPUT succeeded size=46638 ptr=0x0030aac8 packed=0x0030aac80000b62e
+  sha256=296d3efd588d4940f3cb29960819750e580f74e38211b773d0414e2d4b908f04

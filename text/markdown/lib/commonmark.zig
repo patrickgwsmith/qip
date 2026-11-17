@@ -41,11 +41,19 @@
 // here is bounding the extension scan — a def can only extend while a title is
 // plausibly open — and belongs with the block-level line-classification work.
 // tools/test-markdown-pathological.sh ("ref-defs") guards it at reduced size.
-// Measured 2026-08-18: a scan-and-bulk-copy Writer.writeEscaped showed no
-// improvement over the byte-at-a-time loop on paragraph-, code-, and
-// emphasis-heavy inputs (qip bench), so the naive loop stays. Still open:
-// TODO(perf): benchmark -O ReleaseSmall against ReleaseFast (speed vs wasm
-// size) via qip bench.
+// Measured 2026-11-17 (benchmarks/commonmark-gfm-baseline): run-copying
+// escapes (writeEscaped, writeTextRange), the inline plain-text skip table,
+// first-byte autolink dispatch with a next-'@' memo, a single-pass
+// findUnescapedRightBracket, newline-keyed compactEmptyListItems, and
+// inlining trimRightCR/isTablePipeAt/isEmailLocalByte cut executed Wasm
+// instructions 2.7x (CommonMark) / 2.8x (GFM) on a 40 KB README, at about
+// +1 KB of wasm each. Hot loops now matter twice over under qip's wazero host:
+// WithCloseOnContextDone puts a check on every loop back-edge and call, which
+// made render ~6x slower than wazero without it in a Go harness.
+// ReleaseFast vs ReleaseSmall (same date): +62-66% wasm (+24-26% gzip) for
+// 1.6x in V8 but only ~1.15x in qip's wazero, so components stay ReleaseSmall.
+// Forcing leadingIndent inline bought ~10% for +5.5 KB; rejected in favour of
+// the line-classification TODO below, which removes most calls instead.
 // TODO(conformance, GFM): Extended-autolink trimming (trimExtendedURLEnd, entity
 // truncation, trailing-paren balancing) is only exercised by 22 fixture examples.
 // Validate against cmark-gfm and grow the extension fixture accordingly.
@@ -53,6 +61,17 @@
 // offsets. If size pressure returns, front-code the sorted names (shared-prefix
 // lengths) before reaching for anything cleverer — measure with qip bench and
 // keep the Options.full_entities escape hatch either way.
+// TODO(size): Smaller wins, unmeasured as of 2026-11-17:
+// - std.fmt.bufPrint (heading tags, ordered-list start) pulls in the integer
+//   formatter; heading levels are one digit and list starts need only a tiny
+//   itoa.
+// - Block dispatch is duplicated across renderBlocks, renderListItemContent,
+//   firstListItemBlockIsCode, contentOpensParagraph and the paragraph
+//   continuation lookaheads; the line-classification rewrite would fold them
+//   into one classifier (smaller and faster).
+// - matchesType1Start/isType6TagName compare against string lists one by one;
+//   a first-byte switch would be smaller and faster.
+// - Try a wasm-opt -Oz post-pass (the mise shim was broken when measured).
 const std = @import("std");
 
 // Generated fixture tables (see each file's header for source pins, and
@@ -186,9 +205,18 @@ pub fn Make(comptime options: Options) type {
             }
 
             fn writeEscaped(self: *Writer, s: []const u8) void {
-                for (s) |b| self.writeEscapedByte(b);
+                var i: usize = 0;
+                while (i < s.len) {
+                    const run_start = i;
+                    while (i < s.len and inline_byte_class[s[i]] & IB_HTML_ESCAPE == 0) i += 1;
+                    if (i > run_start) self.writeSlice(s[run_start..i]);
+                    if (i >= s.len) break;
+                    self.writeEscapedByte(s[i]);
+                    i += 1;
+                }
             }
         };
+
 
         const Indent = struct {
             cols: usize,
@@ -274,7 +302,7 @@ pub fn Make(comptime options: Options) type {
             return false;
         }
 
-        fn trimRightCR(s: []const u8) []const u8 {
+        inline fn trimRightCR(s: []const u8) []const u8 {
             if (s.len > 0 and s[s.len - 1] == '\r') return s[0 .. s.len - 1];
             return s;
         }
@@ -711,7 +739,8 @@ pub fn Make(comptime options: Options) type {
             const ind = leadingIndent(line);
             if (ind.cols > 3) return .none;
             const s = line[ind.idx..];
-            if (s.len == 0) return .none;
+            // Every start condition (types 1-7) begins with '<'.
+            if (s.len == 0 or s[0] != '<') return .none;
 
             if (matchesType1Start(s)) return .type1;
             if (std.mem.startsWith(u8, s, "<!--")) return .type2;
@@ -1713,12 +1742,67 @@ pub fn Make(comptime options: Options) type {
             return (bs & 1) == 1;
         }
 
+        // Finds the `]` closing the bracket opened before `from`, skipping
+        // brackets that are backslash-escaped, inside a code span, or inside
+        // a `<...>` tag. A code span is a backtick run and the next run of
+        // the same length; a tag is a `<` and the next `>`. Both span
+        // sequences are scanned forward from `from` once, carrying their
+        // cursors between brackets: a bracket is inside iff the most recent
+        // span starting before it ends at or after it. (This replaced a
+        // per-byte rescan from `from`, which was quadratic.)
         fn findUnescapedRightBracket(s: []const u8, from: usize) ?usize {
             var depth: usize = 0;
+            // Backslashes immediately before i (may extend before `from`).
+            var bs_run: usize = 0;
+            {
+                var k = from;
+                while (k > 0 and s[k - 1] == '\\') : (k -= 1) bs_run += 1;
+            }
+            var code_cur = from;
+            var code_end: usize = 0;
+            var code_seen = false;
+            var tag_cur = from;
+            var tag_end: usize = 0;
+            var tag_seen = false;
             var i = from;
             while (i < s.len) : (i += 1) {
-                if (isEscapedAt(s, i) or isInsideCodeSpan(s, from, i) or isInsideInlineTag(s, from, i)) continue;
-                if (s[i] == '[') {
+                const b = s[i];
+                const escaped = bs_run & 1 == 1;
+                bs_run = if (b == '\\') bs_run + 1 else 0;
+                if (b != '[' and b != ']') continue;
+                if (escaped) continue;
+                while (code_cur < i) {
+                    if (s[code_cur] != '`') {
+                        code_cur += 1;
+                        continue;
+                    }
+                    var ticks: usize = 1;
+                    while (code_cur + ticks < s.len and s[code_cur + ticks] == '`') : (ticks += 1) {}
+                    if (findMatchingRun(s, code_cur + ticks, '`', ticks)) |end_idx| {
+                        code_end = end_idx;
+                        code_seen = true;
+                        code_cur = end_idx + ticks;
+                        continue;
+                    }
+                    code_cur += ticks;
+                }
+                if (code_seen and code_end >= i) continue;
+                while (tag_cur < i) {
+                    if (s[tag_cur] != '<') {
+                        tag_cur += 1;
+                        continue;
+                    }
+                    if (std.mem.indexOfScalarPos(u8, s, tag_cur + 1, '>')) |gt| {
+                        tag_end = gt;
+                        tag_seen = true;
+                        tag_cur = gt + 1;
+                        continue;
+                    }
+                    // No '>' after this '<', so none after any later '<'.
+                    tag_cur = s.len;
+                }
+                if (tag_seen and tag_end >= i) continue;
+                if (b == '[') {
                     depth += 1;
                     continue;
                 }
@@ -1787,42 +1871,6 @@ pub fn Make(comptime options: Options) type {
                 return right_flanking and (!left_flanking or next_punct);
             }
             return right_flanking;
-        }
-
-        fn isInsideCodeSpan(s: []const u8, from: usize, pos: usize) bool {
-            var i = from;
-            while (i < pos and i < s.len) {
-                if (s[i] != '`') {
-                    i += 1;
-                    continue;
-                }
-                var ticks: usize = 1;
-                while (i + ticks < s.len and s[i + ticks] == '`') : (ticks += 1) {}
-                if (findMatchingRun(s, i + ticks, '`', ticks)) |end_idx| {
-                    if (end_idx >= pos) return true;
-                    i = end_idx + ticks;
-                    continue;
-                }
-                i += ticks;
-            }
-            return false;
-        }
-
-        fn isInsideInlineTag(s: []const u8, from: usize, pos: usize) bool {
-            var i = from;
-            while (i < pos and i < s.len) {
-                if (s[i] != '<') {
-                    i += 1;
-                    continue;
-                }
-                if (std.mem.indexOfScalarPos(u8, s, i + 1, '>')) |gt| {
-                    if (gt >= pos) return true;
-                    i = gt + 1;
-                    continue;
-                }
-                i += 1;
-            }
-            return false;
         }
 
         fn canContinueTagAfterNewline(prefix: []const u8) bool {
@@ -2011,7 +2059,7 @@ pub fn Make(comptime options: Options) type {
             out.writeSlice("</a>");
         }
 
-        fn isEmailLocalByte(byte: u8) bool {
+        inline fn isEmailLocalByte(byte: u8) bool {
             return isAsciiAlnum(byte) or byte == '.' or byte == '-' or byte == '_' or byte == '+';
         }
 
@@ -2333,19 +2381,31 @@ pub fn Make(comptime options: Options) type {
 
         const ExtAutolink = struct { kind: InlineKind, end: usize, add_http: bool };
 
+        // Index of the next '@' in the paragraph being parsed (maxInt when
+        // none remain). Reset per inlineParse; see scanExtendedAutolink.
+        var ext_next_at: usize = 0;
+
         fn scanExtendedAutolink(s: []const u8, start: usize) ?ExtAutolink {
             if (!isExtendedURLBoundary(s, start)) return null;
             var add_http = false;
             var prefix_len: usize = 0;
-            if (std.mem.startsWith(u8, s[start..], "www.")) {
-                add_http = true;
-                prefix_len = 4;
-            } else if (std.mem.startsWith(u8, s[start..], "http://")) {
-                prefix_len = 7;
-            } else if (std.mem.startsWith(u8, s[start..], "https://")) {
-                prefix_len = 8;
-            } else if (std.mem.startsWith(u8, s[start..], "ftp://")) {
-                prefix_len = 6;
+            // Dispatch on the first byte so ordinary words cost one compare
+            // instead of four prefix calls.
+            const rest = s[start..];
+            switch (rest[0]) {
+                'w' => if (std.mem.startsWith(u8, rest, "www.")) {
+                    add_http = true;
+                    prefix_len = 4;
+                },
+                'h' => if (std.mem.startsWith(u8, rest, "http://")) {
+                    prefix_len = 7;
+                } else if (std.mem.startsWith(u8, rest, "https://")) {
+                    prefix_len = 8;
+                },
+                'f' => if (std.mem.startsWith(u8, rest, "ftp://")) {
+                    prefix_len = 6;
+                },
+                else => {},
             }
             if (prefix_len != 0) {
                 var end = start + prefix_len;
@@ -2356,6 +2416,12 @@ pub fn Make(comptime options: Options) type {
                 }
             }
             if (!isEmailLocalByte(s[start])) return null;
+            // An email needs an '@' at or after start; remember where the
+            // next one is so '@'-free text skips the local-part scan.
+            if (ext_next_at < start) {
+                ext_next_at = std.mem.indexOfScalarPos(u8, s, start, '@') orelse std.math.maxInt(usize);
+            }
+            if (ext_next_at == std.math.maxInt(usize)) return null;
             var at = start;
             while (at < s.len and isEmailLocalByte(s[at])) : (at += 1) {}
             if (at >= s.len or s[at] != '@' or at == start) return null;
@@ -2657,12 +2723,35 @@ pub fn Make(comptime options: Options) type {
             return consumed_end;
         }
 
+        // Byte classes shared by the hot text loops (one 256-byte table).
+        // IB_SPECIAL marks every byte with its own inlineParse switch arm;
+        // IB_EMAIL_LOCAL mirrors isEmailLocalByte; IB_URL_WORD is the
+        // complement of isExtendedURLBoundary's previous-byte test;
+        // IB_HTML_ESCAPE marks the bytes Writer.writeEscapedByte rewrites.
+        const IB_SPECIAL: u8 = 1;
+        const IB_EMAIL_LOCAL: u8 = 2;
+        const IB_URL_WORD: u8 = 4;
+        const IB_HTML_ESCAPE: u8 = 8;
+        const inline_byte_class: [256]u8 = blk: {
+            @setEvalBranchQuota(10000);
+            var t = [_]u8{0} ** 256;
+            for ("\\\n`<*_~[!]") |c| t[c] |= IB_SPECIAL;
+            for ("&<>\"") |c| t[c] |= IB_HTML_ESCAPE;
+            for (0..256) |c| {
+                const b: u8 = @intCast(c);
+                if (isEmailLocalByte(b)) t[c] |= IB_EMAIL_LOCAL;
+                if (isAsciiAlnum(b) or b == '_' or b == '-') t[c] |= IB_URL_WORD;
+            }
+            break :blk t;
+        };
+
         fn inlineParse(s: []const u8) bool {
             inline_node_count = 0;
             link_data_count = 0;
             delim_top = NODE_NONE;
             inline_overflow = false;
             backticks_scanned = false;
+            ext_next_at = 0;
             _ = nodeAlloc(.head);
             _ = nodeAlloc(.tail);
             inline_nodes[NODE_HEAD].next = NODE_TAIL;
@@ -2843,7 +2932,9 @@ pub fn Make(comptime options: Options) type {
                         text_start = i;
                     },
                     else => {
-                        if (enable_gfm and (b == 'w' or b == 'h' or b == 'f' or isEmailLocalByte(b))) {
+                        if (enable_gfm and inline_byte_class[b] & IB_EMAIL_LOCAL != 0 and
+                            (i == 0 or inline_byte_class[s[i - 1]] & IB_URL_WORD == 0))
+                        {
                             if (scanExtendedAutolink(s, i)) |ext| {
                                 emitText(text_start, i);
                                 const idx = nodeAlloc(ext.kind);
@@ -2859,6 +2950,16 @@ pub fn Make(comptime options: Options) type {
                             }
                         }
                         i += 1;
+                        // Skip plain text up to the next byte the switch
+                        // handles or (GFM) the next extended-autolink
+                        // candidate, i.e. an email-local byte at a word
+                        // boundary. Equivalent to iterating the else arm.
+                        while (i < s.len) : (i += 1) {
+                            const c = inline_byte_class[s[i]];
+                            if (c & IB_SPECIAL != 0) break;
+                            if (enable_gfm and c & IB_EMAIL_LOCAL != 0 and
+                                inline_byte_class[s[i - 1]] & IB_URL_WORD == 0) break;
+                        }
                     },
                 }
             }
@@ -2871,6 +2972,10 @@ pub fn Make(comptime options: Options) type {
         fn writeTextRange(out: *Writer, s: []const u8) void {
             var i: usize = 0;
             while (i < s.len and !out.overflow) {
+                const run_start = i;
+                while (i < s.len and inline_byte_class[s[i]] & IB_HTML_ESCAPE == 0) i += 1;
+                if (i > run_start) out.writeSlice(s[run_start..i]);
+                if (i >= s.len) break;
                 const b = s[i];
                 if (b == '&') {
                     var semi = i + 1;
@@ -4058,7 +4163,7 @@ pub fn Make(comptime options: Options) type {
             right,
         };
 
-        fn isTablePipeAt(line: []const u8, index: usize) bool {
+        inline fn isTablePipeAt(line: []const u8, index: usize) bool {
             return line[index] == '|' and !isEscapedAt(line, index);
         }
 
@@ -4341,23 +4446,33 @@ pub fn Make(comptime options: Options) type {
             }
         }
 
+        // Rewrites every "<li>\n</li>\n" to "<li></li>\n" in place, left to
+        // right. Hops between newlines (the pattern's fifth byte, and far
+        // rarer than '<' in HTML) and moves the untouched runs in bulk;
+        // output with no empty items is never copied at all.
         fn compactEmptyListItems(buf: []u8, len: usize) usize {
             const pattern = "<li>\n</li>\n";
             const replacement = "<li></li>\n";
             var r: usize = 0;
             var w: usize = 0;
-            while (r < len) {
-                if (r + pattern.len <= len and std.mem.eql(u8, buf[r .. r + pattern.len], pattern)) {
-                    @memcpy(buf[w..][0..replacement.len], replacement);
-                    w += replacement.len;
-                    r += pattern.len;
+            var nl: usize = 4;
+            while (nl < len) {
+                const q = std.mem.indexOfScalarPos(u8, buf[0..len], nl, '\n') orelse break;
+                const p = q - 4;
+                if (p + pattern.len > len) break;
+                if (buf[q + 1] != '<' or !std.mem.eql(u8, buf[p..][0..pattern.len], pattern)) {
+                    nl = q + 1;
                     continue;
                 }
-                buf[w] = buf[r];
-                w += 1;
-                r += 1;
+                if (w != r) std.mem.copyForwards(u8, buf[w..][0 .. p - r], buf[r..p]);
+                w += p - r;
+                @memcpy(buf[w..][0..replacement.len], replacement);
+                w += replacement.len;
+                r = p + pattern.len;
+                nl = r + 4;
             }
-            return w;
+            if (w != r) std.mem.copyForwards(u8, buf[w..][0 .. len - r], buf[r..len]);
+            return w + (len - r);
         }
 
         pub fn renderMarkdown(input: []const u8, out: []u8) u32 {
