@@ -160,9 +160,11 @@ pub fn Make(comptime options: Options) type {
         // Open-addressing index over ref_defs keyed by label_hash: each slot
         // holds (index into ref_defs) + 1, with 0 meaning empty. Sized at 2x
         // MAX_REF_DEFS so the load factor stays below 0.5 and linear probing
-        // stays short. Rebuilt (zeroed) at the start of every render.
+        // stays short. At the start of every render only the slots the
+        // previous render filled (kept in ref_slot) are zeroed, not all 64 KiB.
         const REF_TABLE_SIZE: usize = MAX_REF_DEFS * 2;
-        var ref_table: [REF_TABLE_SIZE]u32 = undefined;
+        var ref_table: [REF_TABLE_SIZE]u32 = [_]u32{0} ** REF_TABLE_SIZE;
+        var ref_slot: [MAX_REF_DEFS]u16 = undefined;
 
         fn refTableFind(label_hash: u64) ?u32 {
             var slot = @as(usize, @truncate(label_hash)) & (REF_TABLE_SIZE - 1);
@@ -177,6 +179,7 @@ pub fn Make(comptime options: Options) type {
             var slot = @as(usize, @truncate(label_hash)) & (REF_TABLE_SIZE - 1);
             while (ref_table[slot] != 0) : (slot = (slot + 1) & (REF_TABLE_SIZE - 1)) {}
             ref_table[slot] = idx + 1;
+            ref_slot[@as(usize, @intCast(idx))] = @as(u16, @intCast(slot));
         }
 
         const Writer = struct {
@@ -213,8 +216,41 @@ pub fn Make(comptime options: Options) type {
                     self.overflow = true;
                     return;
                 }
-                @memcpy(self.buf[self.idx..][0..s.len], s);
+                copyBytes(self.buf.ptr + self.idx, s);
                 self.idx += s.len;
+            }
+
+            // Copies with whole-word loads and stores, which ReleaseSmall's
+            // @memcpy does not: most writes are short tags and text runs.
+            // Short lengths use two overlapping words, so nothing is read
+            // or written outside `s` and its destination. Nested list
+            // items rewrite a line within the buffer it came from, so
+            // overlapping ranges keep the @memcpy they always had.
+            // TODO(lists): a tab after a nested marker expands into spaces
+            // ahead of the unread source, which garbles it ("\thttp://" in
+            // a third-level item renders " ttp://"). The fix needs a copy.
+            inline fn copyBytes(dst: [*]u8, s: []const u8) void {
+                const n = s.len;
+                const d = @intFromPtr(dst);
+                const p = @intFromPtr(s.ptr);
+                if (d < p + n and p < d + n) {
+                    @memcpy(dst[0..n], s);
+                    return;
+                }
+                if (n >= 8) {
+                    var i: usize = 0;
+                    while (i + 8 < n) : (i += 8) {
+                        std.mem.writeInt(u64, dst[i..][0..8], std.mem.readInt(u64, s[i..][0..8], .little), .little);
+                    }
+                    std.mem.writeInt(u64, dst[n - 8 ..][0..8], std.mem.readInt(u64, s[n - 8 ..][0..8], .little), .little);
+                } else if (n >= 4) {
+                    const head = std.mem.readInt(u32, s[0..4], .little);
+                    const tail = std.mem.readInt(u32, s[n - 4 ..][0..4], .little);
+                    std.mem.writeInt(u32, dst[0..4], head, .little);
+                    std.mem.writeInt(u32, dst[n - 4 ..][0..4], tail, .little);
+                } else {
+                    for (s, 0..) |c, i| dst[i] = c;
+                }
             }
 
             fn writeEscapedByte(self: *Writer, b: u8) void {
@@ -664,15 +700,28 @@ pub fn Make(comptime options: Options) type {
         // travel upwards, so in a little-endian load the lowest flag is
         // always the first real newline.
         fn indexOfNewline(s: []const u8, from: usize) usize {
+            return indexOfByte(s, from, '\n');
+        }
+
+        fn indexOfByte(s: []const u8, from: usize, comptime c: u8) usize {
             const ones: u64 = 0x0101010101010101;
             var i = from;
             while (i + 8 <= s.len) : (i += 8) {
-                const x = std.mem.readInt(u64, s[i..][0..8], .little) ^ (ones * '\n');
+                const x = std.mem.readInt(u64, s[i..][0..8], .little) ^ (ones * c);
                 const hit = (x -% ones) & ~x & (ones * 0x80);
                 if (hit != 0) return i + @ctz(hit) / 8;
             }
-            while (i < s.len and s[i] != '\n') : (i += 1) {}
+            while (i < s.len and s[i] != c) : (i += 1) {}
             return i;
+        }
+
+        // Whether "]:" occurs anywhere in `s`.
+        fn hasLabelColon(s: []const u8) bool {
+            var i = indexOfByte(s, 0, ']');
+            while (i + 1 < s.len) : (i = indexOfByte(s, i + 1, ']')) {
+                if (s[i + 1] == ':') return true;
+            }
+            return false;
         }
 
         fn splitLines(input: []const u8) bool {
@@ -1652,9 +1701,11 @@ pub fn Make(comptime options: Options) type {
         }
 
         fn collectReferenceDefs(input: []const u8) void {
+            for (ref_slot[0..@as(usize, @intCast(ref_defs_count))]) |slot| ref_table[slot] = 0;
             ref_defs_count = 0;
             ref_storage_len = 0;
-            @memset(ref_table[0..], 0);
+            // Every definition, in any container, has a label closed by "]:".
+            if (!hasLabelColon(input)) return;
             var i: u32 = 0;
             while (i < lines_count and ref_defs_count < MAX_REF_DEFS) {
                 const line = lineSlice(input, i);
@@ -1686,7 +1737,8 @@ pub fn Make(comptime options: Options) type {
                     .fence => |fence| {
                         i += 1;
                         while (i < lines_count) : (i += 1) {
-                            if (isFenceClose(lineSlice(input, i), fence)) {
+                            const l = lineSlice(input, i);
+                            if (l.len != 0 and (l[0] == fence.marker or isSpaceOrTab(l[0])) and isFenceClose(l, fence)) {
                                 i += 1;
                                 break;
                             }
@@ -1769,6 +1821,7 @@ pub fn Make(comptime options: Options) type {
         }
 
         fn lookupRefDef(label: []const u8) ?RefDef {
+            if (ref_defs_count == 0) return null;
             const h = normalizeLabelHash(label);
             if (refTableFind(h)) |idx| return ref_defs[@as(usize, @intCast(idx))];
             return null;
@@ -3052,7 +3105,24 @@ pub fn Make(comptime options: Options) type {
             break :blk t;
         };
 
-        fn inlineParse(s: []const u8) bool {
+        // Index of the first byte at or after `from` that inlineParse has
+        // to look at, or s.len. Four table lookups share one branch. (Wasm
+        // SIMD would be faster, but qip-component-to-c and the interpreters
+        // run this component and do not accept SIMD.)
+        fn skipPlainText(s: []const u8, from: usize) usize {
+            var i = from;
+            while (i + 4 <= s.len) : (i += 4) {
+                const c = inline_byte_class[s[i]] | inline_byte_class[s[i + 1]] |
+                    inline_byte_class[s[i + 2]] | inline_byte_class[s[i + 3]];
+                if (c & IB_STOP != 0) break;
+            }
+            while (i < s.len and inline_byte_class[s[i]] & IB_STOP == 0) i += 1;
+            return i;
+        }
+
+        // `from` is where the first byte that needs a look is; everything
+        // before it is plain text.
+        fn inlineParse(s: []const u8, from: usize) bool {
             inline_node_count = 0;
             link_data_count = 0;
             delim_top = NODE_NONE;
@@ -3066,7 +3136,7 @@ pub fn Make(comptime options: Options) type {
             inline_nodes[NODE_TAIL].prev = NODE_HEAD;
 
             var text_start: usize = 0;
-            var i: usize = 0;
+            var i: usize = from;
             while (i < s.len and !inline_overflow) {
                 const b = s[i];
                 switch (b) {
@@ -3258,7 +3328,7 @@ pub fn Make(comptime options: Options) type {
                         // Skip plain text up to the next byte that needs a
                         // look: one with its own switch arm, or (GFM) one
                         // that can anchor an extended autolink.
-                        while (i < s.len and inline_byte_class[s[i]] & IB_STOP == 0) i += 1;
+                        i = skipPlainText(s, i);
                     },
                 }
             }
@@ -3386,7 +3456,11 @@ pub fn Make(comptime options: Options) type {
         }
 
         fn writeInline(out: *Writer, s: []const u8) void {
-            if (!inlineParse(s)) {
+            // Text with no byte the parser stops at is one text node, so it
+            // skips the node list entirely.
+            const first = skipPlainText(s, 0);
+            if (first == s.len) return writeTextRange(out, s);
+            if (!inlineParse(s, first)) {
                 out.overflow = true;
                 return;
             }
@@ -3438,7 +3512,12 @@ pub fn Make(comptime options: Options) type {
                 if (isBlankLine(line)) break;
                 if (i != start and interruptsParagraph(line)) break;
             }
+            renderParagraphLines(input, out, start, i);
+            i_ptr.* = i;
+        }
 
+        // The paragraph of lines start..i (exclusive), already delimited.
+        fn renderParagraphLines(input: []const u8, out: *Writer, start: u32, i: u32) void {
             // The inline parser reads the paragraph straight from the input
             // when its lines are already joined by single '\n' bytes with
             // nothing to strip between them (no CR, no continuation indent).
@@ -3485,8 +3564,6 @@ pub fn Make(comptime options: Options) type {
                 writeInline(out, para.buf[0..para.idx]);
             }
             out.writeSlice("</p>\n");
-
-            i_ptr.* = i;
         }
 
         // "<pre><code>", with a language class from the first word of the
@@ -4419,6 +4496,8 @@ pub fn Make(comptime options: Options) type {
         }
 
         fn writeTableCellInline(out: *Writer, cell: []const u8) void {
+            // Only a cell with an escaped pipe needs a rewritten copy.
+            if (std.mem.indexOfScalar(u8, cell, '\\') == null) return writeInline(out, cell);
             var unescaped = Writer.init(tmp4_buf[0..]);
             var i: usize = 0;
             while (i < cell.len) : (i += 1) {
@@ -4466,9 +4545,15 @@ pub fn Make(comptime options: Options) type {
             const start = i_ptr.*;
             if (start + 1 >= lines_count) return false;
 
+            // Cheap rejections first, since every block start comes here:
+            // a delimiter row starts with '|', ':' or '-', and the header
+            // row holds a pipe.
+            const delimiter = trimAscii(lineSlice(input, start + 1));
+            if (delimiter.len == 0 or !(delimiter[0] == '|' or delimiter[0] == ':' or delimiter[0] == '-')) return false;
+            if (std.mem.indexOfScalar(u8, lineSlice(input, start), '|') == null) return false;
+
             var header_cells: [MAX_TABLE_COLUMNS][]const u8 = undefined;
             const header_count = splitTableRow(lineSlice(input, start), &header_cells) orelse return false;
-            if (std.mem.indexOfScalar(u8, lineSlice(input, start), '|') == null) return false;
 
             var alignments: [MAX_TABLE_COLUMNS]TableAlign = undefined;
             if (!parseTableDelimiter(lineSlice(input, start + 1), header_count, &alignments)) return false;
@@ -4616,9 +4701,14 @@ pub fn Make(comptime options: Options) type {
                         i = setext_underline_idx + 1;
                         continue;
                     }
+                    renderParagraph(input, out, &i);
+                    continue;
                 }
 
-                renderParagraph(input, out, &i);
+                // With no underline, the look-ahead above stopped where the
+                // paragraph ends.
+                renderParagraphLines(input, out, i, j);
+                i = j;
             }
         }
 

@@ -308,6 +308,59 @@ because each `_` rescanned the same run. `ext_underscore_skip` fixes that, and
 `tools/test-markdown-pathological.sh` gained `autolink-underscores` and
 `autolink-anchors` to guard it.
 
+## Fixed per-render costs, table rejects, plain inline text (2026-11-20)
+
+Starting from the section above, in `text/markdown/lib/commonmark.zig`:
+
+- **No 64 KiB clear per render.** Every render zeroed the whole
+  reference-definition hash table. Now only the slots the previous render
+  filled are cleared. The definition pre-pass is skipped when the input has no
+  `]:`, and link lookups return at once when there are no definitions.
+- **Cheap table rejects.** Every block start tried to split its line as a
+  table header. Now the delimiter row's first byte (`|`, `:` or `-`) and a
+  pipe in the header are checked first. Cells without a backslash go straight
+  to the inline parser instead of being copied.
+- **Plain inline text skips the node list.** `writeInline` scans for the first
+  byte the parser stops at. Text with none is escaped directly, and otherwise
+  the parser starts at that byte.
+- **Smaller wins.** `writeSlice` copies in 4- and 8-byte words.
+  Overlapping copies still use `@memcpy`, because nested list items rewrite
+  lines within one buffer. The plain-text skip tests four bytes per branch.
+  Paragraphs reuse the end the setext look-ahead already found.
+
+Wasm SIMD would speed up the text scan by 23–34% on plain prose, but only 2–4%
+on these fixtures. `qip-component-to-c`, the Swift converter and the
+interpreters run this component and reject SIMD, so it is not enabled.
+
+| Item | Bytes (gzip -9) | SHA-256 |
+| --- | ---: | --- |
+| `text/markdown/commonmark.0.31.2.wasm` | 79,360 (36,321), +792 | `a25caf54bdcba88d18749dad316db7a306ae0fed79a2ea22bf2ccb61b4cd964c` |
+| `text/markdown/gfm-commonmark.0.31.2.wasm` | 85,160 (38,560), +863 | `b179e6bbc91899f6f7f44da578c5be5b08cb4e9f6f902d8521c9de77cdbf9fdc` |
+
+Input MiB/s in Node.js 26.3.0 on the `@pierre/words` fixtures, same harness as
+above. The median of three runs is shown, and the machine was slower overall
+than in the previous section, so compare ratios within this table only:
+
+| Fixture | Words | GFM before → after | CommonMark before → after |
+| --- | ---: | ---: | ---: |
+| `tiny.md` | 554 | 159 → 195 (1.23×) | 184 → 215 (1.17×) |
+| `assistant-review.md` | 1,230 | 323 → 391 (1.21×) | 428 → 440 (1.03×) |
+| `assistant-explain.md` | 1,666 | 400 → 522 (1.30×) | 465 → 558 (1.20×) |
+| `simd.md` | 906 | 238 → 314 (1.32×) | 273 → 334 (1.22×) |
+| `gfm-spec.md` | 1,096 | 287 → 329 (1.15×) | 317 → 340 (1.07×) |
+
+`qip bench --benchtime=3s` wazero means were noisy in this session (the base
+build measured 3.4 ms on `input.md`, against 2.0 ms the day before): GFM went
+4.06 → 3.39 ms on `input.md` and 14.3 → 10.2 ms on `gfm-spec.md`, and
+CommonMark went 3.45 → 3.12 ms and 10.95 → 9.61 ms.
+
+Output is byte-identical to the previous build. There were 0 mismatches per
+component over 1 million `differential.mjs` inputs (seeds 11 and 12, plus the
+five fixtures and ten single-construct documents) and 2 million inputs from the
+targeted fuzzer. GFM also passed 1 million autolink-only inputs. Reusing one
+instance for 9,000 definitions and then for a document without definitions
+links nothing stale. The suites, pathological budgets and Zig unit tests pass.
+
 ## Reproduce
 
 ```sh
