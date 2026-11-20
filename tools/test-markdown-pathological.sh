@@ -42,6 +42,10 @@ w("ref-uses", "".join(f"[x{i}]: /u{i}\n" for i in range(100)) + "\n"
              + " ".join(f"[x{i % 100}]" for i in range(4000)))
 w("deep-blockquote", "> " * 200 + "a\n")
 w("many-paragraphs", "para text\n\n" * 4000)
+# Extended autolinks are found from '@', ':' and '.', and each '_' asks
+# whether an email runs through it; none of that may rescan a long run.
+w("autolink-underscores", "_a" * 20000 + "@b\n\n\\-" + "_a" * 20000 + "@b.cc\n")
+w("autolink-anchors", "a@ " * 5000 + "www. " * 5000 + "http:// " * 5000 + "+www." * 5000 + "@b\n")
 # KNOWN-SLOW: superlinear today, budgeted at current-or-better.
 w("em-open", "*a " * 300)
 w("em-nest", "*a **a " * 150)
@@ -71,6 +75,8 @@ run_case strikethrough 2000
 run_case ref-uses 2000
 run_case deep-blockquote 2000
 run_case many-paragraphs 4000
+run_case autolink-underscores 2000
+run_case autolink-anchors 2000
 run_case em-open 2000
 run_case em-nest 2000
 # KNOWN-SLOW budgets — block-level quadratics (reference-definition collection,

@@ -66,6 +66,21 @@
 // on the same README and ~350 bytes smaller. Output changed only where the
 // old pass disagreed with cmark 0.31.2: raw HTML containing "<li>\n</li>" is
 // now passed through, and "- &NewLine;" renders "<li>\n</li>".
+// Measured 2026-11-19 (benchmarks/commonmark-gfm-baseline, "In-place text,
+// rare-byte autolinks, reserved escapes"), byte-identical output:
+// - Paragraphs, list-item paragraphs, one-line setext headings and fenced
+//   code are read from where they already are whenever nothing has to be
+//   stripped from them (no CR, no continuation indent); the tmp-buffer copy
+//   is now the fallback. Fenced lines go out as one escaped run. Indented
+//   code and code spans write straight to the output.
+// - Writer.escapeCopy checks room for the worst case (6x, "&quot;") once per
+//   call, then stores eight bytes at a time and patches only the bytes that
+//   need an entity. writeEscaped and writeTextRange both use it.
+// - Extended autolinks are found from '@', "://" and "www." (IB_STOP), then
+//   traced back to where they start, instead of being tried at every word
+//   start. A '_' still asks first (it is both a delimiter and a local-part
+//   byte); ext_underscore_skip keeps that linear, and
+//   tools/test-markdown-pathological.sh ("autolink-*") guards it.
 // Size, measured 2026-11-17 (benchmarks/commonmark-gfm-baseline): front-coding
 // the entity table (buckets of 16), dropping std.fmt for writeHeading and
 // writeDecimal, one sorted string for the type 6 tag names, and routing all
@@ -213,15 +228,85 @@ pub fn Make(comptime options: Options) type {
             }
 
             fn writeEscaped(self: *Writer, s: []const u8) void {
+                _ = self.escapeCopy(s, false);
+            }
+
+            // Flags (0x80 in the matching byte) for '&', '"', '<' and '>' in
+            // an 8-byte word. OR-ing a bit folds each pair onto one value
+            // ('"'|4 == '&', '<'|2 == '>'), so two zero-byte tests cover all
+            // four. Borrows only travel upwards, so the lowest flag is always
+            // a real hit.
+            inline fn escapeHits(w: u64) u64 {
+                const ones: u64 = 0x0101010101010101;
+                const a = (w | (ones * 0x04)) ^ (ones * '&');
+                const b = (w | (ones * 0x02)) ^ (ones * '>');
+                return (((a -% ones) & ~a) | ((b -% ones) & ~b)) & (ones * 0x80);
+            }
+
+            // Copies `s`, escaping HTML bytes. Room for the worst case (every
+            // byte becoming "&quot;", plus one spare word) is checked once,
+            // after which the loop stores whole words unchecked and patches
+            // only the bytes that need an entity. With `stop_at_amp` it
+            // returns at the first '&' instead of escaping it, so the caller
+            // can try an entity; the result is the count of input consumed.
+            fn escapeCopy(self: *Writer, s: []const u8, comptime stop_at_amp: bool) usize {
+                if (self.overflow) return s.len;
+                const room = self.buf.len - self.idx;
+                if (room < 8 or s.len > (room - 8) / 6) return self.escapeCopySlow(s, stop_at_amp);
+                const dst = self.buf.ptr;
+                var o = self.idx;
+                var i: usize = 0;
+                while (i < s.len) {
+                    if (i + 8 <= s.len) {
+                        const w = std.mem.readInt(u64, s[i..][0..8], .little);
+                        std.mem.writeInt(u64, dst[o..][0..8], w, .little);
+                        const hit = escapeHits(w);
+                        if (hit == 0) {
+                            i += 8;
+                            o += 8;
+                            continue;
+                        }
+                        const clean = @ctz(hit) / 8;
+                        i += clean;
+                        o += clean;
+                    }
+                    const b = s[i];
+                    const rep: []const u8 = switch (b) {
+                        '&' => if (stop_at_amp) {
+                            self.idx = o;
+                            return i;
+                        } else "&amp;",
+                        '<' => "&lt;",
+                        '>' => "&gt;",
+                        '"' => "&quot;",
+                        else => {
+                            dst[o] = b;
+                            o += 1;
+                            i += 1;
+                            continue;
+                        },
+                    };
+                    @memcpy(dst[o..][0..rep.len], rep);
+                    o += rep.len;
+                    i += 1;
+                }
+                self.idx = o;
+                return i;
+            }
+
+            // Bounds-checked path for output that is nearly full.
+            fn escapeCopySlow(self: *Writer, s: []const u8, comptime stop_at_amp: bool) usize {
                 var i: usize = 0;
                 while (i < s.len) {
                     const run_start = i;
                     while (i < s.len and inline_byte_class[s[i]] & IB_HTML_ESCAPE == 0) i += 1;
                     if (i > run_start) self.writeSlice(s[run_start..i]);
                     if (i >= s.len) break;
+                    if (stop_at_amp and s[i] == '&') return i;
                     self.writeEscapedByte(s[i]);
                     i += 1;
                 }
+                return i;
             }
         };
 
@@ -1800,38 +1885,30 @@ pub fn Make(comptime options: Options) type {
             }
         }
 
+        // Line endings count as spaces. One space is stripped from each end
+        // when both ends have one and the span is not all spaces.
         fn writeCodeSpan(out: *Writer, src: []const u8) void {
-            var norm = Writer.init(tmp3_buf[0..]);
-            for (src) |b| {
-                if (b == '\n') {
-                    norm.writeByte(' ');
-                } else {
-                    norm.writeByte(b);
-                }
-            }
-            if (norm.overflow) return;
-
-            var start: usize = 0;
-            var end: usize = norm.idx;
-            if (end >= 2 and norm.buf[0] == ' ' and norm.buf[end - 1] == ' ') {
-                var all_spaces = true;
-                var i: usize = 0;
-                while (i < end) : (i += 1) {
-                    if (norm.buf[i] != ' ') {
-                        all_spaces = false;
+            var body = src;
+            if (body.len >= 2 and isCodeSpanSpace(body[0]) and isCodeSpanSpace(body[body.len - 1])) {
+                for (body) |b| {
+                    if (!isCodeSpanSpace(b)) {
+                        body = body[1 .. body.len - 1];
                         break;
                     }
                 }
-                if (!all_spaces) {
-                    start += 1;
-                    end -= 1;
-                }
             }
+            var i: usize = 0;
+            while (true) {
+                const nl = indexOfNewline(body, i);
+                out.writeEscaped(body[i..nl]);
+                if (nl >= body.len) break;
+                out.writeByte(' ');
+                i = nl + 1;
+            }
+        }
 
-            var i: usize = start;
-            while (i < end) : (i += 1) {
-                out.writeEscapedByte(norm.buf[i]);
-            }
+        inline fn isCodeSpanSpace(b: u8) bool {
+            return b == ' ' or b == '\n';
         }
 
         fn writeAutolink(out: *Writer, inner: []const u8) bool {
@@ -2533,49 +2610,24 @@ pub fn Make(comptime options: Options) type {
         const ExtAutolink = struct { kind: InlineKind, end: usize, add_http: bool };
 
         // Index of the next '@' in the paragraph being parsed (maxInt when
-        // none remain). Reset per inlineParse; see scanExtendedAutolink.
+        // none remain). Reset per inlineParse; see scanExtendedEmailThrough.
         var ext_next_at: usize = 0;
+        // A '_' before this index cannot be part of an extended email.
+        var ext_underscore_skip: usize = 0;
 
-        fn scanExtendedAutolink(s: []const u8, start: usize) ?ExtAutolink {
-            if (!isExtendedURLBoundary(s, start)) return null;
-            var add_http = false;
-            var prefix_len: usize = 0;
-            // Dispatch on the first byte so ordinary words cost one compare
-            // instead of four prefix calls.
-            const rest = s[start..];
-            switch (rest[0]) {
-                'w' => if (std.mem.startsWith(u8, rest, "www.")) {
-                    add_http = true;
-                    prefix_len = 4;
-                },
-                'h' => if (std.mem.startsWith(u8, rest, "http://")) {
-                    prefix_len = 7;
-                } else if (std.mem.startsWith(u8, rest, "https://")) {
-                    prefix_len = 8;
-                },
-                'f' => if (std.mem.startsWith(u8, rest, "ftp://")) {
-                    prefix_len = 6;
-                },
-                else => {},
-            }
-            if (prefix_len != 0) {
-                var end = start + prefix_len;
-                while (end < s.len and !isInlineSpace(s[end]) and s[end] != '<') : (end += 1) {}
-                end = trimExtendedURLEnd(s, start, end);
-                if (end > start + prefix_len) {
-                    return .{ .kind = .ext_url, .end = end, .add_http = add_http };
-                }
-            }
-            if (!isEmailLocalByte(s[start])) return null;
-            // An email needs an '@' at or after start; remember where the
-            // next one is so '@'-free text skips the local-part scan.
-            if (ext_next_at < start) {
-                ext_next_at = std.mem.indexOfScalarPos(u8, s, start, '@') orelse std.math.maxInt(usize);
-            }
-            if (ext_next_at == std.math.maxInt(usize)) return null;
-            var at = start;
-            while (at < s.len and isEmailLocalByte(s[at])) : (at += 1) {}
-            if (at >= s.len or s[at] != '@' or at == start) return null;
+        // An extended www/http/https/ftp autolink whose prefix of
+        // `prefix_len` bytes starts at `start`; null when nothing is left
+        // after the prefix once the end is trimmed.
+        fn scanExtendedURL(s: []const u8, start: usize, prefix_len: usize) ?usize {
+            var end = start + prefix_len;
+            while (end < s.len and !isInlineSpace(s[end]) and s[end] != '<') : (end += 1) {}
+            end = trimExtendedURLEnd(s, start, end);
+            return if (end > start + prefix_len) end else null;
+        }
+
+        // End of the extended email autolink whose '@' is at `at`, judged by
+        // the domain alone; the caller has checked the local part.
+        fn scanEmailDomain(s: []const u8, at: usize) ?usize {
             var end = at + 1;
             while (end < s.len and isEmailDomainByte(s[end])) : (end += 1) {}
             var domain_end = end;
@@ -2583,7 +2635,104 @@ pub fn Make(comptime options: Options) type {
             const domain = s[at + 1 .. domain_end];
             if (domain.len == 0 or std.mem.indexOfScalar(u8, domain, '.') == null) return null;
             if (domain[domain.len - 1] == '-' or (end < s.len and (s[end] == '-' or s[end] == '_'))) return null;
-            return .{ .kind = .ext_email, .end = domain_end, .add_http = false };
+            return domain_end;
+        }
+
+        // Where the email whose '@' is at `at` starts: the first position in
+        // the run of local-part bytes before the '@' (no earlier than
+        // `floor`, the start of the pending text) that follows a word
+        // boundary. Null when there is none.
+        fn emailLocalStart(s: []const u8, at: usize, floor: usize) ?usize {
+            var c = at;
+            while (c > floor and inline_byte_class[s[c - 1]] & IB_EMAIL_LOCAL != 0) c -= 1;
+            while (c < at and c != 0 and inline_byte_class[s[c - 1]] & IB_URL_WORD != 0) c += 1;
+            return if (c < at) c else null;
+        }
+
+        // Extended autolinks are found from their rare bytes, not from every
+        // word start. inlineParse calls this at an '@', ':' or '.' in plain
+        // text; `floor` is the start of the pending text run, so the bytes
+        // from there to `i` are known to be plain. Returns the link and where
+        // it starts (at or before `i`).
+        fn scanExtendedAutolinkAt(s: []const u8, i: usize, floor: usize) ?ExtAutolinkAt {
+            switch (s[i]) {
+                '@' => {
+                    const start = emailLocalStart(s, i, floor) orelse return null;
+                    const end = scanEmailDomain(s, i) orelse return null;
+                    return .{ .start = start, .link = .{ .kind = .ext_email, .end = end, .add_http = false } };
+                },
+                ':' => {
+                    if (!std.mem.startsWith(u8, s[i + 1 ..], "//")) return null;
+                    const head = s[floor..i];
+                    const scheme_len: usize = if (std.mem.endsWith(u8, head, "https"))
+                        5
+                    else if (std.mem.endsWith(u8, head, "http"))
+                        4
+                    else if (std.mem.endsWith(u8, head, "ftp"))
+                        3
+                    else
+                        return null;
+                    const start = i - scheme_len;
+                    if (!isExtendedURLBoundary(s, start)) return null;
+                    const end = scanExtendedURL(s, start, scheme_len + 3) orelse return null;
+                    return .{ .start = start, .link = .{ .kind = .ext_url, .end = end, .add_http = false } };
+                },
+                else => {
+                    if (!std.mem.endsWith(u8, s[floor..i], "www")) return null;
+                    const start = i - 3;
+                    if (!isExtendedURLBoundary(s, start)) return null;
+                    // "www" after a '.' or '+' can sit inside the local part
+                    // of an email that starts earlier; that email wins.
+                    if (start > floor and inline_byte_class[s[start - 1]] & IB_EMAIL_LOCAL != 0) {
+                        var at = i;
+                        while (at < s.len and inline_byte_class[s[at]] & IB_EMAIL_LOCAL != 0) at += 1;
+                        if (at < s.len and s[at] == '@') {
+                            if (emailLocalStart(s, at, floor)) |email_start| {
+                                if (email_start < start) {
+                                    if (scanEmailDomain(s, at)) |end| {
+                                        return .{ .start = email_start, .link = .{ .kind = .ext_email, .end = end, .add_http = false } };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    const end = scanExtendedURL(s, start, 4) orelse return null;
+                    return .{ .start = start, .link = .{ .kind = .ext_url, .end = end, .add_http = true } };
+                },
+            }
+        }
+
+        const ExtAutolinkAt = struct { start: usize, link: ExtAutolink };
+
+        // A '_' is both a delimiter byte and an email local-part byte, so
+        // inlineParse asks here before treating one as a delimiter: if the
+        // run of local-part bytes from `i` reaches the '@' of an email that
+        // starts at or before `i`, the email takes the '_'. Two memos keep
+        // this linear: the next '@' (so '@'-free text never scans), and
+        // ext_underscore_skip, below which the answer is already known to be
+        // no because the run holding `i` was scanned from an earlier '_'.
+        fn scanExtendedEmailThrough(s: []const u8, i: usize, floor: usize) ?ExtAutolinkAt {
+            if (i < ext_underscore_skip) return null;
+            if (ext_next_at < i) {
+                ext_next_at = std.mem.indexOfScalarPos(u8, s, i, '@') orelse std.math.maxInt(usize);
+            }
+            if (ext_next_at == std.math.maxInt(usize)) return null;
+            var at = i;
+            while (at < s.len and isEmailLocalByte(s[at])) : (at += 1) {}
+            // No email ends this run, or none can start in it: every later
+            // '_' in the run gets the same answer.
+            ext_underscore_skip = at;
+            if (at >= s.len or s[at] != '@') return null;
+            const end = scanEmailDomain(s, at) orelse return null;
+            const start = emailLocalStart(s, at, floor) orelse return null;
+            if (start > i) {
+                // The email starts later in the run; a '_' before that
+                // start is an ordinary delimiter byte.
+                ext_underscore_skip = start;
+                return null;
+            }
+            ext_underscore_skip = 0;
+            return .{ .start = start, .link = .{ .kind = .ext_email, .end = end, .add_http = false } };
         }
 
         fn writeExtendedEmail(out: *Writer, text: []const u8) void {
@@ -2883,10 +3032,17 @@ pub fn Make(comptime options: Options) type {
         const IB_EMAIL_LOCAL: u8 = 2;
         const IB_URL_WORD: u8 = 4;
         const IB_HTML_ESCAPE: u8 = 8;
+        // IB_STOP ends inlineParse's plain-text skip: the IB_SPECIAL bytes
+        // plus, under GFM, the three bytes an extended autolink cannot do
+        // without ('@' for an email, the ':' of "://", the '.' of "www.").
+        const IB_STOP: u8 = 16;
         const inline_byte_class: [256]u8 = blk: {
             @setEvalBranchQuota(10000);
             var t = [_]u8{0} ** 256;
-            for ("\\\n`<*_~[!]") |c| t[c] |= IB_SPECIAL;
+            for ("\\\n`<*_~[!]") |c| t[c] |= IB_SPECIAL | IB_STOP;
+            if (enable_gfm) for ("@:.") |c| {
+                t[c] |= IB_STOP;
+            };
             for ("&<>\"") |c| t[c] |= IB_HTML_ESCAPE;
             for (0..256) |c| {
                 const b: u8 = @intCast(c);
@@ -2903,6 +3059,7 @@ pub fn Make(comptime options: Options) type {
             inline_overflow = false;
             backticks_scanned = false;
             ext_next_at = 0;
+            ext_underscore_skip = 0;
             _ = nodeAlloc(.head);
             _ = nodeAlloc(.tail);
             inline_nodes[NODE_HEAD].next = NODE_TAIL;
@@ -2980,16 +3137,15 @@ pub fn Make(comptime options: Options) type {
                     },
                     '*', '_' => {
                         if (enable_gfm and b == '_') {
-                            if (scanExtendedAutolink(s, i)) |ext| {
-                                emitText(text_start, i);
-                                const idx = nodeAlloc(ext.kind);
+                            if (scanExtendedEmailThrough(s, i, text_start)) |found| {
+                                emitText(text_start, found.start);
+                                const idx = nodeAlloc(.ext_email);
                                 if (idx != NODE_NONE) {
-                                    inline_nodes[idx].start = @intCast(i);
-                                    inline_nodes[idx].end = @intCast(ext.end);
-                                    if (ext.add_http) inline_nodes[idx].flags |= F_ADD_HTTP;
+                                    inline_nodes[idx].start = @intCast(found.start);
+                                    inline_nodes[idx].end = @intCast(found.link.end);
                                     nodeAppendEnd(idx);
                                 }
-                                i = ext.end;
+                                i = found.link.end;
                                 text_start = i;
                                 continue;
                             }
@@ -3083,34 +3239,26 @@ pub fn Make(comptime options: Options) type {
                         text_start = i;
                     },
                     else => {
-                        if (enable_gfm and inline_byte_class[b] & IB_EMAIL_LOCAL != 0 and
-                            (i == 0 or inline_byte_class[s[i - 1]] & IB_URL_WORD == 0))
-                        {
-                            if (scanExtendedAutolink(s, i)) |ext| {
-                                emitText(text_start, i);
-                                const idx = nodeAlloc(ext.kind);
+                        if (enable_gfm and inline_byte_class[b] & IB_STOP != 0) {
+                            if (scanExtendedAutolinkAt(s, i, text_start)) |found| {
+                                emitText(text_start, found.start);
+                                const idx = nodeAlloc(found.link.kind);
                                 if (idx != NODE_NONE) {
-                                    inline_nodes[idx].start = @intCast(i);
-                                    inline_nodes[idx].end = @intCast(ext.end);
-                                    if (ext.add_http) inline_nodes[idx].flags |= F_ADD_HTTP;
+                                    inline_nodes[idx].start = @intCast(found.start);
+                                    inline_nodes[idx].end = @intCast(found.link.end);
+                                    if (found.link.add_http) inline_nodes[idx].flags |= F_ADD_HTTP;
                                     nodeAppendEnd(idx);
                                 }
-                                i = ext.end;
+                                i = found.link.end;
                                 text_start = i;
                                 continue;
                             }
                         }
                         i += 1;
-                        // Skip plain text up to the next byte the switch
-                        // handles or (GFM) the next extended-autolink
-                        // candidate, i.e. an email-local byte at a word
-                        // boundary. Equivalent to iterating the else arm.
-                        while (i < s.len) : (i += 1) {
-                            const c = inline_byte_class[s[i]];
-                            if (c & IB_SPECIAL != 0) break;
-                            if (enable_gfm and c & IB_EMAIL_LOCAL != 0 and
-                                inline_byte_class[s[i - 1]] & IB_URL_WORD == 0) break;
-                        }
+                        // Skip plain text up to the next byte that needs a
+                        // look: one with its own switch arm, or (GFM) one
+                        // that can anchor an extended autolink.
+                        while (i < s.len and inline_byte_class[s[i]] & IB_STOP == 0) i += 1;
                     },
                 }
             }
@@ -3122,31 +3270,24 @@ pub fn Make(comptime options: Options) type {
 
         fn writeTextRange(out: *Writer, s: []const u8) void {
             var i: usize = 0;
-            while (i < s.len and !out.overflow) {
-                const run_start = i;
-                while (i < s.len and inline_byte_class[s[i]] & IB_HTML_ESCAPE == 0) i += 1;
-                if (i > run_start) out.writeSlice(s[run_start..i]);
+            while (!out.overflow) {
+                i += out.escapeCopy(s[i..], true);
                 if (i >= s.len) break;
-                const b = s[i];
-                if (b == '&') {
-                    var semi = i + 1;
-                    while (semi < s.len and semi - i <= 32 and s[semi] != ';' and s[semi] != '\n') : (semi += 1) {}
-                    if (semi < s.len and s[semi] == ';') {
-                        const ent = s[i .. semi + 1];
-                        var dec_buf: [8]u8 = undefined;
-                        if (isEntity(ent)) {
-                            if (decodeEntityToBuf(ent, &dec_buf)) |decoded| {
-                                for (decoded) |db| out.writeEscapedByte(db);
-                                i = semi + 1;
-                                continue;
-                            }
+                // s[i] is '&': decode an entity, or escape the ampersand.
+                var semi = i + 1;
+                while (semi < s.len and semi - i <= 32 and s[semi] != ';' and s[semi] != '\n') : (semi += 1) {}
+                if (semi < s.len and s[semi] == ';') {
+                    const ent = s[i .. semi + 1];
+                    var dec_buf: [8]u8 = undefined;
+                    if (isEntity(ent)) {
+                        if (decodeEntityToBuf(ent, &dec_buf)) |decoded| {
+                            for (decoded) |db| out.writeEscapedByte(db);
+                            i = semi + 1;
+                            continue;
                         }
                     }
-                    out.writeSlice("&amp;");
-                    i += 1;
-                    continue;
                 }
-                out.writeEscapedByte(b);
+                out.writeSlice("&amp;");
                 i += 1;
             }
         }
@@ -3165,7 +3306,7 @@ pub fn Make(comptime options: Options) type {
                             writeCodeSpan(out, s[n.start..n.end]);
                             out.writeSlice("</code>");
                         } else {
-                            for (s[n.start..n.end]) |cb| out.writeEscapedByte(cb);
+                            out.writeEscaped(s[n.start..n.end]);
                         }
                     },
                     .raw_html => if (plain_depth == 0) out.writeSlice(s[n.start..n.end]),
@@ -3298,25 +3439,51 @@ pub fn Make(comptime options: Options) type {
                 if (i != start and interruptsParagraph(line)) break;
             }
 
-            var para = Writer.init(tmp2_buf[0..]);
+            // The inline parser reads the paragraph straight from the input
+            // when its lines are already joined by single '\n' bytes with
+            // nothing to strip between them (no CR, no continuation indent).
+            // Otherwise the stripped lines are assembled in tmp2_buf.
+            var in_place = true;
             var j = start;
             while (j < i) : (j += 1) {
-                if (j != start) para.writeByte('\n');
-                const line = lineSlice(input, j);
-                var seg: []const u8 = undefined;
-                if (j != start) {
-                    seg = stripAllLeadingSpacesTabs(line);
-                } else if (leadingIndent(line).cols > 3) {
-                    seg = stripAllLeadingSpacesTabs(line);
-                } else {
-                    seg = stripBlockIndentUpTo3(line);
+                const a = line_start[j];
+                const e = line_end[j];
+                if (input[e - 1] == '\r' or
+                    (j != start and (line_end[j - 1] + 1 != a or isSpaceOrTab(input[a]))))
+                {
+                    in_place = false;
+                    break;
                 }
-                if (j + 1 == i) seg = trimRightSpacesTabs(seg);
-                para.writeSlice(seg);
             }
 
             out.writeSlice("<p>");
-            writeInline(out, para.buf[0..para.idx]);
+            if (in_place) {
+                const first = lineSlice(input, start);
+                const first_seg = if (leadingIndent(first).cols > 3)
+                    stripAllLeadingSpacesTabs(first)
+                else
+                    stripBlockIndentUpTo3(first);
+                const from = line_end[start] - first_seg.len;
+                writeInline(out, trimRightSpacesTabs(input[from..line_end[i - 1]]));
+            } else {
+                var para = Writer.init(tmp2_buf[0..]);
+                j = start;
+                while (j < i) : (j += 1) {
+                    if (j != start) para.writeByte('\n');
+                    const line = lineSlice(input, j);
+                    var seg: []const u8 = undefined;
+                    if (j != start) {
+                        seg = stripAllLeadingSpacesTabs(line);
+                    } else if (leadingIndent(line).cols > 3) {
+                        seg = stripAllLeadingSpacesTabs(line);
+                    } else {
+                        seg = stripBlockIndentUpTo3(line);
+                    }
+                    if (j + 1 == i) seg = trimRightSpacesTabs(seg);
+                    para.writeSlice(seg);
+                }
+                writeInline(out, para.buf[0..para.idx]);
+            }
             out.writeSlice("</p>\n");
 
             i_ptr.* = i;
@@ -3337,11 +3504,12 @@ pub fn Make(comptime options: Options) type {
         }
 
         // Indented code drops its trailing blank (or whitespace-only) lines.
-        fn trimTrailingBlankCodeLines(code: *Writer) void {
-            while (code.idx > 0) {
+        // `floor` is where the code block's content starts in the writer.
+        fn trimTrailingBlankCodeLines(code: *Writer, floor: usize) void {
+            while (code.idx > floor) {
                 if (code.buf[code.idx - 1] != '\n') break;
                 var start = code.idx - 1;
-                while (start > 0 and code.buf[start - 1] != '\n') : (start -= 1) {}
+                while (start > floor and code.buf[start - 1] != '\n') : (start -= 1) {}
                 if (trimAscii(code.buf[start .. code.idx - 1]).len != 0) break;
                 code.idx = start;
             }
@@ -3352,21 +3520,53 @@ pub fn Make(comptime options: Options) type {
             if (!first_block and out.idx > 0 and out.buf[out.idx - 1] != '\n') out.writeByte('\n');
         }
 
+        // One line of fenced code. Only a line that starts with whitespace
+        // under an indented fence has anything to strip.
+        fn writeFenceLine(out: *Writer, line: []const u8, fence_indent: usize) void {
+            if (fence_indent == 0 or line.len == 0 or !isSpaceOrTab(line[0])) {
+                out.writeEscaped(trimRightCR(line));
+            } else {
+                var tmp = Writer.init(tmp3_buf[0..]);
+                appendStrippedIndent(&tmp, line, fence_indent);
+                out.writeEscaped(tmp.buf[0..tmp.idx]);
+            }
+            out.writeByte('\n');
+        }
+
         fn renderFencedCode(input: []const u8, out: *Writer, i_ptr: *u32, fence: Fence) void {
             var i = i_ptr.* + 1;
             writeFenceOpenTag(out, fence);
 
+            // Lines that go out exactly as they are in the input (nothing to
+            // strip, ending in a bare '\n') are collected into one run and
+            // escaped in a single call, newlines included.
+            var run_start: usize = 0;
+            var run_end: usize = 0;
             while (i < lines_count) : (i += 1) {
-                const line = lineSlice(input, i);
-                if (isFenceClose(line, fence)) {
+                const a = line_start[i];
+                const e = line_end[i];
+                const line = input[a..e];
+                // A closing fence starts with the marker or with indent.
+                if (a < e and (line[0] == fence.marker or isSpaceOrTab(line[0])) and isFenceClose(line, fence)) {
                     i += 1;
                     break;
                 }
-                var tmp = Writer.init(tmp2_buf[0..]);
-                appendStrippedIndent(&tmp, line, fence.indent);
-                out.writeEscaped(tmp.buf[0..tmp.idx]);
-                out.writeByte('\n');
+                if (e + 1 == line_next[i] and input[e] == '\n' and
+                    (a == e or (line[e - a - 1] != '\r' and (fence.indent == 0 or !isSpaceOrTab(line[0])))))
+                {
+                    if (run_end != a) {
+                        out.writeEscaped(input[run_start..run_end]);
+                        run_start = a;
+                    }
+                    run_end = e + 1;
+                    continue;
+                }
+                out.writeEscaped(input[run_start..run_end]);
+                run_start = 0;
+                run_end = 0;
+                writeFenceLine(out, line, fence.indent);
             }
+            out.writeEscaped(input[run_start..run_end]);
 
             out.writeSlice("</code></pre>\n");
             i_ptr.* = i;
@@ -3374,10 +3574,11 @@ pub fn Make(comptime options: Options) type {
 
         fn renderIndentedCode(input: []const u8, out: *Writer, i_ptr: *u32) void {
             var i = i_ptr.*;
-            var code = Writer.init(tmp2_buf[0..]);
             var seen_content = false;
 
             out.writeSlice("<pre><code>");
+            const code = out;
+            const floor = out.idx;
 
             while (i < lines_count) : (i += 1) {
                 const line = lineSlice(input, i);
@@ -3400,9 +3601,8 @@ pub fn Make(comptime options: Options) type {
                 code.writeByte('\n');
             }
 
-            trimTrailingBlankCodeLines(&code);
+            if (!out.overflow) trimTrailingBlankCodeLines(out, floor);
 
-            out.writeSlice(code.buf[0..code.idx]);
             out.writeSlice("</code></pre>\n");
             i_ptr.* = i;
         }
@@ -3718,7 +3918,9 @@ pub fn Make(comptime options: Options) type {
 
                 if (ind.cols >= 4 and !was_after_def) {
                     separateBlock(out, first_block);
-                    var code = Writer.init(tmp3_buf[0..]);
+                    out.writeSlice("<pre><code>");
+                    const code = out;
+                    const floor = out.idx;
                     var code_line = line;
                     while (true) {
                         code.writeEscaped(stripIndentCols(code_line, 4));
@@ -3731,9 +3933,7 @@ pub fn Make(comptime options: Options) type {
                         }
                         code_line = nl;
                     }
-                    trimTrailingBlankCodeLines(&code);
-                    out.writeSlice("<pre><code>");
-                    out.writeSlice(code.buf[0..code.idx]);
+                    if (!out.overflow) trimTrailingBlankCodeLines(out, floor);
                     out.writeSlice("</code></pre>\n");
                     first_block = false;
                     prev_blank = false;
@@ -3767,10 +3967,7 @@ pub fn Make(comptime options: Options) type {
                             writeFenceOpenTag(out, fence);
                             while (nextTmpLine(text, &cursor)) |nl| {
                                 if (isFenceClose(nl, fence)) break;
-                                var stripped = Writer.init(tmp3_buf[0..]);
-                                appendStrippedIndent(&stripped, nl, fence.indent);
-                                out.writeEscaped(stripped.buf[0..stripped.idx]);
-                                out.writeByte('\n');
+                                writeFenceLine(out, nl, fence.indent);
                             }
                             out.writeSlice("</code></pre>\n");
                         },
@@ -3783,8 +3980,13 @@ pub fn Make(comptime options: Options) type {
                     continue;
                 }
 
+                // The paragraph stays a slice of `text` for as long as each
+                // continuation line follows a bare '\n' and has nothing to
+                // strip; the first line that does switches to a tmp2_buf copy.
                 var para = Writer.init(tmp2_buf[0..]);
-                para.writeSlice(line);
+                var copied = false;
+                const para_start = @intFromPtr(line.ptr) - @intFromPtr(text.ptr);
+                var para_end = para_start + line.len;
                 var setext_level: u8 = 0;
                 while (true) {
                     const save = cursor;
@@ -3798,11 +4000,19 @@ pub fn Make(comptime options: Options) type {
                         cursor = save;
                         break;
                     }
+                    if (!copied and save == para_end + 1 and !isSpaceOrTab(nl[0]) and nl[nl.len - 1] != '\r') {
+                        para_end = save + nl.len;
+                        continue;
+                    }
+                    if (!copied) {
+                        para.writeSlice(text[para_start..para_end]);
+                        copied = true;
+                    }
                     para.writeByte('\n');
                     para.writeSlice(stripAllLeadingSpacesTabs(nl));
                 }
 
-                const paragraph = trimAscii(para.buf[0..para.idx]);
+                const paragraph = trimAscii(if (copied) para.buf[0..para.idx] else text[para_start..para_end]);
                 if (setext_level != 0) {
                     separateBlock(out, first_block);
                     writeHeading(out, setext_level, paragraph);
@@ -4383,6 +4593,11 @@ pub fn Make(comptime options: Options) type {
                         break;
                     }
                     if (interruptsParagraph(l)) break;
+                }
+                if (setext_level != 0 and setext_underline_idx == i + 1) {
+                    writeHeading(out, setext_level, trimRightSpacesTabs(stripBlockIndentUpTo3(line)));
+                    i = setext_underline_idx + 1;
+                    continue;
                 }
                 if (setext_level != 0) {
                     var para = Writer.init(tmp2_buf[0..]);

@@ -250,6 +250,64 @@ Raw output: [CommonMark trace](qipdb-commonmark-newline.txt),
 [CommonMark bench](bench-commonmark-newline.txt),
 [GFM bench](bench-gfm-commonmark-newline.txt).
 
+## In-place text, rare-byte autolinks, reserved escapes (2026-11-19)
+
+Starting from the newline work above. Three changes in
+`text/markdown/lib/commonmark.zig`, prompted by a comparison with
+`@pierre/words` 0.2.2:
+
+- **Fewer temporary copies.** Paragraphs, list-item paragraphs, one-line setext
+  headings and fenced code are read from where they already are when nothing
+  has to be stripped (no CR, no continuation indent). The `tmp` buffer copy is
+  the fallback. Runs of fenced lines are escaped in one call. Indented code and
+  code spans write straight to the output.
+- **Reserved escape-copy.** `Writer.escapeCopy` checks room for the worst case
+  once (six output bytes per input byte, plus one spare word), then stores
+  eight bytes per step and patches only the bytes that need an entity.
+- **Autolinks from rare bytes.** Extended autolinks are found at `@`, `://`
+  and `www.`, then traced back to their start. Before, every word start called
+  the scanner.
+
+| Item | Bytes (gzip -9) | SHA-256 |
+| --- | ---: | --- |
+| `text/markdown/commonmark.0.31.2.wasm` | 78,568 (36,010), +1,452 | `280a5ca14780be06ef1ec51b0f0566be8ee39207985591405c2474b13b2bba3f` |
+| `text/markdown/gfm-commonmark.0.31.2.wasm` | 84,297 (38,260), +1,856 | `b46c7cdc616b57776b868ed103e48ad71a068d74396b474f4419fc22c5f74d31` |
+
+`qip bench --benchtime=3s --node`, previous build → this build, mean:
+
+| Input | Boundary | CommonMark | GFM |
+| --- | --- | ---: | ---: |
+| `input.md` (40 KB) | wazero `run` | 2.448 → 1.791 ms (1.37×) | 3.069 → 2.001 ms (1.53×) |
+| `input.md` | Node.js/V8 `render` | 0.113 → 0.091 ms (1.23×) | 0.147 → 0.101 ms (1.46×) |
+| `gfm-spec.md` (211 KB) | wazero `run` | 11.18 → 8.92 ms (1.25×) | 15.97 → 11.28 ms (1.42×) |
+| `gfm-spec.md` | Node.js/V8 `render` | 0.708 → 0.545 ms (1.30×) | 0.978 → 0.637 ms (1.53×) |
+
+Input MiB/s in Node.js 26.3.0 on the five `@pierre/words` benchmark fixtures
+(bytes in, byte view out, one warm instance per engine, median of three runs
+of their sampling loop):
+
+| Fixture | Words | GFM before → after | CommonMark before → after |
+| --- | ---: | ---: | ---: |
+| `tiny.md` (1.3 KiB) | 634 | 145 → 176 | 186 → 201 |
+| `assistant-review.md` (5.4 KiB) | 1,352 | 235 → 359 | 410 → 492 |
+| `assistant-explain.md` (6.0 KiB) | 1,893 | 305 → 445 | 443 → 543 |
+| `simd.md` (39 KiB) | 1,001 | 187 → 267 | 243 → 320 |
+| `gfm-spec.md` (211 KiB) | 1,214 | 197 → 317 | 289 → 376 |
+
+Output is byte-identical to the previous build. The final builds had 0
+mismatches per component over 1.26 million `differential.mjs` inputs (seeds 7,
+11, 31, 32, 41, with autolink atoms added to its list) and 5 million inputs
+from a throwaway fuzzer weighted towards autolink bytes, CR/CRLF and code
+blocks. GFM also passed 4 million autolink-only inputs, and both passed
+documents sized to land just under and just over the 2 MiB output limit. The
+CommonMark, GFM, entity, casefold and differential-corpus suites and the
+pathological budgets pass.
+
+The first version of the autolink change was quadratic on `_a_a_a…@b`,
+because each `_` rescanned the same run. `ext_underscore_skip` fixes that, and
+`tools/test-markdown-pathological.sh` gained `autolink-underscores` and
+`autolink-anchors` to guard it.
+
 ## Reproduce
 
 ```sh
