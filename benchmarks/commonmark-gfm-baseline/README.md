@@ -361,6 +361,55 @@ targeted fuzzer. GFM also passed 1 million autolink-only inputs. Reusing one
 instance for 9,000 definitions and then for a document without definitions
 links nothing stale. The suites, pathological budgets and Zig unit tests pass.
 
+## Correctness fixes: list columns, lazy lines, angle brackets (2026-11-23)
+
+Unlike the sections above, this change alters output on purpose, so it was
+judged against cmark 0.31.2 with `three-way.mjs` instead of against the
+previous build.
+
+Three faults, all in `text/markdown/lib/commonmark.zig`:
+
+- **Tabs after a nested list marker or `>`.** Item content is rebuilt with the
+  outer indent removed, which moved the tab stops, and widths were counted in
+  bytes. `- a\n  -\t\tcode` rendered as `   ode`. Widths are now measured in the
+  columns of the line the text came from, before it is copied.
+- **Lazy lines shaped like a setext underline.** Each was padded with four
+  spaces, which a nested level stripped again and then read as an underline;
+  repeated ones overwrote text that had not been read yet. They are now joined
+  to their paragraph with a byte that adds no length.
+- **`<` rescanned the paragraph.** Every `<` looked for a `>` up to the end of
+  the paragraph, so 40,000 of them took 1.4 s in Node. Tags, autolinks and
+  comments are now matched forwards and fail at the first byte that does not
+  fit: 1.2 ms. Tags may also span more than one line ending, as in cmark.
+
+Two more came out of the same work: item content was read back after the
+in-place copy had overwritten it, and every blank or lazy line in an item
+rescanned the item for an open fence (20,000 lazy lines: 1.2 s to 1.5 ms).
+
+Random inputs, CommonMark build, counting only inputs where the two builds
+disagree:
+
+| Fuzzer (`three-way.mjs` mode) | Inputs | Now matches cmark | Stopped matching | Neither matches |
+|---|---:|---:|---:|---:|
+| `lists` (tab-heavy containers) | 200,000 | 11,679 | 59 | 1,903 |
+| `general` (the `differential.mjs` atoms) | 500,000 | 942 | 5 | 282 |
+| `angle` | 300,000 | 59 | 0 | 0 |
+
+The inputs that stopped matching are mostly a tab written as spaces in an HTML
+block or indented code inside a container; the header of `commonmark.zig`
+lists what is still open.
+
+An instrumented build that traps when a nested copy passes its read position
+ran 1,000,000 inputs without trapping; the same check on the previous build
+trapped on 0.7% of them. 24 inputs from this work are pinned in
+`compliance/commonmark-differential-corpus.txt` (121 cases), and
+`tools/test-markdown-pathological.sh` has four new budgets.
+
+Cost: each component is about 2.3 KB larger (CommonMark 81,699 bytes, 37,293
+gzip; GFM 87,461 bytes, 39,491 gzip). GFM on Pierre's fixtures is 0-4% slower
+in Node and about 3% slower under wazero (`gfm-spec.md`, 8.15 to 8.40 ms run
+mean).
+
 ## Reproduce
 
 ```sh
@@ -382,6 +431,13 @@ node benchmarks/commonmark-gfm-baseline/differential.mjs old.wasm text/markdown/
 
 The arguments after the two builds are the number of random inputs, the seed,
 and any extra input files.
+
+For a change that is meant to alter output, compare both builds with cmark
+instead (CommonMark builds only; modes are `lists`, `angle` and `general`):
+
+```sh
+node benchmarks/commonmark-gfm-baseline/three-way.mjs old.wasm text/markdown/commonmark.0.31.2.wasm 200000 3 lists
+```
 
 `profile.mjs` raises the qipdb instruction budget from its 1,000,000 default to
 the 100,000,000 maximum. Without that change, qipdb pauses before `render`

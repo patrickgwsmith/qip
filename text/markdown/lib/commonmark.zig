@@ -13,7 +13,7 @@
 // linear on adversarial input (3 KB of "*a " dropped from ~16 s to ~50 ms) and
 // differential divergence vs cmark 0.31.2 dropped from ~4.7% to ~0.2%
 // (n=2000; tools/fuzz-markdown-vs-cmark.py). The frozen corpus
-// (compliance/commonmark-differential-corpus.comply.wasm, 88 cases) is green
+// (compliance/commonmark-differential-corpus.comply.wasm, 121 cases) is green
 // and runs in test-comply.
 // TODO(conformance): Remaining known cmark divergences, all in block-level
 // list structure (~0.2% of fuzzed inputs, saved seeds reproduce via the
@@ -24,6 +24,19 @@
 // preservation inside unclosed fences in items. All four stem from the
 // reassemble-into-tmp-buffers list architecture and are best fixed together
 // with the line-classification work below.
+// Fixed 2026-11-23 in that architecture, measured against cmark with a
+// tab-heavy list fuzzer (about 5.8% of its inputs newly match, 0.03% got
+// worse): whitespace after a list marker or '>' is measured in columns of the
+// line it came from (appendContainerPrefix), and a lazy line shaped like a
+// setext underline is joined to its paragraph (appendLazyLine) rather than
+// re-read as an underline one level down. Both used to make a nested level
+// write past what it had read of tmp_buf, which garbled the item's text.
+// TODO(conformance): what that leaves, all rare: (1) a tab that is only
+// partly used as indent keeps no literal tab in the code block after it
+// ("-\t\t\tx" gives 6 spaces where cmark gives 2 spaces and a tab);
+// (2) inside a list item or blockquote, a line of an HTML block, or of
+// indented code under a nested container, that starts with a marker and a
+// tab has that tab written as spaces; (3) a lone CR is not a line ending.
 // TODO(conformance): Delimiter flanking treats every byte >= 0x80 as
 // punctuation (isDelimiterPunctuation); the spec wants Unicode whitespace and
 // punctuation classes. ASCII-only fuzzing cannot see this — needs UCD-derived
@@ -225,10 +238,8 @@ pub fn Make(comptime options: Options) type {
             // Short lengths use two overlapping words, so nothing is read
             // or written outside `s` and its destination. Nested list
             // items rewrite a line within the buffer it came from, so
-            // overlapping ranges keep the @memcpy they always had.
-            // TODO(lists): a tab after a nested marker expands into spaces
-            // ahead of the unread source, which garbles it ("\thttp://" in
-            // a third-level item renders " ttp://"). The fix needs a copy.
+            // overlapping ranges keep the @memcpy they always had; the
+            // copy never runs ahead of its source (appendContainerPrefix).
             inline fn copyBytes(dst: [*]u8, s: []const u8) void {
                 const n = s.len;
                 const d = @intFromPtr(dst);
@@ -368,8 +379,16 @@ pub fn Make(comptime options: Options) type {
             marker: u8,
             indent_cols: usize,
             marker_end: usize,
+            // Byte index of the first non-blank byte after the marker (the
+            // line's length when there is none).
             content_start: usize,
             ordered_start: usize,
+            // Column that continuation lines must reach to stay in the item.
+            content_base: usize,
+            // Five or more columns of whitespace follow the marker: the item
+            // opens with indented code, and `prefix_spaces` of them (all but
+            // the first) belong to its content.
+            code_first: bool,
             prefix_spaces: usize,
         };
 
@@ -660,37 +679,137 @@ pub fn Make(comptime options: Options) type {
             dst.writeSlice(s[i..]);
         }
 
-        fn appendListContinuation(dst: *Writer, s0: []const u8, base_cols: usize) void {
+        // Whether the input holds a tab at all. Without one, columns and
+        // bytes agree and appendContainerPrefix has nothing to do.
+        var doc_has_tab: bool = false;
+
+        // Set once a lazy line was joined to its paragraph with '\r'; see
+        // appendLazyLine.
+        var lazy_join_used: bool = false;
+
+        // Item and blockquote content is rebuilt in tmp_buf with the
+        // container's indent removed, which moves every later tab stop. A
+        // tab's width only matters in the whitespace after a list marker or
+        // '>', so lines enter tmp_buf with those tabs already written as
+        // spaces, measured in the columns of the line they came from; `s`
+        // starts at column `col0` of that line. Nested levels then see
+        // spaces only, and can keep rewriting tmp_buf in place: their copy
+        // of a line is never longer than the line.
+        // The cost: a line that only looks like it opens a container has
+        // such a tab turned into spaces too. Callers switch `expand` off
+        // inside a fenced block; a line of indented code keeps the change.
+        fn appendContainerPrefix(dst: *Writer, s: []const u8, col0: usize, expand: bool) void {
+            var flushed: usize = 0;
+            var i: usize = 0;
+            var col = col0;
+            while (expand and doc_has_tab and !inTmpBuf(s) and i < s.len) {
+                var m = i;
+                const b = s[m];
+                if (b == '>' or b == '-' or b == '+' or b == '*') {
+                    m += 1;
+                } else {
+                    while (m < s.len and isAsciiDigit(s[m]) and m - i < 9) : (m += 1) {}
+                    if (m == i or m >= s.len or !(s[m] == '.' or s[m] == ')')) break;
+                    m += 1;
+                }
+                var p = m;
+                var c = col + (m - i);
+                const c0 = c;
+                var tab = false;
+                while (p < s.len) : (p += 1) {
+                    if (s[p] == ' ') {
+                        c += 1;
+                    } else if (s[p] == '\t') {
+                        c = ((c / 4) + 1) * 4;
+                        tab = true;
+                    } else break;
+                }
+                if (p >= s.len or (p == m and b != '>')) break;
+                if (tab) {
+                    dst.writeSlice(s[flushed..m]);
+                    var k = c0;
+                    while (k < c) : (k += 1) dst.writeByte(' ');
+                    flushed = p;
+                }
+                // Five or more columns open indented code, not a container.
+                if (c - c0 >= 5) break;
+                // After '>' up to three columns may indent the next marker.
+                i = p;
+                col = c;
+            }
+            dst.writeSlice(s[flushed..]);
+        }
+
+        // Whether `s` lies in tmp_buf, which makes this a nested level
+        // rewriting the buffer it reads from.
+        inline fn inTmpBuf(s: []const u8) bool {
+            return @intFromPtr(s.ptr) -% @intFromPtr(&tmp_buf) < MAX_TMP;
+        }
+
+        // Writes the `cols` columns that the whitespace `ws` stands for. At a
+        // nested level that is one space per byte by the rule above; should
+        // a tab get there anyway (a fence that was not one), the count is
+        // capped so the copy still cannot outgrow its source.
+        fn appendIndent(dst: *Writer, cols: usize, ws: []const u8) void {
+            var n = cols;
+            if (inTmpBuf(ws) and n > ws.len) n = ws.len;
+            while (n > 0) : (n -= 1) dst.writeByte(' ');
+        }
+
+        fn appendListContinuation(dst: *Writer, s0: []const u8, base_cols: usize, expand: bool) void {
             const s = trimRightCR(s0);
             const ind = leadingIndent(s);
             const rel_cols = if (ind.cols > base_cols) ind.cols - base_cols else 0;
-            var i: usize = 0;
-            while (i < rel_cols) : (i += 1) dst.writeByte(' ');
-            dst.writeSlice(s[ind.idx..]);
+            appendIndent(dst, rel_cols, s[0..ind.idx]);
+            appendContainerPrefix(dst, s[ind.idx..], ind.cols, expand);
         }
 
-        fn appendBlockquoteStripped(dst: *Writer, s0: []const u8) bool {
+        // Appends a lazy continuation line: paragraph text that sits outside
+        // its container's indent. `terminated` says whether lines in `dst`
+        // end with '\n' or are only separated by it.
+        // A line shaped like a setext underline would turn the paragraph
+        // into a heading once the content is parsed again, so it is joined
+        // to the previous line with '\r' in place of the '\n'. nextTmpLine
+        // still returns it as a line, lazyJoined() marks it, and the
+        // paragraph it lands in writes the '\r' as a line ending. The join
+        // adds no bytes, which keeps in-place rewrites of tmp_buf safe.
+        fn appendLazyLine(dst: *Writer, ln: []const u8, comptime terminated: bool) void {
+            if (parseSetextUnderline(ln) != null and dst.idx > 0) {
+                if (terminated) dst.idx -= 1;
+                dst.writeByte('\r');
+                dst.writeSlice(stripAllLeadingSpacesTabs(ln));
+                lazy_join_used = true;
+            } else {
+                if (!terminated) dst.writeByte('\n');
+                // Leading tabs become spaces here, so that no later copy of
+                // this line has to widen them.
+                const s = trimRightCR(ln);
+                const ind = leadingIndent(s);
+                appendIndent(dst, ind.cols, s[0..ind.idx]);
+                dst.writeSlice(s[ind.idx..]);
+            }
+            if (terminated) dst.writeByte('\n');
+        }
+
+        fn appendBlockquoteStripped(dst: *Writer, s0: []const u8, expand: bool, para_open: bool) bool {
             const s = trimRightCR(s0);
             const ind = leadingIndent(s);
             if (ind.cols > 3 or ind.idx >= s.len or s[ind.idx] != '>') return false;
 
+            // The whitespace after '>' is measured in the line's own
+            // columns; its first column belongs to the marker.
             var p = ind.idx + 1;
-            var keep_cols: usize = 0;
-            if (p < s.len and s[p] == ' ') {
-                p += 1;
-            } else if (p < s.len and s[p] == '\t') {
-                const col_after_marker = ind.cols + 1;
-                const tab_to = ((col_after_marker / 4) + 1) * 4;
-                const tab_width = tab_to - col_after_marker;
-                p += 1;
-                if (tab_width > 0) keep_cols = tab_width - 1;
+            const col0 = ind.cols + 1;
+            var col = col0;
+            while (p < s.len) : (p += 1) {
+                if (s[p] == ' ') {
+                    col += 1;
+                } else if (s[p] == '\t') {
+                    col = ((col / 4) + 1) * 4;
+                } else break;
             }
-
-            const rem = s[p..];
-            const rem_ind = leadingIndent(rem);
-            var k: usize = 0;
-            while (k < keep_cols + rem_ind.cols) : (k += 1) dst.writeByte(' ');
-            dst.writeSlice(rem[rem_ind.idx..]);
+            if (col > col0) appendIndent(dst, col - col0 - 1, s[ind.idx + 1 .. p]);
+            appendContainerPrefix(dst, s[p..], col, expand and col - col0 < 5 and !(para_open and orderedNotOne(s[p..])));
             return true;
         }
 
@@ -898,7 +1017,8 @@ pub fn Make(comptime options: Options) type {
             }
             if (s.len < 3 or s[0] != '<' or s[s.len - 1] != '>') return false;
             if (startsWithIgnoreCase(s, "<!") or startsWithIgnoreCase(s, "<?")) return false;
-            return isPlausibleInlineTag(s[1 .. s.len - 1]);
+            const close = scanInlineTagEnd(s, 1) orelse return false;
+            return close == s.len - 1;
         }
 
         fn detectHtmlBlockStart(line0: []const u8, prev_blank: bool) HtmlBlockType {
@@ -980,79 +1100,53 @@ pub fn Make(comptime options: Options) type {
             const i = ind.idx;
             if (i >= line.len) return null;
 
-            if (line[i] == '-' or line[i] == '+' or line[i] == '*') {
-                if (i + 1 < line.len and !isWhitespace(line[i + 1])) return null;
-                var content = i + 1;
-                var prefix_spaces: usize = 0;
-                if (content < line.len and isWhitespace(line[content])) {
-                    if (line[content] == '\t') {
-                        const col_after_marker = ind.cols + (content - ind.idx);
-                        const tab_to = ((col_after_marker / 4) + 1) * 4;
-                        const tab_width = tab_to - col_after_marker;
-                        if (tab_width > 0) prefix_spaces = tab_width - 1;
-                        content += 1;
-                    } else {
-                        var p = content;
-                        while (p < line.len and line[p] == ' ') : (p += 1) {}
-                        const space_count = p - content;
-                        if (space_count <= 4) {
-                            content = p;
-                        } else {
-                            content += 1;
-                        }
-                    }
-                }
-                return .{
-                    .kind = .unordered,
-                    .marker = line[i],
-                    .indent_cols = ind.cols,
-                    .marker_end = i + 1,
-                    .content_start = content,
-                    .ordered_start = 1,
-                    .prefix_spaces = prefix_spaces,
-                };
-            }
-
+            var kind: ListKind = .unordered;
+            var marker = line[i];
+            var num: usize = 1;
             var j = i;
-            var num: usize = 0;
-            var digits: usize = 0;
-            while (j < line.len and isAsciiDigit(line[j]) and digits < 9) : (j += 1) {
-                num = num * 10 + @as(usize, line[j] - '0');
-                digits += 1;
-            }
-            if (digits == 0 or j >= line.len) return null;
-            const delim = line[j];
-            if (!(delim == '.' or delim == ')')) return null;
-            if (j + 1 < line.len and !isWhitespace(line[j + 1])) return null;
-            var content = j + 1;
-            var prefix_spaces: usize = 0;
-            if (content < line.len and isWhitespace(line[content])) {
-                if (line[content] == '\t') {
-                    const col_after_marker = ind.cols + (content - ind.idx);
-                    const tab_to = ((col_after_marker / 4) + 1) * 4;
-                    const tab_width = tab_to - col_after_marker;
-                    if (tab_width > 0) prefix_spaces = tab_width - 1;
-                    content += 1;
-                } else {
-                    var p = content;
-                    while (p < line.len and line[p] == ' ') : (p += 1) {}
-                    const space_count = p - content;
-                    if (space_count <= 4) {
-                        content = p;
-                    } else {
-                        content += 1;
-                    }
+            if (marker == '-' or marker == '+' or marker == '*') {
+                j += 1;
+            } else {
+                num = 0;
+                while (j < line.len and isAsciiDigit(line[j]) and j - i < 9) : (j += 1) {
+                    num = num * 10 + @as(usize, line[j] - '0');
                 }
+                if (j == i or j >= line.len) return null;
+                marker = line[j];
+                if (!(marker == '.' or marker == ')')) return null;
+                kind = .ordered;
+                j += 1;
             }
+            if (j < line.len and !isWhitespace(line[j])) return null;
+
+            // Whitespace after the marker is measured in columns, with tab
+            // stops counted from the start of the line: one to four columns
+            // put the content right after them; five or more leave one as
+            // the separator and the rest as an indented code block.
+            const marker_end_col = ind.cols + (j - i);
+            var col = marker_end_col;
+            var content = j;
+            while (content < line.len) : (content += 1) {
+                if (line[content] == ' ') {
+                    col += 1;
+                } else if (line[content] == '\t') {
+                    col = ((col / 4) + 1) * 4;
+                } else break;
+            }
+            const width = col - marker_end_col;
+            const code_first = content < line.len and width >= 5;
+            const blank = content >= line.len;
 
             return .{
-                .kind = .ordered,
-                .marker = delim,
+                .kind = kind,
+                .marker = marker,
                 .indent_cols = ind.cols,
-                .marker_end = j + 1,
+                .marker_end = j,
                 .content_start = content,
                 .ordered_start = num,
-                .prefix_spaces = prefix_spaces,
+                .content_base = if (blank or code_first) marker_end_col + 1 else col,
+                .code_first = code_first,
+                .prefix_spaces = if (code_first) width - 1 else 0,
             };
         }
 
@@ -1595,7 +1689,9 @@ pub fn Make(comptime options: Options) type {
             var para_open = false;
             var fence: ?Fence = null;
 
-            if (mark.content_start < first.len and !isBlankLine(first[mark.content_start..])) {
+            if (mark.code_first) {
+                at_block_start = false;
+            } else if (mark.content_start < first.len) {
                 const content = first[mark.content_start..];
                 if (parseReferenceDefLine(content)) |p| {
                     if (!pushReferenceDef(p.label_hash, p.href, p.title)) return marker_idx + 1;
@@ -1768,7 +1864,7 @@ pub fn Make(comptime options: Options) type {
                     },
                     .blockquote => {
                         var stripped = Writer.init(tmp2_buf[0..]);
-                        if (appendBlockquoteStripped(&stripped, line)) {
+                        if (appendBlockquoteStripped(&stripped, line, true, false)) {
                             if (parseReferenceDefLine(stripped.buf[0..stripped.idx])) |p| {
                                 if (!pushReferenceDef(p.label_hash, p.href, p.title)) break;
                             }
@@ -2190,59 +2286,68 @@ pub fn Make(comptime options: Options) type {
             return true;
         }
 
-        fn isPlausibleInlineTag(inner: []const u8) bool {
-            if (inner.len == 0) return false;
-            var i: usize = 0;
-            const is_close = inner[0] == '/';
-            if (is_close) {
-                i = 1;
-                if (i >= inner.len or !isAsciiAlpha(inner[i])) return false;
-            } else if (!isAsciiAlpha(inner[i])) {
-                return false;
-            }
+        // Skips the spaces, tabs and line endings between the parts of a tag.
+        fn skipTagSpace(s: []const u8, from: usize) usize {
+            var i = from;
+            while (i < s.len and (isSpaceOrTab(s[i]) or s[i] == '\n')) : (i += 1) {}
+            return i;
+        }
+
+        inline fn endsTagToken(s: []const u8, i: usize) bool {
+            return i >= s.len or isSpaceOrTab(s[i]) or s[i] == '\n' or s[i] == '/' or s[i] == '>';
+        }
+
+        // Matches an open or closing tag whose name starts at `from`, just
+        // past the '<', and returns the index of its '>'. It walks the tag
+        // grammar forwards, so text that is not a tag fails at the first
+        // byte that does not fit.
+        fn scanInlineTagEnd(s: []const u8, from: usize) ?usize {
+            var i = from;
+            const is_close = i < s.len and s[i] == '/';
+            if (is_close) i += 1;
+            if (i >= s.len or !isAsciiAlpha(s[i])) return null;
             i += 1;
-            while (i < inner.len and isTagNameChar(inner[i])) : (i += 1) {}
+            while (i < s.len and isTagNameChar(s[i])) : (i += 1) {}
 
             if (is_close) {
-                while (i < inner.len and (isSpaceOrTab(inner[i]) or inner[i] == '\n')) : (i += 1) {}
-                return i == inner.len;
+                i = skipTagSpace(s, i);
+                return if (i < s.len and s[i] == '>') i else null;
             }
-            if (i < inner.len and !(isSpaceOrTab(inner[i]) or inner[i] == '\n' or inner[i] == '/')) return false;
+            if (!endsTagToken(s, i)) return null;
 
             while (true) {
-                while (i < inner.len and (isSpaceOrTab(inner[i]) or inner[i] == '\n')) : (i += 1) {}
-                if (i >= inner.len) return true;
-                if (inner[i] == '/') {
+                i = skipTagSpace(s, i);
+                if (i >= s.len) return null;
+                if (s[i] == '>') return i;
+                if (s[i] == '/') {
                     i += 1;
-                    return i == inner.len;
+                    return if (i < s.len and s[i] == '>') i else null;
                 }
 
-                if (!isAttrNameChar(inner[i])) return false;
+                if (!isAttrNameChar(s[i])) return null;
                 i += 1;
-                while (i < inner.len and isAttrNameChar(inner[i])) : (i += 1) {}
+                while (i < s.len and isAttrNameChar(s[i])) : (i += 1) {}
 
-                while (i < inner.len and (isSpaceOrTab(inner[i]) or inner[i] == '\n')) : (i += 1) {}
-                if (i >= inner.len) return true;
-                if (inner[i] != '=') continue;
+                i = skipTagSpace(s, i);
+                if (i >= s.len) return null;
+                if (s[i] == '>') return i;
+                if (s[i] != '=') continue;
 
-                i += 1;
-                while (i < inner.len and (isSpaceOrTab(inner[i]) or inner[i] == '\n')) : (i += 1) {}
-                if (i >= inner.len) return false;
+                i = skipTagSpace(s, i + 1);
+                if (i >= s.len) return null;
 
-                if (inner[i] == '"' or inner[i] == '\'') {
-                    const quote = inner[i];
+                if (s[i] == '"' or s[i] == '\'') {
+                    const quote = s[i];
                     i += 1;
-                    while (i < inner.len and inner[i] != quote) : (i += 1) {}
-                    if (i >= inner.len) return false;
+                    while (i < s.len and s[i] != quote) : (i += 1) {}
+                    if (i >= s.len) return null;
                     i += 1;
-                    if (i < inner.len and !(isSpaceOrTab(inner[i]) or inner[i] == '\n' or inner[i] == '/')) return false;
-                    continue;
+                } else {
+                    if (!isUnquotedAttrValueChar(s[i])) return null;
+                    i += 1;
+                    while (i < s.len and isUnquotedAttrValueChar(s[i])) : (i += 1) {}
                 }
-
-                if (!isUnquotedAttrValueChar(inner[i])) return false;
-                i += 1;
-                while (i < inner.len and isUnquotedAttrValueChar(inner[i])) : (i += 1) {}
-                if (i < inner.len and !(isSpaceOrTab(inner[i]) or inner[i] == '\n' or inner[i] == '/')) return false;
+                if (!endsTagToken(s, i)) return null;
             }
         }
 
@@ -2592,71 +2697,48 @@ pub fn Make(comptime options: Options) type {
                 // CDATA keyword case-insensitively (a re2c scanner quirk), so
                 // we do too.
                 if (i + 2 < s.len and s[i + 2] == '[' and startsWithIgnoreCase(s[i + 3 ..], "CDATA[")) {
-                    if (std.mem.indexOfPos(u8, s, i + 9, "]]>")) |end_idx| {
-                        return .{ .end = end_idx + 3, .kind = .raw_html };
-                    }
-                    return null;
+                    return findAngleClose(s, i + 9, "]]>", 0);
                 }
                 if (std.mem.startsWith(u8, s[i..], "<!--")) {
                     if (std.mem.startsWith(u8, s[i + 4 ..], ">")) return .{ .end = i + 5, .kind = .raw_html };
                     if (std.mem.startsWith(u8, s[i + 4 ..], "->")) return .{ .end = i + 6, .kind = .raw_html };
-                    if (std.mem.indexOfPos(u8, s, i + 4, "-->")) |end_idx| {
-                        return .{ .end = end_idx + 3, .kind = .raw_html };
-                    }
-                    return null;
+                    return findAngleClose(s, i + 4, "-->", 1);
                 }
                 if (i + 2 < s.len and isAsciiAlpha(s[i + 2])) {
-                    if (std.mem.indexOfScalarPos(u8, s, i + 3, '>')) |gt| {
-                        return .{ .end = gt + 1, .kind = .raw_html };
-                    }
+                    return findAngleClose(s, i + 3, ">", 2);
                 }
                 return null;
             }
             if (i + 1 < s.len and s[i + 1] == '?') {
-                if (std.mem.indexOfPos(u8, s, i + 2, "?>")) |end_idx| {
-                    return .{ .end = end_idx + 2, .kind = .raw_html };
-                }
-                return null;
+                return findAngleClose(s, i + 2, "?>", 3);
             }
-            var close_opt: ?usize = null;
+            // An autolink holds no space, newline or bracket, so its scan
+            // stops at the first of those. Neither this nor the tag match
+            // below looks for a '>' before knowing the text can reach one:
+            // a paragraph of "<<<<..." costs one step per bracket.
             var p = i + 1;
-            var saw_newline = false;
-            var quote: u8 = 0;
             while (p < s.len) : (p += 1) {
                 const ch = s[p];
-                if (quote != 0) {
-                    if (ch == quote) {
-                        quote = 0;
-                        continue;
-                    }
-                    if (ch == '\n') {
-                        if (saw_newline) break;
-                        saw_newline = true;
-                    }
-                    continue;
-                }
-                if (ch == '"' or ch == '\'') {
-                    quote = ch;
-                    continue;
-                }
-                if (ch == '>') {
-                    close_opt = p;
-                    break;
-                }
-                if (ch == '\n') {
-                    if (saw_newline) break;
-                    saw_newline = true;
-                }
+                if (ch == '>' or ch == '<' or ch == ' ' or ch == '\t' or ch == '\n') break;
             }
-            const close = close_opt orelse return null;
-            const inner = s[i + 1 .. close];
-            if (isAutolinkInner(inner)) return .{ .end = close + 1, .kind = .autolink };
-            if (inner.len > 0) {
-                const c0 = inner[0];
-                if (c0 == '/' or isAsciiAlpha(c0)) {
-                    if (isPlausibleInlineTag(inner)) return .{ .end = close + 1, .kind = .filtered_html };
-                }
+            if (p < s.len and s[p] == '>' and isAutolinkInner(s[i + 1 .. p])) return .{ .end = p + 1, .kind = .autolink };
+            if (scanInlineTagEnd(s, i + 1)) |close| return .{ .end = close + 1, .kind = .filtered_html };
+            return null;
+        }
+
+        // Start of the earliest failed search for each raw-HTML terminator
+        // ("]]>", "-->", ">" of a declaration, "?>") in the paragraph being
+        // parsed. A search that starts later would fail too, so it is
+        // skipped: unterminated "<!--" runs stay linear. Reset per
+        // inlineParse.
+        var angle_close_missing: [4]usize = undefined;
+
+        fn findAngleClose(s: []const u8, from: usize, comptime close: []const u8, comptime slot: usize) ?AngleScan {
+            if (from >= angle_close_missing[slot]) return null;
+            if (std.mem.indexOfPos(u8, s, from, close)) |end_idx| {
+                return .{ .end = end_idx + close.len, .kind = .raw_html };
             }
+            angle_close_missing[slot] = from;
             return null;
         }
 
@@ -3130,6 +3212,7 @@ pub fn Make(comptime options: Options) type {
             backticks_scanned = false;
             ext_next_at = 0;
             ext_underscore_skip = 0;
+            angle_close_missing = .{ std.math.maxInt(usize), std.math.maxInt(usize), std.math.maxInt(usize), std.math.maxInt(usize) };
             _ = nodeAlloc(.head);
             _ = nodeAlloc(.tail);
             inline_nodes[NODE_HEAD].next = NODE_TAIL;
@@ -3688,22 +3771,46 @@ pub fn Make(comptime options: Options) type {
             dst.writeSlice(s);
         }
 
+        // Follows whether an item's or blockquote's own content is inside a
+        // fenced block, one content line at a time.
+        fn trackFence(open: *?Fence, content: []const u8) void {
+            if (open.*) |f| {
+                if (isFenceClose(content, f)) open.* = null;
+            } else {
+                open.* = parseFenceOpen(content);
+            }
+        }
+
+        // Whether content may start a list item or blockquote, judged by
+        // its first two bytes.
+        fn opensContainer(content: []const u8) bool {
+            if (content.len == 0) return false;
+            return switch (content[0]) {
+                '>', '0'...'9' => true,
+                '-', '+', '*' => content.len == 1 or isSpaceOrTab(content[1]),
+                else => false,
+            };
+        }
+
+        // Whether content starts with the digits of an ordered list marker
+        // other than 1, which cannot start a list inside a paragraph.
+        fn orderedNotOne(content: []const u8) bool {
+            var i: usize = 0;
+            var num: usize = 0;
+            while (i < content.len and i < 9 and isAsciiDigit(content[i])) : (i += 1) num = num * 10 + (content[i] - '0');
+            return i > 0 and num != 1;
+        }
+
         fn appendListItemFirstLine(tmp: *Writer, line: []const u8, mark: ListMarker) void {
-            var ps: usize = 0;
-            while (ps < mark.prefix_spaces) : (ps += 1) tmp.writeByte(' ');
-            const first_rem = line[mark.content_start..];
-            const first_ind = leadingIndent(first_rem);
-            var fs: usize = 0;
-            while (fs < first_ind.cols) : (fs += 1) tmp.writeByte(' ');
-            appendTmp(tmp, first_rem[first_ind.idx..]);
+            const rest = trimRightCR(line)[mark.content_start..];
+            const full = trimRightCR(line);
+            appendIndent(tmp, mark.prefix_spaces, full[mark.marker_end..mark.content_start]);
+            appendContainerPrefix(tmp, rest, mark.content_base, !mark.code_first);
         }
 
         fn listItemContinuationBase(first_line: []const u8, mark: ListMarker) usize {
-            const marker_min = mark.marker_end + 1;
-            if (mark.content_start >= first_line.len) return marker_min;
-            if (trimAscii(first_line[mark.content_start..]).len == 0) return marker_min;
-            if (mark.content_start > mark.marker_end) return mark.content_start;
-            return marker_min;
+            _ = first_line;
+            return mark.content_base;
         }
 
         // Whether this line, as item/blockquote content, leaves a paragraph
@@ -3722,11 +3829,11 @@ pub fn Make(comptime options: Options) type {
                     .paragraph => return true,
                     .blockquote => {
                         var stripped = Writer.init(if (depth % 2 == 0) tmp3_buf[0..] else tmp4_buf[0..]);
-                        if (!appendBlockquoteStripped(&stripped, cur)) return false;
+                        if (!appendBlockquoteStripped(&stripped, cur, true, false)) return false;
                         cur = trimRightCR(stripped.buf[0..stripped.idx]);
                     },
                     .list => |m| {
-                        if (m.content_start >= cur.len) return false;
+                        if (m.code_first or m.content_start >= cur.len) return false;
                         cur = cur[m.content_start..];
                     },
                     else => return false,
@@ -3757,10 +3864,46 @@ pub fn Make(comptime options: Options) type {
         fn nextTmpLine(text: []const u8, cursor: *usize) ?[]const u8 {
             if (cursor.* >= text.len) return null;
             const start = cursor.*;
+            if (lazy_join_used) {
+                // A lazy line joined with '\r' is returned as a line of its
+                // own; lazyJoined() tells it apart. One scan finds either
+                // line ending, so a long run of joined lines stays linear.
+                const brk = indexOfLineBreak(text, start);
+                if (brk + 1 < text.len and text[brk] == '\r' and text[brk + 1] != '\n') {
+                    cursor.* = brk + 1;
+                    return text[start..brk];
+                }
+            }
             var end = indexOfNewline(text, start);
+            const stop = end;
             if (end < text.len) end += 1;
             cursor.* = end;
-            return trimRightCR(text[start..if (end > start and text[end - 1] == '\n') end - 1 else end]);
+            return trimRightCR(text[start..stop]);
+        }
+
+        // Index of the first '\n' or '\r' at or after `from`, or s.len.
+        // Same word-at-a-time test as indexOfByte, for two bytes at once:
+        // each test's lowest flag is exact, so the lowest of both is too.
+        fn indexOfLineBreak(s: []const u8, from: usize) usize {
+            const ones: u64 = 0x0101010101010101;
+            var i = from;
+            while (i + 8 <= s.len) : (i += 8) {
+                const w = std.mem.readInt(u64, s[i..][0..8], .little);
+                const x = w ^ (ones * '\n');
+                const y = w ^ (ones * '\r');
+                const hit = (((x -% ones) & ~x) | ((y -% ones) & ~y)) & (ones * 0x80);
+                if (hit != 0) return i + @ctz(hit) / 8;
+            }
+            while (i < s.len and s[i] != '\n' and s[i] != '\r') : (i += 1) {}
+            return i;
+        }
+
+        // Whether `line`, as returned by nextTmpLine, is a lazy line joined
+        // to the line before it (see appendLazyLine). Such a line belongs
+        // to the paragraph that line left open and is never read as the
+        // start of a block or as a setext underline.
+        inline fn lazyJoined(text: []const u8, line: []const u8) bool {
+            return lazy_join_used and @intFromPtr(line.ptr) > @intFromPtr(text.ptr) and (line.ptr - 1)[0] == '\r';
         }
 
         fn renderTmpList(out: *Writer, text: []const u8, cursor: *usize, first_line: []const u8) void {
@@ -3782,24 +3925,30 @@ pub fn Make(comptime options: Options) type {
                 const item_content_base = listItemContinuationBase(line, mark);
                 sibling_limit = item_content_base - 1;
 
+                // `line` lies in tmp_buf, where this item is now written:
+                // from here on its content is read from the copy.
                 var tmp = Writer.init(tmp_buf[0..]);
                 appendListItemFirstLine(&tmp, line, mark);
+                var lazy_ok = contentOpensParagraph(tmp.buf[0..tmp.idx]);
                 var item_has_blank = false;
                 var saw_nonblank = trimAscii(tmp.buf[0..tmp.idx]).len != 0;
                 var separator_blank = false;
                 var saw_nested_list = false;
-                const first_line_trimmed = trimRightCR(line);
-                var lazy_ok = mark.content_start < first_line_trimmed.len and
-                    contentOpensParagraph(first_line_trimmed[mark.content_start..]);
                 var fence_trailing_blank = false;
+                var in_fence: ?bool = null;
 
                 while (true) {
                     const save = cursor.*;
                     const maybe_ln = nextTmpLine(text, cursor);
                     if (maybe_ln == null) break;
                     const ln = maybe_ln.?;
+                    if (lazyJoined(text, ln)) {
+                        tmp.writeByte('\r');
+                        tmp.writeSlice(ln);
+                        continue;
+                    }
                     if (isBlankLine(ln)) {
-                        if (saw_nonblank and tmpInsideFence(tmp.buf[0..tmp.idx])) {
+                        if (saw_nonblank and insideFence(&in_fence, tmp.buf[0..tmp.idx])) {
                             // Inside an open fence the blank is fence content
                             // and cannot end the item.
                             appendTmp(&tmp, "\n");
@@ -3827,7 +3976,7 @@ pub fn Make(comptime options: Options) type {
                             break;
                         }
                         appendTmp(&tmp, "\n");
-                        if (!tmpInsideFence(tmp.buf[0..tmp.idx]) and (!saw_nested_list or leadingIndent(next_ln).cols <= item_content_base + 1) and
+                        if (!insideFence(&in_fence, tmp.buf[0..tmp.idx]) and (!saw_nested_list or leadingIndent(next_ln).cols <= item_content_base + 1) and
                             !tmpTailIsDefsOnly(text, cursor.*, item_content_base))
                         {
                             item_has_blank = true;
@@ -3847,14 +3996,8 @@ pub fn Make(comptime options: Options) type {
 
                     const ind = leadingIndent(ln);
                     if (ind.cols < item_content_base and parseListMarker(ln) == null) {
-                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
-                            appendTmp(&tmp, "\n");
-                            // A setext underline cannot be a lazy continuation
-                            // line; indent it so it stays paragraph text after
-                            // reassembly (leading whitespace is stripped during
-                            // paragraph assembly).
-                            if (parseSetextUnderline(ln) != null) appendTmp(&tmp, "    ");
-                            appendTmp(&tmp, trimRightCR(ln));
+                        if (saw_nonblank and lazy_ok and !insideFence(&in_fence, tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
+                            appendLazyLine(&tmp, ln, false);
                             saw_nonblank = true;
                             continue;
                         }
@@ -3868,10 +4011,13 @@ pub fn Make(comptime options: Options) type {
                     }
 
                     appendTmp(&tmp, "\n");
-                    appendListContinuation(&tmp, ln, item_content_base);
+                    const copied_at = tmp.idx;
+                    appendListContinuation(&tmp, ln, item_content_base, false);
+                    in_fence = null;
                     saw_nonblank = true;
                     fence_trailing_blank = false;
-                    lazy_ok = contentOpensParagraph(stripIndentCols(ln, item_content_base));
+                    // The copy may have overwritten `ln`; read the copy.
+                    lazy_ok = contentOpensParagraph(tmp.buf[copied_at..tmp.idx]);
                 }
 
                 if (fence_trailing_blank) appendTmp(&tmp, "\n");
@@ -3924,27 +4070,29 @@ pub fn Make(comptime options: Options) type {
             var allow_lazy = false;
 
             while (true) {
-                if (isBlankLine(line)) {
+                if (started and lazyJoined(text, line)) {
+                    tmp.buf[tmp.idx - 1] = '\r';
+                    appendTmp(&tmp, line);
+                    appendTmp(&tmp, "\n");
+                } else if (isBlankLine(line)) {
                     if (line_start_set) cursor.* = current_line_start;
                     break;
-                }
-
-                var stripped_line = Writer.init(tmp2_buf[0..]);
-                if (appendBlockquoteStripped(&stripped_line, line)) {
-                    const stripped = stripped_line.buf[0..stripped_line.idx];
-                    appendTmp(&tmp, stripped);
-                    appendTmp(&tmp, "\n");
-                    started = true;
-                    allow_lazy = !isBlankLine(stripped) and leavesLazyParagraphOpen(stripped);
                 } else {
-                    if (!started or !allow_lazy or !canLazyContinue(line)) {
-                        if (line_start_set) cursor.* = current_line_start;
-                        break;
+                    var stripped_line = Writer.init(tmp2_buf[0..]);
+                    if (appendBlockquoteStripped(&stripped_line, line, false, false)) {
+                        const stripped = stripped_line.buf[0..stripped_line.idx];
+                        appendTmp(&tmp, stripped);
+                        appendTmp(&tmp, "\n");
+                        started = true;
+                        allow_lazy = !isBlankLine(stripped) and leavesLazyParagraphOpen(stripped);
+                    } else {
+                        if (!started or !allow_lazy or !canLazyContinue(line)) {
+                            if (line_start_set) cursor.* = current_line_start;
+                            break;
+                        }
+                        appendLazyLine(&tmp, line, true);
+                        allow_lazy = true;
                     }
-                    if (parseSetextUnderline(line) != null) appendTmp(&tmp, "    ");
-                    appendTmp(&tmp, trimRightCR(line));
-                    appendTmp(&tmp, "\n");
-                    allow_lazy = true;
                 }
 
                 const save = cursor.*;
@@ -4068,6 +4216,19 @@ pub fn Make(comptime options: Options) type {
                 while (true) {
                     const save = cursor;
                     const nl = nextTmpLine(text, &cursor) orelse break;
+                    if (lazyJoined(text, nl)) {
+                        if (!copied and save == para_end + 1) {
+                            para_end = save + nl.len;
+                            continue;
+                        }
+                        if (!copied) {
+                            para.writeSlice(text[para_start..para_end]);
+                            copied = true;
+                        }
+                        para.writeByte('\n');
+                        para.writeSlice(nl);
+                        continue;
+                    }
                     if (isBlankLine(nl)) break;
                     if (parseSetextUnderline(nl)) |lvl| {
                         setext_level = lvl;
@@ -4090,6 +4251,12 @@ pub fn Make(comptime options: Options) type {
                 }
 
                 const paragraph = trimAscii(if (copied) para.buf[0..para.idx] else text[para_start..para_end]);
+                if (lazy_join_used) {
+                    // Both sources are scratch buffers; see appendLazyLine.
+                    const joined: []u8 = @constCast(paragraph);
+                    var at = indexOfByte(joined, 0, '\r');
+                    while (at < joined.len) : (at = indexOfByte(joined, at + 1, '\r')) joined[at] = '\n';
+                }
                 if (setext_level != 0) {
                     separateBlock(out, first_block);
                     writeHeading(out, setext_level, paragraph);
@@ -4157,6 +4324,7 @@ pub fn Make(comptime options: Options) type {
                 if (ind.cols >= 4) return true;
                 if (classifyBlockStart(line, ind, true) != .paragraph) return true;
                 while (nextTmpLine(text, &cursor)) |nl| {
+                    if (lazyJoined(text, nl)) continue;
                     if (isBlankLine(nl)) break;
                     if (parseSetextUnderline(nl) != null) return true;
                     if (interruptsParagraph(nl)) break;
@@ -4173,6 +4341,17 @@ pub fn Make(comptime options: Options) type {
                 return parseFenceOpen(line) != null;
             }
             return false;
+        }
+
+        // tmpInsideFence for an item being collected. Only a content line
+        // can open or close a fence, so the answer is kept in `known` until
+        // the caller appends one and resets it; runs of blank or lazy lines
+        // then cost one scan between them, not one each.
+        fn insideFence(known: *?bool, text: []const u8) bool {
+            if (known.*) |v| return v;
+            const v = tmpInsideFence(text);
+            known.* = v;
+            return v;
         }
 
         fn tmpInsideFence(text: []const u8) bool {
@@ -4196,6 +4375,7 @@ pub fn Make(comptime options: Options) type {
             var tmp = Writer.init(tmp_buf[0..]);
             var started = false;
             var allow_lazy = false;
+            var fence_open: ?Fence = null;
 
             while (i < lines_count) : (i += 1) {
                 const line = lineSlice(input, i);
@@ -4203,19 +4383,18 @@ pub fn Make(comptime options: Options) type {
                     break;
                 }
                 var stripped_line = Writer.init(tmp2_buf[0..]);
-                if (appendBlockquoteStripped(&stripped_line, line)) {
+                if (appendBlockquoteStripped(&stripped_line, line, fence_open == null, allow_lazy)) {
                     const stripped = stripped_line.buf[0..stripped_line.idx];
                     appendTmp(&tmp, stripped);
                     appendTmp(&tmp, "\n");
                     started = true;
                     allow_lazy = !isBlankLine(stripped) and leavesLazyParagraphOpen(stripped);
+                    if (doc_has_tab) trackFence(&fence_open, stripped);
                     continue;
                 }
                 if (!started or !allow_lazy or !canLazyContinue(line)) break;
                 // Lazy continuation line inside an open blockquote paragraph.
-                if (parseSetextUnderline(line) != null) appendTmp(&tmp, "    ");
-                appendTmp(&tmp, trimRightCR(line));
-                appendTmp(&tmp, "\n");
+                appendLazyLine(&tmp, line, true);
                 allow_lazy = true;
             }
 
@@ -4240,8 +4419,8 @@ pub fn Make(comptime options: Options) type {
                 const item_content_base = listItemContinuationBase(line, mark);
                 var saw_nested_list = false;
                 var saw_nonblank = if (mark.content_start < line.len) trimAscii(line[mark.content_start..]).len != 0 else false;
-                var in_fence: ?Fence = if (mark.content_start < line.len) parseFenceOpen(line[mark.content_start..]) else null;
-                var lazy_ok = mark.content_start < line.len and contentOpensParagraph(line[mark.content_start..]);
+                var in_fence: ?Fence = if (!mark.code_first and mark.content_start < line.len) parseFenceOpen(line[mark.content_start..]) else null;
+                var lazy_ok = !mark.code_first and mark.content_start < line.len and contentOpensParagraph(line[mark.content_start..]);
 
                 var j = i + 1;
                 while (j < lines_count) : (j += 1) {
@@ -4324,16 +4503,22 @@ pub fn Make(comptime options: Options) type {
                 var saw_nonblank = trimAscii(tmp.buf[0..tmp.idx]).len != 0;
                 var separator_blank = false;
                 var saw_nested_list = false;
-                const first_line_trimmed = trimRightCR(line);
-                var lazy_ok = mark.content_start < first_line_trimmed.len and
-                    contentOpensParagraph(first_line_trimmed[mark.content_start..]);
+                var lazy_ok = contentOpensParagraph(tmp.buf[0..tmp.idx]);
                 var fence_trailing_blank = false;
+                var in_fence: ?bool = null;
+                // Only followed in documents with tabs; see appendContainerPrefix.
+                var fence_open: ?Fence = null;
+                var has_container = false;
+                if (doc_has_tab) {
+                    trackFence(&fence_open, tmp.buf[0..tmp.idx]);
+                    has_container = !mark.code_first and opensContainer(tmp.buf[0..tmp.idx]);
+                }
 
                 var j = i + 1;
                 while (j < lines_count) : (j += 1) {
                     const ln = lineSlice(input, j);
                     if (isBlankLine(ln)) {
-                        if (saw_nonblank and tmpInsideFence(tmp.buf[0..tmp.idx])) {
+                        if (saw_nonblank and insideFence(&in_fence, tmp.buf[0..tmp.idx])) {
                             // Inside an open fence the blank is fence content
                             // and cannot end the item.
                             appendTmp(&tmp, "\n");
@@ -4361,7 +4546,7 @@ pub fn Make(comptime options: Options) type {
                             break;
                         }
                         appendTmp(&tmp, "\n");
-                        if (!tmpInsideFence(tmp.buf[0..tmp.idx]) and (!saw_nested_list or next_ind.cols <= item_content_base + 1) and
+                        if (!insideFence(&in_fence, tmp.buf[0..tmp.idx]) and (!saw_nested_list or next_ind.cols <= item_content_base + 1) and
                             !itemTailIsDefsOnly(input, k, item_content_base))
                         {
                             item_has_blank = true;
@@ -4377,14 +4562,8 @@ pub fn Make(comptime options: Options) type {
                         if (ind.cols < item_content_base) break;
                     }
                     if (ind.cols < item_content_base and maybe_next == null) {
-                        if (saw_nonblank and lazy_ok and !tmpInsideFence(tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
-                            appendTmp(&tmp, "\n");
-                            // A setext underline cannot be a lazy continuation
-                            // line; indent it so it stays paragraph text after
-                            // reassembly (leading whitespace is stripped during
-                            // paragraph assembly).
-                            if (parseSetextUnderline(ln) != null) appendTmp(&tmp, "    ");
-                            appendTmp(&tmp, trimRightCR(ln));
+                        if (saw_nonblank and lazy_ok and !insideFence(&in_fence, tmp.buf[0..tmp.idx]) and canLazyContinue(ln)) {
+                            appendLazyLine(&tmp, ln, false);
                             saw_nonblank = true;
                             continue;
                         }
@@ -4397,10 +4576,21 @@ pub fn Make(comptime options: Options) type {
                     }
 
                     appendTmp(&tmp, "\n");
-                    appendListContinuation(&tmp, ln, item_content_base);
+                    // Four columns past the item's own indent is indented
+                    // code unless an inner container can claim them.
+                    const deep = ind.cols >= item_content_base + 4;
+                    const text_line = lazy_ok and orderedNotOne(ln[ind.idx..]);
+                    const copied_at = tmp.idx;
+                    appendListContinuation(&tmp, ln, item_content_base, fence_open == null and (has_container or !deep) and !text_line);
+                    const content = tmp.buf[copied_at..tmp.idx];
+                    in_fence = null;
+                    if (doc_has_tab) {
+                        trackFence(&fence_open, content);
+                        if (!deep and opensContainer(ln[ind.idx..])) has_container = true;
+                    }
                     saw_nonblank = true;
                     fence_trailing_blank = false;
-                    lazy_ok = contentOpensParagraph(stripIndentCols(ln, item_content_base));
+                    lazy_ok = contentOpensParagraph(content);
                 }
 
                 if (fence_trailing_blank) appendTmp(&tmp, "\n");
@@ -4714,6 +4904,8 @@ pub fn Make(comptime options: Options) type {
 
         pub fn renderMarkdown(input: []const u8, out: []u8) u32 {
             if (!splitLines(input)) return 0;
+            doc_has_tab = indexOfByte(input, 0, '\t') < input.len;
+            lazy_join_used = false;
             collectReferenceDefs(input);
             var w = Writer.init(out);
             renderBlocks(input, &w);

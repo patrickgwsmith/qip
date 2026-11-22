@@ -51,6 +51,8 @@ const atoms = [
   "1234567890)", "  - ", "    - ", "      ", "\r",
   // Extended-autolink anchors and local-part edge cases.
   "www.", "www", "https://x.y/z", "ftp://", "://", "@", ".", "_", "+", "x_y@z.w", "a+www.b@c.de", "a._b@c.d",
+  // Tabs after container markers, and lines shaped like setext underlines.
+  "-\t", "1.\t", ">\t", "====", "--",
 ];
 function genLine() {
   let s = "";

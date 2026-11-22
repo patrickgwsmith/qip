@@ -46,6 +46,16 @@ w("many-paragraphs", "para text\n\n" * 4000)
 # whether an email runs through it; none of that may rescan a long run.
 w("autolink-underscores", "_a" * 20000 + "@b\n\n\\-" + "_a" * 20000 + "@b.cc\n")
 w("autolink-anchors", "a@ " * 5000 + "www. " * 5000 + "http:// " * 5000 + "+www." * 5000 + "@b\n")
+# A '<' that opens nothing must fail where its text stops fitting a tag,
+# autolink or comment, not after a search for a '>' that is far away or absent.
+w("angle-brackets", "<" * 40000 + "\n\n" + "<a " * 20000 + ">\n\n" + "<a b='" * 10000 + "\n")
+w("angle-unclosed", "<!-- a " * 10000 + "\n\n" + "<? a " * 10000 + "\n\n" + "<!a " * 10000
+                    + "\n\n" + "<![CDATA[ " * 8000 + "\n")
+# Lazy lines are joined to the item's paragraph one by one; neither the join
+# nor the fence check before it may rescan the item.
+w("lazy-lines", "- a\n" + "b\n" * 20000 + "\n- x\n  - a\n" + "  ===\n" * 20000
+                + "\n- > a\n" + "===\n" * 20000)
+w("fence-blanks", "- ```\n" + "\n" * 20000 + "  ```\n")
 # KNOWN-SLOW: superlinear today, budgeted at current-or-better.
 w("em-open", "*a " * 300)
 w("em-nest", "*a **a " * 150)
@@ -77,6 +87,10 @@ run_case deep-blockquote 2000
 run_case many-paragraphs 4000
 run_case autolink-underscores 2000
 run_case autolink-anchors 2000
+run_case angle-brackets 2000
+run_case angle-unclosed 2000
+run_case lazy-lines 2000
+run_case fence-blanks 2000
 run_case em-open 2000
 run_case em-nest 2000
 # KNOWN-SLOW budgets — block-level quadratics (reference-definition collection,
