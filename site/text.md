@@ -137,6 +137,19 @@ See the [syntax highlight comparison](/syntax-highlight-comparison) for its outp
 
 - [`c-to-bmp.wasm`](/text/x-c/c-to-bmp.wasm) renders the supported C syntax subset to a BMP image.
 
+### WebAssembly text (`text/wat`)
+
+- [`wat-to-wasm.wasm`](/text/wat/wat-to-wasm.wasm) assembles a WebAssembly text module (WAT) into binary `application/wasm`. For valid modules the output is byte for byte the same as WABT 1.0.42 `wat2wasm`, without a name section. It accepts Core 2.0 with SIMD, plus relaxed SIMD, tail calls, extended constants, threads atomics, multi-memory and 64-bit memories. It does not accept exception handling, typed function references, GC or annotations. [`wat-to-wasm-odin.wasm`](/text/wat/wat-to-wasm-odin.wasm) is the Odin implementation, with the same output and the same rejections.
+
+  It assembles but does not type-check, so put the Core 2.0 validator after it:
+
+  ```sh
+  npx qipdo qip.dev -i text/base64-decode.wat -o base64-decode.wasm \
+    text/wat/wat-to-wasm.wasm application/wasm/wasm-validate-core-2.0.wasm
+  ```
+
+  On malformed text it reports the offset of the bad token and one of five failure modes: syntax, unknown or duplicate name, bad number, unsupported feature, or size limit. Input is limited to 1 MiB.
+
 ## Dates
 
 - [`calendar-gregorian.wasm`](/text/calendar-gregorian.wasm) renders a `YYYY-MM` value as a Monday-first Markdown calendar.

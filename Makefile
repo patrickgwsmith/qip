@@ -696,6 +696,11 @@ application/dns-message/dns-query-to-dns-message.wasm: ZIG_WASM_MAX_MEMORY = 111
 application/dns-message/dns-message-to-text.wasm application/dns-message/dns-query-to-dns-message.wasm: application/dns-message/lib/dns.zig
 # Fixed compute IR and packetization scratch require 36 Wasm pages.
 text/wgsl/wgsl-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 2490368
+
+# 1 MiB input, 2 MiB output and code buffers, an 8 MiB token table so the
+# text is lexed once, name and type tables, and nesting and locals tables
+# sized so that no 1 MiB input can fill them.
+text/wat/wat-to-wasm.wasm: ZIG_WASM_MAX_MEMORY = 27262976
 application/warc/warc-add-open-graph-image-meta.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-add-custom-element-scripts.wasm: ZIG_WASM_MAX_MEMORY = 671088640
 application/warc/warc-text-uri-list-to-redirect.wasm: ZIG_WASM_MAX_MEMORY = 671088640
@@ -1214,6 +1219,13 @@ image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: ODIN
 image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.wasm: image/ktx2/ktx2-rgba32float-bt709-linear-resize-up-mitchell-odin-simd.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -strict-target-features -target-features:simd128 -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
 
+# Port of text/wat/wat-to-wasm.zig with the same buffers and tables, so the
+# same memory ceiling. -o:speed is about a third faster here but half as
+# large again, so this builds for size.
+text/wat/wat-to-wasm-odin.wasm: ODIN_WASM_MAX_MEMORY = 27262976
+text/wat/wat-to-wasm-odin.wasm: text/wat/wat-to-wasm-odin.odin
+	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:size -extra-linker-flags:"-z stack-size=65536 --strip-all --max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
+
 image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: ODIN_WASM_MAX_MEMORY = 134217728
 image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear-odin.wasm: image/ktx2/solid-color-to-ktx2-rgba32float-display-p3-linear.odin
 	odin build $< -file -target:freestanding_wasm32 -no-entry-point -no-bounds-check -o:speed -extra-linker-flags:"--max-memory=$(ODIN_WASM_MAX_MEMORY)" -out:$@
@@ -1507,6 +1519,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/tzif-transitions-csv.mjs
 	node --test test/dns-message.mjs
 	node --test test/wgsl-to-wasm.mjs
+	node --test test/wat-to-wasm.mjs
 	node --test test/i-regexp-to-wasm.mjs
 	node --test test/validate-hostname.mjs
 	node --test test/wgsl-pixel-kernels.mjs
