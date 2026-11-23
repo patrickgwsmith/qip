@@ -11,7 +11,7 @@ const specs = [
   { name: "peon-gold", width: 320, height: 220, event: (exports) => exports.key_event(0xff53, 1), wake: 16n },
   { name: "vertical-shooter", width: 240, height: 240, event: (exports) => exports.pointer_event(1, 40, 100), wake: 16n },
   { name: "textedit", width: 750, height: 800, event: (exports) => exports.key_event("Q".codePointAt(0), 1), wake: 501n },
-  { name: "macos9-desktop", width: 320, height: 220, event: (exports) => exports.pointer_event(1, 246, 36), wake: 1n },
+  { name: "macos9-desktop", width: 640, height: 480, event: (exports) => exports.pointer_event(1, 246, 36), wake: 1n },
   { name: "windows95-desktop", width: 320, height: 220, event: (exports) => exports.pointer_event(1, 12, 206), wake: 1n },
   { name: "macosx-leopard-desktop", width: 320, height: 220, event: (exports) => exports.pointer_event(0, 150, 190), wake: 1n },
 ];
