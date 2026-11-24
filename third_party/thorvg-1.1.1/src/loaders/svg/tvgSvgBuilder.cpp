@@ -752,6 +752,10 @@ static bool _isValidImageMimeTypeAndEncoding(const char** href, const char** mim
 
 #include "tvgTaskScheduler.h"
 
+#ifdef QIP_SINGLE_THREAD
+static Matrix _calculateAspectRatioMatrix(AspectRatioAlign align, AspectRatioMeetOrSlice meetOrSlice, float width, float height, const Box& box);
+#endif
+
 static Paint* _imageBuildHelper(SvgParserContext& ctx, SvgNode* node, const Box& vBox, const string& svgPath)
 {
     if (!node->node.image.href || !strlen(node->node.image.href)) return nullptr;
@@ -763,18 +767,29 @@ static Paint* _imageBuildHelper(SvgParserContext& ctx, SvgNode* node, const Box&
         href += sizeof("data:") - 1;
         const char* mimetype;
         imageMimeTypeEncoding encoding;
-        if (!_isValidImageMimeTypeAndEncoding(&href, &mimetype, &encoding)) return nullptr; //not allowed mime type or encoding
+        if (!_isValidImageMimeTypeAndEncoding(&href, &mimetype, &encoding)) {
+#ifdef QIP_SINGLE_THREAD
+            Paint::rel(picture);
+#endif
+            return nullptr; //not allowed mime type or encoding
+        }
         char *decoded = nullptr;
         if (encoding == imageMimeTypeEncoding::base64) {
             auto size = b64Decode(href, strlen(href), &decoded);
             if (picture->load(decoded, size, mimetype) != Result::Success) {
                 tvg::free(decoded);
+#ifdef QIP_SINGLE_THREAD
+                Paint::rel(picture);
+#endif
                 return nullptr;
             }
         } else {
             auto size = svgUtilURLDecode(href, &decoded);
             if (picture->load(decoded, size, mimetype) != Result::Success) {
                 tvg::free(decoded);
+#ifdef QIP_SINGLE_THREAD
+                Paint::rel(picture);
+#endif
                 return nullptr;
             }
         }
@@ -786,6 +801,9 @@ static Paint* _imageBuildHelper(SvgParserContext& ctx, SvgNode* node, const Box&
         const char *dot = strrchr(href, '.');
         if (dot && STR_AS(dot, ".svg")) {
             TVGLOG("SVG", "Embedded svg file is disabled.");
+#ifdef QIP_SINGLE_THREAD
+            Paint::rel(picture);
+#endif
             return nullptr;
         }
         string imagePath = href;
@@ -794,12 +812,60 @@ static Paint* _imageBuildHelper(SvgParserContext& ctx, SvgNode* node, const Box&
             imagePath = svgPath.substr(0, (last == string::npos ? 0 : last + 1)) + imagePath;
         }
         if (picture->load(imagePath.c_str()) != Result::Success) {
+#ifdef QIP_SINGLE_THREAD
+            Paint::rel(picture);
+#endif
             return nullptr;
         }
     }
 
     float w, h;
     Matrix m;
+#ifdef QIP_SINGLE_THREAD
+    Paint* imagePaint = picture;
+    if (picture->size(&w, &h) == Result::Success && w > 0 && h > 0) {
+        auto& image = node->node.image;
+        // SVG 2 auto sizing: a missing width or height follows the bitmap's
+        // own size, keeping its aspect ratio when only one is given.
+        auto iw = image.w;
+        auto ih = image.h;
+        if (iw <= 0 && ih <= 0) {
+            iw = w;
+            ih = h;
+        } else if (iw <= 0) {
+            iw = ih * w / h;
+        } else if (ih <= 0) {
+            ih = iw * h / w;
+        }
+        Box box = {0, 0, w, h};
+        m = _calculateAspectRatioMatrix(image.align, image.meetOrSlice, iw, ih, box);
+        m.e13 += image.x;
+        m.e23 += image.y;
+        if (node->transform) m = *node->transform * m;
+        picture->transform(m);
+
+        // A sliced bitmap overflows its viewport, so clip it there. The clip
+        // gets its own scene so a clip-path on the image can still be added
+        // to the outer scene below.
+        if (image.align != AspectRatioAlign::None && image.meetOrSlice == AspectRatioMeetOrSlice::Slice) {
+            auto viewport = Shape::gen();
+            viewport->appendRect(image.x, image.y, iw, ih);
+            if (node->transform) viewport->transform(*node->transform);
+            auto clipped = Scene::gen();
+            clipped->clip(viewport);
+            clipped->add(picture);
+            auto outer = Scene::gen();
+            outer->add(clipped);
+            imagePaint = outer;
+        }
+    } else {
+        m = tvg::identity();
+        if (node->transform) m = *node->transform * m;
+        picture->transform(m);
+    }
+
+    auto p = _applyFilter(ctx, imagePaint, node, vBox, svgPath);
+#else
     if (picture->size(&w, &h) == Result::Success && w > 0 && h > 0) {
         auto sx = node->node.image.w / w;
         auto sy = node->node.image.h / h;
@@ -811,6 +877,7 @@ static Paint* _imageBuildHelper(SvgParserContext& ctx, SvgNode* node, const Box&
     picture->transform(m);
 
     auto p = _applyFilter(ctx, picture, node, vBox, svgPath);
+#endif
     p = _applyComposition(ctx, p, node, vBox, svgPath);
     return _applyBlend(p, node);
 }

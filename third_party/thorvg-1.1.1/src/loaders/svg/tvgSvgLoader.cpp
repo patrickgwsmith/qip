@@ -2065,6 +2065,10 @@ static bool _attrParseImageNode(void* data, const char* key, const char* value)
     if (STR_AS(key, "href") || STR_AS(key, "xlink:href")) {
         if (value) tvg::free(image->href);
         image->href = _idFromHref(value);
+#ifdef QIP_SINGLE_THREAD
+    } else if (STR_AS(key, "preserveAspectRatio")) {
+        _parseAspectRatio(&value, &image->align, &image->meetOrSlice);
+#endif
     } else if (STR_AS(key, "id")) _copyId(&node->id, value);
     else if (STR_AS(key, "class")) _handleCssClassAttr(ctx, node, value);
     else if (STR_AS(key, "style")) return xmlParseW3CAttribute(value, strlen(value), _parseStyleAttr, ctx);
@@ -2082,6 +2086,10 @@ static SvgNode* _createImageNode(SvgParserContext* ctx, SvgNode* parent, const c
     ctx->parser->node = _createNode(parent, SvgNodeType::Image);
 
     if (!ctx->parser->node) return nullptr;
+#ifdef QIP_SINGLE_THREAD
+    ctx->parser->node->node.image.align = AspectRatioAlign::XMidYMid;
+    ctx->parser->node->node.image.meetOrSlice = AspectRatioMeetOrSlice::Meet;
+#endif
 
     func(buf, bufLength, _attrParseImageNode, ctx);
     return ctx->parser->node;
@@ -3226,6 +3234,10 @@ static void _copyAttr(SvgNode* to, const SvgNode* from)
             to->node.image.y = from->node.image.y;
             to->node.image.w = from->node.image.w;
             to->node.image.h = from->node.image.h;
+#ifdef QIP_SINGLE_THREAD
+            to->node.image.align = from->node.image.align;
+            to->node.image.meetOrSlice = from->node.image.meetOrSlice;
+#endif
             svgUtilReplace(&to->node.image.href, from->node.image.href);
             break;
         }

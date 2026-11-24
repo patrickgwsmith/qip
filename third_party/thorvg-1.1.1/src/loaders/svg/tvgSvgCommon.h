@@ -372,6 +372,12 @@ struct SvgImageNode
 {
     float x, y, w, h;
     char* href;
+#ifdef QIP_SINGLE_THREAD
+    // QIP patch: <image preserveAspectRatio>. Upstream 1.1.1 stretches the
+    // bitmap to the width and height and ignores this attribute.
+    AspectRatioAlign align;
+    AspectRatioMeetOrSlice meetOrSlice;
+#endif
 };
 
 struct SvgPathNode

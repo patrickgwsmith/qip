@@ -5,7 +5,7 @@
 #include "thorvg.h"
 #include "ktx2-rgba8-srgb.h"
 
-#define INPUT_CAP (1024u * 1024u)
+#define INPUT_CAP (8u * 1024u * 1024u)
 #define OUTPUT_CAP QIP_KTX2_RGBA8_MAX_FILE_SIZE
 #define ARENA_CAP (384u * 1024u * 1024u)
 #define NO_BLOCK UINT32_MAX

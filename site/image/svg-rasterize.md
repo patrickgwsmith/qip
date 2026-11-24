@@ -356,8 +356,8 @@ converted from linear light to sRGB for display.
 | [QIP center-sampled](/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm) | One sample per pixel | RGBA8 sRGB KTX2 | <qip-content-size src="/image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm"></qip-content-size> | 128 MiB | Inter Display Regular and Bold outlines |
 | [QIP center-sampled BMP](/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm) | One sample per pixel | B8G8R8A8 sRGB BMP | <qip-content-size src="/image/svg+xml/svg-rasterize-to-bmp-b8g8r8a8-srgb.wasm"></qip-content-size> | 128 MiB | Inter Display Regular and Bold outlines |
 
-Skia accepts up to 32 MiB of SVG and fonts together; the others accept up to
-1 MiB of SVG. All output at most 8192 pixels per side and 25 million pixels in
+Skia accepts up to 32 MiB of SVG and fonts together, ThorVG up to 8 MiB of
+SVG, and the others up to 1 MiB of SVG. All output at most 8192 pixels per side and 25 million pixels in
 total. None of them load external resources. The BMP
 component has no `width` or `height` uniform.
 
@@ -366,7 +366,8 @@ component has no `width` or `height` uniform.
 - **Skia** has the broadest SVG support, including masks, filters, and
   `<text>`. It is by far the largest download.
 - **ThorVG** covers a broad SVG paint model with antialiased edges at a
-  fraction of Skia’s size, but it does not render text.
+  fraction of Skia’s size, and draws PNG and JPEG images embedded as `data:`
+  URIs. It does not render text.
 - **QIP SIMD, linear light** keeps floating-point linear-light output for
   later linear-light stages.
 - **QIP SIMD** uses the same antialiasing and quantizes to RGBA8.

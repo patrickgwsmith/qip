@@ -828,10 +828,14 @@ THORVG_COMMON_NAMES := tvgCompressor tvgMath tvgStr
 THORVG_RENDERER_NAMES := tvgAccessor tvgAnimation tvgCanvas tvgFill tvgInitializer tvgLoaderMgr tvgPaint tvgPicture tvgRender tvgSaver tvgScene tvgShape tvgTaskScheduler tvgText
 THORVG_CPU_NAMES := tvgSwBlendOp tvgSwFill tvgSwImage tvgSwMemPool tvgSwPostEffect tvgSwRaster tvgSwRenderer tvgSwRle tvgSwShape tvgSwStroke tvgSwUtil
 THORVG_SVG_NAMES := tvgSvgBuilder tvgSvgCssStyle tvgSvgLoader tvgSvgPath tvgSvgUtil tvgXmlParser
+THORVG_PNG_NAMES := tvgLodePng tvgLodePngUtil tvgPngLoader
+THORVG_JPG_NAMES := tvgJpgd tvgJpgLoader
 THORVG_CPP_SOURCES := $(addprefix $(THORVG_ROOT)/src/common/,$(addsuffix .cpp,$(THORVG_COMMON_NAMES)))
 THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/renderer/,$(addsuffix .cpp,$(THORVG_RENDERER_NAMES)))
 THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/renderer/cpu_engine/,$(addsuffix .cpp,$(THORVG_CPU_NAMES)))
 THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/loaders/svg/,$(addsuffix .cpp,$(THORVG_SVG_NAMES)))
+THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/loaders/png/,$(addsuffix .cpp,$(THORVG_PNG_NAMES)))
+THORVG_CPP_SOURCES += $(addprefix $(THORVG_ROOT)/src/loaders/jpg/,$(addsuffix .cpp,$(THORVG_JPG_NAMES)))
 THORVG_CPP_SOURCES += $(THORVG_ROOT)/src/loaders/raw/tvgRawLoader.cpp
 
 LIBJXL_ROOT := third_party/libjxl-0.12.0
@@ -916,7 +920,7 @@ THORVG_SVG_CLANG_EXPORT_FLAGS := $(foreach name,$(THORVG_SVG_CLANG_EXPORTS),-Xli
 FJXL_KTX_CLANG_EXPORTS := render input_ptr input_bytes_cap output_bytes_cap input_content_type_ptr input_content_type_size output_content_type_ptr output_content_type_size uniform_set_effort encoded_channel_count arena_peak_bytes arena_live_bytes arena_allocation_count arena_largest_allocation arena_failed_allocation arena_free_count arena_free_unmatched_count __wasm_call_ctors
 FJXL_KTX_CLANG_EXPORT_FLAGS := $(foreach name,$(FJXL_KTX_CLANG_EXPORTS),-Xlinker --export=$(name))
 FJXL_CLANG_FLAGS := -std=c++17 -O3 -ffunction-sections -fdata-sections -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-math-errno -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DFJXL_STANDALONE=1 -DNDEBUG
-THORVG_INCLUDE_FLAGS := -I$(THORVG_ROOT)/qip -I$(THORVG_ROOT)/inc -I$(THORVG_ROOT)/src/common -I$(THORVG_ROOT)/src/renderer -I$(THORVG_ROOT)/src/renderer/cpu_engine -I$(THORVG_ROOT)/src/loaders -I$(THORVG_ROOT)/src/loaders/svg -I$(THORVG_ROOT)/src/loaders/raw -Iimage/lib
+THORVG_INCLUDE_FLAGS := -I$(THORVG_ROOT)/qip -I$(THORVG_ROOT)/inc -I$(THORVG_ROOT)/src/common -I$(THORVG_ROOT)/src/renderer -I$(THORVG_ROOT)/src/renderer/cpu_engine -I$(THORVG_ROOT)/src/loaders -I$(THORVG_ROOT)/src/loaders/svg -I$(THORVG_ROOT)/src/loaders/raw -I$(THORVG_ROOT)/src/loaders/png -I$(THORVG_ROOT)/src/loaders/jpg -Iimage/lib
 THORVG_CLANG_FLAGS := -std=c++14 -O3 -ffunction-sections -fdata-sections -msimd128 -mbulk-memory -fno-exceptions -fno-rtti -fno-threadsafe-statics -fno-stack-protector -fno-math-errno -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free -fno-builtin-memcpy -U__STDCPP_THREADS__ -D_LIBCPP_ABI_VERSION=2 -DTVG_STATIC -DNDEBUG
 LIBWEBP_CLANG_FEATURE_FLAGS := -msimd128 -mbulk-memory -DEMSCRIPTEN=1 -D__SSE__=1 -D__SSE2__=1 -D__SSE3__=1 -D__SSSE3__=1 -D__SSE4_1__=1
 
@@ -1044,7 +1048,7 @@ test-svg-text-to-path-skia: image/svg+xml/svg-text-to-path-skia-with-fonts.wasm 
 
 components: image/svg+xml/svg-text-to-path-skia-with-fonts.wasm
 
-$(THORVG_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.cpp image/lib/ktx2-rgba8-srgb.h $(THORVG_CPP_SOURCES) $(THORVG_ROOT)/qip/config.h $(THORVG_ROOT)/src/common/tvgLock.h $(THORVG_ROOT)/src/renderer/tvgLoader.h $(EMSDK_LTO_STAMP)
+$(THORVG_SVG_CLANG_RAW_WASM): image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.cpp image/lib/ktx2-rgba8-srgb.h $(THORVG_CPP_SOURCES) $(THORVG_ROOT)/qip/config.h $(THORVG_ROOT)/src/common/tvgLock.h $(THORVG_ROOT)/src/renderer/tvgLoader.h $(THORVG_ROOT)/src/loaders/svg/tvgSvgCommon.h $(EMSDK_LTO_STAMP)
 	$(EMSDK_CLANG) --target=wasm32-unknown-emscripten --sysroot=$(EMSDK_SYSROOT) $(THORVG_INCLUDE_FLAGS) $(THORVG_CLANG_FLAGS) -nostdlib -Wl,--gc-sections $< $(THORVG_CPP_SOURCES) -L$(EMSDK_LIBDIR) -Wl,--no-entry -Wl,--initial-memory=536870912 -Wl,--max-memory=536870912 $(WASM_STACK_FLAG) $(THORVG_SVG_CLANG_EXPORT_FLAGS) -lc -lcompiler_rt -lc++-noexcept -lc++abi-noexcept -lc_rt_wasm -o $@
 
 image/svg+xml/svg-rasterize-thorvg-to-ktx2-r8g8b8a8-srgb.wasm: $(THORVG_SVG_CLANG_RAW_WASM)
