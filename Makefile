@@ -489,6 +489,12 @@ gui/colosseum.wasm gui/highway-chase.wasm gui/hovercraftsman.wasm gui/rotunda.wa
 gui/gameboy-camera.wasm gui/liars-dice.wasm gui/macos9-desktop.wasm gui/macosx-leopard-desktop.wasm gui/org_planner.wasm gui/peon-gold.wasm gui/vertical-shooter.wasm gui/windows95-desktop.wasm: gui/%.wasm: gui/%.zig image/lib/ktx2-rgba8-srgb.zig
 	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb -Mroot=$< -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -femit-bin=$@
 
+# The SQLite Explorer reads databases with the shared vnd.sqlite3 reader and
+# draws cells in JetBrains Mono and labels in Inter.
+SQLITE_EXPLORER_MODULES = -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Msqlite=application/vnd.sqlite3/lib/sqlite.zig -Mjetbrains_mono=text/lib/jetbrains_mono_2_304_regular_latin_paths.zig -Minter_regular=text/lib/inter_display_latin_paths.zig
+gui/sqlite-explorer.wasm: gui/sqlite-explorer.zig application/vnd.sqlite3/lib/sqlite.zig image/lib/ktx2-rgba8-srgb.zig text/lib/inter_display_latin_paths.zig text/lib/jetbrains_mono_2_304_regular_latin_paths.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep ktx2_rgba8_srgb --dep sqlite --dep jetbrains_mono --dep inter_regular -Mroot=gui/sqlite-explorer.zig $(SQLITE_EXPLORER_MODULES) -femit-bin=$@
+
 # TextEdit rasterizes JetBrains Mono for the document and Inter for the window,
 # and draws Mac OS X 10.4 Tiger's window buttons from gui/assets.
 TEXTEDIT_MODULES = -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Minter_regular=text/lib/inter_display_latin_paths.zig -Mjetbrains_mono=text/lib/jetbrains_mono_2_304_regular_latin_paths.zig
@@ -1440,6 +1446,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/image-resize-worker.mjs
 	node --test test/interactive-host-decisions.mjs
 	node --test test/gif-player.mjs
+	node --test test/sqlite-explorer.mjs
 	node --test test/god-rays-optimized-timed.mjs
 	node --test test/chronograph-timed.mjs
 	node --test test/macintosh-1bit-interactive.mjs
@@ -1768,6 +1775,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba32float -Mroot="$$f" -Mktx2_rgba32float=image/lib/ktx2-rgba32float.zig || status=1; \
 		elif [ "$$f" = "gui/chronograph.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep ktx2_rgba32float_display_p3_linear -Mroot="$$f" -Mktx2_rgba8_srgb=image/lib/ktx2-rgba8-srgb.zig -Mktx2_rgba32float_display_p3_linear=image/lib/ktx2-rgba32float-display-p3-linear.zig || status=1; \
+		elif [ "$$f" = "gui/sqlite-explorer.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep sqlite --dep jetbrains_mono --dep inter_regular -Mroot="$$f" $(SQLITE_EXPLORER_MODULES) || status=1; \
 		elif [ "$$f" = "gui/textedit.zig" ]; then \
 			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep ktx2_rgba8_srgb --dep inter_regular --dep jetbrains_mono -Mroot="$$f" $(TEXTEDIT_MODULES) || status=1; \
 		elif [ "$$f" = "gui/macintosh-1bit.zig" ]; then \

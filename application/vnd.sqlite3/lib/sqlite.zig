@@ -553,10 +553,27 @@ pub fn selectTable(db: *Db, ordinal: usize, out: *SelectedTable) void {
 /// Calls `onRow` for every row in rowid order. The callback returns false to
 /// stop early. Errors are reported through `db.setError`.
 pub fn walkTableRows(db: *Db, page_num: u32, ctx: anytype, comptime onRow: fn (@TypeOf(ctx), LeafCell) bool) void {
-    _ = walkTablePage(db, page_num, ctx, onRow);
+    const Ctx = struct { db: *Db, inner: @TypeOf(ctx) };
+    const Adapter = struct {
+        fn onCell(c: Ctx, cell_off: usize) bool {
+            const cell = readLeafTableCell(c.db, cell_off) orelse {
+                c.db.setError("table row payload decode failed");
+                return false;
+            };
+            return onRow(c.inner, cell);
+        }
+    };
+    _ = walkTablePage(db, page_num, Ctx{ .db = db, .inner = ctx }, Adapter.onCell);
 }
 
-fn walkTablePage(db: *Db, page_num: u32, ctx: anytype, comptime onRow: fn (@TypeOf(ctx), LeafCell) bool) bool {
+/// Calls `onCell` with the file offset of every table leaf cell in rowid
+/// order, without decoding the cells. Pass an offset to readLeafTableCell to
+/// decode it later; callers that page through rows use this to build an index.
+pub fn walkTableCellOffsets(db: *Db, page_num: u32, ctx: anytype, comptime onCell: fn (@TypeOf(ctx), usize) bool) void {
+    _ = walkTablePage(db, page_num, ctx, onCell);
+}
+
+fn walkTablePage(db: *Db, page_num: u32, ctx: anytype, comptime onCell: fn (@TypeOf(ctx), usize) bool) bool {
     if (db.had_error) return false;
 
     const header_off = pageHeaderOffset(db, page_num) orelse {
@@ -597,9 +614,9 @@ fn walkTablePage(db: *Db, page_num: u32, ctx: anytype, comptime onRow: fn (@Type
                 db.setError("table interior child pointer");
                 return false;
             };
-            if (!walkTablePage(db, child, ctx, onRow)) return false;
+            if (!walkTablePage(db, child, ctx, onCell)) return false;
         }
-        return walkTablePage(db, right_ptr, ctx, onRow);
+        return walkTablePage(db, right_ptr, ctx, onCell);
     }
 
     if (page_type != 0x0d) {
@@ -623,12 +640,7 @@ fn walkTablePage(db: *Db, page_num: u32, ctx: anytype, comptime onRow: fn (@Type
             db.setError("table leaf cell pointer");
             return false;
         };
-        const cell_off = page_off + ptr;
-        const cell = readLeafTableCell(db, cell_off) orelse {
-            db.setError("table row payload decode failed");
-            return false;
-        };
-        if (!onRow(ctx, cell)) return false;
+        if (!onCell(ctx, page_off + ptr)) return false;
     }
     return true;
 }

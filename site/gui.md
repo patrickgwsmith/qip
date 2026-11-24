@@ -14,6 +14,7 @@ events, and timing.
 - [`graph-calculator.wasm`](/gui/graph-calculator.wasm) plots entered expressions.
 - [`paint.wasm`](/gui/paint.wasm) draws with pointer input.
 - [`spreadsheet.wasm`](/gui/spreadsheet.wasm) edits a grid of cells.
+- [`sqlite-explorer.wasm`](/gui/sqlite-explorer.wasm) takes a SQLite database file and browses its tables, rows, and CREATE statements.
 - [`svg-path-editor.wasm`](/gui/svg-path-editor.wasm) edits vector paths and returns SVG frames.
 - [`textedit.wasm`](/gui/textedit.wasm) provides a plain-text editor in a Mac OS X 10.4 Tiger window.
 - [`photo-light-table.wasm`](/gui/photo-light-table.wasm) arranges and browses photos.
