@@ -532,6 +532,25 @@ can be at most 24 MiB; each extracted
 package or chapter can be at most 2 MiB. For illustrated books or precise page
 layout, use a full EPUB reading app.
 
+### SQLite explorer
+
+Pass a SQLite database to browse its tables, rows and schema. Use Up and Down
+to choose a table, Tab to move into its rows, and the arrows to move between
+cells. Press `s` to see the table's columns and `CREATE` statement, and `[` or
+`]` to change tables. The bottom line shows the selected cell's full value.
+
+<copy-code>
+
+```sh
+npx qiptui qip.dev -i data.sqlite tui/sqlite-explorer.wasm
+```
+
+</copy-code>
+
+The explorer is read-only and does not run SQL. It reads UTF-8
+rollback-journal databases up to 16 MiB. It cannot read WAL-mode or UTF-16
+files, or the rows of `WITHOUT ROWID` tables.
+
 ## How they work
 
 Each component renders a complete UTF-8 text frame. The emoji finder is a

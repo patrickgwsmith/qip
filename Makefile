@@ -434,6 +434,10 @@ tui/plist-viewer.wasm: ZIG_WASM_MAX_MEMORY = 33554432
 tui/info-plist-viewer.wasm: ZIG_WASM_MAX_MEMORY = 33554432
 tui/info-plist-viewer.wasm: tui/plist-viewer.zig tui/lib/info-plist-schema.tsv
 
+# The SQLite Explorer TUI reads databases with the shared vnd.sqlite3 reader.
+tui/sqlite-explorer.wasm: tui/sqlite-explorer.zig application/vnd.sqlite3/lib/sqlite.zig
+	$(ZIG_ENV) zig build-exe $(ZIG_WASM_FLAGS) --max-memory=$(ZIG_WASM_MAX_MEMORY) --dep sqlite -Mroot=$< -Msqlite=application/vnd.sqlite3/lib/sqlite.zig -femit-bin=$@
+
 gui/svg-path-editor.wasm: ZIG_WASM_MAX_MEMORY = 8388608
 gui/svg-gradient-editor.wasm: ZIG_WASM_MAX_MEMORY = 2097152
 gui/openai-anthropic-arr-svg.wasm gui/openai-anthropic-arr-keyed-svg.wasm: ZIG_WASM_MAX_MEMORY = 2097152
@@ -1435,6 +1439,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node --test test/date-range-picker-svg.mjs
 	node --test test/svg-gradient-css.mjs
 	node --test test/qipdb.mjs
+	node --test test/sqlite-explorer-tui.mjs
 	node --test test/comply-cases.mjs
 	node --test test/qip-content-interpreter.mjs
 	node --test test/qipok-wasm.mjs
@@ -1819,6 +1824,8 @@ test-zig: $(ZIG_TEST_FILES)
 			$(ZIG_ENV) zig test "$$f" $(ZIG_TEST_FLAGS) || status=1; \
 		fi; \
 	done; \
+		elif [ "$$f" = "tui/sqlite-explorer.zig" ]; then \
+			$(ZIG_ENV) zig test $(ZIG_TEST_FLAGS) --dep sqlite -Mroot="$$f" -Msqlite=application/vnd.sqlite3/lib/sqlite.zig || status=1; \
 	exit $$status
 
 test-go:

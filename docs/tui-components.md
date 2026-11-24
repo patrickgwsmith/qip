@@ -210,6 +210,28 @@ to move through long trees. It shows data as a byte count. The input limit is
 Use another tool to edit or convert a plist, or to read an older OpenStep
 property list. This viewer only presents XML and binary plist values.
 
+To browse a SQLite database, pass the file to the SQLite Explorer:
+
+```sh
+npx qiptui -i data.sqlite ./tui/sqlite-explorer.wasm
+```
+
+The left column lists the user tables with their row counts. The main pane
+shows the selected table's rows, or its columns and `CREATE` statement. Use
+Up and Down to choose a table, and Tab or Enter to move into the rows. In the
+rows, the arrows move the selected cell, Page Up and Page Down move a page,
+`g` and `G` go to the first and last row, and Home and End go to the first and
+last column. `[` and `]` select the previous or next table from anywhere, and
+`s` switches between the rows and the schema. The line below the grid shows
+the selected cell's column, type, storage class and full value.
+
+The explorer reads the file in place with the same read-only reader as
+`gui/sqlite-explorer.wasm`. It accepts UTF-8 rollback-journal databases up to
+16 MiB, and indexes up to 1,048,576 rows per table. It shows the reason instead
+of a grid for WAL-mode and UTF-16 databases. It lists `WITHOUT ROWID` tables
+and their schema, but cannot show their rows yet. Use the `sqlite3` shell to
+run queries, follow indexes, or edit data.
+
 To browse the cases in a Compliance oracle, pass the oracle to the case viewer:
 
 ```sh
