@@ -152,7 +152,7 @@ class QIPPlayElement extends HTMLElement {
   _surfaceAbort = null; _activeKeyRepeats = new Map(); _pendingEvents = []; _eventSequence = 0;
   _shiftKeyDown = false; _altKeyDown = false; _pointerButtonMask = 0; _pointerPressAccepted = false;
   _pointerLock = false; _pointerTotalMovementX = 0; _pointerTotalMovementY = 0; _pointerMovementPending = false;
-  _isFocused = false; _focusChangePending = false;
+  _isFocused = false;
 
   async connectedCallback() {
     if (this._started) return;
@@ -505,13 +505,14 @@ class QIPPlayElement extends HTMLElement {
     return Boolean(this._exports && uniformSetter(this._exports, "is_focused"));
   }
 
-  // Runs an update so the module sees the change (and can restart or stop
-  // its own timers), then renders.
+  // Focus is a render-only uniform, like a fragment shader input: a change
+  // draws a new frame without running an update, so no module state depends
+  // on it.
   _setFocused(focused) {
     if (focused === this._isFocused) return;
     this._isFocused = focused;
     if (!this._hasFocusUniform()) return;
-    this._focusChangePending = true;
+    this._needsRender = true;
     this._resumeLoop();
   }
 
@@ -668,9 +669,8 @@ class QIPPlayElement extends HTMLElement {
   _runUpdate(nowMS, renderRequested) {
     const updateStart = performance.now();
     const begunAtMS = this._beginUpdate(Math.max(Math.floor(nowMS), this._finishedAtMS + 1));
-    const uniformsChanged = this._pointerMovementPending || this._focusChangePending;
+    const uniformsChanged = this._pointerMovementPending;
     this._pointerMovementPending = false;
-    this._focusChangePending = false;
     this._applyUniforms();
     const events = this._flushPendingEvents(nowMS);
     const shouldRender = this._canPresent() && (renderRequested || events.accepted || uniformsChanged);
@@ -1027,7 +1027,7 @@ class QIPPlayElement extends HTMLElement {
   }
 
   _hasDueEvents(nowMS) {
-    return this._pointerMovementPending || this._focusChangePending ||
+    return this._pointerMovementPending ||
       this._pendingEvents[0]?.timeMS <= nowMS || this._hasPendingRepeat(nowMS);
   }
 

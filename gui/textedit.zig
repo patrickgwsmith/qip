@@ -182,15 +182,17 @@ var lights_hover: bool = false;
 // pointer is still over it.
 var lights_pressed: i32 = -1;
 
-var blink_on: bool = true;
-var next_blink_at_ms: i64 = BLINK_INTERVAL_MS;
+// The caret blink is a function of time: it shows for the first
+// BLINK_INTERVAL_MS after blink_start_ms, hides for the next, and so on.
+// Edits and caret moves restart it. Render computes the phase from the
+// time of the last update, so a host that skips a wake loses nothing.
+var blink_start_ms: i64 = 0;
 // Whether this is the key window. A host that tracks focus, like
 // <qip-play>, sets the is_focused uniform; other hosts leave it on. An
 // inactive window draws the way Tiger drew background windows: a paler
-// title bar, gray buttons and thumb, a gray selection and no caret.
+// title bar, gray buttons and thumb, a gray selection and no caret. The
+// uniform affects only rendering: no update state reads it.
 var is_focused: bool = true;
-// Becoming focused restarts the caret blink at the next update.
-var blink_restart: bool = false;
 var needs_redraw: bool = true;
 var initialized: bool = false;
 
@@ -443,8 +445,7 @@ fn pointerInner(button_mask: i32, x_px: i32, y_px: i32, now_ms: i64) bool {
             mouse_selecting = false;
             last_primary_click_ms = -1000000;
             click_count = 0;
-            blink_on = true;
-            next_blink_at_ms = now_ms +| BLINK_INTERVAL_MS;
+            blink_start_ms = now_ms;
             needs_redraw = true;
             return true;
         }
@@ -494,15 +495,20 @@ fn requireUpdate() void {
 fn advanceUpdateTime() void {
     if (time_advanced) return;
     time_advanced = true;
-    if (blink_restart) {
-        blink_restart = false;
-        blink_on = true;
-        next_blink_at_ms = begun_at_ms +| BLINK_INTERVAL_MS;
-    } else if (is_focused and next_blink_at_ms > 0 and begun_at_ms >= next_blink_at_ms) {
-        blink_on = !blink_on;
-        next_blink_at_ms = begun_at_ms +| BLINK_INTERVAL_MS;
-        needs_redraw = true;
-    }
+    if (blinkOnAt(begun_at_ms) != blinkOnAt(committed_at_ms)) needs_redraw = true;
+}
+
+// Whether the caret blink is in its visible half at `now_ms`.
+fn blinkOnAt(now_ms: i64) bool {
+    if (now_ms <= blink_start_ms) return true;
+    return @mod(@divFloor(now_ms - blink_start_ms, BLINK_INTERVAL_MS), 2) == 0;
+}
+
+// The next time after `now_ms` at which the blink phase changes.
+fn nextBlinkAt(now_ms: i64) i64 {
+    if (now_ms < blink_start_ms) return blink_start_ms +| BLINK_INTERVAL_MS;
+    const periods = @divFloor(now_ms - blink_start_ms, BLINK_INTERVAL_MS) + 1;
+    return blink_start_ms +| periods *| BLINK_INTERVAL_MS;
 }
 
 export fn finish_update() i64 {
@@ -510,19 +516,15 @@ export fn finish_update() i64 {
     advanceUpdateTime();
     committed_at_ms = begun_at_ms;
     lifecycle_state = .ready;
-    // An inactive window has no caret, so it has nothing to wake for.
-    return if (is_focused and next_blink_at_ms > begun_at_ms) next_blink_at_ms else begun_at_ms;
+    // A selection hides the caret, so there is nothing to wake for. Focus
+    // is a render-only uniform, so an unfocused window still asks for blink
+    // wakes; a host may skip them, and the phase comes from time anyway.
+    return if (hasSelection()) begun_at_ms else nextBlinkAt(begun_at_ms);
 }
 
 // 1 while the window has focus, 0 while it doesn't. Defaults to 1.
 export fn uniform_set_is_focused(value: u32) u32 {
-    const focused = value != 0;
-    if (focused != is_focused) {
-        is_focused = focused;
-        blink_restart = focused;
-        blink_on = true;
-        needs_redraw = true;
-    }
+    is_focused = value != 0;
     return @intFromBool(is_focused);
 }
 
@@ -580,8 +582,7 @@ fn resetState() void {
     sb_arrow_down = 0;
     lights_hover = false;
     lights_pressed = -1;
-    blink_on = true;
-    next_blink_at_ms = BLINK_INTERVAL_MS;
+    blink_start_ms = 0;
 
     _ = insertSliceRaw(DEFAULT_TEXT);
     markSaved();
@@ -592,15 +593,13 @@ fn resetState() void {
 fn touchAfterEdit(now_ms: i64) void {
     preferred_col = -1;
     ensureCaretVisible();
-    blink_on = true;
-    next_blink_at_ms = now_ms +| BLINK_INTERVAL_MS;
+    blink_start_ms = now_ms;
     needs_redraw = true;
 }
 
 fn touchAfterNav(now_ms: i64) void {
     ensureCaretVisible();
-    blink_on = true;
-    next_blink_at_ms = now_ms +| BLINK_INTERVAL_MS;
+    blink_start_ms = now_ms;
     needs_redraw = true;
 }
 
@@ -2212,7 +2211,7 @@ fn drawDocumentText() void {
         }
     }
 
-    if (is_focused and blink_on and !hasSelection()) drawCaret();
+    if (is_focused and blinkOnAt(committed_at_ms) and !hasSelection()) drawCaret();
 }
 
 // The frame x of the gap before `idx` on the row starting at `rs`, held
@@ -2807,4 +2806,34 @@ test "pressing the title bar away from the buttons changes nothing" {
     try std.testing.expectEqual(@as(i32, 0), pointerEventAt(0, x, y, 20));
     try std.testing.expectEqual(@as(usize, 3), caret);
     try std.testing.expectEqual(@as(usize, 3), anchor);
+}
+
+test "the caret blink comes from time, so skipped wakes and focus change nothing" {
+    loadForTest("hello\n");
+    defer {
+        initialized = false;
+        lifecycle_state = .initializing;
+        committed_at_ms = 0;
+        is_focused = true;
+    }
+    lifecycle_state = .ready;
+    begin_update_at(10);
+    _ = key_event(XK_RIGHT, FLAG_KEY_DOWN);
+    const first_wake = finish_update();
+    try std.testing.expectEqual(@as(i64, 10 + BLINK_INTERVAL_MS), first_wake);
+    try std.testing.expect(blinkOnAt(committed_at_ms));
+    // Skip four wakes: the phase is the same as if each had run.
+    begin_update_at(10 + 4 * BLINK_INTERVAL_MS + 1);
+    try std.testing.expectEqual(@as(i64, 10 + 5 * BLINK_INTERVAL_MS), finish_update());
+    try std.testing.expect(blinkOnAt(committed_at_ms));
+    begin_update_at(10 + 5 * BLINK_INTERVAL_MS);
+    _ = finish_update();
+    try std.testing.expect(!blinkOnAt(committed_at_ms));
+    // Focus only stores the flag: it changes no blink or wake state.
+    const start = blink_start_ms;
+    _ = uniform_set_is_focused(0);
+    _ = uniform_set_is_focused(1);
+    try std.testing.expectEqual(start, blink_start_ms);
+    begin_update_at(10 + 5 * BLINK_INTERVAL_MS + 1);
+    try std.testing.expectEqual(@as(i64, 10 + 6 * BLINK_INTERVAL_MS), finish_update());
 }

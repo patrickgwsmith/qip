@@ -519,8 +519,13 @@ test("source uniforms are applied before every update and render", async () => {
 
 test("is_focused follows the surface's focus and replaces the focus ring", async () => {
   const values = [];
+  let updates = 0;
   fakes.set("focus", fakeComponent({
-    extra: { uniform_set_is_focused(value) { values.push(value); return value; } },
+    extra: {
+      uniform_set_is_focused(value) { values.push(value); return value; },
+      begin_update_at(at) { this.at = at; updates++; },
+      finish_update() { return this.at; },
+    },
   }));
   const element = await mount([source("/fake/focus")], { "svg-inline": "" });
   const surface = surfaceOf(element);
@@ -529,9 +534,12 @@ test("is_focused follows the surface's focus and replaces the focus ring", async
   assert.ok(values.length > 0 && values.every((value) => value === 0));
 
   values.length = 0;
+  const updatesBefore = updates;
   surface.fire("focus");
   assert.equal(runFrames() > 0, true);
   assert.ok(values.length > 0 && values.every((value) => value === 1));
+  // Focus is render-only: the change draws a frame but runs no update.
+  assert.equal(updates, updatesBefore);
 
   values.length = 0;
   surface.fire("blur");
