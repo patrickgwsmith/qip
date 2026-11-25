@@ -61,13 +61,67 @@ Only presentation and pointer input are new:
   edge pixel. The wheel is ignored.
 - A component exporting `uniform_set_is_focused` draws its own focus state,
   such as an inactive window. qipgui leaves it at 1 at launch, then sets it to
-  0 or 1 from the terminal's focus reports (`?1004`) and runs an update and a
-  render on each change. Terminals without focus reporting keep it at 1.
+  0 or 1 from the terminal's focus reports (`?1004`). The uniform is
+  render-only: qipgui sets it before each render and redraws on a change, but
+  runs no update, so focus never changes component state. Terminals without
+  focus reporting keep it at 1.
 - Keys are delivered like qiptui's: a key-down and a key-up together, because
   terminals do not report key releases. `Ctrl-C` exits and `Ctrl-Z` suspends.
 - At startup, qipgui queries for graphics support, the window size in pixels
   (`CSI 14 t`), and the cell size (`CSI 16 t`). It fails if the graphics query
   gets no answer within one second. Each resize sends the size queries again.
+
+## Shared channels (`connect`)
+
+`qipgui connect <channel-url>` joins a shared channel, as specified in the
+[shared channel protocol](https://github.com/royalicing/qip/blob/main/docs/qipgui-sync-protocol.md).
+Everyone on the channel runs the same component and sees the same state.
+
+```sh
+node npm/qipgui/qipgui.mjs connect https://sync.example.org/v1/channels/Rk3v...
+node npm/qipgui/qipgui.mjs connect --view https://sync.example.org/v1/channels/Rk3v...
+```
+
+This is the one form of qipgui that is not local. Every other form downloads
+a component and then runs with no network access. With `connect`:
+
+- The channel's server chooses the component, its input and every update
+  time, and can replace the component while you watch. The component still
+  runs in the same sandbox and is checked against the SHA-256 digest that
+  the channel gives.
+- If the URL permits editing, your keys and pointer events in the qipgui
+  window are sent to the server, and from there to everyone on the channel.
+  Nothing you type changes the component until the server sends it back, so
+  input takes one round trip to show.
+- qipgui asks before it starts, unless you pass `--yes`. `--view` never
+  sends input and does not ask.
+- The last row of the terminal shows the server's host, whether your input
+  is being sent, and the last log entry applied. A channel URL does not say
+  whether it permits editing: qipgui shows `editor` after the server accepts
+  a first batch, and `viewer` after it refuses one.
+
+Components after the URL are local transforms, as in the local form. `-i`
+is not accepted, and `-u` only applies to transforms. The URL must use
+HTTPS, except for a loopback address.
+
+Animated components, such as `gui/snake.wasm`, work in a channel. Each client
+runs the component's wakes on an estimate of the server's clock, so
+animation plays between inputs. If an input arrives that belongs before wakes
+that already ran, qipgui replays the log since the last module change
+without drawing, then shows the corrected frame. Terminal focus still
+reaches a channel's component, because it only affects rendering and so
+cannot make clients differ.
+
+For a local test, `tools/qipgui-channel-server.mjs` implements the server
+side in memory and prints a view URL and an edit URL:
+
+```sh
+node tools/qipgui-channel-server.mjs gui/calculator.wasm
+```
+
+Type `module gui/paint.wasm`, `prefetch gui/paint.wasm`, `drop` (cut every
+stream, so clients reconnect) or `close` into it while clients are connected.
+The client is in `qip-channel.mjs`, which has no terminal or GUI code.
 
 ## Options
 

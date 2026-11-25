@@ -1400,6 +1400,7 @@ test-node: qip components recipes/application/warc/25-add-content-size.wasm comp
 	node npm/sync-shared.mjs --check
 	node --test test/qiptui.mjs
 	node --test test/qipgui.mjs
+	node --test test/qipgui-connect.mjs
 	node --test test/qipdo.mjs
 	node --test test/qipok.mjs
 	node --test test/epub-reader-tui.mjs

@@ -150,4 +150,6 @@ Transforms are assumed only to scale the frame, so clicks are mapped back to the
 | `--transport direct\|zlib\|file` | Send frames as base64 RGBA (`direct`, the default), as compressed RGBA (`zlib`), or through a temporary file. `file` only works when the terminal runs on the same machine. |
 | `--stats` | On exit, print the frame rate, render and encode times, bytes per frame, and input-to-frame latency. |
 
+`qipgui connect <channel-url>` joins a shared channel, where everyone runs the same component and sees the same state. Unlike every other form, it uses the network while it runs: the channel's server chooses the component, and your keys and pointer events are sent to that server when the URL permits editing. It asks before it starts. `--view` only watches and never sends input. `node tools/qipgui-channel-server.mjs gui/calculator.wasm` starts a local test server and prints the URLs to connect to.
+
 The [qipgui README](https://github.com/royalicing/qip/blob/main/npm/qipgui/README.md) has measured frame costs and what's still to verify in real terminals.

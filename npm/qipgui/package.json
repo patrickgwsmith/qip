@@ -11,7 +11,7 @@
   "bin": {
     "qipgui": "qipgui.mjs"
   },
-  "files": ["qipgui.mjs", "qip-host.mjs"],
+  "files": ["qipgui.mjs", "qip-host.mjs", "qip-channel.mjs"],
   "keywords": ["qip", "webassembly", "wasm", "gui", "terminal", "kitty"],
   "homepage": "https://qip.dev",
   "bugs": {

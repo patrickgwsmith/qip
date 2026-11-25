@@ -146,13 +146,24 @@ for (const path of ["gui/calculator.wasm", "gui/snake.wasm", "gui/paint.wasm"]) 
   });
 }
 
-test("terminal focus reports set the is_focused uniform and redraw", async () => {
+test("terminal focus reports set the is_focused uniform and redraw without an update", async () => {
   const stage = await stageFor("gui/textedit.wasm");
   const exports = stage.component.exports;
   const calls = [];
+  let updating = false;
+  let setDuringUpdate = false;
   stage.component = {
     ...stage.component,
-    exports: { ...exports, uniform_set_is_focused: (value) => { calls.push(value); exports.uniform_set_is_focused(value); } },
+    exports: {
+      ...exports,
+      begin_update_at: (time) => { updating = true; exports.begin_update_at(time); },
+      finish_update: () => { updating = false; return exports.finish_update(); },
+      uniform_set_is_focused: (value) => {
+        if (updating) setDuringUpdate = true;
+        if (calls.at(-1) !== value) calls.push(value);
+        return exports.uniform_set_is_focused(value);
+      },
+    },
   };
   const stdin = new FakeTTY();
   const stdout = new FakeTTY();
@@ -172,7 +183,9 @@ test("terminal focus reports set the is_focused uniform and redraw", async () =>
   process.emit("SIGINT");
   await running;
   process.exitCode = 0;
-  assert.deepEqual(calls, [0, 1]);
+  // Set before each render, so consecutive repeats are collapsed here.
+  assert.deepEqual(calls, [1, 0, 1]);
+  assert.equal(setDuringUpdate, false, "focus is render-only");
   assert.ok(afterBlur > start, "blurring renders a frame");
   assert.ok(frames() > afterBlur, "focusing renders a frame");
 });

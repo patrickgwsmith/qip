@@ -14,6 +14,9 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ReadStream } from "node:tty";
 import { deflateSync } from "node:zlib";
+import { createInterface } from "node:readline/promises";
+
+import { ChannelClient, ChannelError, ChannelTimeline, fetchModule } from "./qip-channel.mjs";
 
 import {
   applyUniforms,
@@ -359,28 +362,111 @@ class Stats {
   }
 }
 
+// Loads the module of a channel's module entry as a stage, after the integrity check.
+// A prefetch entry starts the download early; the module entry then reuses it.
+export function createChannelStageLoader({ transforms = [], fetch = globalThis.fetch } = {}) {
+  const downloads = new Map();
+  const download = (entry) => {
+    if (!downloads.has(entry.integrity)) {
+      // Keep only a few modules: the server decides how many prefetch entries it sends.
+      if (downloads.size >= 4) downloads.delete(downloads.keys().next().value);
+      downloads.set(entry.integrity, fetchModule(entry, { fetch }));
+    }
+    return downloads.get(entry.integrity);
+  };
+  return {
+    prefetch(entry) {
+      // A failed prefetch is forgotten, so the module entry tries the download again.
+      download(entry).catch(() => downloads.delete(entry.integrity));
+    },
+    async load(entry) {
+      let data;
+      try {
+        data = await download(entry);
+      } catch (error) {
+        downloads.delete(entry.integrity);
+        throw new ChannelError(`cannot load the channel's module: ${error.message ?? error}`);
+      }
+      const label = entry.url;
+      try {
+        validateGUIBinary(data, label);
+        const names = new Set(WebAssembly.Module.exports(new WebAssembly.Module(data)).map(({ name }) => name));
+        if (!names.has("begin_update_at") || !names.has("finish_update")) {
+          throw new Error(`${label} does not export begin_update_at and finish_update, which a channel needs`);
+        }
+        // A replay needs a new instance of the same module.
+        const make = () => Object.assign(createStage(data, label), { fresh: make });
+        const stage = make();
+        checkChain([stage, ...transforms]);
+        return stage;
+      } catch (error) {
+        throw new ChannelError(error.message ?? String(error));
+      }
+    },
+  };
+}
+
+// Text from a server goes to the terminal, so it must not hold control characters.
+const printable = (text) => String(text).replace(/[\x00-\x1f\x7f-\x9f]/g, " ");
+
+export function channelStatusText({ host, connection, role, seq, message }) {
+  const parts = [`connect ${host}`];
+  if (connection === "closed") parts.push(`channel closed (${message})`, "Ctrl-C exits");
+  else {
+    parts.push({ editor: "editor: your input is sent", viewer: "viewer", "view-only": "view only" }[role] ?? "input is sent if this URL permits it");
+    parts.push(connection === "connected" ? (seq === null ? "loading" : `seq ${seq}`) : connection);
+    if (message) parts.push(message);
+  }
+  return printable(parts.join(" \u00b7 "));
+}
+
+// With channel set ({ url, view, fetch }), the component, its input, the update times and
+// all key and pointer events come from the channel's log instead of from this terminal.
+// Local keys and pointer events are only sent to the server, and take effect when they
+// come back in the log. The component's wakes run on an estimate of the channel clock, and
+// a log entry that arrives after a wake with a later time causes a replay. Focus does not
+// reach the component, because it would make clients differ. channel.onStage(stage,
+// timeline) is called each time a module entry or a replay makes a new instance. See
+// docs/qipgui-sync-protocol.md.
 export async function runGUI({
-  stage, transforms = [], input, size = "auto", transport = "direct", stats = null,
-  stdin = process.stdin, stdout = process.stdout,
+  stage = null, transforms = [], input = new Uint8Array(), size = "auto", transport = "direct", stats = null,
+  stdin = process.stdin, stdout = process.stdout, channel = null,
 }) {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== "function") {
     throw new Error("qipgui requires terminal stdin and stdout");
   }
-  const exports = stage.component.exports;
-  const beginUpdate = optionalFunction(exports, "begin_update_at", 1);
-  const finishUpdate = optionalFunction(exports, "finish_update", 0);
-  const keyEvent = optionalFunction(exports, "key_event", 2);
-  const pointerEvent = optionalFunction(exports, "pointer_event", 3);
+  let exports;
+  let beginUpdate;
+  let finishUpdate;
+  let keyEvent;
+  let pointerEvent;
   // Components draw their own focus state (such as an inactive window) from this
   // uniform. It defaults to 1, and the terminal is assumed focused at launch.
-  const setFocused = optionalFunction(exports, "uniform_set_is_focused", 1);
+  // Focus is render-only, like a fragment shader input: it is set before each
+  // render and never inside an update, so it cannot change component state.
+  // That keeps channel clients identical whatever their local focus.
+  let setFocused;
   let focused = true;
-  const source = input instanceof Uint8Array ? input : new Uint8Array(input);
-  if (source.byteLength) {
-    if (stage.inputless) throw new Error(`${stage.label} is inputless and cannot receive input`);
-    if (source.byteLength > stage.inputCapacity) throw new Error(`${stage.label} input exceeds its capacity`);
-    new Uint8Array(exports.memory.buffer, exports.input_ptr(), source.byteLength).set(source);
-  }
+  let source;
+  // A channel calls this again for each module entry, which replaces the component.
+  const useStage = (next, bytes) => {
+    const functions = [
+      ["begin_update_at", 1], ["finish_update", 0], ["key_event", 2], ["pointer_event", 3], ["uniform_set_is_focused", 1],
+    ].map(([name, arity]) => optionalFunction(next.component.exports, name, arity));
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (data.byteLength) {
+      if (next.inputless) throw new Error(`${next.label} is inputless and cannot receive input`);
+      if (data.byteLength > next.inputCapacity) throw new Error(`${next.label} input exceeds its capacity`);
+      new Uint8Array(next.component.exports.memory.buffer, next.component.exports.input_ptr(), data.byteLength).set(data);
+    }
+    stage = next;
+    exports = next.component.exports;
+    [beginUpdate, finishUpdate, keyEvent, pointerEvent, setFocused] = functions;
+    source = data;
+  };
+  if (!channel) useStage(stage, input);
+  let statusText = "";
+  let client = null;
 
   const wasRaw = Boolean(stdin.isRaw);
   const startedAt = performance.now();
@@ -420,7 +506,15 @@ export async function runGUI({
     if (!wasRaw && stdin.isTTY) stdin.setRawMode(false);
   };
 
+  // The status line of a channel, on the last row of the terminal.
+  const statusLine = () => {
+    if (!channel) return "";
+    const text = statusText.slice(0, Math.max(0, (stdout.columns || 80) - 1));
+    return `\x1b[${stdout.rows || 24};1H\x1b[2K\x1b[2m${text}\x1b[0m`;
+  };
+
   const renderFrame = (initial = false) => {
+    if (!stage) return;
     if (writeBlocked) {
       dirty = true;
       if (stats) stats.skipped += 1;
@@ -430,6 +524,7 @@ export async function runGUI({
     const renderStart = performance.now();
     const dimensions = { columns: stdout.columns || 80, lines: stdout.rows || 24 };
     applyUniforms(stage, dimensions);
+    if (setFocused) setFocused(focused ? 1 : 0);
     const primary = unpackRender(stage, exports.render(initial ? source.byteLength : 0));
     // Pointer events use the first component's own size, so transforms that scale the
     // frame still get clicks in its coordinates.
@@ -440,14 +535,20 @@ export async function runGUI({
     layout = {
       ...image,
       pointer: pointerSize ?? { width: image.width, height: image.height },
-      ...layoutImage({ ...image, size, window, cell, columns: dimensions.columns }),
+      // A channel keeps the last row free for its status line.
+      ...layoutImage({
+        ...image, size, cell, columns: dimensions.columns,
+        window: window && channel
+          ? { ...window, height: Math.max(1, window.height - (cell?.height || window.height / dimensions.lines)) }
+          : window,
+      }),
     };
     const id = imageID;
     imageID = imageID === 1 ? 2 : 1;
     // Place the new image before deleting the old one so the terminal never shows a gap.
     const frame = SYNC_BEGIN + "\x1b[H" +
       kittyImage({ id, ...image, columns: layout.columns, transport, fileIndex: fileIndex++ }) +
-      (shownID ? kittyDelete(shownID) : "") + SYNC_END;
+      (shownID ? kittyDelete(shownID) : "") + statusLine() + SYNC_END;
     shownID = id;
     const encodeEnd = performance.now();
     const inputs = pendingInputs;
@@ -484,13 +585,101 @@ export async function runGUI({
     }, Math.max(0, nextWake - elapsed));
   };
 
-  const runUpdate = (events, forceRender = false, requestedTime = 0) => {
-    if (!beginUpdate) {
-      // Without an update cycle, a focus change still needs a new frame.
-      for (const event of events) if (event.type === "focus") setFocused(event.focused ? 1 : 0);
-      if (events.some((event) => event.type === "focus")) renderFrame(false);
-      return;
+  // Channel mode: renders once after a burst of log entries, such as a replay.
+  let renderTimer = null;
+  const renderSoon = () => {
+    dirty = true;
+    renderTimer ??= setImmediate(() => {
+      renderTimer = null;
+      if (settled || !dirty || writeBlocked) return;
+      try { renderFrame(false); } catch (error) { fail(error); }
+    });
+  };
+
+  // Channel mode: applies one log entry. Only the times and inputs in the log, and the
+  // wakes that they cause, change the component's state, so every client reaches the
+  // same state.
+  let loadedStage = null;
+  let loading = false;
+  let channelClosed = false;
+  let channelTimer = null;
+  const timeline = new ChannelTimeline({
+    reset: (entry) => {
+      // A module entry uses the instance that the loader made. A replay makes a new one.
+      useStage(loadedStage ?? stage.fresh(), entry.input);
+      loadedStage = null;
+      applyUniforms(stage, { columns: stdout.columns || 80, lines: stdout.rows || 24 });
+      unpackRender(stage, exports.render(source.byteLength));
+      channel.onStage?.(stage, timeline);
+    },
+    update: (time, inputs) => {
+      beginUpdate(time);
+      let accepted = false;
+      for (const event of inputs) {
+        if (event.type === "key" && keyEvent) accepted = keyEvent(event.keysym, event.flags) === 1 || accepted;
+        else if (event.type === "pointer" && pointerEvent) accepted = pointerEvent(event.mask, event.x, event.y) === 1 || accepted;
+      }
+      return { wake: finishUpdate(), accepted };
+    },
+  });
+  // Runs the next wake when the estimated channel clock reaches it.
+  const scheduleChannelWake = () => {
+    if (channelTimer !== null) clearTimeout(channelTimer);
+    channelTimer = null;
+    if (settled || channelClosed || loading || timeline.wake === null) return;
+    const now = timeline.now(performance.now());
+    if (now === null) return;
+    const delay = Math.min(Math.max(0, Number(timeline.wake - now)), 2 ** 31 - 1);
+    channelTimer = setTimeout(() => {
+      channelTimer = null;
+      if (settled || loading) return;
+      try {
+        if (timeline.advanceTo(timeline.now(performance.now()))) renderSoon();
+        scheduleChannelWake();
+      } catch (error) {
+        fail(error);
+      }
+    }, delay);
+  };
+  const applyEntry = async (entry) => {
+    if (entry.type === "prefetch") return channel.loader.prefetch(entry);
+    if (entry.type === "closed") {
+      // No entry follows, so no later time confirms a wake. The last frame stays.
+      channelClosed = true;
+      return scheduleChannelWake();
     }
+    timeline.observe(entry.time, performance.now());
+    if (entry.type === "module") {
+      loading = true;
+      try {
+        loadedStage = await channel.loader.load(entry);
+      } finally {
+        loading = false;
+      }
+      if (settled) return;
+      timeline.startModule(entry);
+      pointerMask = 0;
+      pointerInside = false;
+      renderSoon();
+    } else if (timeline.applyUpdate(entry)) renderSoon();
+    scheduleChannelWake();
+  };
+
+  // Channel mode: keys and pointer events go to the server. Focus stays local,
+  // which is safe because it only affects rendering.
+  const sendEvents = (events) => {
+    const inputs = [];
+    for (const event of events) {
+      if (event.type === "key") {
+        inputs.push({ type: "key", keysym: event.keysym, flags: event.flags | FLAG_KEY_DOWN });
+        inputs.push({ type: "key", keysym: event.keysym, flags: event.flags & ~FLAG_KEY_DOWN });
+      } else if (event.type === "pointer") inputs.push(event);
+    }
+    if (inputs.length) client.send(inputs);
+  };
+
+  const runUpdate = (events, forceRender = false, requestedTime = 0) => {
+    if (!beginUpdate) return;
     const now = Math.max(Math.floor(performance.now() - startedAt) + 1, lastUpdate + 1, requestedTime);
     beginUpdate(BigInt(now));
     applyUniforms(stage, { columns: stdout.columns || 80, lines: stdout.rows || 24 });
@@ -501,10 +690,6 @@ export async function runGUI({
         accepted = keyEvent(event.keysym, event.flags) === 1 || accepted;
       } else if (event.type === "pointer" && pointerEvent) {
         accepted = pointerEvent(event.mask, event.x, event.y) === 1 || accepted;
-      } else if (event.type === "focus") {
-        // Set inside the update so the component can start or stop its own timers.
-        setFocused(event.focused ? 1 : 0);
-        accepted = true;
       }
     }
     const wake = finishUpdate();
@@ -567,8 +752,9 @@ export async function runGUI({
         pointerInside = false;
         queued.push({ type: "pointer", mask: 0, x: -1, y: -1 });
       }
-      // Terminals may repeat a focus report, so only real changes reach the component.
-      if (setFocused && report.focused !== focused) queued.push({ type: "focus", focused: report.focused });
+      // Terminals may repeat a focus report, so only real changes redraw. The
+      // next render passes the new value; no update runs.
+      if (setFocused && report.focused !== focused && layout) dirty = true;
       focused = report.focused;
     } else if (report.type === "mouse") {
       const mask = pointerState(pointerMask, report);
@@ -593,7 +779,8 @@ export async function runGUI({
     const events = queued;
     queued = [];
     try {
-      if (events.length) {
+      if (events.length && channel) sendEvents(events);
+      else if (events.length) {
         const waiting = pendingInputs.length;
         pendingInputs.push(performance.now());
         runUpdate(events);
@@ -645,10 +832,31 @@ export async function runGUI({
     const timeout = new Promise((resolve) => setTimeout(resolve, 1000).unref());
     await Promise.race([probeDone, timeout]);
     if (!graphics) throw new Error("this terminal did not answer a Kitty graphics protocol query; try kitty, Ghostty or WezTerm");
-    renderFrame(true);
-    runUpdate([]);
+    if (channel) {
+      channel.loader ??= createChannelStageLoader({ transforms, fetch: channel.fetch });
+      client = new ChannelClient({
+        url: channel.url, view: channel.view, fetch: channel.fetch, retryMS: channel.retryMS, apply: applyEntry,
+        onTime: (time) => {
+          timeline.observe(time, performance.now());
+          scheduleChannelWake();
+        },
+        onStatus: (status) => {
+          statusText = channelStatusText(status);
+          if (terminalActive && !settled) stdout.write(statusLine());
+        },
+      });
+      client.setStatus({});
+      // After the closed entry the last frame stays up until the user exits.
+      client.run().catch(fail);
+    } else {
+      renderFrame(true);
+      runUpdate([]);
+    }
     await done;
   } finally {
+    client?.stop();
+    if (renderTimer !== null) clearImmediate(renderTimer);
+    if (channelTimer !== null) clearTimeout(channelTimer);
     if (wakeTimer !== null) clearTimeout(wakeTimer);
     if (escapeTimer !== null) clearTimeout(escapeTimer);
     stdin.off("data", onData);
@@ -662,7 +870,8 @@ export async function runGUI({
 }
 
 function usage() {
-  return `Usage: qipgui [host ...] [options] <gui.wasm> [transform.wasm ...]\n\n` +
+  return `Usage: qipgui [host ...] [options] <gui.wasm> [transform.wasm ...]\n` +
+    `       qipgui connect [options] <channel-url> [transform.wasm ...]\n\n` +
     `The first component renders and receives keys and pointer events. Each later\n` +
     `component transforms the frame before it, and the last must output KTX2 RGBA8.\n` +
     `Components may be local files or host/path.wasm downloads over HTTPS. Leading\n` +
@@ -674,23 +883,40 @@ function usage() {
     `      --transport <mode>     direct (base64 RGBA), zlib, or file (local terminals only)\n` +
     `      --stats                Print frame rate, bytes and input latency on exit\n` +
     `  -h, --help                 Show this help\n\n` +
+    `connect joins a shared channel. Unlike the local form, it uses the network while it\n` +
+    `runs: the channel's server chooses the component, and your keys and pointer events\n` +
+    `are sent to that server when the URL permits editing. It asks before it starts.\n\n` +
+    `      --view                 Only watch: never send input\n` +
+    `  -y, --yes                  Do not ask before input is sent to the server\n\n` +
     `Requires a terminal with the Kitty graphics protocol and SGR pixel mouse reports.\n` +
     `Ctrl-C exits.\n\n` +
     `Examples:\n` +
     `  qipgui gui/calculator.wasm\n` +
     `  qipgui qip.dev gui/calculator.wasm\n` +
     `  qipgui --stats --transport zlib gui/snake.wasm\n` +
-    `  qipgui gui/klondike.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm\n`;
+    `  qipgui gui/klondike.wasm image/svg+xml/svg-rasterize-to-ktx2-r8g8b8a8-srgb.wasm\n` +
+    `  qipgui connect https://sync.example.org/v1/channels/Rk3v...\n`;
 }
 
 // Uniforms before the first component apply to it, so `-u name=n gui.wasm` keeps working.
 export function parseArgs(args) {
   const options = { components: [], hosts: [], input: undefined, size: "auto", transport: "direct", stats: false };
   const leading = [];
-  for (let index = 0; index < args.length; index += 1) {
+  // connect takes a channel URL in place of the first component. The components after it
+  // are local transforms.
+  const connect = args[0] === "connect";
+  if (connect) Object.assign(options, { connect: null, view: false, yes: false });
+  for (let index = connect ? 1 : 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "-h" || arg === "--help") return { help: true };
     if (arg === "--stats") options.stats = true;
+    else if (connect && arg === "--view") options.view = true;
+    else if (connect && (arg === "-y" || arg === "--yes")) options.yes = true;
+    else if (connect && (arg === "-i" || arg === "--input")) throw new Error("connect takes its input from the channel, not from -i");
+    else if (connect && !arg.startsWith("-") && options.connect === null) options.connect = arg;
+    else if (connect && (arg === "-u" || arg === "--uniform") && !options.components.length) {
+      throw new Error("with connect, -u must follow a transform; the channel's component takes no local uniforms");
+    }
     else if (["-i", "--input", "-u", "--uniform", "--size", "--transport"].includes(arg)) {
       const value = args[++index];
       if (value === undefined) throw new Error(`${arg} requires a value`);
@@ -708,8 +934,48 @@ export function parseArgs(args) {
       options.hosts.push(arg.toLowerCase());
     } else options.components.push({ path: arg, uniforms: options.components.length ? [] : leading });
   }
+  if (connect) {
+    if (options.connect === null) throw new Error("qipgui connect requires a channel URL; run --help for usage");
+    if (options.hosts.length) throw new Error("qipgui connect takes a channel URL and then transforms, not a leading host");
+    delete options.input;
+    return options;
+  }
   if (!options.components.length) throw new Error("qipgui requires a component; run --help for usage");
   return options;
+}
+
+// Says what leaves this machine, and asks before any input can be sent.
+export async function confirmConnect(host, { stdin = process.stdin, stderr = process.stderr } = {}) {
+  if (!stdin.isTTY) throw new Error("qipgui connect sends your input to a server; pass --yes to permit that, or --view to only watch");
+  const prompt = createInterface({ input: stdin, output: stderr });
+  try {
+    const answer = await prompt.question(
+      `qipgui connect is not local. ${host} chooses the component that runs here.\n` +
+      `If this URL permits editing, your keys and pointer events in this window are sent to ${host}.\n` +
+      `Use --view to only watch. Continue? [y/N] `,
+    );
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    prompt.close();
+  }
+}
+
+async function connect(options) {
+  // Checks the URL before the prompt, so the host that the prompt names is the real one.
+  const { host } = new ChannelClient({ url: options.connect, apply: () => {} });
+  const transforms = [];
+  for (const { path, uniforms } of options.components) {
+    const data = await loadWasm(path, (bytes) => validateTransformBinary(bytes, path));
+    transforms.push(createStage(data, path, uniforms));
+  }
+  if (!options.view && !options.yes && !(await confirmConnect(printable(host)))) {
+    process.exitCode = 1;
+    return;
+  }
+  await runGUI({
+    transforms, size: options.size, transport: options.transport, stats: options.stats ? new Stats() : null,
+    channel: { url: options.connect, view: options.view },
+  });
 }
 
 export async function main(args = process.argv.slice(2)) {
@@ -718,6 +984,7 @@ export async function main(args = process.argv.slice(2)) {
     process.stdout.write(usage());
     return;
   }
+  if (options.connect !== undefined) return connect(options);
   const stages = [];
   for (const { path, uniforms } of options.components) {
     const validate = stages.length ? validateTransformBinary : validateGUIBinary;
