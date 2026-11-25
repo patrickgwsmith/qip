@@ -59,7 +59,7 @@ test("xbox-dashboard derives its continuous pulse from update time", () => {
   const exports = instantiate("xbox-dashboard");
   assertABI(exports);
   const size = qipRenderSize(exports, 0);
-  assert.equal(size, 224 + 320 * 220 * 4);
+  assert.equal(size, 224 + 960 * 720 * 4);
   assert.equal(exports.begin_at, undefined);
   assert.equal(exports.commit, undefined);
   const initial = digest(exports, size);
