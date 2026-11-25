@@ -74,10 +74,12 @@ test("mandelbrot retains a viewport update until a separate render", () => {
   assertUpdateInteractiveABI(mandelbrot);
 
   const size = qipRenderSize(mandelbrot, 0);
-  assert.equal(size, 224 + 480 * 320 * 4);
+  assert.equal(size, 224 + 960 * 640 * 4);
   const initialDigest = digest(output(mandelbrot, size));
-  assert.equal(initialDigest, "36dfde725f248b7e7c0d2c5e8c5e50acac8300c8bf0ce5c65611d105cc64c014");
+  assert.equal(initialDigest, "8b655ecc8ddd397a3d83e1f59e9c8b7682bc92d19704770f3a21434f0e267a56");
 
+  // The exposed strip of the home view is cheap enough to refine within one
+  // update, so no wake is needed.
   mandelbrot.begin_update_at(1n);
   assert.equal(mandelbrot.key_event(0xff53, 1), 1);
   assert.equal(mandelbrot.finish_update(), 1n);
@@ -85,6 +87,56 @@ test("mandelbrot retains a viewport update until a separate render", () => {
 
   assert.equal(qipRenderSize(mandelbrot, 0), size);
   assert.notEqual(digest(output(mandelbrot, size)), initialDigest);
+});
+
+test("mandelbrot settles to the same frame whether a drag lands during or after a zoom", () => {
+  // Runs wake updates from `now`, the last update time, until the component
+  // asks for none; returns the last update time.
+  const settle = (exports, now, wake) => {
+    for (let i = 0; i < 1000; i++) {
+      if (wake === now) return now;
+      now = wake;
+      exports.begin_update_at(now);
+      wake = exports.finish_update();
+    }
+    throw new Error("mandelbrot never went idle");
+  };
+  const drag = (exports, now) => {
+    exports.begin_update_at(now);
+    exports.pointer_event(1, 500, 300);
+    assert.equal(exports.pointer_event(1, 540, 330), 1);
+    exports.pointer_event(0, 540, 330);
+    return exports.finish_update();
+  };
+  const zoom = (exports) => {
+    qipRenderSize(exports, 0);
+    exports.begin_update_at(1n);
+    assert.equal(exports.pointer_event(1, 300, 200), 0);
+    assert.equal(exports.pointer_event(0, 300, 200), 1);
+    // The zoom animates, so the update asks for the next frame.
+    assert.equal(exports.finish_update(), 17n);
+  };
+
+  // Zoom, let it settle, then drag.
+  const late = instantiate(mandelbrotWasm);
+  zoom(late);
+  let now = settle(late, 1n, 17n) + 1n;
+  now = settle(late, now, drag(late, now));
+  const size = qipRenderSize(late, 0);
+  const lateDigest = digest(output(late, size));
+
+  // Zoom, then drag in the middle of the animation.
+  const early = instantiate(mandelbrotWasm);
+  zoom(early);
+  settle(early, 40n, drag(early, 40n));
+  assert.equal(qipRenderSize(early, 0), size);
+  assert.equal(digest(output(early, size)), lateDigest);
+
+  // A settled component asks for no wake and renders the same bytes again.
+  late.begin_update_at(now + 1n);
+  assert.equal(late.finish_update(), now + 1n);
+  assert.equal(qipRenderSize(late, 0), size);
+  assert.equal(digest(output(late, size)), lateDigest);
 });
 
 test("perlin noise batches held-key time and bounds long catch-up", () => {
