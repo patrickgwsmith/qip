@@ -240,14 +240,14 @@ test("a real KTX2 component draws its first frame and redraws after a key", asyn
   const canvas = surfaceOf(element);
   assert.equal(errorOf(element), null);
   assert.equal(canvas.localName, "canvas");
-  assert.deepEqual([canvas.width, canvas.height], [220, 220]);
-  assert.equal(canvas.style.width, "220px");
+  assert.deepEqual([canvas.width, canvas.height], [480, 720]);
+  assert.equal(canvas.style.width, "480px");
   assert.equal(canvas.style.touchAction, "none");
   assert.equal(canvas.tabIndex, 0);
   assert.equal(canvas.draws.length, 1);
-  assert.equal(statsOf(element).style.maxWidth, "220px");
+  assert.equal(statsOf(element).style.maxWidth, "480px");
   assert.match(statsOf(element).textContent,
-    /^wasm 3\.9 kB \| memory 1\.2 MB \| output rgba-unorm8 srgb \| canvas rgba-unorm8 srgb \| update +0 \d+\.\d ms \| render +1 \d+\.\d ms$/);
+    /^wasm 44\.0 kB \| memory 2\.5 MB \| output rgba-unorm8 srgb \| canvas rgba-unorm8 srgb \| update +0 \d+\.\d ms \| render +1 \d+\.\d ms$/);
   assert.deepEqual(canvas.listenerTypes(), [
     "blur", "click", "contextmenu", "focus", "keydown", "keyup", "pointercancel", "pointerdown", "pointerleave", "pointermove", "pointerup",
   ]);
@@ -291,7 +291,7 @@ test("pointer buttons map to QIP masks and coordinates clamp to the render size"
 const step = (name, ...sources) => Object.assign(new FakeNode("qip-step", { name }), { children: sources });
 
 test("pointer coordinates use the first component's size when a later step resizes it", async () => {
-  // The real calculator (220x220 KTX2), with pointer_event wrapped to record coordinates.
+  // The real calculator (480x720 KTX2), with pointer_event wrapped to record coordinates.
   const calculator = (await realInstantiate(readFileSync("gui/calculator.wasm"))).instance.exports;
   const events = [];
   fakes.set("logged-calculator", () => ({
@@ -300,15 +300,15 @@ test("pointer coordinates use the first component's size when a later step resiz
   }));
   const element = await mount([
     step("calculator", source("/fake/logged-calculator")),
-    step("resize", source("/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm", { "data-uniform-width": "440" })),
+    step("resize", source("/image/ktx2/ktx2-r8g8b8a8-srgb-resize-up-mitchell.wasm", { "data-uniform-width": "960" })),
   ]);
   assert.equal(errorOf(element), null);
   const canvas = surfaceOf(element);
-  assert.deepEqual([canvas.width, canvas.height], [440, 440]);
+  assert.deepEqual([canvas.width, canvas.height], [960, 1440]);
   canvas.fire("pointerdown", { buttons: 1, clientX: 50, clientY: 25 });
   canvas.fire("pointerup", { buttons: 0, clientX: 99.9, clientY: 99.9 });
   runFrames();
-  assert.deepEqual(events, [[1, 110, 55], [0, 219, 219]]);
+  assert.deepEqual(events, [[1, 240, 180], [0, 479, 719]]);
   element.disconnectedCallback();
 });
 

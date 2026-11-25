@@ -42,7 +42,7 @@ test("calculator applies an ordered app update, then presents it separately", ()
   const calculator = instantiate(calculatorWasm);
   assertTransactionalInteractiveABI(calculator);
   const size = qipRenderSize(calculator, 0);
-  assert.equal(size, 224 + 220 * 220 * 4);
+  assert.equal(size, 224 + 480 * 720 * 4);
   const initialDigest = digest(output(calculator, size));
 
   calculator.begin_update_at(1n);

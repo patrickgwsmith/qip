@@ -1,7 +1,7 @@
 calculator
 call render input_size=0
-return output_bytes=193824
-host initial present output_bytes=193824
+return output_bytes=1382624
+host initial present output_bytes=1382624
 call begin_update_at now_ms=1
 return ok
 call finish_update
@@ -23,7 +23,7 @@ return accepted=1
 call finish_update
 return next_wake_at_ms=3
 call render input_size=0
-return output_bytes=193824
+return output_bytes=1382624
 host update events=2 accepted=yes wake=none render=yes
 snake
 call render input_size=0
