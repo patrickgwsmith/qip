@@ -1,16 +1,16 @@
 {
   "initial calc": {
-    "cssHeight": 240,
+    "cssHeight": 360,
     "cssWidth": 240,
-    "hash": "a15e1335",
-    "height": 220,
+    "hash": "336ab985",
+    "height": 720,
     "id": "calc",
-    "stats": "wasm 3.9 kB | memory 1.2 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms",
+    "stats": "wasm 44.0 kB | memory 2.5 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms",
     "statsMaxWidth": "240px",
     "surface": "canvas",
     "tabIndex": 0,
     "touchAction": "none",
-    "width": 220
+    "width": 480
   },
   "initial duotone": {
     "cssHeight": 107,
@@ -87,12 +87,12 @@
     "touchAction": "none"
   },
   "initial resize": {
-    "cssHeight": 160,
+    "cssHeight": 240,
     "cssWidth": 160,
-    "hash": "dc15b120",
-    "height": 600,
+    "hash": "40a19fed",
+    "height": 900,
     "id": "resize",
-    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   1 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   1 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell",
+    "stats": "wasm 62.4 kB | memory 304 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   0 # ms | render   1 # ms | unchanged renders 0 | compare # ms\ncalculator | wasm 44.0 kB | memory 2.5 MB | render   1 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   1 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell",
     "statsMaxWidth": "160px",
     "surface": "canvas",
     "tabIndex": 0,
@@ -104,22 +104,22 @@
     "id": "text-output"
   },
   "calc keys": [
-    "29445ad5",
-    "29445ad5",
-    "3df0fed5",
-    "556179d5"
+    "72cb7c85",
+    "72cb7c85",
+    "1e49ca85",
+    "a0bb1585"
   ],
-  "calc backspace": "163723b5",
-  "calc held 9": "e580cdb5",
+  "calc backspace": "a0bb1585",
+  "calc held 9": "0d181185",
   "calc clicks": [
-    "e580cdb5",
-    "e580cdb5",
-    "e580cdb5",
-    "e580cdb5"
+    "b0ebdf85",
+    "a4cec385",
+    "a4cec385",
+    "72cb7c85"
   ],
   "resize click": {
-    "hash": "b7f62a8d",
-    "stats": "wasm 22.4 kB | memory 303 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   4 # ms | render   3 # ms | unchanged renders 1 | compare # ms\ncalculator | wasm 3.9 kB | memory 1.2 MB | render   3 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   3 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell"
+    "hash": "96455284",
+    "stats": "wasm 62.4 kB | memory 304 MB | output rgba-unorm8 srgb | canvas rgba-unorm8 srgb | update   4 # ms | render   4 # ms | unchanged renders 1 | compare # ms\ncalculator | wasm 44.0 kB | memory 2.5 MB | render   4 # ms\nresize | wasm 18.4 kB | memory 301 MB | render   4 # ms | source ktx2-r8g8b8a8-srgb-resize-up-mitchell"
   },
   "click klondike-img": "37766872",
   "click klondike-inline": "622b82d5"

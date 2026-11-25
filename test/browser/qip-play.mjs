@@ -80,8 +80,13 @@ async function clickAt(id, fx, fy, button = "left") {
   const { [id]: entry } = await probe([id]);
   const x = Math.round(entry.rect.left + entry.rect.width * fx);
   const y = Math.round(entry.rect.top + entry.rect.height * fy);
+  // Settle after each step so the move, press and release each get their own
+  // update. Otherwise the update and render counts in the stats depend on
+  // whether the browser batched them into one frame.
   await browser("mouse", "move", String(x), String(y));
+  await settle([id]);
   await browser("mouse", "down", button);
+  await settle([id]);
   await browser("mouse", "up", button);
 }
 
@@ -156,7 +161,7 @@ test("qip-play renders, handles input and pauses offscreen in a real browser", {
     }
     check("calc clicks", presses);
 
-    // The resize step scales the 220x220 calculator to 600x600. Pointer
+    // The resize step scales the 480x720 calculator to 600x900. Pointer
     // coordinates map back to the calculator's own size, so this press lands on
     // its 7 key and redraws it. The fixture starts below the viewport.
     await browser("scrollintoview", "#resize");
