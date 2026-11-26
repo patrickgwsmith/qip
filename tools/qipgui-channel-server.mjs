@@ -42,9 +42,10 @@ const KEEPALIVE_MS = 5_000;
 const SLOW_STREAM_BYTES = 4 * 1024 * 1024;
 
 class HTTPError extends Error {
-  constructor(status, message) {
+  constructor(status, message, headers = {}) {
     super(message);
     this.status = status;
+    this.headers = headers;
   }
 }
 
@@ -168,20 +169,31 @@ class Channel {
     return result;
   }
 
+  // The methods a capability permits on its events URL. A closed channel takes no input.
+  allow(write) {
+    return write && !this.closed ? "GET, POST" : "GET";
+  }
+
+  // The index of the first entry to replay for a cursor, or a 400 for a bad cursor.
+  replayStart(cursor) {
+    if (cursor === null) return Math.max(this.entries.findLastIndex((entry) => entry.type === "module"), 0);
+    if (cursor >= this.nextSeq) throw new HTTPError(400, "the cursor is after the end of the log");
+    // A cursor from before the removed entries gets everything that is left, which
+    // starts at the most recent module entry.
+    const start = this.entries.findIndex((entry) => entry.seq > cursor);
+    return start < 0 ? this.entries.length : start;
+  }
+
+  streamHeaders(write) {
+    return { "content-type": "text/event-stream", "cache-control": "no-store", allow: this.allow(write) };
+  }
+
   // Selects the replay range and registers the live stream in one synchronous step.
-  subscribe(response, cursor) {
-    let start = 0;
-    if (cursor === null) start = this.entries.findLastIndex((entry) => entry.type === "module");
-    else {
-      if (cursor >= this.nextSeq) throw new HTTPError(400, "the cursor is after the end of the log");
-      // A cursor from before the removed entries gets everything that is left, which
-      // starts at the most recent module entry.
-      start = this.entries.findIndex((entry) => entry.seq > cursor);
-      if (start < 0) start = this.entries.length;
-    }
-    response.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store" });
+  subscribe(response, cursor, write) {
+    const start = this.replayStart(cursor);
+    response.writeHead(200, this.streamHeaders(write));
     response.write(": qipgui channel\n\n");
-    for (const entry of this.entries.slice(Math.max(start, 0))) response.write(entry.text);
+    for (const entry of this.entries.slice(start)) response.write(entry.text);
     if (this.closed) return response.end();
     // After the replay, so a client does not run wakes past entries that it has not read.
     response.write(this.timeEvent());
@@ -230,19 +242,32 @@ export function createChannelServer({ limits = {}, prune = false, log = () => {}
     const access = route && capabilities.get(route[1]);
     if (!access) throw new HTTPError(404, "not found");
     const { channel, write } = access;
-    if (request.method === "GET") {
+    if (request.method === "GET" || request.method === "HEAD") {
       const text = url.searchParams.get("after") ?? request.headers["last-event-id"] ?? null;
       if (text !== null && !/^(?:0|[1-9][0-9]{0,15})$/.test(text)) throw new HTTPError(400, "the cursor is not valid");
-      return channel.subscribe(response, text === null ? null : Number(text));
+      const cursor = text === null ? null : Number(text);
+      if (request.method === "GET") return channel.subscribe(response, cursor, write);
+      // The same status and headers as the GET, with no body and no stream (RFC 9110, 9.3.2).
+      channel.replayStart(cursor);
+      response.writeHead(200, channel.streamHeaders(write));
+      return response.end();
     }
-    if (request.method !== "POST") throw new HTTPError(405, "use GET or POST");
-    if (!write) throw new HTTPError(403, "the capability is a read capability");
+    // RFC 9110 requires Allow on a 405.
+    if (request.method !== "POST") throw new HTTPError(405, "use GET, HEAD or POST", { allow: channel.allow(write) });
+    if (!write) throw new HTTPError(403, "the capability is a read capability", { allow: channel.allow(write) });
     if ((request.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase() !== "text/event-stream") {
       throw new HTTPError(400, "the Content-Type must be text/event-stream");
     }
-    const { seq, time } = channel.post(await readBody(request, limits.batchBytes));
-    response.writeHead(202, { "content-type": "application/x-www-form-urlencoded" });
-    response.end(`seq=${seq}&time_ms=${time}\n`);
+    let result;
+    try {
+      result = channel.post(await readBody(request, limits.batchBytes));
+    } catch (error) {
+      // The channel is closed by now, so this says GET.
+      if (error instanceof HTTPError && error.status === 410) error.headers = { allow: channel.allow(write) };
+      throw error;
+    }
+    response.writeHead(202, { "content-type": "application/x-www-form-urlencoded", allow: channel.allow(write) });
+    response.end(`seq=${result.seq}&time_ms=${result.time}\n`);
   };
 
   const server = createServer((request, response) => {
@@ -250,7 +275,8 @@ export function createChannelServer({ limits = {}, prune = false, log = () => {}
       const status = error instanceof HTTPError ? error.status : 500;
       if (status === 500) log(`error: ${error.stack ?? error}`);
       if (response.headersSent) return response.destroy();
-      response.writeHead(status, { "content-type": "text/plain; charset=utf-8", connection: "close" });
+      const headers = error instanceof HTTPError ? error.headers : {};
+      response.writeHead(status, { "content-type": "text/plain; charset=utf-8", connection: "close", ...headers });
       response.end(`${error instanceof HTTPError ? error.message : "server error"}\n`);
     });
   });

@@ -180,6 +180,46 @@ test("cursors, module replay start, closing and deletion", async (t) => {
   assert.equal((await post(channel.writeURL, formatUpdateBody("f", [KEY]))).status, 404);
 });
 
+test("the server reports the capability type with Allow on HEAD, GET and POST", async (t) => {
+  const { host, channel } = await startServer(t);
+  const events = (url, method) => fetch(`${url}/events`, { method });
+  for (const [url, allow] of [[channel.readURL, "GET"], [channel.writeURL, "GET, POST"]]) {
+    const head = await events(url, "HEAD");
+    assert.equal(head.status, 200);
+    assert.equal(head.headers.get("allow"), allow);
+    assert.equal(head.headers.get("content-type"), "text/event-stream");
+    assert.equal((await head.arrayBuffer()).byteLength, 0);
+    assert.equal(channel.streams.size, 0, "HEAD does not register a stream");
+    const get = await fetch(`${url}/events`, { signal: AbortSignal.timeout(500) });
+    assert.equal(get.headers.get("allow"), allow);
+    await get.body.cancel();
+    await until(() => channel.streams.size === 0, "the cancelled stream to close");
+    const put = await events(url, "PUT");
+    assert.equal(put.status, 405);
+    assert.equal(put.headers.get("allow"), allow);
+  }
+  assert.equal((await fetch(`${channel.readURL}/events?after=99`, { method: "HEAD" })).status, 400, "HEAD checks the cursor like GET");
+
+  const refused = await post(channel.readURL, formatUpdateBody("a", [KEY]));
+  assert.equal(refused.status, 403);
+  assert.equal(refused.headers.get("allow"), "GET");
+  const accepted = await post(channel.writeURL, formatUpdateBody("a", [KEY]));
+  assert.equal(accepted.status, 202);
+  assert.equal(accepted.headers.get("allow"), "GET, POST");
+
+  // A closed channel takes no input, so every capability says GET.
+  channel.close("operator");
+  const gone = await post(channel.writeURL, formatUpdateBody("b", [KEY]));
+  assert.equal(gone.status, 410);
+  assert.equal(gone.headers.get("allow"), "GET");
+  assert.equal((await post(channel.writeURL, formatUpdateBody("a", [KEY]))).headers.get("allow"), "GET", "a retry after closing");
+  assert.equal((await events(channel.writeURL, "HEAD")).headers.get("allow"), "GET");
+  host.deleteChannel(channel);
+  const missing = await events(channel.writeURL, "HEAD");
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get("allow"), null);
+});
+
 test("the server limits the input rate and the log size", async (t) => {
   const { channel } = await startServer(t, { limits: { batchesPerSecond: 2, logEntries: 5 } });
   const statuses = [];

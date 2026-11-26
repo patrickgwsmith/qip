@@ -48,6 +48,59 @@ The URL uses HTTPS. For a test on one computer, a client can accept `http`
 for a loopback address. A client must keep the URL secret. The server must not write
 capabilities to its logs and must not put them in requests to third parties.
 
+### Find the capability type
+
+A capability is opaque, so a client cannot read its type from the URL. The
+server tells the client the type with the HTTP `Allow` header
+([RFC 9110, section 10.2.1](https://www.rfc-editor.org/rfc/rfc9110#section-10.2.1)).
+The header lists the methods that the capability permits on
+`/v1/channels/{capability}/events`:
+
+| Capability                  | `Allow`     |
+|-----------------------------|-------------|
+| Read capability             | `GET`       |
+| Write capability            | `GET, POST` |
+| Either, on a closed channel | `GET`       |
+
+The server sends `Allow` in these responses:
+
+- The `200` response to the `GET` that opens the event stream. The header
+  arrives before the first entry.
+- The response to `HEAD /v1/channels/{capability}/events`. The server sends
+  the same status and headers as the `GET` that opens the stream, but it
+  does not send a body and does not register a stream
+  ([RFC 9110, section 9.3.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.3.2)).
+- The `202`, `403`, and `410` responses to a `POST`.
+
+The server does not send `Allow` in a `404` response, because there is no
+channel to describe.
+
+A user interface can send `HEAD` to find the capability type before it opens
+the stream. For example, it can show an input control only for a write
+capability. `HEAD` also gives the status, so a `404` shows that the channel
+does not exist.
+
+The server can also list other methods that it supports, such as `HEAD`. A
+client uses only one fact from the header: whether `POST` is in the list. The
+client splits the value at commas and removes spaces and tabs around each
+method. Method names are case-sensitive, so `post` is not `POST`.
+
+A client obeys these rules:
+
+- If `Allow` does not list `POST`, the client is a viewer. It does not send
+  input and does not ask the user for permission to send input.
+- If `Allow` lists `POST`, the client is an editor. Before it sends input,
+  it can ask the user, because every client on the channel receives that
+  input.
+- If the response has no `Allow` header, the type is not known. The client
+  finds the type from the status of its first `POST`. `403` means a read
+  capability.
+- If a later response changes the value, the client uses the new value. For
+  example, the `410` response after a channel closes has `Allow: GET`.
+
+A browser client reads the header from a cross-origin response only if the
+server exposes it. Such a server sends `Access-Control-Expose-Headers: Allow`.
+
 ## Log entries
 
 The log is a sequence of entries. Each entry has a sequence number, `seq`.
@@ -243,6 +296,10 @@ first `seq` that a new client receives is not always `0`.
 The server must select the replay range and register the live stream in one
 atomic operation. This makes sure that no entry is lost between replay and
 live delivery.
+
+The response has an `Allow` header. A `HEAD` request to the same URL gets
+the same headers without opening the stream. See
+[Find the capability type](#find-the-capability-type).
 
 The server can send SSE comments to keep the connection open. Comments and
 `time` events are not log entries.
@@ -454,7 +511,7 @@ change the order of the log.
 |--------|----------------------------------------------------------------|
 | `202`  | The server stored the batch.                                   |
 | `400`  | The cursor or the batch is not valid.                          |
-| `403`  | The capability is a read capability.                           |
+| `403`  | The capability is a read capability. `Allow` is `GET`.         |
 | `404`  | The capability is unknown, or the server deleted the channel.  |
 | `409`  | The `update_id` is in use with a different body.               |
 | `410`  | The channel is closed. The server accepts no more input.       |
@@ -463,6 +520,9 @@ change the order of the log.
 
 `410` applies only to POST requests. A closed channel stays readable until
 the server deletes it.
+
+The `202`, `403`, and `410` responses have an `Allow` header. See
+[Find the capability type](#find-the-capability-type).
 
 After `429`, `503`, or a timeout, the client keeps the batch as pending and
 tries again. After `410`, the client reads the log to the `closed` entry.
