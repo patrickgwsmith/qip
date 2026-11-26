@@ -6,7 +6,7 @@
 // content-addressed URLs, over plain HTTP on a loopback address.
 //
 //   node tools/qipgui-channel-server.mjs gui/calculator.wasm
-//   node npm/qipgui/qipgui.mjs connect <the URL it prints>
+//   then run the View or Edit command it prints
 //
 // While it runs, it reads commands from stdin:
 //
@@ -314,7 +314,7 @@ async function main(args) {
   await host.listen(port);
   const channel = host.createChannel(host.addModule(await readFile(modulePath)), inputPath ? await readFile(inputPath) : undefined);
   process.stdout.write(
-    `View:  node npm/qipgui/qipgui.mjs connect ${channel.readURL}\n` +
+    `View:  node npm/qipgui/qipgui.mjs connect --view ${channel.readURL}\n` +
     `Edit:  node npm/qipgui/qipgui.mjs connect ${channel.writeURL}\n` +
     `Commands: module <file.wasm> [input-file], prefetch <file.wasm>, drop, close [reason], quit\n`,
   );

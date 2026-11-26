@@ -113,7 +113,7 @@ reaches a channel's component, because it only affects rendering and so
 cannot make clients differ.
 
 For a local test, `tools/qipgui-channel-server.mjs` implements the server
-side in memory and prints a view URL and an edit URL:
+side in memory and prints a view command (with `--view`) and an edit command:
 
 ```sh
 node tools/qipgui-channel-server.mjs gui/calculator.wasm
