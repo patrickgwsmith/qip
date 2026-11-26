@@ -7,8 +7,9 @@ const std = @import("std");
 // rest of the input allows for comment lines and surrounding whitespace.
 const MAX_PAYLOAD_LEN = [4]usize{ 2953, 2331, 1663, 1273 };
 const INPUT_CAP: usize = 4096;
-// A version 40 checkerboard needs about 670 KB of dark-run rects.
-const OUTPUT_CAP: usize = 768 * 1024;
+// The worst case, a version 40 matrix of one-module stripes, needs about
+// 250 KB of path data.
+const OUTPUT_CAP: usize = 256 * 1024;
 const INPUT_CONTENT_TYPE = "text/uri-list";
 const OUTPUT_CONTENT_TYPE = "image/svg+xml";
 
@@ -657,7 +658,7 @@ fn renderSvg(size: usize) !usize {
     const full_modules = size + BORDER_MODULES * 2;
     const dim_px = full_modules * scale;
 
-    // The viewBox is in module units so each rect uses small coordinates;
+    // The viewBox is in module units so each path segment uses small coordinates;
     // width and height scale it to a whole number of pixels per module.
     var w = Writer{};
     try w.appendSlice("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 ");
@@ -670,7 +671,7 @@ fn renderSvg(size: usize) !usize {
     try w.appendUsize(dim_px);
     try w.appendSlice("\" shape-rendering=\"crispEdges\">");
     try w.appendSlice("<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>");
-    try w.appendSlice("<g fill=\"#000\">");
+    try w.appendSlice("<path fill=\"#000\" d=\"");
 
     var y: usize = 0;
     while (y < size) : (y += 1) {
@@ -686,17 +687,20 @@ fn renderSvg(size: usize) !usize {
             while (x < size and getModule(modules[0 .. size * size], size, x, y)) : (x += 1) {}
             const run_width = x - start;
 
-            try w.appendSlice("<rect x=\"");
+            // Each dark run is one closed 1-module-tall rectangle: M x y h w v1 h-w z.
+            try w.appendByte('M');
             try w.appendUsize(start + BORDER_MODULES);
-            try w.appendSlice("\" y=\"");
+            try w.appendByte(' ');
             try w.appendUsize(y + BORDER_MODULES);
-            try w.appendSlice("\" width=\"");
+            try w.appendByte('h');
             try w.appendUsize(run_width);
-            try w.appendSlice("\" height=\"1\"/>");
+            try w.appendSlice("v1h-");
+            try w.appendUsize(run_width);
+            try w.appendByte('z');
         }
     }
 
-    try w.appendSlice("</g></svg>");
+    try w.appendSlice("\"/></svg>");
     return w.idx;
 }
 
@@ -904,13 +908,30 @@ test "error_correction_level clamps to H, writes format bits, and resets after r
 }
 
 test "worst-case version 40 matrix fits the output capacity" {
+    // One-module vertical stripes give every row the most dark runs (89).
     const size = MAX_QR_SIZE;
     var y: usize = 0;
     while (y < size) : (y += 1) {
         var x: usize = 0;
-        while (x < size) : (x += 1) setModule(modules[0 .. size * size], size, x, y, (x + y) % 2 == 0);
+        while (x < size) : (x += 1) setModule(modules[0 .. size * size], size, x, y, x % 2 == 0);
     }
     _ = try renderSvg(size);
+}
+
+test "renders dark runs as one path" {
+    const size: usize = 21;
+    @memset(modules[0 .. size * size], 0);
+    setModule(modules[0 .. size * size], size, 0, 0, true);
+    setModule(modules[0 .. size * size], size, 1, 0, true);
+    setModule(modules[0 .. size * size], size, 3, 0, true);
+    setModule(modules[0 .. size * size], size, 20, 20, true);
+    const len = try renderSvg(size);
+    try std.testing.expectEqualStrings(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 29 29\" width=\"348\" height=\"348\" shape-rendering=\"crispEdges\">" ++
+            "<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>" ++
+            "<path fill=\"#000\" d=\"M4 4h2v1h-2zM7 4h1v1h-1zM24 24h1v1h-1z\"/></svg>",
+        output_buf[0..len],
+    );
 }
 
 test "alignment positions known versions" {
